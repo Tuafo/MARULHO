@@ -12,6 +12,7 @@ from fastapi import FastAPI
 import marulho.evaluation.service_benchmark as service_benchmark_module
 from marulho.evaluation.service_benchmark import (
     benchmark_service_app,
+    compare_service_benchmark_devices,
     compare_service_benchmark_against_accepted_baseline,
     compare_service_benchmark_report_files,
     compare_service_benchmark_reports,
@@ -402,8 +403,12 @@ def _benchmark_report(
     configured: bool = True,
     tick_tokens: int = 24,
     hot_names: list[str] | None = None,
+    device: str = "cpu",
+    cuda_available: bool = False,
+    observed_cuda_execution: bool = False,
 ) -> dict[str, Any]:
     hot_endpoint_names = hot_names or ["feed", "query", "respond"]
+    cuda_selected = str(device).startswith("cuda")
     return {
         "schema_version": 1,
         "success": success,
@@ -437,6 +442,26 @@ def _benchmark_report(
             "schema_version": 1,
             "verdict": verdict,
             "recommended_action": "continue_monitoring" if verdict == "alive" else "configure_terminus_sources",
+        },
+        "runtime_device_evidence": {
+            "status": {
+                "summary_role": "observed_runtime_device_evidence_not_acceleration_claim",
+                "requested_device": "auto",
+                "env_device": device,
+                "resolved_device": device,
+                "cuda_available": cuda_available,
+                "cuda_selected": cuda_selected,
+                "cuda_device_count": 1 if cuda_available else 0,
+                "tensor_device": device,
+                "routing_search_device": device,
+                "encoder_device": device,
+                "observed_cuda_execution": observed_cuda_execution,
+            },
+            "terminus": {
+                "summary_role": "observed_runtime_device_evidence_not_acceleration_claim",
+                "resolved_device": device,
+                "observed_cuda_execution": observed_cuda_execution,
+            },
         },
     }
 
@@ -527,6 +552,89 @@ def test_service_benchmark_cli_writes_regression_gate_report(capsys: Any) -> Non
 
     assert json.loads(stdout)["status"] == "passed"
     assert comparison["status"] == "passed"
+
+
+def test_service_benchmark_device_comparison_reports_observed_cuda_delta() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        output_path = root / "device-comparison.json"
+        cpu_report = _benchmark_report(
+            verdict="alive",
+            hot_p95=120.0,
+            hot_total=300.0,
+            device="cpu",
+            cuda_available=True,
+            observed_cuda_execution=False,
+        )
+        cuda_report = _benchmark_report(
+            verdict="alive",
+            hot_p95=90.0,
+            hot_total=210.0,
+            device="cuda",
+            cuda_available=True,
+            observed_cuda_execution=True,
+        )
+
+        comparison = compare_service_benchmark_devices(
+            cpu_report=cpu_report,
+            cuda_report=cuda_report,
+            cpu_report_path=root / "cpu.json",
+            cuda_report_path=root / "cuda.json",
+            output_path=output_path,
+        )
+        loaded = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert loaded == comparison
+    assert comparison["artifact_kind"] == "marulho_service_benchmark_device_comparison"
+    assert comparison["status"] == "passed"
+    assert comparison["checks"]["cpu_observed_not_cuda"] is True
+    assert comparison["checks"]["cuda_observed_execution"] is True
+    assert comparison["endpoint_success_parity"]["parity_scope"] == "endpoint_success_names_only_not_semantic_output_equivalence"
+    assert comparison["hot_path"]["p95_delta_ms_cuda_minus_cpu"] == -30.0
+    assert comparison["hot_path"]["p95_cpu_over_cuda_ratio"] == 1.3333
+    assert comparison["claim_boundary"].startswith("observed_cpu_cuda_device_and_latency_delta_only")
+
+
+def test_service_benchmark_cli_writes_device_comparison_report(monkeypatch: Any, capsys: Any) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        checkpoint_path = root / "benchmark.pt"
+        checkpoint_path.write_text("placeholder", encoding="utf-8")
+        output_dir = root / "device-bundle"
+
+        def fake_run_device_comparison(**kwargs: Any) -> dict[str, Any]:
+            bundle_dir = Path(kwargs["output_dir"])
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            summary_path = bundle_dir / "device-comparison.json"
+            summary = {
+                "schema_version": 1,
+                "artifact_kind": "marulho_service_benchmark_device_comparison",
+                "status": "passed",
+                "success": True,
+                "paths": {"summary": str(summary_path)},
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            return summary
+
+        monkeypatch.setattr(
+            service_benchmark_module,
+            "run_service_benchmark_device_comparison",
+            fake_run_device_comparison,
+        )
+
+        service_benchmark_main(
+            [
+                "--compare-devices",
+                "--checkpoint",
+                str(checkpoint_path),
+                "--output",
+                str(output_dir),
+            ]
+        )
+        stdout = capsys.readouterr().out
+        assert (output_dir / "device-comparison.json").exists()
+
+    assert json.loads(stdout)["status"] == "passed"
 
 
 def test_service_benchmark_accepts_operator_reviewed_baseline() -> None:

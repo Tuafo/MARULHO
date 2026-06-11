@@ -393,72 +393,95 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(pruning_executor_response.status_code, 200)
             self.assertEqual(
                 design_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1",
+                "snn_language_readout_capacity_mutation_design.v1",
             )
             self.assertEqual(
                 preflight_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_capacity_mutation_preflight.v1",
+                "snn_language_readout_capacity_mutation_preflight.v1",
             )
             self.assertEqual(
                 executor_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1",
+                "snn_language_readout_capacity_mutation_executor.v1",
             )
             self.assertEqual(
                 review_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+                "snn_language_readout_capacity_mutation_event_review.v1",
             )
             self.assertEqual(
                 newborn_design_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design.v1",
+                "snn_language_readout_newborn_neuron_integration_design.v1",
             )
             self.assertEqual(
                 newborn_preflight_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight.v1",
+                "snn_language_readout_newborn_neuron_integration_preflight.v1",
             )
             self.assertEqual(
                 newborn_executor_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor.v1",
+                "snn_language_readout_newborn_neuron_integration_executor.v1",
             )
             self.assertEqual(
                 newborn_review_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review.v1",
+                "snn_language_readout_newborn_neuron_integration_event_review.v1",
             )
             self.assertEqual(
                 critical_design_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+                "snn_language_readout_newborn_neuron_critical_period_learning_design.v1",
             )
             self.assertEqual(
                 critical_preflight_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight.v1",
+                "snn_language_readout_newborn_neuron_critical_period_learning_preflight.v1",
             )
             self.assertEqual(
                 critical_executor_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor.v1",
+                "snn_language_readout_newborn_neuron_critical_period_learning_executor.v1",
             )
             self.assertEqual(
                 critical_review_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review.v1",
+                "snn_language_readout_newborn_neuron_critical_period_learning_event_review.v1",
             )
             self.assertEqual(
                 critical_continuation_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+                "snn_language_readout_newborn_neuron_critical_period_learning_design.v1",
             )
             self.assertEqual(
                 maturation_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review.v1",
+                "snn_language_readout_newborn_neuron_maturation_outcome_review.v1",
             )
             self.assertEqual(
                 pruning_design_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_design.v1",
+                "snn_language_readout_newborn_synapse_pruning_design.v1",
             )
             self.assertEqual(
                 pruning_preflight_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_preflight.v1",
+                "snn_language_readout_newborn_synapse_pruning_preflight.v1",
             )
             self.assertEqual(
                 pruning_executor_response.json()["surface"],
-                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_executor.v1",
+                "snn_language_readout_newborn_synapse_pruning_executor.v1",
             )
+            public_payloads = [
+                design_response.json(),
+                preflight_response.json(),
+                executor_response.json(),
+                review_response.json(),
+                newborn_design_response.json(),
+                newborn_preflight_response.json(),
+                newborn_executor_response.json(),
+                newborn_review_response.json(),
+                critical_design_response.json(),
+                critical_preflight_response.json(),
+                critical_executor_response.json(),
+                critical_review_response.json(),
+                critical_continuation_response.json(),
+                maturation_response.json(),
+                pruning_design_response.json(),
+                pruning_preflight_response.json(),
+                pruning_executor_response.json(),
+            ]
+            public_text = json.dumps(public_payloads, sort_keys=True)
+            self.assertNotIn("autonomous_snn_language_thought", public_text)
+            self.assertNotIn("snn_language_autonomous_snn_language_thought", public_text)
+            self.assertNotIn("thought_", public_text)
             self.assertFalse(design_response.json()["mutates_runtime_state"])
             self.assertFalse(preflight_response.json()["mutates_runtime_state"])
             self.assertFalse(executor_response.json()["mutates_runtime_state"])
@@ -2127,7 +2150,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
-                autonomous_snn_language_thought_surface_design_response = client.post(
+                snn_language_readout_surface_design_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-design",
                     json={
                         "autonomous_snn_language_decoding_event_review": (
@@ -2142,12 +2165,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
-                autonomous_snn_language_thought_surface_preflight_response = (
+                snn_language_readout_surface_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-preflight",
                         json={
                             "snn_language_surface_design": (
-                                autonomous_snn_language_thought_surface_design_response.json()
+                                snn_language_readout_surface_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2157,17 +2180,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "cuda_available": True,
                             },
                             "executor_capabilities": {
-                                "autonomous_snn_language_thought_surface_executor": True
+                                "snn_language_readout_surface_executor": True
                             },
                         },
                     )
                 )
-                autonomous_snn_language_thought_surface_executor_response = (
+                snn_language_readout_surface_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-executor",
                         json={
                             "snn_language_surface_preflight": (
-                                autonomous_snn_language_thought_surface_preflight_response.json()
+                                snn_language_readout_surface_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2175,12 +2198,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_surface_event_review_response = (
+                snn_language_readout_surface_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review",
                         json={
                             "snn_language_surface_executor": (
-                                autonomous_snn_language_thought_surface_executor_response.json()
+                                snn_language_readout_surface_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2193,11 +2216,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_memory_design_response = client.post(
+                snn_language_readout_memory_design_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-design",
                     json={
                         "snn_language_surface_event_review": (
-                            autonomous_snn_language_thought_surface_event_review_response.json()
+                            snn_language_readout_surface_event_review_response.json()
                         ),
                         "memory_policy": {
                             "memory_scope": "working_trace",
@@ -2208,12 +2231,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
-                autonomous_snn_language_thought_memory_preflight_response = (
+                snn_language_readout_memory_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-preflight",
                         json={
                             "snn_language_memory_design": (
-                                autonomous_snn_language_thought_memory_design_response.json()
+                                snn_language_readout_memory_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2223,17 +2246,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "cuda_available": True,
                             },
                             "executor_capabilities": {
-                                "autonomous_snn_language_thought_memory_executor": True
+                                "snn_language_readout_memory_executor": True
                             },
                         },
                     )
                 )
-                autonomous_snn_language_thought_memory_executor_response = (
+                snn_language_readout_memory_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-executor",
                         json={
                             "snn_language_memory_preflight": (
-                                autonomous_snn_language_thought_memory_preflight_response.json()
+                                snn_language_readout_memory_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2241,12 +2264,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_memory_event_review_response = (
+                snn_language_readout_memory_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-event-review",
                         json={
                             "snn_language_memory_executor": (
-                                autonomous_snn_language_thought_memory_executor_response.json()
+                                snn_language_readout_memory_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2259,12 +2282,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_consolidation_design_response = (
+                snn_language_readout_consolidation_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-design",
                         json={
                             "snn_language_memory_event_review": (
-                                autonomous_snn_language_thought_memory_event_review_response.json()
+                                snn_language_readout_memory_event_review_response.json()
                             ),
                             "consolidation_policy": {
                                 "consolidation_scope": "local_trace_reinforcement",
@@ -2277,12 +2300,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_consolidation_preflight_response = (
+                snn_language_readout_consolidation_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-preflight",
                         json={
                             "snn_language_consolidation_design": (
-                                autonomous_snn_language_thought_consolidation_design_response.json()
+                                snn_language_readout_consolidation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2292,17 +2315,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "cuda_available": True,
                             },
                             "executor_capabilities": {
-                                "autonomous_snn_language_thought_consolidation_executor": True
+                                "snn_language_readout_consolidation_executor": True
                             },
                         },
                     )
                 )
-                autonomous_snn_language_thought_consolidation_executor_response = (
+                snn_language_readout_consolidation_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-executor",
                         json={
                             "snn_language_consolidation_preflight": (
-                                autonomous_snn_language_thought_consolidation_preflight_response.json()
+                                snn_language_readout_consolidation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2310,12 +2333,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_consolidation_event_review_response = (
+                snn_language_readout_consolidation_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-event-review",
                         json={
                             "snn_language_consolidation_executor": (
-                                autonomous_snn_language_thought_consolidation_executor_response.json()
+                                snn_language_readout_consolidation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2329,12 +2352,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_structural_plasticity_design_response = (
+                snn_language_readout_structural_plasticity_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-design",
                         json={
                             "snn_language_consolidation_event_review": (
-                                autonomous_snn_language_thought_consolidation_event_review_response.json()
+                                snn_language_readout_consolidation_event_review_response.json()
                             ),
                             "structural_policy": {
                                 "structural_scope": "thought_trace_sparse_capacity",
@@ -2348,12 +2371,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_structural_plasticity_preflight_response = (
+                snn_language_readout_structural_plasticity_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-preflight",
                         json={
                             "snn_language_structural_plasticity_design": (
-                                autonomous_snn_language_thought_structural_plasticity_design_response.json()
+                                snn_language_readout_structural_plasticity_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2363,17 +2386,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "cuda_available": True,
                             },
                             "executor_capabilities": {
-                                "autonomous_snn_language_thought_structural_plasticity_executor": True
+                                "snn_language_readout_structural_plasticity_executor": True
                             },
                         },
                     )
                 )
-                autonomous_snn_language_thought_structural_plasticity_executor_response = (
+                snn_language_readout_structural_plasticity_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-executor",
                         json={
                             "snn_language_structural_plasticity_preflight": (
-                                autonomous_snn_language_thought_structural_plasticity_preflight_response.json()
+                                snn_language_readout_structural_plasticity_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2381,12 +2404,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_structural_plasticity_event_review_response = (
+                snn_language_readout_structural_plasticity_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-event-review",
                         json={
                             "snn_language_structural_plasticity_executor": (
-                                autonomous_snn_language_thought_structural_plasticity_executor_response.json()
+                                snn_language_readout_structural_plasticity_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2401,12 +2424,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_capacity_mutation_design_response = (
+                snn_language_readout_capacity_mutation_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design",
                         json={
                             "snn_language_structural_plasticity_event_review": (
-                                autonomous_snn_language_thought_structural_plasticity_event_review_response.json()
+                                snn_language_readout_structural_plasticity_event_review_response.json()
                             ),
                             "capacity_policy": {
                                 "mutation_scope": "thought_driven_sparse_capacity",
@@ -2420,12 +2443,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_capacity_mutation_preflight_response = (
+                snn_language_readout_capacity_mutation_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight",
                         json={
                             "snn_language_capacity_mutation_design": (
-                                autonomous_snn_language_thought_capacity_mutation_design_response.json()
+                                snn_language_readout_capacity_mutation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2444,17 +2467,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "cuda_relayout_verified": True,
                             },
                             "executor_capabilities": {
-                                "autonomous_snn_language_thought_capacity_mutation_executor": True
+                                "snn_language_readout_capacity_mutation_executor": True
                             },
                         },
                     )
                 )
-                autonomous_snn_language_thought_capacity_mutation_executor_response = (
+                snn_language_readout_capacity_mutation_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor",
                         json={
                             "snn_language_capacity_mutation_preflight": (
-                                autonomous_snn_language_thought_capacity_mutation_preflight_response.json()
+                                snn_language_readout_capacity_mutation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2463,12 +2486,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_capacity_mutation_event_review_response = (
+                snn_language_readout_capacity_mutation_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review",
                         json={
                             "snn_language_capacity_mutation_executor": (
-                                autonomous_snn_language_thought_capacity_mutation_executor_response.json()
+                                snn_language_readout_capacity_mutation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2476,12 +2499,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_integration_design_response = (
+                snn_language_readout_newborn_neuron_integration_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
                         json={
                             "snn_language_capacity_mutation_event_review": (
-                                autonomous_snn_language_thought_capacity_mutation_event_review_response.json()
+                                snn_language_readout_capacity_mutation_event_review_response.json()
                             ),
                             "integration_policy": {
                                 "max_newborn_neurons": 2,
@@ -2491,12 +2514,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_integration_preflight_response = (
+                snn_language_readout_newborn_neuron_integration_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-preflight",
                         json={
                             "snn_language_newborn_neuron_integration_design": (
-                                autonomous_snn_language_thought_newborn_neuron_integration_design_response.json()
+                                snn_language_readout_newborn_neuron_integration_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2519,12 +2542,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_integration_executor_response = (
+                snn_language_readout_newborn_neuron_integration_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-executor",
                         json={
                             "snn_language_newborn_neuron_integration_preflight": (
-                                autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.json()
+                                snn_language_readout_newborn_neuron_integration_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2532,12 +2555,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_integration_event_review_response = (
+                snn_language_readout_newborn_neuron_integration_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-event-review",
                         json={
                             "snn_language_newborn_neuron_integration_executor": (
-                                autonomous_snn_language_thought_newborn_neuron_integration_executor_response.json()
+                                snn_language_readout_newborn_neuron_integration_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2545,22 +2568,22 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response = (
+                snn_language_readout_newborn_neuron_critical_period_learning_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-design",
                         json={
                             "snn_language_newborn_neuron_integration_event_review": (
-                                autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.json()
+                                snn_language_readout_newborn_neuron_integration_event_review_response.json()
                             )
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response = (
+                snn_language_readout_newborn_neuron_critical_period_learning_preflight_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-preflight",
                         json={
                             "snn_language_newborn_neuron_critical_period_learning_design": (
-                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.json()
+                                snn_language_readout_newborn_neuron_critical_period_learning_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2581,12 +2604,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response = (
+                snn_language_readout_newborn_neuron_critical_period_learning_executor_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-executor",
                         json={
                             "snn_language_newborn_neuron_critical_period_learning_preflight": (
-                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.json()
+                                snn_language_readout_newborn_neuron_critical_period_learning_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2594,12 +2617,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response = (
+                snn_language_readout_newborn_neuron_critical_period_learning_event_review_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-event-review",
                         json={
                             "snn_language_newborn_neuron_critical_period_learning_executor": (
-                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.json()
+                                snn_language_readout_newborn_neuron_critical_period_learning_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
@@ -2607,12 +2630,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response = (
+                snn_language_readout_newborn_neuron_critical_period_learning_continuation_design_response = (
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-continuation-design",
                         json={
                             "snn_language_newborn_neuron_critical_period_learning_event_review": (
-                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.json()
+                                snn_language_readout_newborn_neuron_critical_period_learning_event_review_response.json()
                             )
                         },
                     )
@@ -2954,123 +2977,141 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_design_response.status_code,
+            snn_language_readout_surface_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_preflight_response.status_code,
+            snn_language_readout_surface_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_executor_response.status_code,
+            snn_language_readout_surface_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_event_review_response.status_code,
+            snn_language_readout_surface_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_design_response.status_code,
+            snn_language_readout_memory_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_preflight_response.status_code,
+            snn_language_readout_memory_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_executor_response.status_code,
+            snn_language_readout_memory_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_event_review_response.status_code,
+            snn_language_readout_memory_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_design_response.status_code,
+            snn_language_readout_consolidation_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_preflight_response.status_code,
+            snn_language_readout_consolidation_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_executor_response.status_code,
+            snn_language_readout_consolidation_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_event_review_response.status_code,
+            snn_language_readout_consolidation_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_design_response.status_code,
+            snn_language_readout_structural_plasticity_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_preflight_response.status_code,
+            snn_language_readout_structural_plasticity_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_executor_response.status_code,
+            snn_language_readout_structural_plasticity_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_event_review_response.status_code,
+            snn_language_readout_structural_plasticity_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_design_response.status_code,
+            snn_language_readout_capacity_mutation_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_preflight_response.status_code,
+            snn_language_readout_capacity_mutation_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_executor_response.status_code,
+            snn_language_readout_capacity_mutation_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_event_review_response.status_code,
+            snn_language_readout_capacity_mutation_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_design_response.status_code,
+            snn_language_readout_newborn_neuron_integration_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.status_code,
+            snn_language_readout_newborn_neuron_integration_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor_response.status_code,
+            snn_language_readout_newborn_neuron_integration_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.status_code,
+            snn_language_readout_newborn_neuron_integration_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.status_code,
+            snn_language_readout_newborn_neuron_critical_period_learning_design_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.status_code,
+            snn_language_readout_newborn_neuron_critical_period_learning_preflight_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.status_code,
+            snn_language_readout_newborn_neuron_critical_period_learning_executor_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.status_code,
+            snn_language_readout_newborn_neuron_critical_period_learning_event_review_response.status_code,
             200,
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response.status_code,
+            snn_language_readout_newborn_neuron_critical_period_learning_continuation_design_response.status_code,
             200,
         )
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
+        status_device = status_truth["evidence"]["runtime_device"]
+        terminus_device = terminus_truth["evidence"]["runtime_device"]
+        status_uses_cuda = str(status_device["tensor_device"]).startswith("cuda")
+        terminus_uses_cuda = str(terminus_device["tensor_device"]).startswith("cuda")
+        self.assertEqual(status_truth["evidence"]["device"], status_device["resolved_device"])
+        self.assertEqual(status_truth["evidence"]["cuda_available"], status_device["cuda_available"])
+        self.assertEqual(status_truth["evidence"]["observed_cuda_execution"], status_uses_cuda)
+        self.assertEqual(status_device["observed_cuda_execution"], status_uses_cuda)
+        self.assertEqual(
+            status_device["claim_boundary"],
+            (
+                "observed_cuda_execution_only_not_cuda_speedup"
+                if status_uses_cuda
+                else "observed_device_placement_only_not_cuda_speedup"
+            ),
+        )
+        self.assertEqual(terminus_truth["evidence"]["device"], terminus_device["resolved_device"])
+        self.assertEqual(terminus_truth["evidence"]["observed_cuda_execution"], terminus_uses_cuda)
         capacity_expansion_design = capacity_expansion_response.json()
         capacity_preflight = capacity_preflight_response.json()
         capacity_compatibility = capacity_compatibility_response.json()
@@ -3361,92 +3402,92 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         autonomous_snn_language_decoding_event_review = (
             autonomous_snn_language_decoding_event_review_response.json()
         )
-        autonomous_snn_language_thought_surface_design = (
-            autonomous_snn_language_thought_surface_design_response.json()
+        snn_language_readout_surface_design = (
+            snn_language_readout_surface_design_response.json()
         )
-        autonomous_snn_language_thought_surface_preflight = (
-            autonomous_snn_language_thought_surface_preflight_response.json()
+        snn_language_readout_surface_preflight = (
+            snn_language_readout_surface_preflight_response.json()
         )
-        autonomous_snn_language_thought_surface_executor = (
-            autonomous_snn_language_thought_surface_executor_response.json()
+        snn_language_readout_surface_executor = (
+            snn_language_readout_surface_executor_response.json()
         )
-        autonomous_snn_language_thought_surface_event_review = (
-            autonomous_snn_language_thought_surface_event_review_response.json()
+        snn_language_readout_surface_event_review = (
+            snn_language_readout_surface_event_review_response.json()
         )
-        autonomous_snn_language_thought_memory_design = (
-            autonomous_snn_language_thought_memory_design_response.json()
+        snn_language_readout_memory_design = (
+            snn_language_readout_memory_design_response.json()
         )
-        autonomous_snn_language_thought_memory_preflight = (
-            autonomous_snn_language_thought_memory_preflight_response.json()
+        snn_language_readout_memory_preflight = (
+            snn_language_readout_memory_preflight_response.json()
         )
-        autonomous_snn_language_thought_memory_executor = (
-            autonomous_snn_language_thought_memory_executor_response.json()
+        snn_language_readout_memory_executor = (
+            snn_language_readout_memory_executor_response.json()
         )
-        autonomous_snn_language_thought_memory_event_review = (
-            autonomous_snn_language_thought_memory_event_review_response.json()
+        snn_language_readout_memory_event_review = (
+            snn_language_readout_memory_event_review_response.json()
         )
-        autonomous_snn_language_thought_consolidation_design = (
-            autonomous_snn_language_thought_consolidation_design_response.json()
+        snn_language_readout_consolidation_design = (
+            snn_language_readout_consolidation_design_response.json()
         )
-        autonomous_snn_language_thought_consolidation_preflight = (
-            autonomous_snn_language_thought_consolidation_preflight_response.json()
+        snn_language_readout_consolidation_preflight = (
+            snn_language_readout_consolidation_preflight_response.json()
         )
-        autonomous_snn_language_thought_consolidation_executor = (
-            autonomous_snn_language_thought_consolidation_executor_response.json()
+        snn_language_readout_consolidation_executor = (
+            snn_language_readout_consolidation_executor_response.json()
         )
-        autonomous_snn_language_thought_consolidation_event_review = (
-            autonomous_snn_language_thought_consolidation_event_review_response.json()
+        snn_language_readout_consolidation_event_review = (
+            snn_language_readout_consolidation_event_review_response.json()
         )
-        autonomous_snn_language_thought_structural_plasticity_design = (
-            autonomous_snn_language_thought_structural_plasticity_design_response.json()
+        snn_language_readout_structural_plasticity_design = (
+            snn_language_readout_structural_plasticity_design_response.json()
         )
-        autonomous_snn_language_thought_structural_plasticity_preflight = (
-            autonomous_snn_language_thought_structural_plasticity_preflight_response.json()
+        snn_language_readout_structural_plasticity_preflight = (
+            snn_language_readout_structural_plasticity_preflight_response.json()
         )
-        autonomous_snn_language_thought_structural_plasticity_executor = (
-            autonomous_snn_language_thought_structural_plasticity_executor_response.json()
+        snn_language_readout_structural_plasticity_executor = (
+            snn_language_readout_structural_plasticity_executor_response.json()
         )
-        autonomous_snn_language_thought_structural_plasticity_event_review = (
-            autonomous_snn_language_thought_structural_plasticity_event_review_response.json()
+        snn_language_readout_structural_plasticity_event_review = (
+            snn_language_readout_structural_plasticity_event_review_response.json()
         )
-        autonomous_snn_language_thought_capacity_mutation_design = (
-            autonomous_snn_language_thought_capacity_mutation_design_response.json()
+        snn_language_readout_capacity_mutation_design = (
+            snn_language_readout_capacity_mutation_design_response.json()
         )
-        autonomous_snn_language_thought_capacity_mutation_preflight = (
-            autonomous_snn_language_thought_capacity_mutation_preflight_response.json()
+        snn_language_readout_capacity_mutation_preflight = (
+            snn_language_readout_capacity_mutation_preflight_response.json()
         )
-        autonomous_snn_language_thought_capacity_mutation_executor = (
-            autonomous_snn_language_thought_capacity_mutation_executor_response.json()
+        snn_language_readout_capacity_mutation_executor = (
+            snn_language_readout_capacity_mutation_executor_response.json()
         )
-        autonomous_snn_language_thought_capacity_mutation_event_review = (
-            autonomous_snn_language_thought_capacity_mutation_event_review_response.json()
+        snn_language_readout_capacity_mutation_event_review = (
+            snn_language_readout_capacity_mutation_event_review_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_integration_design = (
-            autonomous_snn_language_thought_newborn_neuron_integration_design_response.json()
+        snn_language_readout_newborn_neuron_integration_design = (
+            snn_language_readout_newborn_neuron_integration_design_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_integration_preflight = (
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.json()
+        snn_language_readout_newborn_neuron_integration_preflight = (
+            snn_language_readout_newborn_neuron_integration_preflight_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_integration_executor = (
-            autonomous_snn_language_thought_newborn_neuron_integration_executor_response.json()
+        snn_language_readout_newborn_neuron_integration_executor = (
+            snn_language_readout_newborn_neuron_integration_executor_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_integration_event_review = (
-            autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.json()
+        snn_language_readout_newborn_neuron_integration_event_review = (
+            snn_language_readout_newborn_neuron_integration_event_review_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design = (
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.json()
+        snn_language_readout_newborn_neuron_critical_period_learning_design = (
+            snn_language_readout_newborn_neuron_critical_period_learning_design_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight = (
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.json()
+        snn_language_readout_newborn_neuron_critical_period_learning_preflight = (
+            snn_language_readout_newborn_neuron_critical_period_learning_preflight_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor = (
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.json()
+        snn_language_readout_newborn_neuron_critical_period_learning_executor = (
+            snn_language_readout_newborn_neuron_critical_period_learning_executor_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review = (
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.json()
+        snn_language_readout_newborn_neuron_critical_period_learning_event_review = (
+            snn_language_readout_newborn_neuron_critical_period_learning_event_review_response.json()
         )
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design = (
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response.json()
+        snn_language_readout_newborn_neuron_critical_period_learning_continuation_design = (
+            snn_language_readout_newborn_neuron_critical_period_learning_continuation_design_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -7643,9 +7684,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             autonomous_snn_language_decoding_event_review["generated_text_returned"]
         )
         self.assertFalse(
-            autonomous_snn_language_decoding_event_review["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_surface_design"
-            ]
+            autonomous_snn_language_decoding_event_review["promotion_gate"].get(
+                "eligible_for_snn_language_readout_surface_design",
+                autonomous_snn_language_decoding_event_review["promotion_gate"].get(
+                    "eligible_for_autonomous_snn_language_thought_surface_design"
+                ),
+            )
         )
         self.assertFalse(
             autonomous_snn_language_decoding_event_review["promotion_gate"][
@@ -7653,1557 +7697,1557 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_design["surface"],
-            "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            snn_language_readout_surface_design["surface"],
+            "snn_language_readout_surface_design.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_design["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_surface_design["ready"])
+        self.assertFalse(snn_language_readout_surface_design["accepted"])
+        self.assertFalse(snn_language_readout_surface_design["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design[
+            snn_language_readout_surface_design[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_surface_design["advisory"])
-        self.assertFalse(autonomous_snn_language_thought_surface_design["executable"])
+        self.assertTrue(snn_language_readout_surface_design["advisory"])
+        self.assertFalse(snn_language_readout_surface_design["executable"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["records_ledger_event"]
+            snn_language_readout_surface_design["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["mutates_runtime_state"]
+            snn_language_readout_surface_design["mutates_runtime_state"]
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_design["runs_replay"])
+        self.assertFalse(snn_language_readout_surface_design["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["writes_checkpoint"]
-        )
-        self.assertFalse(
-            autonomous_snn_language_thought_surface_design["trains_runtime_model"]
+            snn_language_readout_surface_design["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["applies_plasticity"]
+            snn_language_readout_surface_design["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_surface_preflight"
+            snn_language_readout_surface_design["applies_plasticity"]
+        )
+        self.assertFalse(
+            snn_language_readout_surface_design["promotion_gate"][
+                "eligible_for_snn_language_readout_surface_preflight"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["promotion_gate"][
+            snn_language_readout_surface_design["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["promotion_gate"][
+            snn_language_readout_surface_design["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_design["promotion_gate"][
+            snn_language_readout_surface_design["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_preflight["surface"],
-            "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+            snn_language_readout_surface_preflight["surface"],
+            "snn_language_readout_surface_preflight.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_preflight["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_surface_preflight["ready"])
+        self.assertFalse(snn_language_readout_surface_preflight["accepted"])
+        self.assertFalse(snn_language_readout_surface_preflight["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight[
+            snn_language_readout_surface_preflight[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_surface_preflight["advisory"])
+        self.assertTrue(snn_language_readout_surface_preflight["advisory"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["executable"]
+            snn_language_readout_surface_preflight["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["records_ledger_event"]
+            snn_language_readout_surface_preflight["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight[
+            snn_language_readout_surface_preflight[
                 "mutates_runtime_state"
             ]
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_preflight["runs_replay"])
+        self.assertFalse(snn_language_readout_surface_preflight["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["writes_checkpoint"]
+            snn_language_readout_surface_preflight["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["trains_runtime_model"]
+            snn_language_readout_surface_preflight["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["applies_plasticity"]
+            snn_language_readout_surface_preflight["applies_plasticity"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_surface_executor"
+            snn_language_readout_surface_preflight["promotion_gate"][
+                "eligible_for_snn_language_readout_surface_executor"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["promotion_gate"][
+            snn_language_readout_surface_preflight["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["promotion_gate"][
+            snn_language_readout_surface_preflight["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_preflight["promotion_gate"][
+            snn_language_readout_surface_preflight["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_executor["surface"],
-            "snn_language_autonomous_snn_language_thought_surface_executor.v1",
+            snn_language_readout_surface_executor["surface"],
+            "snn_language_readout_surface_executor.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_executor["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_surface_executor["ready"])
+        self.assertFalse(snn_language_readout_surface_executor["accepted"])
+        self.assertFalse(snn_language_readout_surface_executor["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor[
+            snn_language_readout_surface_executor[
                 "requires_operator_approval"
             ]
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_executor["advisory"])
-        self.assertTrue(autonomous_snn_language_thought_surface_executor["executable"])
+        self.assertFalse(snn_language_readout_surface_executor["advisory"])
+        self.assertTrue(snn_language_readout_surface_executor["executable"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["records_ledger_event"]
+            snn_language_readout_surface_executor["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["mutates_runtime_state"]
+            snn_language_readout_surface_executor["mutates_runtime_state"]
         )
-        self.assertFalse(autonomous_snn_language_thought_surface_executor["runs_replay"])
+        self.assertFalse(snn_language_readout_surface_executor["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["writes_checkpoint"]
-        )
-        self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["trains_runtime_model"]
+            snn_language_readout_surface_executor["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["applies_plasticity"]
+            snn_language_readout_surface_executor["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_surface_event_review"
+            snn_language_readout_surface_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            snn_language_readout_surface_executor["promotion_gate"][
+                "eligible_for_snn_language_readout_surface_event_review"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["promotion_gate"][
+            snn_language_readout_surface_executor["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["promotion_gate"][
+            snn_language_readout_surface_executor["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_executor["promotion_gate"][
+            snn_language_readout_surface_executor["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_surface_event_review["surface"],
-            "snn_language_autonomous_snn_language_thought_surface_event_review.v1",
+            snn_language_readout_surface_event_review["surface"],
+            "snn_language_readout_surface_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["accepted"]
+            snn_language_readout_surface_event_review["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["ready"]
+            snn_language_readout_surface_event_review["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review[
+            snn_language_readout_surface_event_review[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_surface_event_review["advisory"])
+        self.assertTrue(snn_language_readout_surface_event_review["advisory"])
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["executable"]
+            snn_language_readout_surface_event_review["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review[
+            snn_language_readout_surface_event_review[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review[
+            snn_language_readout_surface_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["runs_replay"]
+            snn_language_readout_surface_event_review["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["writes_checkpoint"]
+            snn_language_readout_surface_event_review["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review[
+            snn_language_readout_surface_event_review[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["applies_plasticity"]
+            snn_language_readout_surface_event_review["applies_plasticity"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_memory_design"
+            snn_language_readout_surface_event_review["promotion_gate"][
+                "eligible_for_snn_language_readout_memory_design"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["promotion_gate"][
+            snn_language_readout_surface_event_review["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["promotion_gate"][
+            snn_language_readout_surface_event_review["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_surface_event_review["promotion_gate"][
+            snn_language_readout_surface_event_review["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_design["surface"],
-            "snn_language_autonomous_snn_language_thought_memory_design.v1",
+            snn_language_readout_memory_design["surface"],
+            "snn_language_readout_memory_design.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_design["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_memory_design["ready"])
+        self.assertFalse(snn_language_readout_memory_design["accepted"])
+        self.assertFalse(snn_language_readout_memory_design["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design[
+            snn_language_readout_memory_design[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_memory_design["advisory"])
-        self.assertFalse(autonomous_snn_language_thought_memory_design["executable"])
+        self.assertTrue(snn_language_readout_memory_design["advisory"])
+        self.assertFalse(snn_language_readout_memory_design["executable"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["records_ledger_event"]
+            snn_language_readout_memory_design["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["mutates_runtime_state"]
+            snn_language_readout_memory_design["mutates_runtime_state"]
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_design["runs_replay"])
+        self.assertFalse(snn_language_readout_memory_design["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["writes_checkpoint"]
-        )
-        self.assertFalse(
-            autonomous_snn_language_thought_memory_design["trains_runtime_model"]
+            snn_language_readout_memory_design["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["applies_plasticity"]
+            snn_language_readout_memory_design["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_memory_preflight"
+            snn_language_readout_memory_design["applies_plasticity"]
+        )
+        self.assertFalse(
+            snn_language_readout_memory_design["promotion_gate"][
+                "eligible_for_snn_language_readout_memory_preflight"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["promotion_gate"][
+            snn_language_readout_memory_design["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["promotion_gate"][
+            snn_language_readout_memory_design["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_design["promotion_gate"][
+            snn_language_readout_memory_design["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_preflight["surface"],
-            "snn_language_autonomous_snn_language_thought_memory_preflight.v1",
+            snn_language_readout_memory_preflight["surface"],
+            "snn_language_readout_memory_preflight.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_preflight["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_memory_preflight["ready"])
+        self.assertFalse(snn_language_readout_memory_preflight["accepted"])
+        self.assertFalse(snn_language_readout_memory_preflight["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight[
+            snn_language_readout_memory_preflight[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_memory_preflight["advisory"])
+        self.assertTrue(snn_language_readout_memory_preflight["advisory"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["executable"]
+            snn_language_readout_memory_preflight["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["records_ledger_event"]
+            snn_language_readout_memory_preflight["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["mutates_runtime_state"]
+            snn_language_readout_memory_preflight["mutates_runtime_state"]
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_preflight["runs_replay"])
+        self.assertFalse(snn_language_readout_memory_preflight["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["writes_checkpoint"]
-        )
-        self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["trains_runtime_model"]
+            snn_language_readout_memory_preflight["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["applies_plasticity"]
+            snn_language_readout_memory_preflight["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_memory_executor"
+            snn_language_readout_memory_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            snn_language_readout_memory_preflight["promotion_gate"][
+                "eligible_for_snn_language_readout_memory_executor"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["promotion_gate"][
+            snn_language_readout_memory_preflight["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["promotion_gate"][
+            snn_language_readout_memory_preflight["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_preflight["promotion_gate"][
+            snn_language_readout_memory_preflight["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_executor["surface"],
-            "snn_language_autonomous_snn_language_thought_memory_executor.v1",
+            snn_language_readout_memory_executor["surface"],
+            "snn_language_readout_memory_executor.v1",
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_executor["accepted"])
-        self.assertFalse(autonomous_snn_language_thought_memory_executor["ready"])
+        self.assertFalse(snn_language_readout_memory_executor["accepted"])
+        self.assertFalse(snn_language_readout_memory_executor["ready"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor[
+            snn_language_readout_memory_executor[
                 "requires_operator_approval"
             ]
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_executor["advisory"])
-        self.assertTrue(autonomous_snn_language_thought_memory_executor["executable"])
+        self.assertFalse(snn_language_readout_memory_executor["advisory"])
+        self.assertTrue(snn_language_readout_memory_executor["executable"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["records_ledger_event"]
+            snn_language_readout_memory_executor["records_ledger_event"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["mutates_runtime_state"]
+            snn_language_readout_memory_executor["mutates_runtime_state"]
         )
-        self.assertFalse(autonomous_snn_language_thought_memory_executor["runs_replay"])
+        self.assertFalse(snn_language_readout_memory_executor["runs_replay"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["writes_checkpoint"]
-        )
-        self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["trains_runtime_model"]
+            snn_language_readout_memory_executor["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["applies_plasticity"]
+            snn_language_readout_memory_executor["trains_runtime_model"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_memory_event_review"
+            snn_language_readout_memory_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            snn_language_readout_memory_executor["promotion_gate"][
+                "eligible_for_snn_language_readout_memory_event_review"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["promotion_gate"][
+            snn_language_readout_memory_executor["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["promotion_gate"][
+            snn_language_readout_memory_executor["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_executor["promotion_gate"][
+            snn_language_readout_memory_executor["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_memory_event_review["surface"],
-            "snn_language_autonomous_snn_language_thought_memory_event_review.v1",
+            snn_language_readout_memory_event_review["surface"],
+            "snn_language_readout_memory_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["accepted"]
+            snn_language_readout_memory_event_review["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["ready"]
+            snn_language_readout_memory_event_review["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review[
+            snn_language_readout_memory_event_review[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_memory_event_review["advisory"])
+        self.assertTrue(snn_language_readout_memory_event_review["advisory"])
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["executable"]
+            snn_language_readout_memory_event_review["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review[
+            snn_language_readout_memory_event_review[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review[
+            snn_language_readout_memory_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["runs_replay"]
+            snn_language_readout_memory_event_review["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["writes_checkpoint"]
+            snn_language_readout_memory_event_review["writes_checkpoint"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review[
+            snn_language_readout_memory_event_review[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["applies_plasticity"]
+            snn_language_readout_memory_event_review["applies_plasticity"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_consolidation_design"
+            snn_language_readout_memory_event_review["promotion_gate"][
+                "eligible_for_snn_language_readout_consolidation_design"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["promotion_gate"][
+            snn_language_readout_memory_event_review["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["promotion_gate"][
+            snn_language_readout_memory_event_review["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_memory_event_review["promotion_gate"][
+            snn_language_readout_memory_event_review["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_design["surface"],
-            "snn_language_autonomous_snn_language_thought_consolidation_design.v1",
+            snn_language_readout_consolidation_design["surface"],
+            "snn_language_readout_consolidation_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["accepted"]
+            snn_language_readout_consolidation_design["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["ready"]
+            snn_language_readout_consolidation_design["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_consolidation_design["advisory"]
+            snn_language_readout_consolidation_design["advisory"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["executable"]
+            snn_language_readout_consolidation_design["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["runs_replay"]
+            snn_language_readout_consolidation_design["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design[
+            snn_language_readout_consolidation_design[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_consolidation_preflight"
+            snn_language_readout_consolidation_design["promotion_gate"][
+                "eligible_for_snn_language_readout_consolidation_preflight"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["promotion_gate"][
+            snn_language_readout_consolidation_design["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["promotion_gate"][
+            snn_language_readout_consolidation_design["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_design["promotion_gate"][
+            snn_language_readout_consolidation_design["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_preflight["surface"],
-            "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1",
+            snn_language_readout_consolidation_preflight["surface"],
+            "snn_language_readout_consolidation_preflight.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["accepted"]
+            snn_language_readout_consolidation_preflight["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["ready"]
+            snn_language_readout_consolidation_preflight["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_consolidation_preflight["advisory"]
+            snn_language_readout_consolidation_preflight["advisory"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["executable"]
+            snn_language_readout_consolidation_preflight["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["runs_replay"]
+            snn_language_readout_consolidation_preflight["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight[
+            snn_language_readout_consolidation_preflight[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_consolidation_executor"
+            snn_language_readout_consolidation_preflight["promotion_gate"][
+                "eligible_for_snn_language_readout_consolidation_executor"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["promotion_gate"][
+            snn_language_readout_consolidation_preflight["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["promotion_gate"][
+            snn_language_readout_consolidation_preflight["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_preflight["promotion_gate"][
+            snn_language_readout_consolidation_preflight["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_executor["surface"],
-            "snn_language_autonomous_snn_language_thought_consolidation_executor.v1",
+            snn_language_readout_consolidation_executor["surface"],
+            "snn_language_readout_consolidation_executor.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["accepted"]
+            snn_language_readout_consolidation_executor["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["ready"]
+            snn_language_readout_consolidation_executor["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "requires_operator_approval"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["advisory"]
+            snn_language_readout_consolidation_executor["advisory"]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_consolidation_executor["executable"]
+            snn_language_readout_consolidation_executor["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["runs_replay"]
+            snn_language_readout_consolidation_executor["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor[
+            snn_language_readout_consolidation_executor[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["promotion_gate"][
-                "eligible_for_autonomous_snn_language_thought_consolidation_event_review"
+            snn_language_readout_consolidation_executor["promotion_gate"][
+                "eligible_for_snn_language_readout_consolidation_event_review"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["promotion_gate"][
+            snn_language_readout_consolidation_executor["promotion_gate"][
                 "eligible_for_cognition_substrate"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["promotion_gate"][
+            snn_language_readout_consolidation_executor["promotion_gate"][
                 "eligible_for_fact_promotion"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_executor["promotion_gate"][
+            snn_language_readout_consolidation_executor["promotion_gate"][
                 "eligible_for_action"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_consolidation_event_review["surface"],
-            "snn_language_autonomous_snn_language_thought_consolidation_event_review.v1",
+            snn_language_readout_consolidation_event_review["surface"],
+            "snn_language_readout_consolidation_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review["accepted"]
+            snn_language_readout_consolidation_event_review["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review["ready"]
+            snn_language_readout_consolidation_event_review["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_consolidation_event_review["advisory"]
+            snn_language_readout_consolidation_event_review["advisory"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review["executable"]
+            snn_language_readout_consolidation_event_review["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review["runs_replay"]
+            snn_language_readout_consolidation_event_review["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
+                "eligible_for_snn_language_readout_structural_plasticity_design"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_consolidation_event_review[
+            snn_language_readout_consolidation_event_review[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_design["surface"],
-            "snn_language_autonomous_snn_language_thought_structural_plasticity_design.v1",
+            snn_language_readout_structural_plasticity_design["surface"],
+            "snn_language_readout_structural_plasticity_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design["accepted"]
+            snn_language_readout_structural_plasticity_design["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design["ready"]
+            snn_language_readout_structural_plasticity_design["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_structural_plasticity_design["advisory"]
+            snn_language_readout_structural_plasticity_design["advisory"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design["executable"]
+            snn_language_readout_structural_plasticity_design["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design["runs_replay"]
+            snn_language_readout_structural_plasticity_design["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+                "eligible_for_snn_language_readout_structural_plasticity_preflight"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_design[
+            snn_language_readout_structural_plasticity_design[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_preflight["surface"],
-            "snn_language_autonomous_snn_language_thought_structural_plasticity_preflight.v1",
+            snn_language_readout_structural_plasticity_preflight["surface"],
+            "snn_language_readout_structural_plasticity_preflight.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight["accepted"]
+            snn_language_readout_structural_plasticity_preflight["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight["ready"]
+            snn_language_readout_structural_plasticity_preflight["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_structural_plasticity_preflight["advisory"]
+            snn_language_readout_structural_plasticity_preflight["advisory"]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_structural_plasticity_preflight["executable"]
+            snn_language_readout_structural_plasticity_preflight["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight["runs_replay"]
+            snn_language_readout_structural_plasticity_preflight["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor"
+                "eligible_for_snn_language_readout_structural_plasticity_executor"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_preflight[
+            snn_language_readout_structural_plasticity_preflight[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_executor["surface"],
-            "snn_language_autonomous_snn_language_thought_structural_plasticity_executor.v1",
+            snn_language_readout_structural_plasticity_executor["surface"],
+            "snn_language_readout_structural_plasticity_executor.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor["accepted"]
+            snn_language_readout_structural_plasticity_executor["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor["ready"]
+            snn_language_readout_structural_plasticity_executor["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "requires_operator_approval"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor["advisory"]
+            snn_language_readout_structural_plasticity_executor["advisory"]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_structural_plasticity_executor["executable"]
+            snn_language_readout_structural_plasticity_executor["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor["runs_replay"]
+            snn_language_readout_structural_plasticity_executor["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "structural_plasticity_applied"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review"
+                "eligible_for_snn_language_readout_structural_plasticity_event_review"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_executor[
+            snn_language_readout_structural_plasticity_executor[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_structural_plasticity_event_review.v1",
+            "snn_language_readout_structural_plasticity_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "ready"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "advisory"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "executable"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "runs_replay"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "structural_plasticity_applied"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
+                "eligible_for_snn_language_readout_capacity_mutation_design"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_structural_plasticity_event_review[
+            snn_language_readout_structural_plasticity_event_review[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_design["surface"],
-            "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1",
+            snn_language_readout_capacity_mutation_design["surface"],
+            "snn_language_readout_capacity_mutation_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["accepted"]
+            snn_language_readout_capacity_mutation_design["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["ready"]
+            snn_language_readout_capacity_mutation_design["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "requires_operator_approval"
             ]
         )
-        self.assertTrue(autonomous_snn_language_thought_capacity_mutation_design["advisory"])
+        self.assertTrue(snn_language_readout_capacity_mutation_design["advisory"])
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["executable"]
+            snn_language_readout_capacity_mutation_design["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["runs_replay"]
+            snn_language_readout_capacity_mutation_design["runs_replay"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["adds_neurons"]
+            snn_language_readout_capacity_mutation_design["adds_neurons"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["adds_synapses"]
+            snn_language_readout_capacity_mutation_design["adds_synapses"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design["prunes_network"]
+            snn_language_readout_capacity_mutation_design["prunes_network"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+                "eligible_for_snn_language_readout_capacity_mutation_preflight"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_design[
+            snn_language_readout_capacity_mutation_design[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_preflight["surface"],
-            "snn_language_autonomous_snn_language_thought_capacity_mutation_preflight.v1",
+            snn_language_readout_capacity_mutation_preflight["surface"],
+            "snn_language_readout_capacity_mutation_preflight.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight["accepted"]
+            snn_language_readout_capacity_mutation_preflight["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight["ready"]
+            snn_language_readout_capacity_mutation_preflight["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_capacity_mutation_preflight["advisory"]
+            snn_language_readout_capacity_mutation_preflight["advisory"]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_capacity_mutation_preflight["executable"]
+            snn_language_readout_capacity_mutation_preflight["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "runs_replay"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "trains_runtime_model"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "applies_plasticity"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor"
+                "eligible_for_snn_language_readout_capacity_mutation_executor"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "promotion_gate"
             ]["eligible_for_cognition_substrate"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "promotion_gate"
             ]["eligible_for_fact_promotion"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_preflight[
+            snn_language_readout_capacity_mutation_preflight[
                 "promotion_gate"
             ]["eligible_for_action"]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_executor["surface"],
-            "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1",
+            snn_language_readout_capacity_mutation_executor["surface"],
+            "snn_language_readout_capacity_mutation_executor.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor["accepted"]
+            snn_language_readout_capacity_mutation_executor["accepted"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor["ready"]
+            snn_language_readout_capacity_mutation_executor["ready"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_capacity_mutation_executor["executable"]
+            snn_language_readout_capacity_mutation_executor["executable"]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "adds_neurons"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "prunes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_executor[
+            snn_language_readout_capacity_mutation_executor[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_event_review"
+                "eligible_for_snn_language_readout_capacity_mutation_event_review"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+            "snn_language_readout_capacity_mutation_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "ready"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "requires_operator_approval"
             ]
         )
         self.assertTrue(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "advisory"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "executable"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "records_ledger_event"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "writes_checkpoint"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "resizes_network"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_capacity_mutation_event_review[
+            snn_language_readout_capacity_mutation_event_review[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_design"
+                "eligible_for_snn_language_readout_newborn_neuron_integration_design"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_design[
+            snn_language_readout_newborn_neuron_integration_design[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design.v1",
+            "snn_language_readout_newborn_neuron_integration_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_design[
+            snn_language_readout_newborn_neuron_integration_design[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_design[
+            snn_language_readout_newborn_neuron_integration_design[
                 "requires_operator_approval"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_design[
+            snn_language_readout_newborn_neuron_integration_design[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_design[
+            snn_language_readout_newborn_neuron_integration_design[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+                "eligible_for_snn_language_readout_newborn_neuron_integration_preflight"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+            snn_language_readout_newborn_neuron_integration_preflight[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight.v1",
+            "snn_language_readout_newborn_neuron_integration_preflight.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+            snn_language_readout_newborn_neuron_integration_preflight[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+            snn_language_readout_newborn_neuron_integration_preflight[
                 "requires_operator_approval"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+            snn_language_readout_newborn_neuron_integration_preflight[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+            snn_language_readout_newborn_neuron_integration_preflight[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_executor"
+                "eligible_for_snn_language_readout_newborn_neuron_integration_executor"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor.v1",
+            "snn_language_readout_newborn_neuron_integration_executor.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "accepted"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+            snn_language_readout_newborn_neuron_integration_event_review[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review.v1",
+            "snn_language_readout_newborn_neuron_integration_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+            snn_language_readout_newborn_neuron_integration_event_review[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+            snn_language_readout_newborn_neuron_integration_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design[
+            snn_language_readout_newborn_neuron_critical_period_learning_design[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+            "snn_language_readout_newborn_neuron_critical_period_learning_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design[
+            snn_language_readout_newborn_neuron_critical_period_learning_design[
                 "accepted"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight[
+            snn_language_readout_newborn_neuron_critical_period_learning_preflight[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight.v1",
+            "snn_language_readout_newborn_neuron_critical_period_learning_preflight.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight[
+            snn_language_readout_newborn_neuron_critical_period_learning_preflight[
                 "accepted"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+            snn_language_readout_newborn_neuron_critical_period_learning_executor[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor.v1",
+            "snn_language_readout_newborn_neuron_critical_period_learning_executor.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+            snn_language_readout_newborn_neuron_critical_period_learning_executor[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+            snn_language_readout_newborn_neuron_critical_period_learning_executor[
                 "mutates_runtime_state"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+            snn_language_readout_newborn_neuron_critical_period_learning_event_review[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review.v1",
+            "snn_language_readout_newborn_neuron_critical_period_learning_event_review.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+            snn_language_readout_newborn_neuron_critical_period_learning_event_review[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+            snn_language_readout_newborn_neuron_critical_period_learning_event_review[
                 "mutates_runtime_state"
             ]
         )
         self.assertEqual(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design[
+            snn_language_readout_newborn_neuron_critical_period_learning_continuation_design[
                 "surface"
             ],
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+            "snn_language_readout_newborn_neuron_critical_period_learning_design.v1",
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design[
+            snn_language_readout_newborn_neuron_critical_period_learning_continuation_design[
                 "accepted"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "requires_operator_approval"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "mutates_runtime_state"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "adds_synapses"
             ]
         )
         self.assertFalse(
-            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+            snn_language_readout_newborn_neuron_integration_executor[
                 "promotion_gate"
             ][
-                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_event_review"
+                "eligible_for_snn_language_readout_newborn_neuron_integration_event_review"
             ]
         )
         self.assertFalse(capacity_compatibility["adds_neurons"])
@@ -16962,19 +17006,6 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 422)
             self.assertIn("source_bank", response.text)
-
-    def test_legacy_brain_report_and_preset_endpoints_are_not_exposed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            app = create_app(_build_checkpoint(root, test_case="service_api_legacy_surface_removed"), trace_dir=root / "traces")
-            with TestClient(app) as client:
-                brain_response = client.get("/brain")
-                presets_response = client.get("/acquisition/presets")
-                reports_response = client.get("/reports/benchmarks")
-
-            self.assertEqual(brain_response.status_code, 404)
-            self.assertEqual(presets_response.status_code, 404)
-            self.assertEqual(reports_response.status_code, 404)
 
     def test_architecture_endpoint_returns_layer_topology(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

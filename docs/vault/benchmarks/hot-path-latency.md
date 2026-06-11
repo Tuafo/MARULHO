@@ -27,6 +27,8 @@ Latency-sensitive runtime surface checks.
   `powershell -Command "$env:PYTHONPATH='src'; python -m marulho.evaluation.service_benchmark --compare-baseline reports\service_benchmark_baseline\accepted-baseline.json --compare-after reports\service_benchmark_cycle_configured\service-benchmark.json --output reports\service_benchmark_baseline\comparison.json"`
 - Run a fresh configured-source benchmark and compare it against the accepted baseline:
   `powershell -Command "$env:PYTHONPATH='src'; python -m marulho.evaluation.service_benchmark --run-against-baseline reports\service_benchmark_baseline\accepted-baseline.json --checkpoint reports\service_benchmark_cycle_configured\tiny.pt --output reports\service_benchmark_baseline_fresh_cycle --trace-dir reports\service_benchmark_baseline_fresh_cycle\traces --web-dist-dir MARULHO_UI\dist --configure-local-source --local-source-tick-steps 1"`
+- Paired CPU/CUDA device comparison:
+  `powershell -Command "$env:PYTHONPATH='src'; python -m marulho.evaluation.service_benchmark --compare-devices --checkpoint reports\service_benchmark_device_compare\tiny.pt --output reports\service_benchmark_device_compare --web-dist-dir MARULHO_UI\dist --configure-local-source --local-source-tick-steps 1"`
 
 ## Latest Known Result
 
@@ -68,12 +70,16 @@ Measured on 2026-06-09 with a tiny synthetic checkpoint, a generated local file 
 - Source configuration evidence: `configured=true`, `source_count=1`, `source_names=["benchmark_local_source"]`
 - Feed evidence: `44` tokens processed, `lexical_rolling_segments`, `7` sampled concept observations
 - Device evidence: `tensor_device=cpu`, `encoder_device=cpu`, `routing_search_device=cpu`, `cuda_available=false`
+- Paired CPU/CUDA comparison on 2026-06-10: report status `failed`; CPU hot-path p95 `574.0 ms`, CPU total `1012.343 ms`; CUDA hot-path p95 `2216.148 ms`, CUDA total `3272.994 ms`; CPU budget passed, CUDA budget failed; endpoint success-name parity passed; CUDA observed execution was `true`. This is a blocker for any CUDA speedup claim.
+- Column Runtime evidence benchmark on 2026-06-10: report success `true`, CUDA observed execution `true`, Runtime Truth exposed `total_columns=4`, `awake_budget=4`, `awake_count=4`, and `runs_all_columns=false` for the tiny synthetic checkpoint. The same run showed hot-path p95 `2367.951 ms`, hot-path total `4017.128 ms`, and `/status` latency `30161.935 ms`, so column-metabolism visibility is implemented but hot-path/status cost is not yet acceptable on CUDA.
 
 ## Interpretation
 
 The benchmark now emits `endpoint_metabolism_summary`, a non-runtime evidence field that separates setup work, hot-path service endpoints, status sidecars, and explicit replay/export/dataset slow paths. This protects the always-on runtime by measuring setup and slow tooling without making them part of the hot path.
 
 The benchmark also emits `runtime_device_evidence`, a compact observed-device summary from `/status` and `/terminus`. This run proves local configured-source liveness for the benchmark harness, but it does not prove CUDA acceleration: the focused test environment observed CPU placement and CUDA was unavailable.
+
+Column Runtime evidence is now part of Runtime Truth and runtime scope, but it is still report-only. The benchmark result above makes the next performance risk concrete: status/runtime-scope reads on CUDA can dominate sidecar latency, so the next slice should cache or split expensive runtime-scope evidence before changing execution scheduling.
 
 The regression gate is a report-only evaluator. It compares benchmark JSON artifacts for Runtime Truth regression, configured-source liveness, absolute hot-path budgets, relative hot-path latency regression, and endpoint grouping boundaries. It does not mutate runtime state or claim speedup.
 

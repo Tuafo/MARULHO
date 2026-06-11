@@ -17,6 +17,8 @@ related_benchmarks: []
 
         Tensor/state mechanisms and device-reportable substrate behavior.
 
+        `core.column_runtime` now owns the report-only Column Runtime control plane: a bounded awake-column scheduler summary, cached vote evidence, disagreement, growth gate, and pruning/homeostasis evidence derived from existing competitive and predictive column tensors. It does not mutate topology or change execution scheduling yet.
+
         ## Should Not Own
 
         Operator HTTP surfaces, persistence policy, or language-facing claims.
@@ -32,7 +34,7 @@ related_benchmarks: []
 
         ## Related Concepts
 
-        [Subcortex](../concepts/subcortex.md), [Metabolism](../concepts/metabolism.md), [Plasticity Gate](../concepts/plasticity-gate.md), [Dynamic Growth](../concepts/dynamic-growth.md), [Pruning](../concepts/pruning.md), [CUDA Evidence](../concepts/cuda-evidence.md)
+        [Subcortex](../concepts/subcortex.md), [Metabolism](../concepts/metabolism.md), [Column Runtime](../concepts/column-runtime.md), [Plasticity Gate](../concepts/plasticity-gate.md), [Dynamic Growth](../concepts/dynamic-growth.md), [Pruning](../concepts/pruning.md), [CUDA Evidence](../concepts/cuda-evidence.md)
 
         ## Graphify
 

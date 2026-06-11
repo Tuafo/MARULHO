@@ -92,6 +92,7 @@ class RuntimeStatusCore:
         memory_store: Mapping[str, Any],
         replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
+        runtime_scope: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
@@ -162,6 +163,8 @@ class RuntimeStatusCore:
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
         }
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
+        device_evidence = self._runtime_device_evidence(runtime_scope=runtime_scope)
+        column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
 
         return {
             "schema_version": 1,
@@ -188,7 +191,73 @@ class RuntimeStatusCore:
                 "last_error": last_error or None,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
+                "runtime_device": device_evidence,
+                "device": device_evidence["resolved_device"],
+                "cuda_available": device_evidence["cuda_available"],
+                "observed_cuda_execution": device_evidence["observed_cuda_execution"],
+                "column_runtime": column_runtime,
             },
+        }
+
+    def _column_runtime_evidence(
+        self,
+        *,
+        runtime_scope: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
+        return {
+            "surface": report.get("surface", "column_runtime_metabolism.v1"),
+            "summary_role": "compact_runtime_truth_column_metabolism_not_execution_scheduler",
+            "total_columns": int(report.get("total_columns", 0) or 0),
+            "awake_budget": int(report.get("awake_budget", 0) or 0),
+            "awake_count": int(report.get("awake_count", 0) or 0),
+            "cached_vote_count": int(report.get("cached_vote_count", 0) or 0),
+            "sleeping_count": int(report.get("sleeping_count", 0) or 0),
+            "deep_sleeping_count": int(report.get("deep_sleeping_count", 0) or 0),
+            "runs_all_columns": bool(report.get("runs_all_columns", False)),
+            "scheduler_mode": (
+                report.get("scheduler", {}).get("mode")
+                if isinstance(report.get("scheduler"), Mapping)
+                else None
+            ),
+            "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
+            "claim_boundary": "column_scheduler_evidence_only_not_sparse_execution_promotion",
+        }
+
+    def _runtime_device_evidence(
+        self,
+        *,
+        runtime_scope: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        device_report = scope.get("device") if isinstance(scope.get("device"), Mapping) else {}
+        cuda_first = (
+            scope.get("cuda_first_runtime")
+            if isinstance(scope.get("cuda_first_runtime"), Mapping)
+            else {}
+        )
+        tensor_device = str(cuda_first.get("tensor_device") or getattr(self._trainer.model, "device", "unknown"))
+        resolved_device = str(device_report.get("resolved_device") or tensor_device)
+        cuda_available = bool(device_report.get("cuda_available", torch.cuda.is_available()))
+        observed_cuda_execution = tensor_device.startswith("cuda")
+        requested_device = str(device_report.get("requested_device") or getattr(self._trainer.config, "device", "unknown"))
+        return {
+            "summary_role": "observed_runtime_device_evidence_not_acceleration_claim",
+            "requested_device": requested_device,
+            "env_device": device_report.get("env_device"),
+            "resolved_device": resolved_device,
+            "tensor_device": tensor_device,
+            "routing_search_device": cuda_first.get("routing_search_device"),
+            "cuda_available": cuda_available,
+            "cuda_selected": bool(device_report.get("cuda_selected", resolved_device.startswith("cuda"))),
+            "observed_cuda_execution": observed_cuda_execution,
+            "cuda_device_count": int(device_report.get("cuda_device_count", 0) or 0),
+            "claim_boundary": (
+                "observed_cuda_execution_only_not_cuda_speedup"
+                if observed_cuda_execution
+                else "observed_device_placement_only_not_cuda_speedup"
+            ),
         }
 
     def _status_snapshot_locked(self) -> dict[str, Any]:
@@ -197,6 +266,10 @@ class RuntimeStatusCore:
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
+        runtime_scope = self._trainer.model.runtime_scope_report(
+            token_count=int(getattr(self._trainer, "token_count", 0) or 0),
+            last_winner=getattr(self._trainer, "last_winner", None),
+        )
         trace_history_size = int(len(self._trace_history))
         return {
             "checkpoint_path": str(self._checkpoint_path),
@@ -214,7 +287,7 @@ class RuntimeStatusCore:
             "serotonin": float(self._trainer.model.surprise.serotonin),
             "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
             "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
-            "runtime_scope": self._trainer.model.runtime_scope_report(),
+            "runtime_scope": runtime_scope,
             "memory_store": memory_store,
             "concept_store": self._concept_store.snapshot(),
             "terminus_runtime": terminus_runtime,
@@ -224,6 +297,7 @@ class RuntimeStatusCore:
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                runtime_scope=runtime_scope,
             ),
         }
 
@@ -626,18 +700,24 @@ class RuntimeStatusCore:
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
+        runtime_scope = self._trainer.model.runtime_scope_report(
+            token_count=int(getattr(self._trainer, "token_count", 0) or 0),
+            last_winner=getattr(self._trainer, "last_winner", None),
+        )
         trace_history_size = int(len(self._trace_history))
         return {
             "terminus_runtime": terminus_runtime,
             **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "multimodal": self._multimodal_runtime_summary_locked(),
+            "runtime_scope": runtime_scope,
             "replay_dataset_summary": replay_dataset_summary,
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                runtime_scope=runtime_scope,
             ),
         }
 

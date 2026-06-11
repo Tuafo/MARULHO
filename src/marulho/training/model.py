@@ -20,6 +20,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.core.abstraction import AbstractionLayer
 from marulho.core.columns import CompetitiveColumnLayer
 from marulho.core.binding import BindingLayer
+from marulho.core.column_runtime import build_column_runtime_report
 from marulho.core.context import AdaptiveContextLayer, create_context_layer
 from marulho.core.cross_modal import CrossModalGroundingLayer
 from marulho.core.surprise import SurpriseMonitor
@@ -299,10 +300,41 @@ class MarulhoModel:
         routing_key = torch.mv(self._W_assembly_project_t, assembly)
         return F.normalize(routing_key, dim=0)
 
-    def runtime_scope_report(self) -> dict[str, Any]:
+    def column_runtime_report(
+        self,
+        *,
+        token_count: int | None = None,
+        last_winner: int | None = None,
+    ) -> dict[str, Any]:
+        """Return report-only many-column scheduler and voting evidence."""
+        awake_limit = min(int(self.config.k_routing), int(self.config.n_columns))
+        return build_column_runtime_report(
+            n_columns=int(self.config.n_columns),
+            prediction_error=getattr(self.predictive, "prediction_error", None),
+            confidence=getattr(self.predictive, "confidence", None),
+            steps_since_win=getattr(self.competitive, "steps_since_win", None),
+            win_rate_ema=getattr(self.competitive, "win_rate_ema", None),
+            last_winner_ids=[] if last_winner is None else [int(last_winner)],
+            awake_limit=awake_limit,
+            sleep_after_steps=max(1, min(64, int(self.config.dead_column_steps // 4))),
+            deep_sleep_after_steps=max(awake_limit + 1, int(self.config.dead_column_steps)),
+            token_count=token_count,
+            device=str(self.device),
+        )
+
+    def runtime_scope_report(
+        self,
+        *,
+        token_count: int | None = None,
+        last_winner: int | None = None,
+    ) -> dict[str, Any]:
         routing_index_stats = self.hnsw_index.stats()
         device_report = self.config.device_report()
         subcortex_device_report = self.subcortex_device_report()
+        column_runtime = self.column_runtime_report(
+            token_count=token_count,
+            last_winner=last_winner,
+        )
         local_stdp_active = self.config.plasticity_mode == "local_stdp"
         adex_post_spikes = local_stdp_active and self.config.plasticity_spike_backend == "adex"
         sharding_active = self.config.routing_shards > 1
@@ -374,6 +406,7 @@ class MarulhoModel:
             "routing_backend_mode": str(self.config.routing_index_mode),
             "routing_index": routing_index_stats,
             "spike_health": self.competitive.spike_health_report(),
+            "column_runtime": column_runtime,
             "device": device_report,
             "cuda_first_runtime": {
                 "enabled_when_available": self.config.device == "auto" and device_report["env_device"] is None,

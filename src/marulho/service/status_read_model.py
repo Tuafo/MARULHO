@@ -316,6 +316,7 @@ class StatusReadModel:
         memory_store: Mapping[str, Any],
         replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
+        runtime_scope: Mapping[str, Any] | None = None,
         sleep_plasticity_autonomy_proposal: Mapping[str, Any] | None = None,
         sleep_plasticity_scheduler_installation_autonomy_proposal: Mapping[str, Any] | None = None,
         due_cycle_bounded_replay_selection_proposal: Mapping[str, Any] | None = None,
@@ -860,6 +861,8 @@ class StatusReadModel:
             "eligible_for_structural_write": False,
         }
         benchmark_evidence_currency = self._benchmark_evidence_currency()
+        runtime_device = self._runtime_device_evidence(runtime_scope=runtime_scope)
+        column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -885,6 +888,11 @@ class StatusReadModel:
                 "last_error": last_error or None,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
+                "runtime_device": runtime_device,
+                "device": runtime_device["resolved_device"],
+                "cuda_available": runtime_device["cuda_available"],
+                "observed_cuda_execution": runtime_device["observed_cuda_execution"],
+                "column_runtime": column_runtime,
                 "subcortex_spike_health": subcortex_spike_health,
                 "self_repair_gate": self_repair_gate,
                 "self_repair_evaluation_gate": self_repair_evaluation_gate,
@@ -931,6 +939,82 @@ class StatusReadModel:
                 ),
                 "benchmark_evidence_currency": benchmark_evidence_currency,
             },
+        }
+
+    def _column_runtime_evidence(
+        self,
+        *,
+        runtime_scope: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
+        return {
+            "surface": report.get("surface", "column_runtime_metabolism.v1"),
+            "summary_role": "compact_runtime_truth_column_metabolism_not_execution_scheduler",
+            "total_columns": int(report.get("total_columns", 0) or 0),
+            "awake_budget": int(report.get("awake_budget", 0) or 0),
+            "awake_count": int(report.get("awake_count", 0) or 0),
+            "cached_vote_count": int(report.get("cached_vote_count", 0) or 0),
+            "sleeping_count": int(report.get("sleeping_count", 0) or 0),
+            "deep_sleeping_count": int(report.get("deep_sleeping_count", 0) or 0),
+            "runs_all_columns": bool(report.get("runs_all_columns", False)),
+            "scheduler_mode": (
+                report.get("scheduler", {}).get("mode")
+                if isinstance(report.get("scheduler"), Mapping)
+                else None
+            ),
+            "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
+            "disagreement": dict(report.get("disagreement", {}))
+            if isinstance(report.get("disagreement"), Mapping)
+            else {},
+            "growth_gate": dict(report.get("growth_gate", {}))
+            if isinstance(report.get("growth_gate"), Mapping)
+            else {},
+            "pruning_homeostasis": dict(report.get("pruning_homeostasis", {}))
+            if isinstance(report.get("pruning_homeostasis"), Mapping)
+            else {},
+            "claim_boundary": "column_scheduler_evidence_only_not_sparse_execution_promotion",
+        }
+
+    def _runtime_device_evidence(
+        self,
+        *,
+        runtime_scope: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        device_report = scope.get("device") if isinstance(scope.get("device"), Mapping) else {}
+        cuda_first = (
+            scope.get("cuda_first_runtime")
+            if isinstance(scope.get("cuda_first_runtime"), Mapping)
+            else {}
+        )
+        tensor_device = str(
+            cuda_first.get("tensor_device") or getattr(self._trainer.model, "device", "unknown")
+        )
+        resolved_device = str(device_report.get("resolved_device") or tensor_device)
+        cuda_available = bool(device_report.get("cuda_available", torch.cuda.is_available()))
+        observed_cuda_execution = tensor_device.startswith("cuda")
+        requested_device = str(
+            device_report.get("requested_device") or getattr(self._trainer.config, "device", "unknown")
+        )
+        return {
+            "summary_role": "observed_runtime_device_evidence_not_acceleration_claim",
+            "requested_device": requested_device,
+            "env_device": device_report.get("env_device"),
+            "resolved_device": resolved_device,
+            "tensor_device": tensor_device,
+            "routing_search_device": cuda_first.get("routing_search_device"),
+            "cuda_available": cuda_available,
+            "cuda_selected": bool(
+                device_report.get("cuda_selected", resolved_device.startswith("cuda"))
+            ),
+            "observed_cuda_execution": observed_cuda_execution,
+            "cuda_device_count": int(device_report.get("cuda_device_count", 0) or 0),
+            "claim_boundary": (
+                "observed_cuda_execution_only_not_cuda_speedup"
+                if observed_cuda_execution
+                else "observed_device_placement_only_not_cuda_speedup"
+            ),
         }
 
     @staticmethod
@@ -2747,7 +2831,12 @@ class StatusReadModel:
 
     def _runtime_scope_report_locked(self) -> dict[str, Any]:
         """Return model runtime scope enriched with trainer-owned encoder evidence."""
-        runtime_scope = deepcopy(self._trainer.model.runtime_scope_report())
+        runtime_scope = deepcopy(
+            self._trainer.model.runtime_scope_report(
+                token_count=int(getattr(self._trainer, "token_count", 0) or 0),
+                last_winner=getattr(self._trainer, "last_winner", None),
+            )
+        )
         encoder = getattr(self._trainer, "encoder", None)
         encoder_report = encoder.device_report() if hasattr(encoder, "device_report") else None
         cuda_runtime = runtime_scope.get("cuda_first_runtime")
@@ -2768,6 +2857,7 @@ class StatusReadModel:
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
+        runtime_scope = self._runtime_scope_report_locked()
         sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
@@ -2794,7 +2884,7 @@ class StatusReadModel:
             "serotonin": float(self._trainer.model.surprise.serotonin),
             "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
             "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
-            "runtime_scope": self._runtime_scope_report_locked(),
+            "runtime_scope": runtime_scope,
             "memory_store": memory_store,
             "concept_store": self._concept_store_snapshot_fn(),
             "terminus_runtime": terminus_runtime,
@@ -2811,6 +2901,7 @@ class StatusReadModel:
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                runtime_scope=runtime_scope,
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
                 sleep_plasticity_scheduler_installation_autonomy_proposal=(
                     scheduler_installation_autonomy_proposal
@@ -2828,6 +2919,7 @@ class StatusReadModel:
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
+        runtime_scope = self._runtime_scope_report_locked()
         sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
@@ -2845,7 +2937,7 @@ class StatusReadModel:
             **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "multimodal": multimodal,
-            "runtime_scope": self._runtime_scope_report_locked(),
+            "runtime_scope": runtime_scope,
             "memory_store": memory_store,
             "replay_dataset_summary": replay_dataset_summary,
             "snn_sleep_plasticity_autonomy_proposal": sleep_plasticity_autonomy_proposal,
@@ -2860,6 +2952,7 @@ class StatusReadModel:
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                runtime_scope=runtime_scope,
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
                 sleep_plasticity_scheduler_installation_autonomy_proposal=(
                     scheduler_installation_autonomy_proposal

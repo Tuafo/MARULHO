@@ -10,6 +10,7 @@ related_benchmarks: []
         # Concepts
 
         - [Capability Claim](capability-claim.md)
+- [Column Runtime](column-runtime.md)
 - [Cuda Evidence](cuda-evidence.md)
 - [Dynamic Growth](dynamic-growth.md)
 - [Hot Path](hot-path.md)

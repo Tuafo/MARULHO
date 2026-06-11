@@ -317,6 +317,27 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertIn("recommended_action", truth)
         self.assertIn("evidence", truth)
         self.assertIn("memory_pressure", truth)
+        device = truth["evidence"]["runtime_device"]
+        self.assertEqual(device["summary_role"], "observed_runtime_device_evidence_not_acceleration_claim")
+        self.assertEqual(device["resolved_device"], "cpu")
+        self.assertEqual(device["tensor_device"], "cpu")
+        self.assertEqual(device["cuda_available"], torch.cuda.is_available())
+        self.assertFalse(device["observed_cuda_execution"])
+        self.assertEqual(device["claim_boundary"], "observed_device_placement_only_not_cuda_speedup")
+        self.assertEqual(truth["evidence"]["device"], "cpu")
+        self.assertEqual(truth["evidence"]["cuda_available"], torch.cuda.is_available())
+        column_runtime = truth["evidence"]["column_runtime"]
+        self.assertEqual(column_runtime["surface"], "column_runtime_metabolism.v1")
+        self.assertEqual(
+            column_runtime["summary_role"],
+            "compact_runtime_truth_column_metabolism_not_execution_scheduler",
+        )
+        self.assertLessEqual(column_runtime["awake_count"], column_runtime["awake_budget"])
+        self.assertFalse(column_runtime["runs_all_columns"])
+        self.assertEqual(
+            column_runtime["claim_boundary"],
+            "column_scheduler_evidence_only_not_sparse_execution_promotion",
+        )
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()
@@ -373,6 +394,12 @@ class StatusReadModelTerminusStatusTests(unittest.TestCase):
         self.assertIn("runtime_truth", result)
         truth = result["runtime_truth"]
         self.assertEqual(truth["schema_version"], 1)
+        self.assertEqual(
+            truth["evidence"]["runtime_device"]["claim_boundary"],
+            "observed_device_placement_only_not_cuda_speedup",
+        )
+        self.assertEqual(truth["evidence"]["device"], "cpu")
+        self.assertFalse(truth["evidence"]["observed_cuda_execution"])
 
     def test_terminus_status_includes_state_revision(self) -> None:
         model, _, _, runtime_state = _build_read_model()

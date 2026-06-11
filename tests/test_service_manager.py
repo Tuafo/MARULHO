@@ -1262,6 +1262,46 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_checkpoint_and_trace_listing_return_cached_data_when_runtime_lock_is_busy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_cached_metadata_reads")
+            try:
+                manager.runtime_facade.feed(text="cached metadata reads should not block the UI")
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
+                checkpoints = manager.runtime_facade.checkpoint_list()
+                traces = manager.runtime_facade.recent_traces(limit=10)
+
+                self.assertTrue(any(item["path"] == saved["path"] for item in checkpoints))
+                self.assertGreaterEqual(len(traces), 1)
+
+                lock_acquired = Event()
+                release_lock = Event()
+
+                def hold_runtime_lock() -> None:
+                    manager._lock.acquire()
+                    lock_acquired.set()
+                    release_lock.wait(timeout=2.0)
+                    manager._lock.release()
+
+                lock_thread = threading.Thread(target=hold_runtime_lock, daemon=True)
+                lock_thread.start()
+                self.assertTrue(lock_acquired.wait(timeout=1.0))
+                try:
+                    started = time.perf_counter()
+                    cached_checkpoints = manager.runtime_facade.checkpoint_list()
+                    cached_traces = manager.runtime_facade.recent_traces(limit=10)
+                    elapsed = time.perf_counter() - started
+                finally:
+                    release_lock.set()
+                    lock_thread.join(timeout=1.0)
+
+                self.assertLess(elapsed, 0.25)
+                self.assertEqual(cached_checkpoints, checkpoints)
+                self.assertEqual(cached_traces, traces)
+            finally:
+                manager.close()
+
 
 class ServiceManagerInteractionPipelineDelegationTests(unittest.TestCase):
     def test_query_feed_and_respond_delegate_to_interaction_pipeline(self) -> None:

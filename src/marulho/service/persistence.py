@@ -97,6 +97,8 @@ class RuntimePersistence:
         object.__setattr__(self, "_dependencies", dependencies)
         object.__setattr__(self, "_checkpoint_root", Path(self._checkpoint_dir).resolve())
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
+        self._cached_checkpoint_list: list[dict[str, Any]] = []
+        self._cached_trace_lists: dict[int, list[dict[str, Any]]] = {}
         self.load_persisted_traces(trace_history or [])
 
     def __getattr__(self, name: str) -> Any:
@@ -105,7 +107,13 @@ class RuntimePersistence:
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in {"_dependencies", "_checkpoint_root", "_trace_history"}:
+        if name in {
+            "_dependencies",
+            "_checkpoint_root",
+            "_trace_history",
+            "_cached_checkpoint_list",
+            "_cached_trace_lists",
+        }:
             object.__setattr__(self, name, value)
             return
         if name in _FORWARDED_STATE_NAMES:
@@ -147,8 +155,12 @@ class RuntimePersistence:
         self.load_persisted_traces(value)
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
-        with self._lock:
+        acquired = self._lock.acquire(timeout=0.05)
+        if not acquired:
+            return deepcopy(self._cached_checkpoint_list)
+        try:
             if not self._checkpoint_dir.exists():
+                self._cached_checkpoint_list = []
                 return []
             records: list[dict[str, Any]] = []
             for path in sorted(self._checkpoint_dir.glob("*.pt"), key=lambda item: item.stat().st_mtime, reverse=True):
@@ -161,12 +173,22 @@ class RuntimePersistence:
                         "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
                     }
                 )
+            self._cached_checkpoint_list = deepcopy(records)
             return records
+        finally:
+            self._lock.release()
 
     def recent_traces(self, limit: int = 20) -> list[dict[str, Any]]:
-        with self._lock:
-            count = max(1, int(limit))
-            return [deepcopy(trace) for trace in list(self._trace_history)[:count]]
+        count = max(1, int(limit))
+        acquired = self._lock.acquire(timeout=0.05)
+        if not acquired:
+            return deepcopy(self._cached_trace_lists.get(count, []))
+        try:
+            traces = [deepcopy(trace) for trace in list(self._trace_history)[:count]]
+            self._cached_trace_lists[count] = deepcopy(traces)
+            return traces
+        finally:
+            self._lock.release()
 
     def persist_trace(self, trace: dict[str, Any]) -> Path:
         with self._lock:
@@ -180,6 +202,7 @@ class RuntimePersistence:
         ]
         self._trace_history.clear()
         self._trace_history.extend(normalized)
+        self._cached_trace_lists.clear()
 
     def save_checkpoint(self, path: str | None = None, *, publish: bool = True) -> dict[str, Any]:
         with self._lock:

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
 from typing import Any, Mapping
@@ -46,6 +48,19 @@ HOT_PATH_P95_BUDGET_MS = 1000.0
 HOT_PATH_TOTAL_BUDGET_MS = 3000.0
 RUNTIME_TRUTH_ORDER = {"failed": 0, "degraded": 1, "partial": 2, "alive": 3}
 DEFAULT_HOT_PATH_REGRESSION_TOLERANCE = 0.25
+
+
+@contextmanager
+def _temporary_env(name: str, value: str):
+    previous = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
 
 
 def _sha256_json(value: Any) -> str:
@@ -161,6 +176,53 @@ def _metric_float(report: Mapping[str, Any], group: str, metric: str) -> float |
     if not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def _runtime_device_from_report(report: Mapping[str, Any], source: str = "status") -> Mapping[str, Any]:
+    evidence = report.get("runtime_device_evidence")
+    if not isinstance(evidence, Mapping):
+        return {}
+    payload = evidence.get(source)
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _endpoint_success_names(report: Mapping[str, Any]) -> set[str]:
+    timings = report.get("endpoint_timings")
+    if not isinstance(timings, list):
+        return set()
+    return {
+        str(item.get("name"))
+        for item in timings
+        if isinstance(item, Mapping) and bool(item.get("success")) and item.get("name") is not None
+    }
+
+
+def _hot_path_delta(cpu_report: Mapping[str, Any], cuda_report: Mapping[str, Any]) -> dict[str, Any]:
+    cpu_p95 = _metric_float(cpu_report, "hot_path", "latency_ms_p95")
+    cuda_p95 = _metric_float(cuda_report, "hot_path", "latency_ms_p95")
+    cpu_total = _metric_float(cpu_report, "hot_path", "latency_ms_total")
+    cuda_total = _metric_float(cuda_report, "hot_path", "latency_ms_total")
+
+    def ratio(cpu_value: float | None, cuda_value: float | None) -> float | None:
+        if cpu_value is None or cuda_value is None or cuda_value <= 0.0:
+            return None
+        return round(float(cpu_value) / float(cuda_value), 4)
+
+    def delta(cpu_value: float | None, cuda_value: float | None) -> float | None:
+        if cpu_value is None or cuda_value is None:
+            return None
+        return round(float(cuda_value) - float(cpu_value), 3)
+
+    return {
+        "cpu_p95_ms": cpu_p95,
+        "cuda_p95_ms": cuda_p95,
+        "p95_delta_ms_cuda_minus_cpu": delta(cpu_p95, cuda_p95),
+        "p95_cpu_over_cuda_ratio": ratio(cpu_p95, cuda_p95),
+        "cpu_total_ms": cpu_total,
+        "cuda_total_ms": cuda_total,
+        "total_delta_ms_cuda_minus_cpu": delta(cpu_total, cuda_total),
+        "total_cpu_over_cuda_ratio": ratio(cpu_total, cuda_total),
+    }
 
 
 def _allowed_after_value(before_value: float | None, tolerance: float) -> float | None:
@@ -1284,6 +1346,151 @@ def run_service_benchmark_against_accepted_baseline(
     return summary
 
 
+def compare_service_benchmark_devices(
+    *,
+    cpu_report: Mapping[str, Any],
+    cuda_report: Mapping[str, Any],
+    cpu_report_path: str | Path | None = None,
+    cuda_report_path: str | Path | None = None,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    cpu_device = _runtime_device_from_report(cpu_report)
+    cuda_device = _runtime_device_from_report(cuda_report)
+    cpu_success_names = _endpoint_success_names(cpu_report)
+    cuda_success_names = _endpoint_success_names(cuda_report)
+    shared_success_names = sorted(cpu_success_names & cuda_success_names)
+    cpu_only_success_names = sorted(cpu_success_names - cuda_success_names)
+    cuda_only_success_names = sorted(cuda_success_names - cpu_success_names)
+    hot_delta = _hot_path_delta(cpu_report, cuda_report)
+    cpu_metabolism = cpu_report.get("endpoint_metabolism_summary")
+    cuda_metabolism = cuda_report.get("endpoint_metabolism_summary")
+    cpu_budget = (
+        cpu_metabolism.get("hot_path_budget")
+        if isinstance(cpu_metabolism, Mapping) and isinstance(cpu_metabolism.get("hot_path_budget"), Mapping)
+        else {}
+    )
+    cuda_budget = (
+        cuda_metabolism.get("hot_path_budget")
+        if isinstance(cuda_metabolism, Mapping) and isinstance(cuda_metabolism.get("hot_path_budget"), Mapping)
+        else {}
+    )
+    checks = {
+        "cpu_report_success": _check_report_success(cpu_report),
+        "cuda_report_success": _check_report_success(cuda_report),
+        "cpu_runtime_truth_alive": _runtime_truth_verdict_from_report(cpu_report) == "alive",
+        "cuda_runtime_truth_alive": _runtime_truth_verdict_from_report(cuda_report) == "alive",
+        "cpu_observed_not_cuda": not bool(cpu_device.get("observed_cuda_execution", False)),
+        "cuda_observed_execution": bool(cuda_device.get("observed_cuda_execution", False)),
+        "same_successful_endpoint_names": not cpu_only_success_names and not cuda_only_success_names,
+        "hot_path_metrics_available": all(
+            isinstance(hot_delta.get(key), (int, float))
+            for key in ("cpu_p95_ms", "cuda_p95_ms", "cpu_total_ms", "cuda_total_ms")
+        ),
+        "cpu_hot_path_within_budget": bool(cpu_budget.get("within_budget", False)),
+        "cuda_hot_path_within_budget": bool(cuda_budget.get("within_budget", False)),
+    }
+    summary = {
+        "schema_version": 1,
+        "artifact_kind": "marulho_service_benchmark_device_comparison",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "passed" if all(checks.values()) else "failed",
+        "success": all(checks.values()),
+        "checks": checks,
+        "paths": {
+            "cpu_report": None if cpu_report_path is None else str(Path(cpu_report_path)),
+            "cuda_report": None if cuda_report_path is None else str(Path(cuda_report_path)),
+        },
+        "runtime_truth": {
+            "cpu": _runtime_truth_verdict_from_report(cpu_report),
+            "cuda": _runtime_truth_verdict_from_report(cuda_report),
+        },
+        "runtime_device_evidence": {
+            "cpu": dict(cpu_device),
+            "cuda": dict(cuda_device),
+        },
+        "endpoint_success_parity": {
+            "shared_success_names": shared_success_names,
+            "cpu_only_success_names": cpu_only_success_names,
+            "cuda_only_success_names": cuda_only_success_names,
+            "parity_scope": "endpoint_success_names_only_not_semantic_output_equivalence",
+        },
+        "hot_path": hot_delta,
+        "claim_boundary": (
+            "observed_cpu_cuda_device_and_latency_delta_only_"
+            "not_cuda_speedup_claim_without_repeated_parity_runs"
+        ),
+    }
+    if output_path is not None:
+        _write_json(output_path, summary)
+    return summary
+
+
+def run_service_benchmark_device_comparison(
+    *,
+    checkpoint_path: str | Path,
+    output_dir: str | Path,
+    configure_local_source: bool = True,
+    local_source_text: str = DEFAULT_LOCAL_SOURCE_TEXT,
+    local_source_tick_steps: int = 1,
+    trace_history_limit: int = 32,
+    web_dist_dir: str | Path | None = None,
+    feed_text: str = DEFAULT_FEED_TEXT,
+    query_text: str = DEFAULT_QUERY_TEXT,
+    export_limit: int = 3,
+) -> dict[str, Any]:
+    bundle_dir = Path(output_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    cpu_dir = bundle_dir / "cpu"
+    cuda_dir = bundle_dir / "cuda"
+    cpu_dir.mkdir(parents=True, exist_ok=True)
+    cuda_dir.mkdir(parents=True, exist_ok=True)
+    cpu_path = cpu_dir / "service-benchmark.json"
+    cuda_path = cuda_dir / "service-benchmark.json"
+    summary_path = bundle_dir / "device-comparison.json"
+
+    with _temporary_env("MARULHO_DEVICE", "cpu"):
+        cpu_report = run_service_benchmark(
+            checkpoint_path=checkpoint_path,
+            output_path=cpu_path,
+            configure_local_source=configure_local_source,
+            local_source_text=local_source_text,
+            local_source_tick_steps=local_source_tick_steps,
+            trace_history_limit=trace_history_limit,
+            trace_dir=cpu_dir / "traces",
+            web_dist_dir=web_dist_dir,
+            env_root=cpu_dir,
+            feed_text=feed_text,
+            query_text=query_text,
+            export_limit=export_limit,
+        )
+    with _temporary_env("MARULHO_DEVICE", "cuda"):
+        cuda_report = run_service_benchmark(
+            checkpoint_path=checkpoint_path,
+            output_path=cuda_path,
+            configure_local_source=configure_local_source,
+            local_source_text=local_source_text,
+            local_source_tick_steps=local_source_tick_steps,
+            trace_history_limit=trace_history_limit,
+            trace_dir=cuda_dir / "traces",
+            web_dist_dir=web_dist_dir,
+            env_root=cuda_dir,
+            feed_text=feed_text,
+            query_text=query_text,
+            export_limit=export_limit,
+        )
+    summary = compare_service_benchmark_devices(
+        cpu_report=cpu_report,
+        cuda_report=cuda_report,
+        cpu_report_path=cpu_path,
+        cuda_report_path=cuda_path,
+        output_path=summary_path,
+    )
+    summary["paths"]["bundle_dir"] = str(bundle_dir)
+    summary["paths"]["summary"] = str(summary_path)
+    _write_json(summary_path, summary)
+    return summary
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Benchmark local MARULHO service endpoint latency in-process.")
     parser.add_argument("--checkpoint", type=Path)
@@ -1299,6 +1506,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--run-against-baseline",
         type=Path,
         help="Run a fresh benchmark and compare it against an accepted baseline; --output is treated as a bundle directory.",
+    )
+    parser.add_argument(
+        "--compare-devices",
+        action="store_true",
+        help="Run paired CPU/CUDA service benchmarks and write a report-only device comparison; --output is treated as a bundle directory.",
     )
     parser.add_argument(
         "--hot-path-regression-tolerance",
@@ -1385,6 +1597,33 @@ def main(argv: list[str] | None = None) -> None:
                     "status": result["status"],
                     "success": result["success"],
                     "comparison_path": result["paths"]["comparison"],
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    if args.compare_devices:
+        if args.checkpoint is None:
+            parser.error("--compare-devices requires --checkpoint")
+        if args.create_synthetic_checkpoint and not args.checkpoint.exists():
+            create_tiny_service_benchmark_checkpoint(args.checkpoint)
+        result = run_service_benchmark_device_comparison(
+            checkpoint_path=args.checkpoint,
+            output_dir=args.output,
+            configure_local_source=args.configure_local_source,
+            local_source_tick_steps=args.local_source_tick_steps,
+            web_dist_dir=args.web_dist_dir,
+            feed_text=args.feed_text,
+            query_text=args.query_text,
+            export_limit=args.export_limit,
+        )
+        print(
+            json.dumps(
+                {
+                    "output_path": str(args.output),
+                    "status": result["status"],
+                    "success": result["success"],
+                    "comparison_path": result["paths"]["summary"],
                 },
                 sort_keys=True,
             )

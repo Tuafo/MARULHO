@@ -33,7 +33,9 @@ related_benchmarks: []
 
         The service exposes canonical SNN language surface, memory, consolidation, structural-plasticity, capacity-mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning routes. They are orchestration over the existing ledger/executor paths, not new service-owned algorithms. Thought-era public route vocabulary is no longer part of this active boundary.
 
-        Public SNN language/readout route payloads should use readout vocabulary. The surface and memory route boundary now translates older internal `autonomous_snn_language_thought_*` ledger keys to readout names for operators and UI clients, then translates canonical chained inputs back into the current ledger shape. This is a compatibility bridge for the current ledger shape, not a license to add new thought-era surfaces. Capacity, newborn-neuron, and pruning payloads still need the same cleanup.
+        Public SNN language/readout route payloads should use readout vocabulary. The readout-ledger route boundary translates older internal `autonomous_snn_language_thought_*` ledger keys to readout names for operators and UI clients, then translates canonical chained inputs back into the current ledger shape. This covers the surface, memory, consolidation, structural-plasticity, capacity-mutation, newborn-neuron, critical-period, maturation, and newborn-synapse pruning route chain. It is a compatibility bridge for the current ledger shape, not a license to add new thought-era public surfaces.
+
+        `/checkpoints` and `/traces` are UI metadata reads, not runtime work. They should use cached summaries when the runtime lock is busy so SSE telemetry, background runtime activity, checkpoint saves, or replay/tool windows cannot make the control room appear dead while `/status` is healthy. Stale metadata is preferable to blocking the operator surface; checkpoint writes/restores and trace persistence remain explicit slow paths.
 
         ## Key Files
 
