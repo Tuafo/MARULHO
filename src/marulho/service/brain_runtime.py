@@ -1240,6 +1240,22 @@ class BrainRuntime:
         if self._remote_warm_promotion_running and not self._remote_warm_promotion_text_needed_locked() and not self._remote_warm_promotion_sensory_needed_locked():
             self._record_remote_warm_promotion_completed_locked()
         thread_alive = self._brain_runtime_active_locked()
+        runtime_control = self._deps.runtime_control()
+        execution_snapshot_fn = getattr(runtime_control, "_brain_execution_snapshot_locked", None)
+        execution_snapshot = (
+            execution_snapshot_fn()
+            if callable(execution_snapshot_fn)
+            else {
+                "active_execution_requests": 0,
+                "idle": True,
+                "tick_in_progress": False,
+                "tick_started_at": None,
+                "tick_elapsed_ms": None,
+                "tick_phase": None,
+                "tick_source_name": None,
+                "tick_target_tokens": None,
+            }
+        )
         runtime_state_snapshot = self._runtime_state.snapshot()
         total_text_learning_tokens = int(self._brain_background_tokens + self._brain_autonomy_tokens)
         autonomy_share_of_text_learning = float(
@@ -1283,6 +1299,7 @@ class BrainRuntime:
             "next_source_name": next_source_name,
             "background_tokens_processed": int(self._brain_background_tokens),
             "tick_count": int(self._brain_tick_count),
+            "execution": execution_snapshot,
             "last_tick_completed_at": self._brain_last_tick_completed_at,
             "last_tick_duration_ms": self._brain_last_tick_duration_ms,
             "last_tick_token_delta": int(self._brain_last_tick_token_delta),

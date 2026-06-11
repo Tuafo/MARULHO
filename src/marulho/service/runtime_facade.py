@@ -1934,6 +1934,9 @@ class RuntimeFacade:
     def subcortical_structural_plasticity_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_structural_plasticity_surface()
 
+    def binding_growth_trial_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.binding_growth_trial_design(**kwargs)
+
     def subcortical_structural_plasticity_isolated_evaluation(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_structural_plasticity_isolated_evaluation(**kwargs)
 

@@ -78,6 +78,38 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"previous")
             self.assertEqual(list(target.parent.glob("*.tmp")), [])
 
+    def test_checkpoint_roundtrip_preserves_predictive_failure_streak(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            trainer.model.predictive.prediction_failure_streak[:] = torch.arange(
+                8,
+                dtype=torch.int32,
+                device=trainer.model.device,
+            )
+            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "predictive.pt", trainer)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertTrue(
+                torch.equal(
+                    restored.model.predictive.prediction_failure_streak.cpu(),
+                    torch.arange(8, dtype=torch.int32),
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

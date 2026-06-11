@@ -130,6 +130,11 @@ class CompetitiveColumnLayer:
         # Step-level caches: populated by assembly_from_input, consumed by compete/process
         self._cached_proto_sim: Optional[torch.Tensor] = None
         self._cached_raw_drive: Optional[torch.Tensor] = None
+        self.last_execution_mode = "not_run"
+        self.last_scored_column_count = 0
+        self.last_candidate_count = 0
+        self.last_homeostasis_update_count = 0
+        self.last_homeostasis_update_mode = "not_run"
 
         self.thresholds = torch.full((self.n_columns,), 0.5, device=self.device)
         self.target_firing_rate = 1.0 / max(1, self.n_columns)
@@ -378,14 +383,34 @@ class CompetitiveColumnLayer:
             return thresholds
         return thresholds + self.local_plasticity.inhibition(candidates)
 
+    def _combine_similarity_and_input_drive(
+        self,
+        similarity: torch.Tensor,
+        *,
+        candidates: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if self.input_weight_blend == 0.0:
+            self._cached_raw_drive = None
+            return similarity
+        drive = self._input_drive(self.last_input_pattern, candidates)
+        if self.input_weight_blend == 1.0:
+            return drive
+        return (
+            (1.0 - self.input_weight_blend) * similarity
+            + self.input_weight_blend * drive
+        )
+
     def assembly_from_input(self, input_vec: torch.Tensor) -> torch.Tensor:
         """Compute dense column activations from input before winner selection."""
         self.last_input_pattern = self._normalized_input_pattern(input_vec)
         x = self.project_input(input_vec)
         sim = torch.mv(self.prototypes, x)
         self._cached_proto_sim = sim  # reused by compete() and winner_assembly()
-        drive = self._input_drive(self.last_input_pattern)
-        combined = (1.0 - self.input_weight_blend) * sim + self.input_weight_blend * drive
+        self._cached_raw_drive = None
+        self.last_execution_mode = "dense_assembly"
+        self.last_scored_column_count = self.n_columns
+        self.last_candidate_count = self.n_columns
+        combined = self._combine_similarity_and_input_drive(sim)
         assembly = torch.relu(combined - self._inhibition())
         total = float(assembly.sum().item())
         if total <= 0.0:
@@ -394,6 +419,17 @@ class CompetitiveColumnLayer:
             assembly[best] = 1.0
             return assembly
         return assembly / (assembly.sum() + 1e-8)
+
+    def prepare_input_for_candidate_routing(self, input_vec: torch.Tensor) -> torch.Tensor:
+        """Prepare one input without scoring columns before retrieval narrows candidates."""
+        self.last_input_pattern = self._normalized_input_pattern(input_vec)
+        projected = self.project_input(input_vec)
+        self._cached_proto_sim = None
+        self._cached_raw_drive = None
+        self.last_execution_mode = "candidate_routing_pending"
+        self.last_scored_column_count = 0
+        self.last_candidate_count = 0
+        return projected
 
     def winner_assembly(
         self,
@@ -432,14 +468,29 @@ class CompetitiveColumnLayer:
                 "No candidates available and fallback disabled; initialize routing index first."
             )
 
+        candidate_count = int(candidates.numel())
+        self.last_candidate_count = candidate_count
+        self.last_scored_column_count = (
+            self.n_columns if self._cached_proto_sim is not None else candidate_count
+        )
+        self.last_execution_mode = (
+            "candidate_subset"
+            if self._cached_proto_sim is None and candidate_count < self.n_columns
+            else "dense_cached"
+            if self._cached_proto_sim is not None
+            else "all_columns_candidate_set"
+        )
+
         # Reuse cached prototype similarities when available
         if self._cached_proto_sim is not None:
             sim = self._cached_proto_sim[candidates]
         else:
             proto = self.prototypes[candidates]
             sim = torch.mv(proto, x)
-        drive = self._input_drive(self.last_input_pattern, candidates)
-        combined = (1.0 - self.input_weight_blend) * sim + self.input_weight_blend * drive
+        combined = self._combine_similarity_and_input_drive(
+            sim,
+            candidates=candidates,
+        )
         if context_gain is not None:
             gain = context_gain.to(self.device)
             if gain.dim() != 1 or int(gain.numel()) != self.n_columns:
@@ -473,6 +524,7 @@ class CompetitiveColumnLayer:
         prototype_lr_scale: float = 1.0,
         input_lr_scale: float = 1.0,
         update_global_state: bool = True,
+        homeostasis_update_indices: Optional[torch.Tensor] = None,
         compute_metrics: bool = True,
     ) -> torch.Tensor:
         x = self._cached_normalize_key(routing_key)
@@ -482,12 +534,18 @@ class CompetitiveColumnLayer:
         winner_proto = self.prototypes[winners]
         delta = x.unsqueeze(0) - winner_proto
         velocity = self.prototype_velocity[winners]
-        strength_scale = 1.0
-        if winner_strengths is not None and int(winner_strengths.numel()) == int(winners.numel()):
-            strength_scale = float(torch.clamp(winner_strengths.to(self.device).float().mean(), min=0.0, max=1.0).item())
 
         lr = self.get_lr()
         if self.plasticity_mode == "local_stdp":
+            strength_scale = 1.0
+            if winner_strengths is not None and int(winner_strengths.numel()) == int(winners.numel()):
+                strength_scale = float(
+                    torch.clamp(
+                        winner_strengths.to(self.device).float().mean(),
+                        min=0.0,
+                        max=1.0,
+                    ).item()
+                )
             learning_signal = max(-1.0, min(1.0, float(modulator)))
             prototype_lr = lr * max(0.0, float(prototype_lr_scale)) * abs(learning_signal) * max(0.2, strength_scale)
             direction = 0.0 if abs(learning_signal) <= 1e-8 else (1.0 if learning_signal >= 0.0 else -1.0)
@@ -537,6 +595,19 @@ class CompetitiveColumnLayer:
         if update_global_state:
             self.steps_since_win += 1
             self.steps_since_win[winners] = 0
+            if homeostasis_update_indices is None:
+                homeostasis_indices = torch.arange(self.n_columns, device=self.device)
+                self.last_homeostasis_update_mode = "all_columns"
+            else:
+                # Trainer passes the competition candidate set, which already
+                # contains the winners. Avoid unique/cat overhead in the hot path.
+                homeostasis_indices = homeostasis_update_indices.to(self.device).long().flatten()
+                self.last_homeostasis_update_mode = (
+                    "candidate_subset"
+                    if int(homeostasis_indices.numel()) < self.n_columns
+                    else "all_columns"
+                )
+            self.last_homeostasis_update_count = int(homeostasis_indices.numel())
 
             activity = torch.zeros(self.n_columns, device=self.device)
             activity[winners] = 1.0 / max(1, winners.numel())
@@ -550,39 +621,18 @@ class CompetitiveColumnLayer:
                 self.spike_history_window,
                 self.recent_spike_window_count + 1,
             )
-            self.win_rate_ema = (
-                (1.0 - self.homeostasis_beta) * self.win_rate_ema + self.homeostasis_beta * activity
-            )
-            self.thresholds = torch.clamp(
-                self.thresholds + self.homeostasis_lr * (self.win_rate_ema - self.target_firing_rate),
-                min=self.threshold_min,
-                max=self.threshold_max,
-            )
-
-            dead_mask = self.steps_since_win >= self.dead_column_steps
-            if bool(dead_mask.any()):
-                n_dead = int(dead_mask.sum().item())
-                revived_indices = torch.nonzero(dead_mask, as_tuple=False).squeeze(1)
-                noise = torch.rand(n_dead, self.column_dim, device=self.device) * self.dead_column_noise
-                revived = _normalize_positive_vector(x.unsqueeze(0) + noise, dim=1)
-                self.prototypes[dead_mask] = revived
-                self.prototype_velocity[dead_mask] = 0.0
-                if self.last_input_pattern is not None:
-                    revived_weights = self.last_input_pattern.unsqueeze(0).repeat(n_dead, 1)
-                else:
-                    revived_weights = torch.full((n_dead, self.input_dim), 1.0 / self.input_dim, device=self.device)
-                revived_weights = revived_weights + torch.rand_like(revived_weights) * self.dead_column_noise
-                revived_weights = torch.clamp(revived_weights, min=1e-6)
-                revived_weights = revived_weights * (
-                    self.input_weight_row_target / (revived_weights.sum(dim=1, keepdim=True) + 1e-8)
+            if int(homeostasis_indices.numel()) > 0:
+                self.win_rate_ema[homeostasis_indices] = (
+                    (1.0 - self.homeostasis_beta) * self.win_rate_ema[homeostasis_indices]
+                    + self.homeostasis_beta * activity[homeostasis_indices]
                 )
-                self.input_weights[dead_mask] = revived_weights
-                self.thresholds[dead_mask] = self.threshold_min
-                self.win_rate_ema[dead_mask] = self.target_firing_rate
-                self.steps_since_win[dead_mask] = 0
-                self.last_revived_indices = revived_indices.detach().clone()
-                if self.local_plasticity is not None:
-                    self.local_plasticity.revive_columns(revived_indices)
+                self.thresholds[homeostasis_indices] = torch.clamp(
+                    self.thresholds[homeostasis_indices]
+                    + self.homeostasis_lr
+                    * (self.win_rate_ema[homeostasis_indices] - self.target_firing_rate),
+                    min=self.threshold_min,
+                    max=self.threshold_max,
+                )
 
             self.update_count += int(winners.numel())
         # Invalidate step-level caches (prototypes/weights were updated)
@@ -670,6 +720,44 @@ class CompetitiveColumnLayer:
             ),
             "local_plasticity": (
                 None if self.local_plasticity is None else self.local_plasticity.device_report()
+            ),
+        }
+
+    def execution_report(self) -> dict[str, Any]:
+        """Return the last observed competitive-column execution boundary."""
+        scored = max(0, min(int(self.last_scored_column_count), self.n_columns))
+        candidates = max(0, min(int(self.last_candidate_count), self.n_columns))
+        return {
+            "mode": str(self.last_execution_mode),
+            "total_columns": int(self.n_columns),
+            "candidate_count": candidates,
+            "scored_column_count": scored,
+            "scored_column_fraction": round(
+                float(scored) / float(max(1, self.n_columns)),
+                6,
+            ),
+            "homeostasis_update_mode": str(self.last_homeostasis_update_mode),
+            "homeostasis_update_count": max(
+                0,
+                min(int(self.last_homeostasis_update_count), self.n_columns),
+            ),
+            "homeostasis_update_fraction": round(
+                float(max(0, min(int(self.last_homeostasis_update_count), self.n_columns)))
+                / float(max(1, self.n_columns)),
+                6,
+            ),
+            "sparse_candidate_execution_observed": bool(
+                self.last_execution_mode == "candidate_subset"
+                and 0 < scored < self.n_columns
+            ),
+            "tensor_device": str(self.device),
+            "fallback_reason": (
+                "candidate_set_covers_all_columns"
+                if self.last_execution_mode == "all_columns_candidate_set"
+                else None
+            ),
+            "claim_boundary": (
+                "observed_competitive_scoring_scope_only_not_full_column_sleep_scheduler"
             ),
         }
 

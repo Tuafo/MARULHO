@@ -59,6 +59,7 @@ def _model_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
     return {
         "competitive": competitive.state_dict(),
         "W_assembly_project": trainer.model.W_assembly_project.detach().clone().cpu(),
+        "predictive": trainer.model.predictive.state_dict(),
         "surprise": _surprise_snapshot(trainer),
         "context_layer": None if trainer.model.context_layer is None else trainer.model.context_layer.state_dict(),
         "abstraction_layer": None if trainer.model.abstraction_layer is None else trainer.model.abstraction_layer.state_dict(),
@@ -78,6 +79,8 @@ def _restore_model(trainer: MarulhoTrainer, snapshot: dict[str, Any]) -> None:
     competitive.load_state_dict(snapshot["competitive"])
 
     trainer.model.W_assembly_project = snapshot["W_assembly_project"].to(trainer.model.device)
+    if snapshot.get("predictive") is not None:
+        trainer.model.predictive.load_state_dict(snapshot["predictive"])
     _restore_surprise(trainer, snapshot["surprise"])
 
     if trainer.model.context_layer is not None and snapshot.get("context_layer") is not None:

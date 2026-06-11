@@ -53,15 +53,17 @@ class _FakeManager:
         self._lock = RLock()
         self._runtime_state = _FakeRuntimeState()
         self.recorded_events: list[dict[str, object]] = []
+        self.brain_interrupt_calls = 0
+        self.sensory_interrupt_calls = 0
 
     def _record_brain_event_locked(self, event: dict[str, object]) -> None:
         self.recorded_events.append(dict(event))
 
     def _interrupt_brain_sources_locked(self) -> None:
-        return None
+        self.brain_interrupt_calls += 1
 
     def _interrupt_sensory_sources_locked(self) -> None:
-        return None
+        self.sensory_interrupt_calls += 1
 
 
 class _FakeThread:
@@ -160,6 +162,8 @@ class RuntimeControlTests(unittest.TestCase):
         self.assertTrue(cast(Event, controller_any._brain_stop_event).is_set())
         self.assertFalse(controller_any._brain_running)
         self.assertEqual(controller_any._brain_stop_requested_reason, "manual")
+        self.assertEqual(manager.brain_interrupt_calls, 0)
+        self.assertEqual(manager.sensory_interrupt_calls, 0)
         self.assertGreaterEqual(len(manager.recorded_events), 1)
         self.assertEqual(manager.recorded_events[-1]["type"], "stop_requested")
 
@@ -200,6 +204,28 @@ class RuntimeControlTests(unittest.TestCase):
         self.assertTrue(controller._brain_stop_timed_out)
         self.assertEqual(controller._brain_last_stop_duration_ms, 0.0)
         self.assertEqual(manager.recorded_events[-1]["type"], "stop_timeout")
+
+    def test_brain_execution_snapshot_exposes_active_tick_phase(self) -> None:
+        controller = RuntimeControl(_FakeManager())
+
+        with controller._lock:
+            controller._request_active_execution()
+            controller._begin_brain_tick_progress_locked(
+                phase="train_sub_batches",
+                source_name="local_probe",
+                target_tokens=16,
+            )
+            snapshot = controller._brain_execution_snapshot_locked()
+            controller._clear_brain_tick_progress_locked()
+            controller._release_active_execution()
+
+        self.assertEqual(snapshot["active_execution_requests"], 1)
+        self.assertFalse(snapshot["idle"])
+        self.assertTrue(snapshot["tick_in_progress"])
+        self.assertEqual(snapshot["tick_phase"], "train_sub_batches")
+        self.assertEqual(snapshot["tick_source_name"], "local_probe")
+        self.assertEqual(snapshot["tick_target_tokens"], 16)
+        self.assertGreaterEqual(cast(float, snapshot["tick_elapsed_ms"]), 0.0)
 
 
 if __name__ == "__main__":

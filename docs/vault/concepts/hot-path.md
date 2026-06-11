@@ -13,6 +13,10 @@ related_benchmarks: []
 
         Latency-sensitive runtime path that should remain sparse, observable, and free of avoidable reporting or archival work.
 
+        It should also stay free of hidden structural mutation. Competitive-column ticks may update active traces and stale counters, but revival/growth/pruning belongs to explicit maintenance windows with evidence.
+
+        Fast neural state and slower synaptic learning do not need identical cadence. Adaptive context state remains continuous, while its dense Hebbian projection update runs on an observed, configurable cadence so plasticity cost is explicit rather than silently paid on every token.
+
         ## Relationships
 
         - [Subcortex](subcortex.md)

@@ -32,6 +32,11 @@ def _build_runtime_control_initial_state() -> dict[str, Any]:
         "_brain_thread": None,
         "_brain_running": False,
         "_brain_running_since": None,
+        "_brain_tick_in_progress_started_at": None,
+        "_brain_tick_in_progress_started_perf": None,
+        "_brain_tick_in_progress_phase": None,
+        "_brain_tick_in_progress_source_name": None,
+        "_brain_tick_in_progress_target_tokens": None,
         "_brain_last_stop_duration_ms": None,
         "_ingestion_configured_at": None,
         "_ingestion_configured_perf": None,
@@ -328,6 +333,43 @@ class RuntimeControl(RuntimePrewarmer):
                 }
             )
 
+    def _begin_brain_tick_progress_locked(
+        self,
+        *,
+        phase: str,
+        source_name: str | None = None,
+        target_tokens: int | None = None,
+    ) -> None:
+        if self._brain_tick_in_progress_started_perf is None:
+            self._brain_tick_in_progress_started_at = datetime.now(timezone.utc).isoformat()
+            self._brain_tick_in_progress_started_perf = time.perf_counter()
+        self._brain_tick_in_progress_phase = str(phase)
+        self._brain_tick_in_progress_source_name = source_name
+        self._brain_tick_in_progress_target_tokens = None if target_tokens is None else int(target_tokens)
+
+    def _clear_brain_tick_progress_locked(self) -> None:
+        self._brain_tick_in_progress_started_at = None
+        self._brain_tick_in_progress_started_perf = None
+        self._brain_tick_in_progress_phase = None
+        self._brain_tick_in_progress_source_name = None
+        self._brain_tick_in_progress_target_tokens = None
+
+    def _brain_execution_snapshot_locked(self) -> dict[str, Any]:
+        started_perf = self._brain_tick_in_progress_started_perf
+        elapsed_ms = None
+        if started_perf is not None:
+            elapsed_ms = float((time.perf_counter() - started_perf) * 1000.0)
+        return {
+            "active_execution_requests": int(self._active_execution_requests),
+            "idle": bool(self._active_execution_idle_event.is_set()),
+            "tick_in_progress": started_perf is not None,
+            "tick_started_at": self._brain_tick_in_progress_started_at,
+            "tick_elapsed_ms": elapsed_ms,
+            "tick_phase": self._brain_tick_in_progress_phase,
+            "tick_source_name": self._brain_tick_in_progress_source_name,
+            "tick_target_tokens": self._brain_tick_in_progress_target_tokens,
+        }
+
     def _join_brain_thread(
         self,
         thread: Thread | None,
@@ -378,8 +420,6 @@ class RuntimeControl(RuntimePrewarmer):
             self._brain_stop_requested_reason = reason
             self._brain_stop_requested_perf = time.perf_counter()
             self._brain_stop_timed_out = False
-            self._interrupt_brain_sources_locked()
-            self._interrupt_sensory_sources_locked()
             if reason is not None:
                 self._record_brain_event_locked(
                     {
@@ -393,8 +433,8 @@ class RuntimeControl(RuntimePrewarmer):
         return thread
 
     def _brain_loop(self) -> None:
-        _SUB_BATCH = 8  # max tokens trained per lock acquisition
-        _YIELD_SECONDS = 0.05  # 50ms yield between sub-batches for SSE/API
+        _SUB_BATCH = 1  # max tokens trained per lock acquisition
+        _YIELD_SECONDS = 0.005  # yield between token steps for SSE/API/stop responsiveness
         while True:
             with self._lock:
                 stop_event = self._brain_stop_event
@@ -442,78 +482,105 @@ class RuntimeControl(RuntimePrewarmer):
         yield_seconds: float,
     ) -> dict[str, Any] | None:
         tick_started = time.perf_counter()
-        with self._lock:
-            if stop_event is not None and stop_event.is_set():
-                return None
-            if not self._brain_source_runtimes:
-                return self._brain_tick_idle_locked(tick_started)
-            self._brain_stream_epoch += 1
-            runtimes = list(self._brain_source_runtimes)
-            src_index = self._brain_source_index
-            tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
-            repeat = bool(self._brain_config.get("repeat_sources", True))
-            ingestion = self._brain_config.get("ingestion") or {}
-            queue_target_tokens = int(
-                tick_tokens
-                if not bool(ingestion.get("enabled", True))
-                else ingestion.get("queue_target_tokens", tick_tokens)
-            )
-            encoder_ref = self._encoder
-            window_size = self._trainer.config.window_size
-
-        if len(runtimes) <= 1:
-            ordered_indices = [0]
-        else:
-            ordered_indices: list[int]
+        try:
             with self._lock:
-                ordered_indices, _background_focus_terms, _background_focus_pressure = self._ordered_brain_runtime_indices_locked(
-                    start_index=src_index,
+                if stop_event is not None and stop_event.is_set():
+                    return None
+                self._begin_brain_tick_progress_locked(phase="select_source")
+                if not self._brain_source_runtimes:
+                    return self._brain_tick_idle_locked(tick_started)
+                self._brain_stream_epoch += 1
+                runtimes = list(self._brain_source_runtimes)
+                src_index = self._brain_source_index
+                tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
+                repeat = bool(self._brain_config.get("repeat_sources", True))
+                ingestion = self._brain_config.get("ingestion") or {}
+                queue_target_tokens = int(
+                    tick_tokens
+                    if not bool(ingestion.get("enabled", True))
+                    else ingestion.get("queue_target_tokens", tick_tokens)
+                )
+                encoder_ref = self._encoder
+                window_size = self._trainer.config.window_size
+
+            if len(runtimes) <= 1:
+                ordered_indices = [0]
+            else:
+                ordered_indices: list[int]
+                with self._lock:
+                    ordered_indices, _background_focus_terms, _background_focus_pressure = self._ordered_brain_runtime_indices_locked(
+                        start_index=src_index,
+                    )
+
+            with self._lock:
+                first_source_name = None
+                if ordered_indices and 0 <= int(ordered_indices[0]) < len(runtimes):
+                    first_source_name = str(runtimes[int(ordered_indices[0])].name)
+                self._begin_brain_tick_progress_locked(
+                    phase="collect_source_queue",
+                    source_name=first_source_name,
+                    target_tokens=tick_tokens,
                 )
 
-        chunk, collect_meta = self._collect_chunk_unlocked(
-            runtimes,
-            ordered_indices,
-            tick_tokens,
-            queue_target_tokens,
-            repeat,
-            encoder_ref,
-            window_size,
-            stop_event,
-        )
-
-        if stop_event is not None and stop_event.is_set():
-            return None
-
-        if chunk is None:
-            with self._lock:
-                return self._brain_tick_idle_locked(tick_started, source_meta=collect_meta)
-
-        with self._lock:
-            self._commit_collected_runtime_locked(collect_meta)
-            if collect_meta is not None:
-                self._update_brain_runtime_cache_locked(collect_meta["runtime"], served_examples=chunk)
-
-        background_memory_metadata = None if collect_meta is None else self._brain_source_memory_metadata(collect_meta["runtime"])
-        total_trained, last_metrics, evidence_windows = self._train_chunk_in_sub_batches(
-            chunk,
-            stop_event=stop_event,
-            sub_batch_size=sub_batch_size,
-            yield_seconds=yield_seconds,
-            memory_metadata=background_memory_metadata,
-        )
-        source_info = {
-            "runtime": collect_meta["runtime"],
-            "idx": collect_meta["idx"],
-            "source_count": collect_meta["source_count"],
-        } if collect_meta else None
-        with self._lock:
-            return self._finalize_tick_locked(
-                tick_started,
-                source_info,
-                total_trained,
-                last_metrics,
-                evidence_windows,
+            chunk, collect_meta = self._collect_chunk_unlocked(
+                runtimes,
+                ordered_indices,
+                tick_tokens,
+                queue_target_tokens,
+                repeat,
+                encoder_ref,
+                window_size,
+                stop_event,
             )
+
+            if stop_event is not None and stop_event.is_set():
+                return None
+
+            if chunk is None:
+                with self._lock:
+                    self._begin_brain_tick_progress_locked(phase="idle_no_chunk")
+                    return self._brain_tick_idle_locked(tick_started, source_meta=collect_meta)
+
+            with self._lock:
+                source_name = None if collect_meta is None else str(collect_meta["runtime"].name)
+                self._begin_brain_tick_progress_locked(
+                    phase="train_sub_batches",
+                    source_name=source_name,
+                    target_tokens=len(chunk),
+                )
+                self._commit_collected_runtime_locked(collect_meta)
+                if collect_meta is not None:
+                    self._update_brain_runtime_cache_locked(collect_meta["runtime"], served_examples=chunk)
+
+            background_memory_metadata = None if collect_meta is None else self._brain_source_memory_metadata(collect_meta["runtime"])
+            total_trained, last_metrics, evidence_windows = self._train_chunk_in_sub_batches(
+                chunk,
+                stop_event=stop_event,
+                sub_batch_size=sub_batch_size,
+                yield_seconds=yield_seconds,
+                memory_metadata=background_memory_metadata,
+            )
+            source_info = {
+                "runtime": collect_meta["runtime"],
+                "idx": collect_meta["idx"],
+                "source_count": collect_meta["source_count"],
+            } if collect_meta else None
+            with self._lock:
+                self._begin_brain_tick_progress_locked(
+                    phase="finalize_tick",
+                    source_name=None if collect_meta is None else str(collect_meta["runtime"].name),
+                    target_tokens=total_trained,
+                )
+                return self._finalize_tick_locked(
+                    tick_started,
+                    source_info,
+                    total_trained,
+                    last_metrics,
+                    evidence_windows,
+                )
+        finally:
+            with self._lock:
+                self._clear_brain_tick_progress_locked()
 
 
 def _install_dependency_forwarders(cls: type, names: tuple[str, ...]) -> None:

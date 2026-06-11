@@ -264,6 +264,18 @@ class _BrainRuntimeFixtureBase:
     def _brain_runtime_active_locked(self) -> bool:
         return False
 
+    def _brain_execution_snapshot_locked(self) -> dict[str, object]:
+        return {
+            "active_execution_requests": 0,
+            "idle": True,
+            "tick_in_progress": False,
+            "tick_started_at": None,
+            "tick_elapsed_ms": None,
+            "tick_phase": None,
+            "tick_source_name": None,
+            "tick_target_tokens": None,
+        }
+
 
 def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRuntimeDependencies:
     return BrainRuntimeDependencies(
@@ -341,6 +353,20 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
                 "recent_events": [_tick_event()],
             }
         )
+
+
+class _ActiveExecutionSnapshotManager(_SnapshotManager):
+    def _brain_execution_snapshot_locked(self) -> dict[str, object]:
+        return {
+            "active_execution_requests": 1,
+            "idle": False,
+            "tick_in_progress": True,
+            "tick_started_at": "2026-05-10T00:00:01+00:00",
+            "tick_elapsed_ms": 125.0,
+            "tick_phase": "train_sub_batches",
+            "tick_source_name": "source_a",
+            "tick_target_tokens": 8,
+        }
 
 
 class BrainRuntimeSeamTests(unittest.TestCase):
@@ -448,6 +474,19 @@ class BrainRuntimeSeamTests(unittest.TestCase):
                 "cool": 0,
             },
         )
+
+    def test_brain_runtime_snapshot_exposes_active_tick_execution_evidence(self) -> None:
+        manager = _ActiveExecutionSnapshotManager()
+        module = _brain_runtime_from_fixture(manager)
+
+        snapshot = module._brain_runtime_snapshot_locked(include_replay_dataset_summary=False)
+
+        self.assertEqual(snapshot["execution"]["active_execution_requests"], 1)
+        self.assertFalse(snapshot["execution"]["idle"])
+        self.assertTrue(snapshot["execution"]["tick_in_progress"])
+        self.assertEqual(snapshot["execution"]["tick_phase"], "train_sub_batches")
+        self.assertEqual(snapshot["execution"]["tick_source_name"], "source_a")
+        self.assertEqual(snapshot["execution"]["tick_target_tokens"], 8)
 
 
 if __name__ == "__main__":

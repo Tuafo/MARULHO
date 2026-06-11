@@ -1721,6 +1721,7 @@ class StructuralMutationDesignRequest(BaseModel):
     isolated_evaluation: dict[str, Any] = Field(..., min_length=1)
     operator_id: str = Field(..., min_length=1, max_length=160)
     confirmation: bool = False
+    mutation_reason: str = Field(..., min_length=1, max_length=240)
     max_total_edge_delta: int = Field(16, ge=1, le=64)
 
 

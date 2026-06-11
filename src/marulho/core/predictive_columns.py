@@ -60,6 +60,12 @@ class PredictiveColumnState:
         # Prediction error history (EMA for stability)
         self.prediction_error = torch.zeros(n_columns, device=self.device)
         self._error_ema_alpha = 0.2
+        self._failure_streak_threshold = 0.65
+        self.prediction_failure_streak = torch.zeros(
+            n_columns,
+            dtype=torch.int32,
+            device=self.device,
+        )
 
         # Column confidence (how well predictions have matched reality)
         self.confidence = torch.ones(n_columns, device=self.device) * 0.5
@@ -67,7 +73,41 @@ class PredictiveColumnState:
         # Voting state -- each column's hypothesis about active concept
         self.hypothesis = torch.zeros(n_columns, device=self.device)
 
-    def predict(self, column_dim: int) -> torch.Tensor:
+        self.last_prediction_update_mode = "all_columns"
+        self.last_prediction_update_count = int(n_columns)
+        self.last_prediction_update_fraction = 1.0
+        self.last_prediction_update_fallback_reason: str | None = None
+
+    def _candidate_update_indices(
+        self,
+        candidate_indices: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        if candidate_indices is None or int(candidate_indices.numel()) == 0:
+            return None
+        return candidate_indices.to(device=self.device, dtype=torch.long).flatten()
+
+    def _record_prediction_update_scope(
+        self,
+        candidate_indices: torch.Tensor | None,
+    ) -> None:
+        if candidate_indices is None:
+            count = int(self.n_columns)
+            mode = "all_columns"
+        else:
+            count = int(candidate_indices.numel())
+            mode = "candidate_subset"
+        self.last_prediction_update_mode = mode
+        self.last_prediction_update_count = count
+        self.last_prediction_update_fraction = (
+            float(count) / float(self.n_columns) if self.n_columns > 0 else 0.0
+        )
+        self.last_prediction_update_fallback_reason = None
+
+    def predict(
+        self,
+        column_dim: int,
+        candidate_indices: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Generate prediction of next input based on location state.
 
         Returns a [n_columns] vector where each entry is the predicted
@@ -75,7 +115,14 @@ class PredictiveColumnState:
         """
         # Simple prediction: dot product of location with learned weights
         # This gives each column's confidence that IT should be the winner
-        pred = (self.location * self._prediction_weights).sum(dim=1)
+        candidates = self._candidate_update_indices(candidate_indices)
+        if candidates is None:
+            pred = (self.location * self._prediction_weights).sum(dim=1)
+        else:
+            pred = (
+                self.location.index_select(0, candidates)
+                * self._prediction_weights.index_select(0, candidates)
+            ).sum(dim=1)
         return torch.sigmoid(pred)
 
     def update_location(
@@ -113,29 +160,66 @@ class PredictiveColumnState:
         self,
         winners: list[int],
         actual_activation: torch.Tensor,
+        candidate_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute prediction error: difference between predicted and actual.
 
         Returns per-column prediction error (higher = more surprised).
         This signal modulates STDP learning rate.
         """
-        prediction = self.predict(actual_activation.shape[0])
+        candidates = self._candidate_update_indices(candidate_indices)
+        self._record_prediction_update_scope(candidates)
+        prediction = self.predict(actual_activation.shape[0], candidates)
         # Error: columns that predicted they'd win but didn't (or vice versa)
-        actual_binary = torch.zeros(self.n_columns, device=self.device)
-        for w in winners:
-            actual_binary[w] = 1.0
+        if candidates is None:
+            actual_binary = torch.zeros(self.n_columns, device=self.device)
+            for w in winners:
+                actual_binary[w] = 1.0
+        else:
+            winner_tensor = torch.as_tensor(winners, device=self.device, dtype=torch.long)
+            if int(winner_tensor.numel()) == 0:
+                actual_binary = torch.zeros(candidates.shape[0], device=self.device)
+            else:
+                actual_binary = (candidates[:, None] == winner_tensor[None, :]).any(dim=1).to(
+                    dtype=torch.float32
+                )
 
         raw_error = (prediction - actual_binary).abs()
+        failure_mask = raw_error > float(self._failure_streak_threshold)
+        if candidates is None:
+            self.prediction_failure_streak = torch.where(
+                failure_mask,
+                self.prediction_failure_streak + 1,
+                torch.zeros_like(self.prediction_failure_streak),
+            )
 
-        # EMA smoothing
-        self.prediction_error = (
-            self._error_ema_alpha * raw_error
-            + (1 - self._error_ema_alpha) * self.prediction_error
-        )
+            # EMA smoothing
+            self.prediction_error = (
+                self._error_ema_alpha * raw_error
+                + (1 - self._error_ema_alpha) * self.prediction_error
+            )
 
-        # Update confidence (columns with low error gain confidence)
-        self.confidence = 0.95 * self.confidence + 0.05 * (1.0 - raw_error)
-        self.confidence.clamp_(0.0, 1.0)
+            # Update confidence (columns with low error gain confidence)
+            self.confidence = 0.95 * self.confidence + 0.05 * (1.0 - raw_error)
+            self.confidence.clamp_(0.0, 1.0)
+        else:
+            current_streak = self.prediction_failure_streak.index_select(0, candidates)
+            next_streak = torch.where(
+                failure_mask,
+                current_streak + 1,
+                torch.zeros_like(current_streak),
+            )
+            self.prediction_failure_streak[candidates] = next_streak
+
+            current_error = self.prediction_error.index_select(0, candidates)
+            self.prediction_error[candidates] = (
+                self._error_ema_alpha * raw_error
+                + (1 - self._error_ema_alpha) * current_error
+            )
+
+            current_confidence = self.confidence.index_select(0, candidates)
+            next_confidence = 0.95 * current_confidence + 0.05 * (1.0 - raw_error)
+            self.confidence[candidates] = next_confidence.clamp(0.0, 1.0)
 
         return self.prediction_error
 
@@ -143,23 +227,34 @@ class PredictiveColumnState:
         self,
         winners: list[int],
         learning_rate: float = 0.01,
+        candidate_indices: torch.Tensor | None = None,
     ) -> None:
         """Update prediction weights for winner columns.
 
         Winners that correctly predicted their activation strengthen;
         non-winners that incorrectly predicted weaken.
         """
+        candidates = self._candidate_update_indices(candidate_indices)
+        self._record_prediction_update_scope(candidates)
         lr = float(learning_rate)
         for w in winners:
             # Strengthen prediction weights for winners
             self._prediction_weights[w] += lr * self.location[w]
         # Slight decay for non-winners that predicted high
-        prediction = self.predict(self.n_columns)
-        non_winner_mask = torch.ones(self.n_columns, dtype=torch.bool, device=self.device)
-        for w in winners:
-            non_winner_mask[w] = False
-        high_pred_non_winners = non_winner_mask & (prediction > 0.5)
-        if high_pred_non_winners.any():
+        prediction = self.predict(self.n_columns, candidates)
+        if candidates is None:
+            non_winner_mask = torch.ones(self.n_columns, dtype=torch.bool, device=self.device)
+            for w in winners:
+                non_winner_mask[w] = False
+            high_pred_non_winners = non_winner_mask & (prediction > 0.5)
+            self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
+        else:
+            winner_tensor = torch.as_tensor(winners, device=self.device, dtype=torch.long)
+            if int(winner_tensor.numel()) == 0:
+                non_winner_mask = torch.ones(candidates.shape[0], dtype=torch.bool, device=self.device)
+            else:
+                non_winner_mask = ~(candidates[:, None] == winner_tensor[None, :]).any(dim=1)
+            high_pred_non_winners = candidates[non_winner_mask & (prediction > 0.5)]
             self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
 
     def vote(self, winners: list[int], top_k_activations: torch.Tensor) -> torch.Tensor:
@@ -211,10 +306,16 @@ class PredictiveColumnState:
             "velocity_device": str(self.velocity.device),
             "prediction_weights_device": str(self._prediction_weights.device),
             "prediction_error_device": str(self.prediction_error.device),
+            "prediction_failure_streak_device": str(self.prediction_failure_streak.device),
+            "prediction_failure_streak_available": True,
             "confidence_device": str(self.confidence.device),
             "hypothesis_device": str(self.hypothesis.device),
             "n_columns": int(self.n_columns),
             "location_dim": int(self.location_dim),
+            "last_prediction_update_mode": self.last_prediction_update_mode,
+            "last_prediction_update_count": int(self.last_prediction_update_count),
+            "last_prediction_update_fraction": float(self.last_prediction_update_fraction),
+            "last_prediction_update_fallback_reason": self.last_prediction_update_fallback_reason,
         }
 
     def state_dict(self) -> dict[str, torch.Tensor]:
@@ -224,14 +325,22 @@ class PredictiveColumnState:
             "velocity": self.velocity.detach().clone().cpu(),
             "prediction_weights": self._prediction_weights.detach().clone().cpu(),
             "prediction_error": self.prediction_error.detach().clone().cpu(),
+            "prediction_failure_streak": self.prediction_failure_streak.detach().clone().cpu(),
             "confidence": self.confidence.detach().clone().cpu(),
             "hypothesis": self.hypothesis.detach().clone().cpu(),
         }
 
     def load_state_dict(self, state: dict[str, torch.Tensor]) -> None:
         """Restore predictive state from checkpoint."""
-        for key in ("location", "velocity", "prediction_weights",
-                    "prediction_error", "confidence", "hypothesis"):
+        for key in (
+            "location",
+            "velocity",
+            "prediction_weights",
+            "prediction_error",
+            "prediction_failure_streak",
+            "confidence",
+            "hypothesis",
+        ):
             tensor_key = key if key != "prediction_weights" else "_prediction_weights"
             attr_name = tensor_key if not key.startswith("_") else key
             value = state.get(key)
@@ -254,5 +363,6 @@ class PredictiveColumnState:
             self.n_columns, self.location_dim, device=self.device
         ) * 0.01
         self.prediction_error.zero_()
+        self.prediction_failure_streak.zero_()
         self.confidence.fill_(0.5)
         self.hypothesis.zero_()

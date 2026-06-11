@@ -2,7 +2,7 @@
 type: generated
 source: graphify
 generated_by: "manual command log from vault build"
-last_verified: 2026-06-09
+last_verified: 2026-06-11
 ---
 
 # Graphify Command Notes

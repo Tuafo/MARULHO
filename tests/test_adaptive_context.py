@@ -29,6 +29,9 @@ class TestAdaptiveContextLayerInit(unittest.TestCase):
         self.assertEqual(report["state_device"], str(self.ctx.state.device))
         self.assertEqual(report["w_in_device"], str(self.ctx.w_in.device))
         self.assertEqual(report["w_out_device"], str(self.ctx.w_out.device))
+        self.assertEqual(report["state_update_count"], 0)
+        self.assertEqual(report["plasticity_update_count"], 0)
+        self.assertFalse(report["last_update_weights"])
 
     def test_device_report_includes_observation_snapshot_device(self) -> None:
         self.ctx.observe(torch.randn(64).abs(), update_weights=True)
@@ -86,6 +89,19 @@ class TestAdaptiveContextLayerStep(unittest.TestCase):
         assembly = torch.randn(32)
         self.ctx.observe(assembly)
         self.assertGreater(float(self.ctx.neuron_state.abs().sum()), 0.0)
+
+    def test_state_updates_without_weight_plasticity(self) -> None:
+        assembly = torch.randn(32)
+        weights_before = self.ctx.w_in.clone()
+
+        self.ctx.observe(assembly, update_weights=False)
+        report = self.ctx.device_report()
+
+        self.assertGreater(float(self.ctx.neuron_state.abs().sum()), 0.0)
+        self.assertTrue(torch.equal(self.ctx.w_in, weights_before))
+        self.assertEqual(report["state_update_count"], 1)
+        self.assertEqual(report["plasticity_update_count"], 0)
+        self.assertFalse(report["last_update_weights"])
 
     def test_zero_assembly_decays_state(self) -> None:
         # Prime state
@@ -293,6 +309,13 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
 
         cfg = MarulhoConfig(context_mode="adaptive")
         self.assertEqual(cfg.context_mode, "adaptive")
+        self.assertEqual(cfg.context_plasticity_interval_tokens, 4)
+
+    def test_context_plasticity_interval_must_be_positive(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "context_plasticity_interval_tokens"):
+            MarulhoConfig(context_plasticity_interval_tokens=0)
 
     def test_config_default_is_fixed(self) -> None:
         from marulho.config.model_config import MarulhoConfig
@@ -319,6 +342,44 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         assert model.context_layer is not None
         self.assertEqual(report["module"], "context_adaptive")
         self.assertEqual(report["state_device"], str(model.context_layer.state.device))
+
+    def test_trainer_keeps_context_state_live_with_cadenced_plasticity(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            enable_context_layer=True,
+            context_mode="adaptive",
+            context_plasticity_interval_tokens=4,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.memory_warm_started = True
+
+        metrics = []
+        for step in range(5):
+            metrics.append(
+                trainer.train_step(
+                    torch.randn(cfg.input_dim),
+                    raw_window=f"context_{step}",
+                )
+            )
+
+        assert model.context_layer is not None
+        report = model.context_layer.device_report()
+        self.assertEqual(report["state_update_count"], 5)
+        self.assertEqual(report["plasticity_update_count"], 2)
+        self.assertFalse(report["last_update_weights"])
+        self.assertEqual(
+            [item["context_plasticity_due"] for item in metrics],
+            [1, 0, 0, 1, 0],
+        )
+        self.assertTrue(all(item["context_plasticity_interval_tokens"] == 4 for item in metrics))
 
 
 if __name__ == "__main__":

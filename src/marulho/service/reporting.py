@@ -65,6 +65,9 @@ class ServiceReporter:
                 "type": "context",
                 "params": {
                     "context_mode": config.context_mode,
+                    "plasticity_interval_tokens": int(
+                        config.context_plasticity_interval_tokens
+                    ),
                 },
             })
             layers.append({
@@ -143,6 +146,9 @@ class ServiceReporter:
                 "layers": layers,
                 "config": {
                     "context_mode": config.context_mode,
+                    "context_plasticity_interval_tokens": int(
+                        config.context_plasticity_interval_tokens
+                    ),
                     "plasticity_rule": config.plasticity_rule,
                     "n_columns": int(config.n_columns),
                     "cross_modal": bool(model.cross_modal is not None),

@@ -694,7 +694,10 @@ def create_app(
 
     @app.post("/checkpoint/save", response_model=CheckpointActionResponse)
     def save_checkpoint(request: CheckpointSaveRequest) -> CheckpointActionResponse:
-        return CheckpointActionResponse(**runtime.save_checkpoint(request.path))
+        try:
+            return CheckpointActionResponse(**runtime.save_checkpoint(request.path))
+        except TimeoutError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/checkpoint/restore", response_model=CheckpointActionResponse)
     def restore_checkpoint(request: CheckpointRestoreRequest) -> CheckpointActionResponse:
@@ -3371,6 +3374,16 @@ def create_app(
     def terminus_subcortical_structural_plasticity() -> dict[str, Any]:
         return runtime.subcortical_structural_plasticity_surface()
 
+    @app.get("/terminus/subcortical-structural-plasticity/binding-growth-trial")
+    def terminus_binding_growth_trial_design(
+        max_candidates: int = Query(8, ge=1, le=16),
+        max_total_edge_delta: int = Query(16, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.binding_growth_trial_design(
+            max_candidates=max_candidates,
+            max_total_edge_delta=max_total_edge_delta,
+        )
+
     @app.post("/terminus/subcortical-structural-plasticity/evaluate")
     def terminus_subcortical_structural_plasticity_evaluation(
         request: StructuralPlasticityIsolatedEvaluationRequest,
@@ -3389,6 +3402,7 @@ def create_app(
             isolated_evaluation=request.isolated_evaluation,
             operator_id=request.operator_id,
             confirmation=request.confirmation,
+            mutation_reason=request.mutation_reason,
             max_total_edge_delta=request.max_total_edge_delta,
         )
 

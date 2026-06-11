@@ -21,6 +21,7 @@ related_benchmarks: []
 - [Replay Window](replay-window.md)
 - [Retired Path](retired-path.md)
 - [Runtime Evidence](runtime-evidence.md)
+- [Runtime Machinery Plane](runtime-machinery-plane.md)
 - [Runtime Truth](runtime-truth.md)
 - [Slow Path](slow-path.md)
 - [Spike Readout](spike-readout.md)

@@ -291,12 +291,10 @@ class MarulhoModel:
     def routing_key_from_pattern(self, pattern_vec: torch.Tensor) -> torch.Tensor:
         """Route using spike-proxy assembly activations projected to latent space."""
         x = pattern_vec.to(self.device)
-        assembly = self.competitive.assembly_from_input(x)
         if self.config.enable_learned_chunking:
-            projected = self.competitive.last_projected_input
-            if projected is None:
-                projected = self.competitive.project_input(x)
+            projected = self.competitive.prepare_input_for_candidate_routing(x)
             return F.normalize(projected, dim=0)
+        assembly = self.competitive.assembly_from_input(x)
         routing_key = torch.mv(self._W_assembly_project_t, assembly)
         return F.normalize(routing_key, dim=0)
 
@@ -308,12 +306,13 @@ class MarulhoModel:
     ) -> dict[str, Any]:
         """Return report-only many-column scheduler and voting evidence."""
         awake_limit = min(int(self.config.k_routing), int(self.config.n_columns))
-        return build_column_runtime_report(
+        report = build_column_runtime_report(
             n_columns=int(self.config.n_columns),
             prediction_error=getattr(self.predictive, "prediction_error", None),
             confidence=getattr(self.predictive, "confidence", None),
             steps_since_win=getattr(self.competitive, "steps_since_win", None),
             win_rate_ema=getattr(self.competitive, "win_rate_ema", None),
+            prediction_failure_streak=getattr(self.predictive, "prediction_failure_streak", None),
             last_winner_ids=[] if last_winner is None else [int(last_winner)],
             awake_limit=awake_limit,
             sleep_after_steps=max(1, min(64, int(self.config.dead_column_steps // 4))),
@@ -321,6 +320,8 @@ class MarulhoModel:
             token_count=token_count,
             device=str(self.device),
         )
+        report["execution"] = self.competitive.execution_report()
+        return report
 
     def runtime_scope_report(
         self,

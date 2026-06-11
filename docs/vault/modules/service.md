@@ -37,6 +37,14 @@ related_benchmarks: []
 
         `/checkpoints` and `/traces` are UI metadata reads, not runtime work. They should use cached summaries when the runtime lock is busy so SSE telemetry, background runtime activity, checkpoint saves, or replay/tool windows cannot make the control room appear dead while `/status` is healthy. Stale metadata is preferable to blocking the operator surface; checkpoint writes/restores and trace persistence remain explicit slow paths.
 
+        Runtime Scope evidence is also a status sidecar rather than live cognition. `StatusReadModel` may reuse a deep-copied Runtime Scope projection for at most 500 ms across status and terminus polling, while exposing cache age and source/current token counts. Explicit fresh reads bypass the projection cache. The cache must never become model memory, a column-vote cache, mutation state, or CUDA speedup evidence.
+
+        Terminus background tick execution evidence belongs to `RuntimeControl`. The controller may expose a read-only heartbeat with active request count, idle state, tick phase, source, target token count, and elapsed time so `/terminus` and the UI can show live first-tick progress while `/status` keeps its cached fallback semantics. This heartbeat must not become a scheduler, learning rule, or mutation authority.
+
+        Structural Mutation Application orchestrates the explicit binding-hub topology transaction. Service binds operator reason, target, method, edge budget, revision, and checkpoint path into reviewed hashes; verifies the full binding snapshot before and after mutation; publishes only a verified committed checkpoint; and restores binding state plus Runtime State revision on no-op, over-budget, tampered, or failed commits. The topology algorithm remains in `core`.
+
+        `/terminus/subcortical-structural-plasticity/binding-growth-trial` is an explicit read-only review request. `StatusReadModel` reads server-owned repeated-failure candidates and delegates edge planning to core, then semantics binds the result to revision and promotion evidence. Service does not select edges or execute the trial.
+
         ## Key Files
 
         - [src/marulho/service](../../../src/marulho/service)

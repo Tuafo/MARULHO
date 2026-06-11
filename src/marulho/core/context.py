@@ -77,6 +77,9 @@ class ContextLayer:
         self.inhibitory_state = torch.zeros(self.n_columns, device=self.device)
         self.state = torch.zeros(self.n_columns, device=self.device)
         self.last_precision_weight = 1.0
+        self.state_update_count = 0
+        self.plasticity_update_count = 0
+        self.last_update_weights = False
 
         self.feedforward = torch.eye(self.n_columns, device=self.device)
         self.no_self_mask = 1.0 - torch.eye(self.n_columns, device=self.device)
@@ -94,6 +97,9 @@ class ContextLayer:
         self.slow_state.zero_()
         self.inhibitory_state.zero_()
         self.state.zero_()
+        self.state_update_count = 0
+        self.plasticity_update_count = 0
+        self.last_update_weights = False
 
     def context_prediction(self) -> torch.Tensor:
         if float(self.state.sum().item()) <= 0.0:
@@ -155,6 +161,10 @@ class ContextLayer:
         *,
         precision_weight: float | None = None,
     ) -> torch.Tensor:
+        self.state_update_count += 1
+        self.last_update_weights = bool(update_weights)
+        if update_weights:
+            self.plasticity_update_count += 1
         current = _normalize(assembly.to(self.device))
         previous_state = self.state.clone()
         if current.sum() <= 0.0:
@@ -223,6 +233,9 @@ class ContextLayer:
             "recurrent_mask_device": str(self.recurrent_mask.device),
             "recurrent_device": str(self.recurrent.device),
             "n_columns": int(self.n_columns),
+            "state_update_count": int(self.state_update_count),
+            "plasticity_update_count": int(self.plasticity_update_count),
+            "last_update_weights": bool(self.last_update_weights),
         }
 
     def state_dict(self) -> dict[str, Any]:
@@ -289,6 +302,9 @@ class AdaptiveContextLayer:
         self.modulation_strength = float(modulation_strength)
         self.transition_lr = float(transition_lr)
         self.last_precision_weight = 1.0
+        self.state_update_count = 0
+        self.plasticity_update_count = 0
+        self.last_update_weights = False
 
         # Learnable time constants, initialized log-uniformly
         self.log_tau = torch.linspace(
@@ -321,6 +337,9 @@ class AdaptiveContextLayer:
         self.neuron_state.zero_()
         self.state.zero_()
         self._context_observations.clear()
+        self.state_update_count = 0
+        self.plasticity_update_count = 0
+        self.last_update_weights = False
 
     def _tau(self) -> torch.Tensor:
         """Effective time constants, clamped to [tau_min, tau_max]."""
@@ -379,6 +398,10 @@ class AdaptiveContextLayer:
         *,
         precision_weight: float | None = None,
     ) -> torch.Tensor:
+        self.state_update_count += 1
+        self.last_update_weights = bool(update_weights)
+        if update_weights:
+            self.plasticity_update_count += 1
         raw = assembly.to(self.device)
         if raw.dim() > 1:
             raw = raw.squeeze(0)
@@ -529,6 +552,9 @@ class AdaptiveContextLayer:
             "latest_context_observation_device": observation_device,
             "n_columns": int(self.n_columns),
             "n_neurons": int(self.n_neurons),
+            "state_update_count": int(self.state_update_count),
+            "plasticity_update_count": int(self.plasticity_update_count),
+            "last_update_weights": bool(self.last_update_weights),
         }
 
     def state_dict(self) -> dict[str, Any]:

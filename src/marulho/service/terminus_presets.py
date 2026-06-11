@@ -1,7 +1,7 @@
 """Terminus quick-start presets.
 
 The live Terminus runtime is now Hugging Face + real-source autonomy:
-- Hugging Face educational / encyclopedic / scientific text streams
+- Hugging Face open-textbook / educational / scientific text streams
 - focus-aware background source allocation across those text streams
 - real Hugging Face visual/audio grounding episodes
 - autonomy-driven targeted acquisition over maintained real source catalogs
@@ -35,7 +35,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "default": True,
         "description": (
             "Uses a Hugging Face source mixture for steady background training "
-            "(Wikipedia, S2ORC ArXiv abstracts, FineWeb-Edu) with focus-aware background "
+            "(OpenStax open textbooks, S2ORC ArXiv abstracts, FineWeb-Edu) with focus-aware background "
             "source allocation, real Hugging Face multimodal grounding episodes "
             "(S1-MMAlign + AudioCaps) on a balanced, confidence-aware, semantically "
             "routed schedule, plus autonomy-driven targeted acquisition over the maintained "

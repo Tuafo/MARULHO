@@ -909,6 +909,133 @@ def build_subcortical_structural_plasticity_surface(
     }
 
 
+def build_binding_growth_trial_design(
+    column_runtime: Mapping[str, Any],
+    binding_plan: Mapping[str, Any],
+    *,
+    state_revision: int,
+) -> dict[str, Any]:
+    """Bind repeated prediction failures to a read-only sparse topology trial."""
+    runtime = dict(column_runtime or {})
+    growth = runtime.get("growth_gate") if isinstance(runtime.get("growth_gate"), Mapping) else {}
+    plan = dict(binding_plan or {})
+    growth_candidates = [
+        int(value)
+        for value in list(growth.get("candidate_column_ids_sample") or [])
+        if isinstance(value, int) and not isinstance(value, bool)
+    ]
+    plan_candidates = [
+        int(value)
+        for value in list(plan.get("candidate_column_ids") or [])
+        if isinstance(value, int) and not isinstance(value, bool)
+    ]
+    proposed_edges = [
+        [int(edge[0]), int(edge[1])]
+        for edge in list(plan.get("proposed_edges") or [])
+        if isinstance(edge, (list, tuple))
+        and len(edge) == 2
+        and all(isinstance(value, int) and not isinstance(value, bool) for value in edge)
+    ]
+    max_total_edge_delta = int(_float(plan.get("max_total_edge_delta"), 0.0))
+    proposed_total_edge_delta = int(_float(plan.get("proposed_total_edge_delta"), 0.0))
+    plan_material = {
+        "n_columns": int(_float(runtime.get("total_columns"), 0.0)),
+        "candidate_column_ids": plan_candidates,
+        "max_total_edge_delta": max_total_edge_delta,
+        "baseline_topology_hash": plan.get("baseline_topology_hash"),
+        "proposed_edges": proposed_edges,
+    }
+    recomputed_plan_hash = _sha256_json(plan_material)
+    supplied_plan_hash = _text(plan.get("plan_hash"))
+    required_evidence = {
+        "column_runtime_surface_available": runtime.get("surface") == "column_runtime_metabolism.v1",
+        "repeated_failure_growth_gate_ready": bool(growth.get("ready")),
+        "repeated_failure_evidence_available": bool(growth.get("repeated_surprise_available")),
+        "binding_plan_surface_available": plan.get("surface")
+        == "binding_candidate_hub_topology_plan.v1",
+        "candidate_columns_bound": bool(plan_candidates) and plan_candidates == growth_candidates[: len(plan_candidates)],
+        "baseline_topology_hash_available": len(_text(plan.get("baseline_topology_hash"))) == 64,
+        "plan_hash_available": len(supplied_plan_hash) == 64,
+        "plan_hash_recomputed_match": supplied_plan_hash == recomputed_plan_hash,
+        "nonzero_edge_delta": proposed_total_edge_delta > 0,
+        "edge_delta_matches_plan": proposed_total_edge_delta == len(proposed_edges),
+        "edge_delta_within_budget": proposed_total_edge_delta <= max_total_edge_delta,
+        "source_tensor_device_observed": bool(_text(plan.get("source_tensor_device"))),
+        "runtime_mutation_absent": not bool(plan.get("mutates_runtime_state")),
+        "checkpoint_write_absent": not bool(plan.get("writes_checkpoint")),
+        "topology_refresh_absent": not bool(plan.get("calls_topology_refresh")),
+    }
+    ready = all(bool(value) for value in required_evidence.values())
+    design_material = {
+        "state_revision": int(state_revision),
+        "growth_gate": {
+            "candidate_column_ids": plan_candidates,
+            "streak_threshold": int(_float(growth.get("streak_threshold"), 0.0)),
+            "repeated_surprise_count": int(_float(growth.get("repeated_surprise_count"), 0.0)),
+        },
+        "binding_plan_hash": supplied_plan_hash,
+        "baseline_topology_hash": plan.get("baseline_topology_hash"),
+        "max_total_edge_delta": max_total_edge_delta,
+        "proposed_edges": proposed_edges,
+    }
+    return {
+        "schema_version": 1,
+        "artifact_kind": "terminus_binding_growth_trial_design",
+        "surface": "binding_growth_trial_design.v1",
+        "available": True,
+        "source": "core.column_runtime_and_hypercube_binding_plan",
+        "grounded": True,
+        "advisory": True,
+        "executable": False,
+        "runs_isolated_trial": False,
+        "mutates_runtime_state": False,
+        "writes_checkpoint": False,
+        "calls_topology_refresh": False,
+        "state_revision": int(state_revision),
+        "binding_growth_trial_design_hash": _sha256_json(design_material),
+        "growth_evidence": {
+            "candidate_column_ids": plan_candidates,
+            "candidate_column_count": len(plan_candidates),
+            "streak_threshold": int(_float(growth.get("streak_threshold"), 0.0)),
+            "repeated_surprise_count": int(_float(growth.get("repeated_surprise_count"), 0.0)),
+            "evidence": growth.get("evidence"),
+        },
+        "topology_trial": {
+            "binding_plan_hash": supplied_plan_hash or None,
+            "baseline_topology_hash": plan.get("baseline_topology_hash"),
+            "max_total_edge_delta": max_total_edge_delta,
+            "proposed_total_edge_delta": proposed_total_edge_delta,
+            "proposed_edges": proposed_edges,
+            "per_source": [
+                dict(item)
+                for item in list(plan.get("per_source") or [])
+                if isinstance(item, Mapping)
+            ],
+            "source_tensor_device": plan.get("source_tensor_device"),
+            "plan_compute_device": plan.get("plan_compute_device"),
+            "device_transfer_count": int(_float(plan.get("device_transfer_count"), 0.0)),
+            "snapshot_bytes": int(_float(plan.get("snapshot_bytes"), 0.0)),
+            "hot_path_effect": plan.get("hot_path_effect"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_isolated_binding_growth_trial"
+            if ready
+            else "blocked_missing_binding_growth_trial_evidence",
+            "next_gate": "checkpoint_clone_binding_growth_trial_runner"
+            if ready
+            else "collect_repeated_failure_and_bounded_topology_plan",
+            "eligible_for_isolated_trial": ready,
+            "eligible_for_structural_mutation": False,
+            "eligible_for_action": False,
+            "required_evidence": required_evidence,
+        },
+        "limitations": [
+            "Design only; it does not clone a checkpoint, run cognition, refresh topology, or apply edges.",
+            "Prediction failure identifies candidate sources but does not prove the proposed edges improve prediction, Runtime Truth, or spike health.",
+        ],
+    }
+
+
 def evaluate_subcortical_structural_plasticity_isolated(
     pre_snapshot: Mapping[str, Any],
     post_snapshot: Mapping[str, Any],
@@ -1014,6 +1141,7 @@ def build_subcortical_structural_mutation_design(
     *,
     operator_id: str | None = None,
     confirmation: bool = False,
+    mutation_reason: str | None = None,
     max_total_edge_delta: int = 16,
 ) -> dict[str, Any]:
     """Build a read-only structural mutation design from bound isolated evidence."""
@@ -1065,6 +1193,7 @@ def build_subcortical_structural_mutation_design(
         "bounded_total_edge_delta": bounded_edge_delta,
         "operator_confirmation": bool(confirmation),
         "operator_id_available": bool(_text(operator_id)),
+        "mutation_reason_available": bool(_text(mutation_reason)),
     }
     ready = all(bool(value) for value in required_evidence.values())
     design_material = {
@@ -1079,6 +1208,8 @@ def build_subcortical_structural_mutation_design(
         "max_total_edge_delta": int(max_total_edge_delta),
         "operator_id": _text(operator_id),
         "confirmation": bool(confirmation),
+        "mutation_target": "marulho.subcortex.binding.hub_topology",
+        "mutation_reason": _text(mutation_reason),
     }
     design_hash = _sha256_json(design_material)
     return {
@@ -1108,6 +1239,11 @@ def build_subcortical_structural_mutation_design(
             "rollback_pre_snapshot_hash": rollback.get("pre_snapshot_hash"),
             "rollback_bound_to_pre_snapshot": bool(rollback.get("bound_to_pre_snapshot")),
         },
+        "application_target": {
+            "target_id": "marulho.subcortex.binding.hub_topology",
+            "mutation_method": "HypercubeBindingLayer.refresh_hub_topology",
+            "mutation_reason": _text(mutation_reason) or None,
+        },
         "structural_mutation_design": {
             "edges_added_delta": int(_float(structural_delta.get("edges_added_delta"), 0.0)),
             "edges_removed_delta": int(_float(structural_delta.get("edges_removed_delta"), 0.0)),
@@ -1123,6 +1259,7 @@ def build_subcortical_structural_mutation_design(
         "operator_review": {
             "operator_id": _text(operator_id) or None,
             "confirmation": bool(confirmation),
+            "mutation_reason": _text(mutation_reason) or None,
         },
         "promotion_gate": {
             "status": "ready_for_structural_mutation_preflight_review"
@@ -1182,6 +1319,11 @@ def build_subcortical_structural_mutation_preflight(
         else {}
     )
     gate = design.get("promotion_gate") if isinstance(design.get("promotion_gate"), Mapping) else {}
+    target = (
+        design.get("application_target")
+        if isinstance(design.get("application_target"), Mapping)
+        else {}
+    )
     design_material = {
         "surface": binding.get("evaluation_surface"),
         "pre_snapshot_hash": binding.get("pre_snapshot_hash"),
@@ -1202,6 +1344,8 @@ def build_subcortical_structural_mutation_preflight(
         "max_total_edge_delta": mutation.get("max_total_edge_delta"),
         "operator_id": _text(operator.get("operator_id")),
         "confirmation": bool(operator.get("confirmation")),
+        "mutation_target": target.get("target_id"),
+        "mutation_reason": _text(operator.get("mutation_reason")),
     }
     recomputed_design_hash = _sha256_json(design_material)
     supplied_design_hash = str(design.get("structural_mutation_design_hash") or "")
@@ -1223,10 +1367,19 @@ def build_subcortical_structural_mutation_preflight(
         and not bool(mutation.get("checkpoint_written")),
         "design_did_not_mutate_runtime": not bool(design.get("mutates_runtime_state"))
         and not bool(mutation.get("runtime_update_applied")),
+        "binding_hub_topology_target_bound": target.get("target_id")
+        == "marulho.subcortex.binding.hub_topology",
+        "binding_hub_refresh_method_bound": target.get("mutation_method")
+        == "HypercubeBindingLayer.refresh_hub_topology",
+        "mutation_reason_available": bool(_text(operator.get("mutation_reason"))),
     }
     ready = all(bool(value) for value in required_evidence.values())
     preflight_material = {
         "structural_mutation_design_hash": supplied_design_hash,
+        "mutation_target": target.get("target_id"),
+        "mutation_method": target.get("mutation_method"),
+        "mutation_reason": _text(operator.get("mutation_reason")),
+        "max_total_edge_delta": int(_float(mutation.get("max_total_edge_delta"), 0.0)),
         "expected_state_revision": int(expected_state_revision),
         "current_state_revision": int(current_state_revision),
         "checkpoint_path": checkpoint or None,
@@ -1251,12 +1404,17 @@ def build_subcortical_structural_mutation_preflight(
         "hash_algorithm": "sha256_canonical_json",
         "design_binding": {
             "structural_mutation_design_hash": supplied_design_hash,
+            "design_hash_available": len(supplied_design_hash) == 64,
             "recomputed_design_hash": recomputed_design_hash,
             "design_hash_recomputed_match": recomputed_design_hash == supplied_design_hash,
             "pre_snapshot_hash": binding.get("pre_snapshot_hash"),
             "post_snapshot_hash": binding.get("post_snapshot_hash"),
             "rollback_snapshot_id": binding.get("rollback_snapshot_id"),
             "rollback_pre_snapshot_hash": binding.get("rollback_pre_snapshot_hash"),
+            "mutation_target": target.get("target_id"),
+            "mutation_method": target.get("mutation_method"),
+            "mutation_reason": _text(operator.get("mutation_reason")) or None,
+            "max_total_edge_delta": int(_float(mutation.get("max_total_edge_delta"), 0.0)),
         },
         "checkpoint_transaction_requirements": {
             "expected_state_revision": int(expected_state_revision),

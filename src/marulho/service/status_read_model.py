@@ -35,6 +35,7 @@ _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_
 
 from marulho.semantics import (
     attach_cognitive_signal_language_surface,
+    build_binding_growth_trial_design,
     build_snn_language_readiness_surface,
     build_snn_language_evaluation_surface,
     build_snn_language_training_readiness_surface,
@@ -72,6 +73,7 @@ from marulho.service.runtime_state import RuntimeState
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
 DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
+RUNTIME_SCOPE_PROJECTION_CACHE_SECONDS = 0.5
 BENCHMARK_EVIDENCE_FRESH_HOURS = 24.0
 BENCHMARK_EVIDENCE_STALE_HOURS = 72.0
 BENCHMARK_EVIDENCE_ARTIFACT_KINDS = {
@@ -216,6 +218,9 @@ class StatusReadModel:
         self._cached_subcortical_self_repair_surface: dict[str, Any] | None = None
         self._cached_subcortical_self_repair_evaluation_surface: dict[str, Any] | None = None
         self._cached_subcortical_structural_plasticity_surface: dict[str, Any] | None = None
+        self._cached_runtime_scope: dict[str, Any] | None = None
+        self._cached_runtime_scope_at: float = 0.0
+        self._cached_runtime_scope_token_count: int = -1
 
     def rebind_runtime(
         self,
@@ -239,6 +244,9 @@ class StatusReadModel:
         self._cached_subcortical_self_repair_surface = None
         self._cached_subcortical_self_repair_evaluation_surface = None
         self._cached_subcortical_structural_plasticity_surface = None
+        self._cached_runtime_scope = None
+        self._cached_runtime_scope_at = 0.0
+        self._cached_runtime_scope_token_count = -1
 
     # ------------------------------------------------------------------
     # Static helpers reused from RuntimeStatusCore
@@ -485,7 +493,7 @@ class StatusReadModel:
 
         structural_surface = build_subcortical_structural_plasticity_surface(
             self._concept_store_snapshot_fn(),
-            self._runtime_scope_report_locked(),
+            runtime_scope or {},
         )
         structural_gate = (
             structural_surface.get("promotion_gate")
@@ -592,7 +600,7 @@ class StatusReadModel:
         )
         snn_language_surface = build_snn_language_readiness_surface(
             cognitive_signal,
-            self._runtime_scope_report_locked(),
+            runtime_scope or {},
         )
         snn_language_gate = (
             snn_language_surface.get("promotion_gate")
@@ -948,6 +956,15 @@ class StatusReadModel:
     ) -> dict[str, Any]:
         scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
         report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
+        metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
+        execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
+        registry = report.get("registry") if isinstance(report.get("registry"), Mapping) else {}
+        scheduler = report.get("scheduler") if isinstance(report.get("scheduler"), Mapping) else {}
+        recall = (
+            report.get("local_associative_recall")
+            if isinstance(report.get("local_associative_recall"), Mapping)
+            else {}
+        )
         return {
             "surface": report.get("surface", "column_runtime_metabolism.v1"),
             "summary_role": "compact_runtime_truth_column_metabolism_not_execution_scheduler",
@@ -957,13 +974,36 @@ class StatusReadModel:
             "cached_vote_count": int(report.get("cached_vote_count", 0) or 0),
             "sleeping_count": int(report.get("sleeping_count", 0) or 0),
             "deep_sleeping_count": int(report.get("deep_sleeping_count", 0) or 0),
+            "metabolism": {
+                "source_tensor_device": metabolism.get("source_tensor_device"),
+                "report_compute_device": metabolism.get("report_compute_device"),
+                "snapshot_tensor_count": int(metabolism.get("snapshot_tensor_count", 0) or 0),
+                "snapshot_bytes": int(metabolism.get("snapshot_bytes", 0) or 0),
+                "device_transfer_count": int(metabolism.get("device_transfer_count", 0) or 0),
+                "report_latency_ms": metabolism.get("report_latency_ms"),
+                "hot_path_effect": metabolism.get("hot_path_effect"),
+                "claim_boundary": metabolism.get("claim_boundary"),
+            },
             "runs_all_columns": bool(report.get("runs_all_columns", False)),
             "scheduler_mode": (
-                report.get("scheduler", {}).get("mode")
-                if isinstance(report.get("scheduler"), Mapping)
-                else None
+                scheduler.get("mode") if isinstance(scheduler, Mapping) else None
             ),
+            "scheduler": {
+                "mode": scheduler.get("mode"),
+                "promoted_to_execution": bool(scheduler.get("promoted_to_execution", False)),
+                "active_column_fraction": float(scheduler.get("active_column_fraction", 0.0) or 0.0),
+                "cached_state_policy": scheduler.get("cached_state_policy"),
+                "fallback_reason": scheduler.get("fallback_reason"),
+            },
             "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
+            "registry": {
+                "surface": registry.get("surface"),
+                "sample_count": len(registry.get("columns_sample", []))
+                if isinstance(registry.get("columns_sample"), list)
+                else 0,
+                "memory_budget_per_column": registry.get("memory_budget_per_column"),
+                "mutates_runtime_state": bool(registry.get("mutates_runtime_state", False)),
+            },
             "disagreement": dict(report.get("disagreement", {}))
             if isinstance(report.get("disagreement"), Mapping)
             else {},
@@ -973,7 +1013,34 @@ class StatusReadModel:
             "pruning_homeostasis": dict(report.get("pruning_homeostasis", {}))
             if isinstance(report.get("pruning_homeostasis"), Mapping)
             else {},
-            "claim_boundary": "column_scheduler_evidence_only_not_sparse_execution_promotion",
+            "local_associative_recall": {
+                "surface": recall.get("surface"),
+                "available": bool(recall.get("available", False)),
+                "enabled_in_runtime_tick": bool(recall.get("enabled_in_runtime_tick", False)),
+                "scope": recall.get("scope"),
+                "claim_boundary": recall.get("claim_boundary"),
+            },
+            "execution": {
+                "mode": execution.get("mode"),
+                "total_columns": int(execution.get("total_columns", 0) or 0),
+                "candidate_count": int(execution.get("candidate_count", 0) or 0),
+                "scored_column_count": int(execution.get("scored_column_count", 0) or 0),
+                "scored_column_fraction": float(execution.get("scored_column_fraction", 0.0) or 0.0),
+                "homeostasis_update_mode": execution.get("homeostasis_update_mode"),
+                "homeostasis_update_count": int(execution.get("homeostasis_update_count", 0) or 0),
+                "homeostasis_update_fraction": float(
+                    execution.get("homeostasis_update_fraction", 0.0) or 0.0
+                ),
+                "sparse_candidate_execution_observed": bool(
+                    execution.get("sparse_candidate_execution_observed", False)
+                ),
+                "tensor_device": execution.get("tensor_device"),
+                "fallback_reason": execution.get("fallback_reason"),
+                "claim_boundary": execution.get("claim_boundary"),
+            },
+            "claim_boundary": (
+                "candidate_scoring_promoted_scheduler_sleep_and_cached_votes_remain_report_only"
+            ),
         }
 
     def _runtime_device_evidence(
@@ -2829,11 +2896,35 @@ class StatusReadModel:
             "token_count": int(self._trainer.token_count),
         }
 
-    def _runtime_scope_report_locked(self) -> dict[str, Any]:
-        """Return model runtime scope enriched with trainer-owned encoder evidence."""
+    def _runtime_scope_report_locked(
+        self,
+        *,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Return bounded, truth-labeled runtime-scope projection evidence."""
+        now = time.perf_counter()
+        current_token_count = int(getattr(self._trainer, "token_count", 0) or 0)
+        cache_age_seconds = max(0.0, now - self._cached_runtime_scope_at)
+        if (
+            not force_refresh
+            and self._cached_runtime_scope is not None
+            and cache_age_seconds <= RUNTIME_SCOPE_PROJECTION_CACHE_SECONDS
+        ):
+            runtime_scope = deepcopy(self._cached_runtime_scope)
+            runtime_scope["projection_cache"] = {
+                "status": "cached",
+                "age_ms": round(cache_age_seconds * 1000.0, 3),
+                "max_age_ms": round(RUNTIME_SCOPE_PROJECTION_CACHE_SECONDS * 1000.0, 3),
+                "source_token_count": int(self._cached_runtime_scope_token_count),
+                "current_token_count": current_token_count,
+                "read_only": True,
+                "claim_boundary": "bounded_status_projection_cache_not_runtime_state",
+            }
+            return runtime_scope
+
         runtime_scope = deepcopy(
             self._trainer.model.runtime_scope_report(
-                token_count=int(getattr(self._trainer, "token_count", 0) or 0),
+                token_count=current_token_count,
                 last_winner=getattr(self._trainer, "last_winner", None),
             )
         )
@@ -2844,20 +2935,38 @@ class StatusReadModel:
             cuda_runtime["encoder_device_report"] = deepcopy(encoder_report)
         else:
             runtime_scope["cuda_first_runtime"] = {"encoder_device_report": deepcopy(encoder_report)}
+        self._cached_runtime_scope = deepcopy(runtime_scope)
+        self._cached_runtime_scope_at = now
+        self._cached_runtime_scope_token_count = current_token_count
+        runtime_scope["projection_cache"] = {
+            "status": "fresh",
+            "age_ms": 0.0,
+            "max_age_ms": round(RUNTIME_SCOPE_PROJECTION_CACHE_SECONDS * 1000.0, 3),
+            "source_token_count": current_token_count,
+            "current_token_count": current_token_count,
+            "read_only": True,
+            "claim_boundary": "bounded_status_projection_cache_not_runtime_state",
+        }
         return runtime_scope
 
     # ------------------------------------------------------------------
     # Internal snapshot builders (must be called under self._lock)
     # ------------------------------------------------------------------
 
-    def _status_snapshot_locked(self) -> dict[str, Any]:
+    def _status_snapshot_locked(
+        self,
+        *,
+        force_runtime_scope_refresh: bool = False,
+    ) -> dict[str, Any]:
         """Build the full status snapshot. Caller MUST hold self._lock."""
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
-        runtime_scope = self._runtime_scope_report_locked()
+        runtime_scope = self._runtime_scope_report_locked(
+            force_refresh=force_runtime_scope_refresh
+        )
         sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
@@ -2912,14 +3021,20 @@ class StatusReadModel:
             ),
         }
 
-    def _terminus_status_snapshot_locked(self) -> dict[str, Any]:
+    def _terminus_status_snapshot_locked(
+        self,
+        *,
+        force_runtime_scope_refresh: bool = False,
+    ) -> dict[str, Any]:
         """Build the terminus status snapshot. Caller MUST hold self._lock."""
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
-        runtime_scope = self._runtime_scope_report_locked()
+        runtime_scope = self._runtime_scope_report_locked(
+            force_refresh=force_runtime_scope_refresh
+        )
         sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
@@ -3093,7 +3208,9 @@ class StatusReadModel:
         result = self._read_snapshot(
             fresh_wait_seconds=fresh_wait_seconds,
             cached_snapshot=self._cached_status,
-            snapshot_fn=self._status_snapshot_locked,
+            snapshot_fn=lambda: self._status_snapshot_locked(
+                force_runtime_scope_refresh=fresh_wait_seconds is not None
+            ),
         )
         self._cached_status = result
         return result
@@ -3108,7 +3225,9 @@ class StatusReadModel:
         result = self._read_snapshot(
             fresh_wait_seconds=fresh_wait_seconds,
             cached_snapshot=self._cached_terminus_status,
-            snapshot_fn=self._terminus_status_snapshot_locked,
+            snapshot_fn=lambda: self._terminus_status_snapshot_locked(
+                force_runtime_scope_refresh=fresh_wait_seconds is not None
+            ),
         )
         self._cached_terminus_status = result
         return result
@@ -3313,6 +3432,54 @@ class StatusReadModel:
         )
         self._cached_subcortical_structural_plasticity_surface = result
         return result
+
+    def binding_growth_trial_design(
+        self,
+        *,
+        max_candidates: int = 8,
+        max_total_edge_delta: int = 16,
+    ) -> dict[str, Any]:
+        """Build an explicit read-only topology trial from live failure evidence."""
+
+        def snapshot() -> dict[str, Any]:
+            model = self._trainer.model
+            column_runtime = model.column_runtime_report(
+                token_count=int(self._trainer.token_count),
+                last_winner=getattr(self._trainer, "last_winner", None),
+            )
+            growth = (
+                column_runtime.get("growth_gate")
+                if isinstance(column_runtime.get("growth_gate"), Mapping)
+                else {}
+            )
+            candidates = [
+                int(value)
+                for value in list(growth.get("candidate_column_ids_sample") or [])[
+                    : max(1, min(16, int(max_candidates)))
+                ]
+                if isinstance(value, int) and not isinstance(value, bool)
+            ]
+            binding = getattr(model, "binding_layer", None)
+            planner = getattr(binding, "plan_candidate_hub_topology", None)
+            binding_plan = (
+                planner(
+                    candidates,
+                    max_total_edge_delta=max(1, min(64, int(max_total_edge_delta))),
+                )
+                if bool(growth.get("ready")) and callable(planner)
+                else {}
+            )
+            return build_binding_growth_trial_design(
+                column_runtime,
+                binding_plan,
+                state_revision=int(self._runtime_state.state_revision),
+            )
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=snapshot,
+        )
 
     def _attach_living_loop_self_repair_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Attach read-only Subcortex self-repair candidates to the living-loop sidecar."""
@@ -3641,6 +3808,7 @@ class StatusReadModel:
         *,
         operator_id: str | None = None,
         confirmation: bool = False,
+        mutation_reason: str | None = None,
         max_total_edge_delta: int = 16,
     ) -> dict[str, Any]:
         """Build read-only structural mutation design evidence."""
@@ -3652,6 +3820,7 @@ class StatusReadModel:
                 isolated_evaluation,
                 operator_id=operator_id,
                 confirmation=confirmation,
+                mutation_reason=mutation_reason,
                 max_total_edge_delta=max_total_edge_delta,
             ),
         )

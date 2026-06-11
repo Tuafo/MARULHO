@@ -19,6 +19,7 @@ from .language_surface import (
     build_subcortical_structural_mutation_design,
     build_subcortical_structural_mutation_preflight,
     build_subcortical_structural_plasticity_surface,
+    build_binding_growth_trial_design,
     evaluate_subcortical_structural_plasticity_isolated,
 )
 from .provenance import Provenance
@@ -78,6 +79,7 @@ __all__ = [
     "build_subcortical_structural_mutation_design",
     "build_subcortical_structural_mutation_preflight",
     "build_subcortical_structural_plasticity_surface",
+    "build_binding_growth_trial_design",
     "build_spike_language_decoder_probe",
     "build_spike_language_neuron_adapter",
     "build_spike_language_plasticity_application_design",

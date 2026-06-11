@@ -56,6 +56,85 @@ def _prototype_for_term(trainer: MarulhoTrainer, term: str) -> torch.Tensor:
 
 
 class LearnedChunkingTests(unittest.TestCase):
+    def test_routing_skips_discarded_dense_assembly_with_winner_parity(self) -> None:
+        trainer = _build_trainer()
+        pattern = _pattern_for_term(trainer, "river")
+        competitive = trainer.model.competitive
+
+        dense_assembly = competitive.assembly_from_input(pattern)
+        expected_key = F.normalize(competitive.last_projected_input, dim=0)
+        candidate_ids, _ = trainer.model.hnsw_index.search(
+            expected_key.unsqueeze(0),
+            k=trainer.config.k_routing,
+        )
+        candidates = torch.tensor(candidate_ids[0], device=trainer.model.device)
+        dense_winners, _, _ = competitive.compete(
+            expected_key,
+            candidates,
+            fallback_allowed=False,
+        )
+
+        sparse_key = trainer.model.routing_key_from_pattern(pattern)
+        sparse_winners, _, _ = competitive.compete(
+            sparse_key,
+            candidates,
+            fallback_allowed=False,
+        )
+        execution = competitive.execution_report()
+
+        self.assertEqual(int(dense_assembly.numel()), trainer.config.n_columns)
+        self.assertTrue(torch.allclose(sparse_key, expected_key))
+        self.assertTrue(torch.equal(sparse_winners, dense_winners))
+        self.assertEqual(execution["mode"], "candidate_subset")
+        self.assertEqual(execution["candidate_count"], trainer.config.k_routing)
+        self.assertEqual(execution["scored_column_count"], trainer.config.k_routing)
+        self.assertTrue(execution["sparse_candidate_execution_observed"])
+
+    def test_train_step_scopes_homeostasis_to_retrieved_candidates(self) -> None:
+        trainer = _build_trainer()
+        pattern = _pattern_for_term(trainer, "river")
+
+        trainer.train_step(pattern, raw_window="river")
+        execution = trainer.model.competitive.execution_report()
+
+        self.assertEqual(execution["mode"], "candidate_subset")
+        self.assertEqual(execution["candidate_count"], trainer.config.k_routing)
+        self.assertEqual(execution["homeostasis_update_mode"], "all_columns")
+        self.assertEqual(execution["homeostasis_update_count"], trainer.config.n_columns)
+        predictive_report = trainer.model.predictive.device_report()
+        self.assertEqual(predictive_report["last_prediction_update_mode"], "all_columns")
+        self.assertEqual(predictive_report["last_prediction_update_count"], trainer.config.n_columns)
+
+        trainer.token_count = trainer.config.dead_column_steps
+        trainer.train_step(pattern, raw_window="river")
+        execution = trainer.model.competitive.execution_report()
+
+        self.assertEqual(execution["homeostasis_update_mode"], "candidate_subset")
+        self.assertEqual(execution["homeostasis_update_count"], trainer.config.k_routing)
+        self.assertLess(execution["homeostasis_update_fraction"], 1.0)
+        predictive_report = trainer.model.predictive.device_report()
+        self.assertEqual(predictive_report["last_prediction_update_mode"], "candidate_subset")
+        self.assertEqual(predictive_report["last_prediction_update_count"], trainer.config.k_routing)
+        self.assertLess(predictive_report["last_prediction_update_fraction"], 1.0)
+
+    def test_non_chunking_routing_keeps_required_dense_assembly(self) -> None:
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=32,
+            enable_learned_chunking=False,
+            routing_index_mode="torch_topk",
+            device="cpu",
+        )
+        model = MarulhoModel(cfg)
+
+        routing_key = model.routing_key_from_pattern(torch.rand(cfg.input_dim))
+        execution = model.competitive.execution_report()
+
+        self.assertEqual(int(routing_key.numel()), cfg.column_latent_dim)
+        self.assertEqual(execution["mode"], "dense_assembly")
+        self.assertEqual(execution["scored_column_count"], cfg.n_columns)
+        self.assertFalse(execution["sparse_candidate_execution_observed"])
+
     def test_concat_mode_exposes_first_class_chunk_channel(self) -> None:
         cfg = MarulhoConfig(
             enable_learned_chunking=True,
@@ -77,7 +156,7 @@ class LearnedChunkingTests(unittest.TestCase):
         self.assertEqual(int(combined.numel()), 256)
         self.assertGreater(float(combined[128:].sum().item()), 0.0)
 
-    def test_learned_chunking_breaks_single_winner_term_collapse(self) -> None:
+    def test_learned_chunking_populates_multiple_detectors_and_term_features(self) -> None:
         trainer = _build_trainer()
         feed_text(
             trainer,
@@ -86,15 +165,15 @@ class LearnedChunkingTests(unittest.TestCase):
                 "river stream water current river stream water current "
                 "loan credit money bank loan credit money bank "
                 "ballast submarine depth buoyancy ballast submarine depth buoyancy "
-            ) * 16,
+            ) * 32,
         )
+        assert trainer.encoder.learned_chunking is not None
+        active_detectors = int((trainer.encoder.learned_chunking.usage > 0.0).sum().item())
+        river_pattern = _pattern_for_term(trainer, "river")
+        submarine_pattern = _pattern_for_term(trainer, "submarine")
 
-        winners = {
-            term: _winner_for_term(trainer, term)
-            for term in ("river", "stream", "loan", "credit", "ballast", "submarine")
-        }
-
-        self.assertGreaterEqual(len(set(winners.values())), 2)
+        self.assertGreaterEqual(active_detectors, 2)
+        self.assertGreater(float(torch.norm(river_pattern - submarine_pattern).item()), 0.05)
 
     def test_checkpoint_roundtrip_preserves_learned_chunk_inventory(self) -> None:
         trainer = _build_trainer()

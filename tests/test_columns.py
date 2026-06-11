@@ -173,6 +173,108 @@ class TestStateDict:
 
         assert torch.equal(result_before[0], result_after[0])
 
+    def test_zero_input_weight_blend_skips_dead_input_drive_work(self):
+        layer = _make_layer(input_weight_blend=0.0)
+
+        def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("input drive must not run when its blend is zero")
+
+        layer._input_drive = fail_if_called
+        pattern = torch.rand(layer.input_dim)
+        routing_key = layer.project_input(pattern)
+
+        assembly = layer.assembly_from_input(pattern)
+        winners, strengths, candidates = layer.compete(
+            routing_key,
+            candidate_indices=torch.arange(layer.n_columns),
+        )
+
+        assert assembly.shape == (layer.n_columns,)
+        assert winners.numel() == layer.n_winners
+        assert strengths.numel() == layer.n_winners
+        assert candidates.numel() == layer.n_columns
+        assert layer._cached_raw_drive is None
+
+    def test_full_input_weight_blend_uses_only_input_drive(self):
+        layer = _make_layer(input_weight_blend=1.0)
+        pattern = torch.rand(layer.input_dim)
+        layer.last_input_pattern = layer._normalized_input_pattern(pattern)
+        similarity = torch.rand(layer.n_columns)
+        expected = layer._input_drive(layer.last_input_pattern)
+
+        combined = layer._combine_similarity_and_input_drive(similarity)
+
+        assert torch.allclose(combined, expected)
+
+    def test_candidate_routing_scores_only_retrieved_columns(self):
+        layer = _make_layer(n_columns=16, k_routing=4, input_weight_blend=0.02)
+        pattern = torch.rand(layer.input_dim)
+        candidates = torch.tensor([1, 4, 7, 12])
+
+        routing_key = layer.prepare_input_for_candidate_routing(pattern)
+        winners, strengths, selected = layer.compete(
+            routing_key,
+            candidate_indices=candidates,
+        )
+        report = layer.execution_report()
+
+        assert winners.numel() == layer.n_winners
+        assert strengths.numel() == layer.n_winners
+        assert torch.equal(selected, candidates)
+        assert report["mode"] == "candidate_subset"
+        assert report["candidate_count"] == 4
+        assert report["scored_column_count"] == 4
+        assert report["scored_column_fraction"] == 0.25
+        assert report["sparse_candidate_execution_observed"] is True
+        assert report["tensor_device"] == "cpu"
+
+    def test_lite_process_does_not_read_winner_strengths(self):
+        layer = _make_layer(plasticity_mode="lite")
+        layer.last_input_pattern = torch.full((layer.input_dim,), 1.0 / layer.input_dim)
+        routing_key = torch.rand(layer.column_dim)
+
+        class _ForbiddenStrengths:
+            def numel(self):
+                raise AssertionError("lite plasticity must not read winner_strengths")
+
+        assembly = layer.process(
+            routing_key,
+            torch.tensor([0]),
+            modulator=0.5,
+            winner_strengths=_ForbiddenStrengths(),
+        )
+
+        assert assembly.shape == (layer.n_columns,)
+        assert layer.update_count == 1
+
+    def test_dense_assembly_reports_all_columns_scored(self):
+        layer = _make_layer(n_columns=16)
+
+        layer.assembly_from_input(torch.rand(layer.input_dim))
+        report = layer.execution_report()
+
+        assert report["mode"] == "dense_assembly"
+        assert report["candidate_count"] == 16
+        assert report["scored_column_count"] == 16
+        assert report["scored_column_fraction"] == 1.0
+        assert report["sparse_candidate_execution_observed"] is False
+
+    def test_full_candidate_set_is_reported_without_false_fallback(self):
+        layer = _make_layer(n_columns=4)
+        routing_key = layer.prepare_input_for_candidate_routing(
+            torch.rand(layer.input_dim)
+        )
+
+        layer.compete(
+            routing_key,
+            candidate_indices=torch.arange(layer.n_columns),
+        )
+        report = layer.execution_report()
+
+        assert report["mode"] == "all_columns_candidate_set"
+        assert report["fallback_reason"] == "candidate_set_covers_all_columns"
+        assert report["sparse_candidate_execution_observed"] is False
+
     def test_process_records_bounded_recent_spike_window(self):
         layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
         layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
@@ -201,6 +303,72 @@ class TestStateDict:
         )
 
         assert layer.recent_spike_window_count == 0
+
+    def test_process_can_scope_homeostasis_to_awake_candidates(self):
+        layer = _make_layer(
+            n_columns=6,
+            column_dim=4,
+            input_dim=8,
+            homeostasis_beta=0.5,
+            dead_column_steps=3,
+        )
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        layer.win_rate_ema.fill_(0.25)
+        layer.thresholds.fill_(0.5)
+        layer.steps_since_win[:] = torch.tensor([0, 0, 0, 0, 3, 5])
+        win_before = layer.win_rate_ema.clone()
+        thresholds_before = layer.thresholds.clone()
+
+        layer.process(
+            routing_key,
+            torch.tensor([1]),
+            modulator=0.5,
+            homeostasis_update_indices=torch.tensor([1, 3]),
+        )
+
+        assert layer.last_homeostasis_update_mode == "candidate_subset"
+        assert layer.last_homeostasis_update_count == 2
+        assert not torch.allclose(layer.win_rate_ema[1], win_before[1])
+        assert not torch.allclose(layer.win_rate_ema[3], win_before[3])
+        assert torch.allclose(layer.win_rate_ema[0], win_before[0])
+        assert torch.allclose(layer.win_rate_ema[2], win_before[2])
+        assert torch.allclose(layer.win_rate_ema[4], win_before[4])
+        assert torch.allclose(layer.win_rate_ema[5], win_before[5])
+        assert torch.allclose(layer.thresholds[0], thresholds_before[0])
+        assert torch.allclose(layer.thresholds[4], thresholds_before[4])
+        assert torch.equal(layer.steps_since_win, torch.tensor([1, 0, 1, 1, 4, 6]))
+
+        report = layer.execution_report()
+        assert report["homeostasis_update_mode"] == "candidate_subset"
+        assert report["homeostasis_update_count"] == 2
+        assert report["homeostasis_update_fraction"] == round(2 / 6, 6)
+
+    def test_process_marks_stale_columns_without_hot_path_revival(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8, dead_column_steps=1)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        prototypes_before = layer.prototypes.clone()
+
+        layer.process(routing_key, torch.tensor([0]), modulator=0.5)
+
+        assert int(layer.last_revived_indices.numel()) == 0
+        assert torch.equal(layer.steps_since_win[1:], torch.ones(3, dtype=torch.long))
+        assert torch.allclose(layer.prototypes[1:], prototypes_before[1:])
+        report = layer.spike_health_report()
+        assert report["stale_fraction"] == 0.75
+        assert report["activity_state"] == "stale_routing_risk"
+
+    def test_force_revive_dead_columns_remains_explicit_maintenance_path(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8, dead_column_steps=1)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        layer.steps_since_win.fill_(1)
+
+        revived = layer.force_revive_dead_columns(torch.tensor([1.0, 0.2, 0.1, 0.1]))
+
+        assert revived == 4
+        assert int(layer.last_revived_indices.numel()) == 4
+        assert torch.equal(layer.steps_since_win, torch.zeros(4, dtype=torch.long))
 
     def test_spike_health_report_is_read_only_for_spike_window(self):
         layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)

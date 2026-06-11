@@ -5,6 +5,7 @@ import json
 import unittest
 
 from marulho.semantics import (
+    build_binding_growth_trial_design,
     build_snn_language_readiness_surface,
     build_snn_language_evaluation_surface,
     build_snn_language_training_readiness_surface,
@@ -41,6 +42,77 @@ from marulho.semantics import (
     build_subcortical_structural_plasticity_surface,
     evaluate_subcortical_structural_plasticity_isolated,
 )
+
+
+class BindingGrowthTrialDesignTests(unittest.TestCase):
+    def test_repeated_failure_candidates_bind_to_bounded_read_only_topology_plan(self) -> None:
+        runtime = {
+            "surface": "column_runtime_metabolism.v1",
+            "total_columns": 32,
+            "growth_gate": {
+                "ready": True,
+                "repeated_surprise_available": True,
+                "repeated_surprise_count": 2,
+                "streak_threshold": 3,
+                "candidate_column_ids_sample": [7, 3],
+                "evidence": "repeated_prediction_failure_streak_columns",
+            },
+        }
+        plan_material = {
+            "n_columns": 32,
+            "candidate_column_ids": [7, 3],
+            "max_total_edge_delta": 4,
+            "baseline_topology_hash": "b" * 64,
+            "proposed_edges": [[9, 7], [5, 3], [11, 7], [1, 3]],
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                plan_material,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        plan = {
+            "surface": "binding_candidate_hub_topology_plan.v1",
+            "candidate_column_ids": [7, 3],
+            "max_total_edge_delta": 4,
+            "proposed_total_edge_delta": 4,
+            "proposed_edges": plan_material["proposed_edges"],
+            "baseline_topology_hash": "b" * 64,
+            "plan_hash": plan_hash,
+            "source_tensor_device": "cuda:0",
+            "plan_compute_device": "cpu_control_plane",
+            "device_transfer_count": 1,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "calls_topology_refresh": False,
+            "hot_path_effect": "none_explicit_slow_path",
+        }
+
+        design = build_binding_growth_trial_design(runtime, plan, state_revision=12)
+        tampered = build_binding_growth_trial_design(
+            runtime,
+            {**plan, "proposed_total_edge_delta": 5},
+            state_revision=12,
+        )
+
+        self.assertEqual(design["surface"], "binding_growth_trial_design.v1")
+        self.assertFalse(design["executable"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertEqual(design["topology_trial"]["proposed_total_edge_delta"], 4)
+        self.assertEqual(
+            design["promotion_gate"]["status"],
+            "ready_for_isolated_binding_growth_trial",
+        )
+        self.assertTrue(design["promotion_gate"]["eligible_for_isolated_trial"])
+        self.assertEqual(
+            tampered["promotion_gate"]["status"],
+            "blocked_missing_binding_growth_trial_evidence",
+        )
+        self.assertFalse(
+            tampered["promotion_gate"]["required_evidence"]["edge_delta_matches_plan"]
+        )
 
 
 class SubcorticalDeliberationSurfaceTests(unittest.TestCase):
@@ -2623,11 +2695,13 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
             evaluation,
             operator_id="operator-structural-design",
             confirmation=True,
+            mutation_reason="repeated isolated prediction failure",
         )
         blocked = build_subcortical_structural_mutation_design(
             evaluation,
             operator_id="operator-structural-design",
             confirmation=False,
+            mutation_reason="repeated isolated prediction failure",
         )
 
         self.assertEqual(design["artifact_kind"], "terminus_subcortical_structural_mutation_design")
@@ -2707,6 +2781,7 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
             evaluation,
             operator_id="operator-structural-design",
             confirmation=True,
+            mutation_reason="repeated isolated prediction failure",
         )
 
         preflight = build_subcortical_structural_mutation_preflight(

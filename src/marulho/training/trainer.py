@@ -1023,9 +1023,21 @@ class MarulhoTrainer:
         ht_patience = max(0.2, 1.0 - 0.6 * ht)  # high 5-HT → reduced wake plasticity
         wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation) * ht_patience
 
+        predictive_scope_ready = self.token_count >= int(self.config.dead_column_steps)
+        predictive_scope_cuda_fallback = (
+            predictive_scope_ready and self.model.device.type == "cuda"
+        )
+        predictive_update_indices = (
+            candidates
+            if predictive_scope_ready and not predictive_scope_cuda_fallback
+            else None
+        )
+
         # Predictive columns: compute prediction error and update location
         pred_error_mod = self.model.predictive.compute_prediction_error(
-            winner_id_list, routing_key
+            winner_id_list,
+            routing_key,
+            candidate_indices=predictive_update_indices,
         )
         # Prediction error boosts learning for surprised columns
         pred_boost = float(pred_error_mod[winner_id_list].mean().item()) if winner_id_list else 1.0
@@ -1035,10 +1047,24 @@ class MarulhoTrainer:
         self.model.predictive.update_location(
             winner_id_list, routing_key, self._prev_routing_key
         )
-        self.model.predictive.update_predictions(winner_id_list, learning_rate=0.005)
+        self.model.predictive.update_predictions(
+            winner_id_list,
+            learning_rate=0.005,
+            candidate_indices=predictive_update_indices,
+        )
+        if predictive_scope_cuda_fallback:
+            self.model.predictive.last_prediction_update_fallback_reason = (
+                "cuda_sparse_prediction_update_launch_bound_dense_retained"
+            )
         self._prev_routing_key = routing_key.detach().clone()
 
         effective_modulator = float(modulator) * wake_plasticity_scale * da_ltp_gain * pred_boost
+
+        homeostasis_update_indices = (
+            candidates
+            if predictive_scope_ready
+            else None
+        )
 
         assembly = self.model.competitive.process(
             routing_key,
@@ -1048,6 +1074,7 @@ class MarulhoTrainer:
             eligibility_trace=local_trace,
             assembly_projection=self.model.W_assembly_project,
             compute_metrics=_telemetry_tick,
+            homeostasis_update_indices=homeostasis_update_indices,
         )
         # Refresh transpose cache since process() modifies W_assembly_project in-place
         self.model._invalidate_projection_cache()
@@ -1070,11 +1097,22 @@ class MarulhoTrainer:
         )
         self._apply_column_anchors(wid for wid in winner_id_list)
         if self.model.context_layer is not None:
+            context_plasticity_interval = max(
+                1,
+                int(self.config.context_plasticity_interval_tokens),
+            )
+            context_plasticity_due = (
+                self.token_count == 0
+                or (self.token_count + 1) % context_plasticity_interval == 0
+            )
             self.model.context_layer.observe(
                 assembly,
-                update_weights=True,
+                update_weights=context_plasticity_due,
                 precision_weight=self._context_precision_weight(),
             )
+        else:
+            context_plasticity_interval = 0
+            context_plasticity_due = False
 
         # Cross-modal grounding updates (§5): sensory spikes fire BEFORE
         # text so that on_text_spike() sees the current visual/audio traces
@@ -1291,6 +1329,8 @@ class MarulhoTrainer:
             if self.model.context_layer is not None
             else 1.0
         )
+        metrics["context_plasticity_interval_tokens"] = int(context_plasticity_interval)
+        metrics["context_plasticity_due"] = int(context_plasticity_due)
         if self.model.abstraction_layer is not None and _telemetry_tick:
             _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())
             _abs_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())

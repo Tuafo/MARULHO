@@ -19,6 +19,7 @@ from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
+DEFAULT_CHECKPOINT_LOCK_TIMEOUT_SECONDS = 0.25
 CURRENT_CHECKPOINT_MANIFEST = "marulho_current_checkpoint.json"
 _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
@@ -205,7 +206,27 @@ class RuntimePersistence:
         self._cached_trace_lists.clear()
 
     def save_checkpoint(self, path: str | None = None, *, publish: bool = True) -> dict[str, Any]:
-        with self._lock:
+        acquired = self._lock.acquire(timeout=DEFAULT_CHECKPOINT_LOCK_TIMEOUT_SECONDS)
+        if not acquired:
+            raise TimeoutError(
+                "Runtime is busy with an active mutation; checkpoint save was not started. "
+                "Retry after the current tick or stop Terminus first."
+            )
+        try:
+            runtime_snapshot = self._brain_runtime_snapshot_locked()
+            execution = runtime_snapshot.get("execution")
+            execution_busy = bool(
+                isinstance(execution, Mapping)
+                and (
+                    execution.get("tick_in_progress")
+                    or int(execution.get("active_execution_requests", 0) or 0) > 0
+                )
+            )
+            if bool(runtime_snapshot.get("running")) or execution_busy:
+                raise TimeoutError(
+                    "Terminus is running; checkpoint save was not started. "
+                    "Stop Terminus first so the checkpoint is coherent and does not stall Runtime Truth."
+                )
             target = self._resolve_save_path(path)
             metadata = deepcopy(self._metadata)
             service_state = dict(metadata.get("service_state", {}))
@@ -236,6 +257,8 @@ class RuntimePersistence:
                 **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
+        finally:
+            self._lock.release()
 
     @classmethod
     def _snn_language_plasticity_checkpoint_state(

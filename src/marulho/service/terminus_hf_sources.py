@@ -2,7 +2,7 @@
 
 The current runtime uses a Hugging Face mixture for both background text and
 real multimodal grounding:
-- Wikipedia for fast encyclopedic grounding
+- OpenStax open textbooks for instructional grounding
 - S2ORC ArXiv abstracts for dense scientific language
 - FineWeb-Edu for broader educational coverage
 - S1-MMAlign for real scientific image grounding
@@ -41,23 +41,23 @@ from typing import Any
 
 CURRENT_TERMINUS_HF_SOURCE_BANK: tuple[dict[str, Any], ...] = (
     {
-        "name": "wikipedia_en",
-        "source": "wikimedia/wikipedia",
+        "name": "open_textbooks",
+        "source": "izumi-lab/open-text-books",
         "source_type": "hf",
-        "hf_config": "20231101.en",
         "text_field": "text",
         "topic_terms": [
-            "encyclopedia reference factual grounding",
-            "history geography biology physics",
-            "definitions concepts explanations",
+            "open textbook peer reviewed education",
+            "chemistry physics biology mathematics",
+            "worked examples definitions exercises",
         ],
         "metadata": {
-            "role": "encyclopedic_grounding",
-            "label": "Wikipedia English 20231101",
-            "url": "https://huggingface.co/datasets/wikimedia/wikipedia",
+            "role": "open_textbook_grounding",
+            "label": "OpenStax open textbooks",
+            "url": "https://huggingface.co/datasets/izumi-lab/open-text-books",
             "why": (
-                "Stable factual prose gives Terminus a fast, structured background "
-                "stream complementary to open-web educational text."
+                "Human-written open textbook prose is more instructional and "
+                "worked-example dense than raw encyclopedic articles while "
+                "remaining simple to stream."
             ),
         },
     },

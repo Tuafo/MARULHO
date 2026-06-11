@@ -17,6 +17,8 @@ related_benchmarks: []
 
         Input normalization and emitted encoder/device evidence.
 
+        Terminus Source Bank defaults are data-plane configuration, not service algorithms. The maintained text bank now starts with `open_textbooks` from `izumi-lab/open-text-books` because Hugging Face Dataset Viewer evidence showed direct `text` rows with worked educational prose, letting MARULHO replace raw Wikipedia without adding a parser or hot-path work.
+
         ## Should Not Own
 
         Runtime Truth verdicts or promotion of observations into facts/actions.

@@ -10,7 +10,8 @@ class TestRuntimeAutonomyCurriculum:
 
         assert len(source_bank) >= 3
         assert all(source.get("topic_terms") for source in source_bank)
-        assert any(source["name"] == "wikipedia_en" for source in source_bank)
+        assert any(source["name"] == "open_textbooks" for source in source_bank)
+        assert not any(source["name"] == "wikipedia_en" for source in source_bank)
         assert any(source["name"] == "s2orc_arxiv_abstracts" for source in source_bank)
         assert any(source["name"] == "fineweb_edu" for source in source_bank)
 
@@ -26,7 +27,8 @@ class TestRuntimeAutonomyCurriculum:
         assert len(entries) >= 3
         names = [entry["name"] for entry in entries]
         assert "fineweb_edu" in names
-        assert "wikipedia_en" in names
+        assert "open_textbooks" in names
+        assert "wikipedia_en" not in names
         assert "s2orc_arxiv_abstracts" in names
         assert all(entry["source_type"] == "hf" for entry in entries)
         assert all(entry.get("summary") for entry in entries)

@@ -17,6 +17,7 @@ class TestPredictiveColumnState:
         assert state.velocity.shape == (32, 8)
         assert state.confidence.shape == (32,)
         assert state.prediction_error.shape == (32,)
+        assert state.prediction_failure_streak.shape == (32,)
         # Initial confidence is 0.5
         assert abs(state.confidence.mean().item() - 0.5) < 0.01
 
@@ -33,6 +34,11 @@ class TestPredictiveColumnState:
         assert report["velocity_device"] == str(state.velocity.device)
         assert report["prediction_weights_device"] == str(state._prediction_weights.device)
         assert report["prediction_error_device"] == str(state.prediction_error.device)
+        assert report["prediction_failure_streak_device"] == str(state.prediction_failure_streak.device)
+        assert report["prediction_failure_streak_available"] is True
+        assert report["last_prediction_update_mode"] == "all_columns"
+        assert report["last_prediction_update_count"] == 8
+        assert report["last_prediction_update_fraction"] == 1.0
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices(self):
@@ -81,6 +87,75 @@ class TestPredictiveColumnState:
         assert error.shape == (16,)
         assert error.min() >= 0.0
         assert error.max() <= 1.0
+
+    def test_candidate_scoped_prediction_error_keeps_idle_state_cached(self):
+        state = PredictiveColumnState(n_columns=6, location_dim=3)
+        state.location.fill_(1.0)
+        state._prediction_weights.fill_(5.0)
+        state.prediction_error.fill_(0.25)
+        state.confidence.fill_(0.5)
+        state.prediction_failure_streak.fill_(7)
+
+        candidates = torch.tensor([1, 3], dtype=torch.long)
+        error = state.compute_prediction_error(
+            [1],
+            torch.randn(6),
+            candidate_indices=candidates,
+        )
+
+        assert error.shape == (6,)
+        assert state.last_prediction_update_mode == "candidate_subset"
+        assert state.last_prediction_update_count == 2
+        assert state.last_prediction_update_fraction == pytest.approx(2 / 6)
+        assert state.prediction_failure_streak[1].item() == 0
+        assert state.prediction_failure_streak[3].item() == 8
+        assert torch.equal(
+            state.prediction_failure_streak[[0, 2, 4, 5]],
+            torch.full((4,), 7, dtype=torch.int32),
+        )
+        assert torch.allclose(
+            state.prediction_error[[0, 2, 4, 5]],
+            torch.full((4,), 0.25),
+        )
+        assert torch.allclose(
+            state.confidence[[0, 2, 4, 5]],
+            torch.full((4,), 0.5),
+        )
+
+    def test_candidate_scoped_prediction_decay_keeps_non_candidates_cached(self):
+        state = PredictiveColumnState(n_columns=6, location_dim=3)
+        state.location.fill_(1.0)
+        state._prediction_weights.fill_(5.0)
+        before = state._prediction_weights.clone()
+
+        candidates = torch.tensor([1, 3], dtype=torch.long)
+        state.update_predictions([1], learning_rate=0.1, candidate_indices=candidates)
+
+        assert state.last_prediction_update_mode == "candidate_subset"
+        assert state.last_prediction_update_count == 2
+        assert torch.all(state._prediction_weights[1] > before[1])
+        assert torch.all(state._prediction_weights[3] < before[3])
+        assert torch.allclose(state._prediction_weights[[0, 2, 4, 5]], before[[0, 2, 4, 5]])
+
+    def test_prediction_failure_streak_tracks_repeated_raw_failures(self):
+        state = PredictiveColumnState(n_columns=4, location_dim=2)
+        state.location.fill_(1.0)
+        state._prediction_weights.fill_(5.0)
+
+        for _ in range(3):
+            state.compute_prediction_error([0], torch.randn(4))
+
+        assert int(state.prediction_failure_streak[0].item()) == 0
+        assert int(state.prediction_failure_streak[1].item()) == 3
+        assert int(state.prediction_failure_streak[2].item()) == 3
+        assert int(state.prediction_failure_streak[3].item()) == 3
+
+        state.compute_prediction_error([1, 2, 3], torch.randn(4))
+
+        assert int(state.prediction_failure_streak[0].item()) == 1
+        assert int(state.prediction_failure_streak[1].item()) == 0
+        assert int(state.prediction_failure_streak[2].item()) == 0
+        assert int(state.prediction_failure_streak[3].item()) == 0
 
     def test_prediction_error_decreases_with_consistent_winners(self):
         state = PredictiveColumnState(n_columns=8, location_dim=4)
@@ -134,6 +209,7 @@ class TestPredictiveColumnState:
         # Modify state
         state.location += 1.0
         state.confidence.fill_(0.9)
+        state.prediction_failure_streak.fill_(4)
 
         saved = state.state_dict()
         state2 = PredictiveColumnState(n_columns=16, location_dim=4)
@@ -141,17 +217,20 @@ class TestPredictiveColumnState:
 
         assert torch.allclose(state.location, state2.location)
         assert torch.allclose(state.confidence, state2.confidence)
+        assert torch.equal(state.prediction_failure_streak, state2.prediction_failure_streak)
 
     def test_reset(self):
         state = PredictiveColumnState(n_columns=8, location_dim=4)
         state.location += 10.0
         state.confidence.fill_(0.9)
         state.prediction_error.fill_(0.5)
+        state.prediction_failure_streak.fill_(5)
 
         state.reset()
         assert state.location.abs().max() < 1.0  # Re-randomized near 0
         assert abs(state.confidence.mean().item() - 0.5) < 0.01
         assert state.prediction_error.sum().item() == 0.0
+        assert state.prediction_failure_streak.sum().item() == 0
 
     def test_location_normalization_prevents_drift(self):
         state = PredictiveColumnState(n_columns=4, location_dim=4)
@@ -196,4 +275,60 @@ class TestPredictiveColumnsInTrainer:
 
         # Predictive state should have evolved
         assert model.predictive.prediction_error.sum().item() > 0
+        assert model.predictive.prediction_failure_streak.sum().item() >= 0
         assert trainer._prev_routing_key is not None
+
+    def test_trainer_delays_candidate_scoped_predictive_updates(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            dead_column_steps=2,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.memory_warm_started = True
+        pattern = torch.randn(cfg.input_dim)
+
+        trainer.train_step(pattern, raw_window="early")
+        assert model.predictive.last_prediction_update_mode == "all_columns"
+        assert model.predictive.last_prediction_update_count == cfg.n_columns
+
+        trainer.token_count = cfg.dead_column_steps
+        trainer.train_step(pattern, raw_window="scoped")
+        assert model.predictive.last_prediction_update_mode == "candidate_subset"
+        assert model.predictive.last_prediction_update_count == cfg.k_routing
+        assert model.predictive.last_prediction_update_fraction < 1.0
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_trainer_reports_cuda_predictive_scope_fallback(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            dead_column_steps=1,
+            device="cuda",
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = cfg.dead_column_steps
+
+        trainer.train_step(torch.randn(cfg.input_dim, device=model.device), raw_window="cuda")
+        report = model.predictive.device_report()
+
+        assert report["last_prediction_update_mode"] == "all_columns"
+        assert report["last_prediction_update_count"] == cfg.n_columns
+        assert report["last_prediction_update_fallback_reason"] == (
+            "cuda_sparse_prediction_update_launch_bound_dense_retained"
+        )

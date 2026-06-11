@@ -136,6 +136,7 @@ class MarulhoConfig:
     enable_context_layer: bool = False
     context_decay: float = 0.92
     context_transition_lr: float = 0.05
+    context_plasticity_interval_tokens: int = 4
     context_modulation_strength: float = 0.60
     context_fast_rate: float = 0.55
     context_medium_rate: float = 0.25
@@ -269,6 +270,8 @@ class MarulhoConfig:
             raise ValueError("context_recurrent_scale must be non-negative")
         if self.context_inhibition_strength < 0.0:
             raise ValueError("context_inhibition_strength must be non-negative")
+        if self.context_plasticity_interval_tokens <= 0:
+            raise ValueError("context_plasticity_interval_tokens must be positive")
         if self.abstraction_n_concepts <= 0:
             raise ValueError("abstraction_n_concepts must be positive")
         if not 0.0 < self.abstraction_slow_rate <= 1.0:

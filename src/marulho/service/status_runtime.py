@@ -206,6 +206,15 @@ class RuntimeStatusCore:
     ) -> dict[str, Any]:
         scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
         report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
+        metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
+        execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
+        registry = report.get("registry") if isinstance(report.get("registry"), Mapping) else {}
+        scheduler = report.get("scheduler") if isinstance(report.get("scheduler"), Mapping) else {}
+        recall = (
+            report.get("local_associative_recall")
+            if isinstance(report.get("local_associative_recall"), Mapping)
+            else {}
+        )
         return {
             "surface": report.get("surface", "column_runtime_metabolism.v1"),
             "summary_role": "compact_runtime_truth_column_metabolism_not_execution_scheduler",
@@ -215,14 +224,73 @@ class RuntimeStatusCore:
             "cached_vote_count": int(report.get("cached_vote_count", 0) or 0),
             "sleeping_count": int(report.get("sleeping_count", 0) or 0),
             "deep_sleeping_count": int(report.get("deep_sleeping_count", 0) or 0),
+            "metabolism": {
+                "source_tensor_device": metabolism.get("source_tensor_device"),
+                "report_compute_device": metabolism.get("report_compute_device"),
+                "snapshot_tensor_count": int(metabolism.get("snapshot_tensor_count", 0) or 0),
+                "snapshot_bytes": int(metabolism.get("snapshot_bytes", 0) or 0),
+                "device_transfer_count": int(metabolism.get("device_transfer_count", 0) or 0),
+                "report_latency_ms": metabolism.get("report_latency_ms"),
+                "hot_path_effect": metabolism.get("hot_path_effect"),
+                "claim_boundary": metabolism.get("claim_boundary"),
+            },
             "runs_all_columns": bool(report.get("runs_all_columns", False)),
             "scheduler_mode": (
-                report.get("scheduler", {}).get("mode")
-                if isinstance(report.get("scheduler"), Mapping)
-                else None
+                scheduler.get("mode") if isinstance(scheduler, Mapping) else None
             ),
+            "scheduler": {
+                "mode": scheduler.get("mode"),
+                "promoted_to_execution": bool(scheduler.get("promoted_to_execution", False)),
+                "active_column_fraction": float(scheduler.get("active_column_fraction", 0.0) or 0.0),
+                "cached_state_policy": scheduler.get("cached_state_policy"),
+                "fallback_reason": scheduler.get("fallback_reason"),
+            },
             "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
-            "claim_boundary": "column_scheduler_evidence_only_not_sparse_execution_promotion",
+            "registry": {
+                "surface": registry.get("surface"),
+                "sample_count": len(registry.get("columns_sample", []))
+                if isinstance(registry.get("columns_sample"), list)
+                else 0,
+                "memory_budget_per_column": registry.get("memory_budget_per_column"),
+                "mutates_runtime_state": bool(registry.get("mutates_runtime_state", False)),
+            },
+            "disagreement": dict(report.get("disagreement", {}))
+            if isinstance(report.get("disagreement"), Mapping)
+            else {},
+            "growth_gate": dict(report.get("growth_gate", {}))
+            if isinstance(report.get("growth_gate"), Mapping)
+            else {},
+            "pruning_homeostasis": dict(report.get("pruning_homeostasis", {}))
+            if isinstance(report.get("pruning_homeostasis"), Mapping)
+            else {},
+            "local_associative_recall": {
+                "surface": recall.get("surface"),
+                "available": bool(recall.get("available", False)),
+                "enabled_in_runtime_tick": bool(recall.get("enabled_in_runtime_tick", False)),
+                "scope": recall.get("scope"),
+                "claim_boundary": recall.get("claim_boundary"),
+            },
+            "execution": {
+                "mode": execution.get("mode"),
+                "total_columns": int(execution.get("total_columns", 0) or 0),
+                "candidate_count": int(execution.get("candidate_count", 0) or 0),
+                "scored_column_count": int(execution.get("scored_column_count", 0) or 0),
+                "scored_column_fraction": float(execution.get("scored_column_fraction", 0.0) or 0.0),
+                "homeostasis_update_mode": execution.get("homeostasis_update_mode"),
+                "homeostasis_update_count": int(execution.get("homeostasis_update_count", 0) or 0),
+                "homeostasis_update_fraction": float(
+                    execution.get("homeostasis_update_fraction", 0.0) or 0.0
+                ),
+                "sparse_candidate_execution_observed": bool(
+                    execution.get("sparse_candidate_execution_observed", False)
+                ),
+                "tensor_device": execution.get("tensor_device"),
+                "fallback_reason": execution.get("fallback_reason"),
+                "claim_boundary": execution.get("claim_boundary"),
+            },
+            "claim_boundary": (
+                "candidate_scoring_promoted_scheduler_sleep_and_cached_votes_remain_report_only"
+            ),
         }
 
     def _runtime_device_evidence(

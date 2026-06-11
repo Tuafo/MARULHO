@@ -288,11 +288,11 @@ class MarulhoServiceManager:
         self._structural_mutation_executor = StructuralMutationExecutor(
             lock=self._lock,
             runtime_state=self._runtime_state,
-            concept_store=lambda: self._concept_store,
+            binding_layer=lambda: self._trainer.model.binding_layer,
             save_checkpoint=lambda path: self._runtime_persistence.save_checkpoint(path, publish=False),
             checkpoint_path=lambda: self._checkpoint_path,
             verify_checkpoint=lambda path: bool(load_trainer_checkpoint(path)),
-            verify_checkpoint_snapshot=self._verify_concept_store_checkpoint_snapshot,
+            verify_checkpoint_snapshot=self._verify_binding_checkpoint_snapshot,
             publish_committed_checkpoint=lambda path, operation: self._runtime_persistence.publish_current_checkpoint(
                 path,
                 operation=operation,
@@ -397,23 +397,23 @@ class MarulhoServiceManager:
         return bool(saved == expected)
 
     @staticmethod
-    def _verify_concept_store_checkpoint_snapshot(
+    def _verify_binding_checkpoint_snapshot(
         path: Path,
-        expected_concept_state: Mapping[str, Any],
+        expected_binding_state: Mapping[str, Any],
         expected_revision: int,
     ) -> bool:
         try:
-            _trainer, metadata = load_trainer_checkpoint(path)
+            trainer, metadata = load_trainer_checkpoint(path)
         except Exception:
             return False
-        service_state = metadata.get("service_state") if isinstance(metadata.get("service_state"), Mapping) else {}
-        saved_concept_state = (
-            service_state.get("concept_store")
-            if isinstance(service_state.get("concept_store"), Mapping)
-            else {}
-        )
+        binding = trainer.model.binding_layer
+        if binding is None:
+            return False
         return (
-            dict(saved_concept_state) == dict(expected_concept_state)
+            MarulhoServiceManager._checkpoint_values_equal(
+                binding.state_dict(),
+                expected_binding_state,
+            )
             and int(metadata.get("state_revision", -1)) == int(expected_revision)
         )
 

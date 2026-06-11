@@ -11,11 +11,11 @@ related_benchmarks: []
 
         ## Responsibility
 
-        Bootstrap, developmental, autonomy, consolidation, query, and long-run runners.
+        Bootstrap, developmental, autonomy, consolidation, query, checkpointing, and long-run runners.
 
         ## Owns
 
-        Offline or explicitly invoked training/evaluation workflows.
+        Offline or explicitly invoked training/evaluation workflows. Trainer checkpointing persists model-owned predictive column state, including prediction failure streaks used by the Column Runtime growth gate. The live trainer also owns delayed promotion points for candidate-scoped column metabolism: it keeps early learning all-column, then passes retrieved candidates into `CompetitiveColumnLayer.process()` and CPU predictive updates once stale/deep-sleep counters can exist. CUDA predictive updates currently remain dense and report a launch-bound fallback reason. The trainer also keeps adaptive context state live every token while applying dense context-weight plasticity on the configured four-token cadence; explicit replay/offline calls keep their own update policy.
 
         ## Should Not Own
 

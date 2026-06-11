@@ -161,7 +161,7 @@ class TestSmallWorldHubTracking:
         base_outgoing_0 = len(layer._base_outgoing_targets[0])
         base_outgoing_1 = len(layer._base_outgoing_targets[1])
         layer._hub_activation_ema = torch.linspace(1.0, 0.1, steps=32)
-        layer._refresh_hub_profile(force_structure_refresh=True)
+        layer.refresh_hub_topology(reason="test_ranked_hub_profile")
 
         stats = layer.hub_stats()
         assert stats["hub_count"] == 2  # ceil(5% of 32) = 2
@@ -173,7 +173,7 @@ class TestSmallWorldHubTracking:
         assert _outgoing_count(layer, 0) == base_outgoing_0 + int(layer._hub_extra_connections[0].item())
         assert _outgoing_count(layer, 1) == base_outgoing_1 + int(layer._hub_extra_connections[1].item())
 
-    def test_hub_profile_updates_after_repeated_binding(self):
+    def test_repeated_binding_collects_hub_evidence_until_explicit_refresh(self):
         layer = HypercubeBindingLayer(
             n_columns=32, device=torch.device("cpu"), shortcuts_per_node=1,
         )
@@ -187,6 +187,12 @@ class TestSmallWorldHubTracking:
             layer.bind(signal, signal)
 
         assert layer.binding_usage[0:8].mean() >= layer.binding_usage[15:].mean()
+        hub_stats = layer.hub_stats()
+        assert hub_stats["hub_count"] == 0
+        assert hub_stats["evidence_update_count"] == 200
+        assert hub_stats["topology_refresh_count"] == 0
+
+        layer.refresh_hub_topology(reason="test_repeated_binding_evidence")
         hub_stats = layer.hub_stats()
         assert hub_stats["hub_count"] == 2
         assert set(hub_stats["hub_indices"]).issubset(set(range(8)))
@@ -208,7 +214,7 @@ class TestSmallWorldHubTracking:
         base_outgoing_0 = _outgoing_count(layer, 0)
         layer._hub_activation_ema[0] = 1.0
         layer._hub_activation_ema[1] = 0.9
-        layer._refresh_hub_profile(force_structure_refresh=True)
+        layer.refresh_hub_topology(reason="test_hub_outreach")
         drive_with_hubs = layer._sparse_drive(signal)
 
         assert _outgoing_count(layer, 0) > base_outgoing_0
@@ -227,7 +233,7 @@ class TestSmallWorldHubTracking:
             n_columns=16, device=torch.device("cpu"),
         )
         layer._hub_activation_ema[0:3] = 1.0
-        layer._refresh_hub_profile(force_structure_refresh=True)
+        layer.refresh_hub_topology(reason="test_reset_hub_profile")
         layer.reset_state()
         assert not layer._hub_mask.any()
         assert layer._hub_activation_ema.sum() == 0.0

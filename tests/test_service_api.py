@@ -103,6 +103,30 @@ class _EchoJsonApiHandler(BaseHTTPRequestHandler):
 
 
 class ServiceApiTerminusRuntimeTests(unittest.TestCase):
+    def test_checkpoint_save_maps_busy_runtime_to_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_checkpoint_busy"),
+                trace_dir=root / "traces",
+            )
+            try:
+                with patch.object(
+                    app.state.marulho_runtime,
+                    "save_checkpoint",
+                    side_effect=TimeoutError("Terminus is running; stop first."),
+                ):
+                    with TestClient(app) as client:
+                        response = client.post(
+                            "/checkpoint/save",
+                            json={"path": str(root / "busy.pt")},
+                        )
+            finally:
+                app.state.marulho_manager.close()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("stop first", response.json()["detail"])
+
     def test_snn_language_public_payload_uses_readout_vocabulary(self) -> None:
         internal_payload = {
             "artifact_kind": "terminus_snn_language_autonomous_snn_language_thought_surface_design",
@@ -13951,6 +13975,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
                 response = client.get("/terminus/subcortical-structural-plasticity")
+                growth_trial_response = client.get(
+                    "/terminus/subcortical-structural-plasticity/binding-growth-trial",
+                    params={"max_candidates": 4, "max_total_edge_delta": 8},
+                )
                 evaluation_response = client.post(
                     "/terminus/subcortical-structural-plasticity/evaluate",
                     json={
@@ -13987,6 +14015,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "isolated_evaluation": evaluation_response.json(),
                         "operator_id": "operator-structural-design",
                         "confirmation": True,
+                        "mutation_reason": "repeated isolated prediction failure",
                     },
                 )
                 preflight_response = client.post(
@@ -14011,11 +14040,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             app.state.marulho_manager.close()
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(growth_trial_response.status_code, 200)
         self.assertEqual(evaluation_response.status_code, 200)
         self.assertEqual(design_response.status_code, 200)
         self.assertEqual(preflight_response.status_code, 200)
         self.assertEqual(blocked_application_response.status_code, 200)
         body = response.json()
+        growth_trial = growth_trial_response.json()
         evaluation = evaluation_response.json()
         design = design_response.json()
         preflight = preflight_response.json()
@@ -14044,6 +14075,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("local_plasticity_stability_delta", body["success_evidence"])
         self.assertNotIn("suggested_endpoint", body["structural_cases"][0])
         self.assertNotIn("suggested_input", body["structural_cases"][0])
+        self.assertEqual(growth_trial["surface"], "binding_growth_trial_design.v1")
+        self.assertFalse(growth_trial["executable"])
+        self.assertFalse(growth_trial["mutates_runtime_state"])
+        self.assertFalse(growth_trial["calls_topology_refresh"])
         self.assertEqual(
             evaluation["artifact_kind"],
             "terminus_subcortical_structural_plasticity_isolated_evaluation",
@@ -17147,7 +17182,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             data = resp.json()
             names = [entry["name"] for entry in data["datasets"]]
             self.assertIn("fineweb_edu", names)
-            self.assertIn("wikipedia_en", names)
+            self.assertIn("open_textbooks", names)
+            self.assertNotIn("wikipedia_en", names)
             self.assertIn("s2orc_arxiv_abstracts", names)
             self.assertIn("science_figures", names)
             self.assertIn("environmental_audio", names)

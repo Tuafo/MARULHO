@@ -236,6 +236,9 @@ class TestHypercubeBindingLayer:
         assert report["topology"]["neighbor_ids_device"] == str(layer_32.topology._neighbor_ids.device)
         assert report["structural_mutations"]["growth_events"] == 0
         assert report["structural_mutations"]["prune_events"] == 0
+        assert report["hub_refresh_policy"] == "explicit_maintenance_only"
+        assert report["hub_evidence_update_count"] == 0
+        assert report["hub_topology_refresh_count"] == 0
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices_after_bind_and_load(self):
@@ -358,24 +361,124 @@ class TestHypercubeBindingLayer:
     def test_structural_hub_mutation_ledger_tracks_growth_and_pruning(self, layer_32):
         layer_32._hub_activation_ema.zero_()
         layer_32._hub_activation_ema[0] = 1.0
-        layer_32._refresh_hub_profile()
+        growth_refresh = layer_32.refresh_hub_topology(reason="test_growth")
 
         grown = layer_32.hub_stats()["structural_mutations"]
+        assert growth_refresh["topology_changed"] is True
         assert grown["growth_events"] == 1
         assert grown["edges_added_total"] > 0
         assert grown["recent_events"][-1]["type"] == "grow"
 
         layer_32._hub_activation_ema.zero_()
-        layer_32._refresh_hub_profile()
+        prune_refresh = layer_32.refresh_hub_topology(reason="test_prune")
 
         pruned = layer_32.hub_stats()["structural_mutations"]
+        assert prune_refresh["topology_changed"] is True
         assert pruned["prune_events"] == 1
         assert pruned["edges_removed_total"] == grown["edges_added_total"]
         assert pruned["recent_events"][-1]["type"] == "prune"
+        assert layer_32.hub_stats()["topology_refresh_count"] == 2
+        assert layer_32.hub_stats()["last_topology_refresh_reason"] == "test_prune"
 
         restored = HypercubeBindingLayer(n_columns=32, device=torch.device("cpu"))
         restored.load_state_dict(layer_32.state_dict())
         assert restored.hub_stats()["structural_mutations"] == pruned
+        assert restored.hub_stats()["topology_refresh_count"] == 2
+        assert restored.hub_stats()["last_topology_refresh_reason"] == "test_prune"
+
+    def test_bind_collects_hub_evidence_without_structural_mutation(self, layer_32):
+        ctx = torch.randn(32).abs()
+        asm = torch.randn(32).abs()
+        neighbor_ids_before = layer_32.neighbor_ids.clone()
+        degree_before = layer_32.degree.clone()
+
+        for _ in range(12):
+            layer_32.bind(ctx, asm)
+
+        report = layer_32.device_report()
+        assert report["hub_evidence_update_count"] == 12
+        assert report["hub_topology_refresh_count"] == 0
+        assert report["structural_mutations"]["growth_events"] == 0
+        assert report["structural_mutations"]["prune_events"] == 0
+        assert torch.equal(layer_32.neighbor_ids, neighbor_ids_before)
+        assert torch.equal(layer_32.degree, degree_before)
+
+    def test_explicit_hub_refresh_requires_reason(self, layer_32):
+        with pytest.raises(ValueError, match="requires a reason"):
+            layer_32.refresh_hub_topology(reason="")
+
+    def test_candidate_hub_topology_plan_is_bounded_deterministic_and_read_only(
+        self,
+        layer_32,
+    ):
+        before = layer_32.state_dict()
+
+        first = layer_32.plan_candidate_hub_topology(
+            [7, 3, 7, -1, 99],
+            max_total_edge_delta=5,
+        )
+        second = layer_32.plan_candidate_hub_topology(
+            [7, 3],
+            max_total_edge_delta=5,
+        )
+
+        assert first == second
+        assert first["surface"] == "binding_candidate_hub_topology_plan.v1"
+        assert first["candidate_column_ids"] == [7, 3]
+        assert first["proposed_total_edge_delta"] == 5
+        assert len(first["proposed_edges"]) == 5
+        assert {edge[1] for edge in first["proposed_edges"]} == {3, 7}
+        assert len(first["plan_hash"]) == 64
+        assert len(first["baseline_topology_hash"]) == 64
+        assert first["mutates_runtime_state"] is False
+        assert first["calls_topology_refresh"] is False
+        after = layer_32.state_dict()
+        assert after.keys() == before.keys()
+        for key, value in before.items():
+            current = after[key]
+            if isinstance(value, torch.Tensor):
+                assert torch.equal(current, value)
+            else:
+                assert current == value
+
+    def test_candidate_hub_topology_plan_applies_exact_edges_and_rejects_tampering(
+        self,
+        layer_32,
+    ):
+        plan = layer_32.plan_candidate_hub_topology([7, 3], max_total_edge_delta=5)
+        before_edges = layer_32._edge_set(layer_32.neighbor_ids, layer_32.degree)
+
+        report = layer_32.apply_candidate_hub_topology_plan(
+            plan,
+            reason="isolated evaluation",
+        )
+
+        after_edges = layer_32._edge_set(layer_32.neighbor_ids, layer_32.degree)
+        assert after_edges - before_edges == {
+            (target, source) for target, source in plan["proposed_edges"]
+        }
+        assert report["applied_total_edge_delta"] == 5
+        assert report["topology_changed"] is True
+
+        untouched = HypercubeBindingLayer(
+            n_columns=32,
+            device=torch.device("cpu"),
+            shortcuts_per_node=1,
+        )
+        before = untouched.state_dict()
+        tampered = {**plan, "proposed_edges": [[0, 7], *plan["proposed_edges"][1:]]}
+        with pytest.raises(ValueError, match="hash mismatch"):
+            untouched.apply_candidate_hub_topology_plan(
+                tampered,
+                reason="tampered trial",
+            )
+        after = untouched.state_dict()
+        for key, value in before.items():
+            current = after[key]
+            if isinstance(value, torch.Tensor):
+                assert torch.equal(current, value)
+            else:
+                assert current == value
 
     def test_state_dict_excludes_dense_binding_compatibility_keys(self, layer_32):
         """state_dict stays native to hypercube sparse topology."""

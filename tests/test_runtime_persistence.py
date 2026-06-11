@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from threading import RLock
+from threading import Event, RLock, Thread
 from unittest.mock import patch
 
 from marulho.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
@@ -88,6 +88,7 @@ class _FakePersistenceManager:
         self._delayed_consequence_remerged_total = 0
         self._brain_last_error = None
         self._brain_config = {"tick_tokens": 8}
+        self._brain_running = False
 
     def _brain_persisted_state_locked(self) -> dict[str, object]:
         return {
@@ -115,7 +116,14 @@ class _FakePersistenceManager:
         }
 
     def _brain_runtime_snapshot_locked(self, **kwargs: object) -> dict[str, object]:
-        return self._brain_persisted_state_locked()
+        return {
+            **self._brain_persisted_state_locked(),
+            "running": self._brain_running,
+            "execution": {
+                "tick_in_progress": False,
+                "active_execution_requests": 0,
+            },
+        }
 
     @staticmethod
     def _normalize_background_source_utility_state(value: object) -> dict[str, object]:
@@ -290,6 +298,46 @@ class RuntimePersistenceTests(unittest.TestCase):
 
             self.assertIs(persistence.trace_history, history)
             self.assertEqual(history[0]["trace_id"], "trace-1")
+
+    def test_save_checkpoint_fails_fast_while_runtime_mutation_lock_is_busy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = _runtime_persistence(manager, trace_history_limit=2)
+            lock_acquired = Event()
+            release_lock = Event()
+
+            def _hold_runtime_lock() -> None:
+                with manager._lock:
+                    lock_acquired.set()
+                    release_lock.wait(timeout=2.0)
+
+            holder = Thread(target=_hold_runtime_lock, daemon=True)
+            holder.start()
+            self.assertTrue(lock_acquired.wait(timeout=1.0))
+            target = root / "busy.pt"
+            try:
+                with self.assertRaisesRegex(TimeoutError, "Runtime is busy"):
+                    persistence.save_checkpoint(str(target))
+            finally:
+                release_lock.set()
+                holder.join(timeout=1.0)
+
+            self.assertFalse(holder.is_alive())
+            self.assertFalse(target.exists())
+
+    def test_save_checkpoint_rejects_running_runtime_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            manager._brain_running = True
+            persistence = _runtime_persistence(manager, trace_history_limit=2)
+            target = root / "running.pt"
+
+            with self.assertRaisesRegex(TimeoutError, "Stop Terminus first"):
+                persistence.save_checkpoint(str(target))
+
+            self.assertFalse(target.exists())
 
     def test_save_checkpoint_uses_runtime_state_and_service_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

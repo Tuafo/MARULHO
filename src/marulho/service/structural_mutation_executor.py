@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from marulho.semantics import ConceptStore
 from marulho.service.runtime_state import RuntimeState
 
 
@@ -17,7 +18,7 @@ class StructuralMutationExecutor:
         *,
         lock: Any,
         runtime_state: RuntimeState,
-        concept_store: Callable[[], ConceptStore],
+        binding_layer: Callable[[], Any | None],
         save_checkpoint: Callable[[str | None], dict[str, Any]],
         checkpoint_path: Callable[[], Path],
         verify_checkpoint: Callable[[Path], bool],
@@ -26,7 +27,7 @@ class StructuralMutationExecutor:
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
-        self._concept_store = concept_store
+        self._binding_layer = binding_layer
         self._save_checkpoint = save_checkpoint
         self._checkpoint_path = checkpoint_path
         self._verify_checkpoint = verify_checkpoint
@@ -47,13 +48,40 @@ class StructuralMutationExecutor:
             preflight = dict(structural_mutation_preflight)
             gate = preflight.get("promotion_gate") if isinstance(preflight.get("promotion_gate"), Mapping) else {}
             design = preflight.get("design_binding") if isinstance(preflight.get("design_binding"), Mapping) else {}
-            preflight_checkpoint = str(preflight.get("checkpoint_path") or "").strip()
+            transaction = (
+                preflight.get("checkpoint_transaction_requirements")
+                if isinstance(preflight.get("checkpoint_transaction_requirements"), Mapping)
+                else {}
+            )
+            gate_evidence = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            preflight_checkpoint = str(transaction.get("checkpoint_path") or "").strip()
             requested_checkpoint = str(checkpoint_path or "").strip()
             effective_checkpoint = requested_checkpoint or preflight_checkpoint
+            preflight_material = {
+                "structural_mutation_design_hash": design.get("structural_mutation_design_hash"),
+                "mutation_target": design.get("mutation_target"),
+                "mutation_method": design.get("mutation_method"),
+                "mutation_reason": str(design.get("mutation_reason") or "").strip(),
+                "max_total_edge_delta": int(design.get("max_total_edge_delta", 0)),
+                "expected_state_revision": int(transaction.get("expected_state_revision", -1)),
+                "current_state_revision": int(transaction.get("current_state_revision", -1)),
+                "checkpoint_path": preflight_checkpoint or None,
+                "required_evidence": dict(gate_evidence),
+            }
+            recomputed_preflight_hash = self._sha256_json(preflight_material)
             required = {
                 "preflight_surface_available": preflight.get("surface")
                 == "subcortical_structural_mutation_preflight.v1",
-                "preflight_ready": bool(preflight.get("ready")),
+                "preflight_hash_available": len(
+                    str(preflight.get("structural_mutation_preflight_hash") or "")
+                )
+                == 64,
+                "preflight_hash_recomputed_match": recomputed_preflight_hash
+                == str(preflight.get("structural_mutation_preflight_hash") or ""),
                 "preflight_gate_ready": bool(gate.get("eligible_for_operator_execution_review")),
                 "preflight_blocks_direct_mutation": not bool(gate.get("eligible_for_structural_mutation")),
                 "preflight_did_not_write_checkpoint": not bool(preflight.get("writes_checkpoint")),
@@ -61,8 +89,16 @@ class StructuralMutationExecutor:
                 "preflight_did_not_call_growth_or_prune": not bool(preflight.get("calls_growth_or_prune")),
                 "design_hash_bound": bool(design.get("design_hash_available"))
                 and bool(design.get("design_hash_recomputed_match")),
+                "binding_hub_topology_target_bound": design.get("mutation_target")
+                == "marulho.subcortex.binding.hub_topology",
+                "binding_hub_refresh_method_bound": design.get("mutation_method")
+                == "HypercubeBindingLayer.refresh_hub_topology",
+                "mutation_reason_available": bool(str(design.get("mutation_reason") or "").strip()),
+                "positive_edge_delta_budget": int(design.get("max_total_edge_delta", 0)) > 0,
                 "expected_revision_current": int(expected_state_revision) == before_revision,
-                "expected_revision_matches_preflight": int(preflight.get("expected_state_revision", -1))
+                "expected_revision_matches_preflight": int(
+                    transaction.get("expected_state_revision", -1)
+                )
                 == int(expected_state_revision),
                 "checkpoint_path_available": bool(effective_checkpoint),
                 "checkpoint_path_matches_preflight": not bool(requested_checkpoint and preflight_checkpoint)
@@ -78,8 +114,21 @@ class StructuralMutationExecutor:
                     checkpoint_path=effective_checkpoint or None,
                 )
 
-            store = self._concept_store()
-            before_state = deepcopy(store.state_dict())
+            binding = self._binding_layer()
+            refresh = getattr(binding, "refresh_hub_topology", None)
+            if binding is None or not callable(refresh):
+                return self._blocked(
+                    reason="blocked_binding_hub_topology_unavailable",
+                    before_revision=before_revision,
+                    required_evidence={
+                        **required,
+                        "binding_layer_available": binding is not None,
+                        "binding_hub_refresh_available": callable(refresh),
+                    },
+                    checkpoint_path=effective_checkpoint or None,
+                )
+
+            before_state = deepcopy(binding.state_dict())
             before_dirty_state = bool(self._runtime_state.dirty_state)
             checkpoint = self._save_checkpoint(effective_checkpoint)
             checkpoint_file = Path(str(checkpoint.get("path") or self._checkpoint_path()))
@@ -96,22 +145,43 @@ class StructuralMutationExecutor:
                     checkpoint_path=str(checkpoint_file),
                 )
 
-            report = store.refresh_structural_capacity()
-            after_refresh_state = deepcopy(store.state_dict())
-            if dict(after_refresh_state) == dict(before_state):
-                store.load_state_dict(dict(before_state))
+            report = refresh(reason=str(design["mutation_reason"]))
+            if not bool(report.get("topology_changed")):
+                binding.load_state_dict(dict(before_state))
                 return self._blocked(
-                    reason="blocked_no_structural_capacity_delta",
+                    reason="blocked_no_binding_hub_topology_delta",
                     before_revision=before_revision,
                     required_evidence={
                         **required,
                         "pre_structural_mutation_checkpoint_saved": True,
                         "pre_structural_mutation_checkpoint_restore_verified": checkpoint_verified,
-                        "structural_capacity_delta_observed": False,
+                        "binding_hub_topology_delta_observed": False,
                     },
                     checkpoint_path=str(checkpoint_file),
                 )
-            committed_checkpoint_file = self._committed_checkpoint_path(checkpoint_file, "subcortical_structural_mutation")
+            structural_delta = self._structural_delta(report)
+            total_edge_delta = abs(structural_delta["edges_added_delta"]) + abs(
+                structural_delta["edges_removed_delta"]
+            )
+            max_total_edge_delta = int(design["max_total_edge_delta"])
+            if total_edge_delta > max_total_edge_delta:
+                binding.load_state_dict(dict(before_state))
+                return self._blocked(
+                    reason="blocked_binding_hub_topology_delta_over_budget",
+                    before_revision=before_revision,
+                    required_evidence={
+                        **required,
+                        "binding_hub_topology_delta_observed": True,
+                        "actual_total_edge_delta": total_edge_delta,
+                        "max_total_edge_delta": max_total_edge_delta,
+                        "actual_edge_delta_within_budget": False,
+                    },
+                    checkpoint_path=str(checkpoint_file),
+                )
+            committed_checkpoint_file = self._committed_checkpoint_path(
+                checkpoint_file,
+                "binding_hub_topology_mutation",
+            )
             event = {
                 "operator_id": str(operator_id),
                 "applied_at": datetime.now(timezone.utc).isoformat(),
@@ -120,13 +190,15 @@ class StructuralMutationExecutor:
                 "checkpoint_path": str(checkpoint_file),
                 "staged_committed_checkpoint_path": str(committed_checkpoint_file),
                 "structural_mutation_design_hash": design.get("structural_mutation_design_hash"),
+                "mutation_reason": design.get("mutation_reason"),
+                "structural_delta": structural_delta,
                 "structural_report": deepcopy(report),
             }
             self._runtime_state.mark_mutated()
             after_revision = int(self._runtime_state.state_revision)
             commit = self._commit_mutation(
                 committed_checkpoint_file=committed_checkpoint_file,
-                operation="subcortical_structural_mutation",
+                operation="binding_hub_topology_mutation",
                 before_state=before_state,
                 before_revision=before_revision,
                 before_dirty_state=before_dirty_state,
@@ -168,12 +240,13 @@ class StructuralMutationExecutor:
                     "restore_verified": checkpoint_verified,
                 },
                 "application_target": {
-                    "target_id": "marulho.subcortex.concept_store.structural_capacity",
+                    "target_id": "marulho.subcortex.binding.hub_topology",
                     "owned_by_marulho": True,
                     "checkpointed": True,
-                    "mutation_method": "ConceptStore.refresh_structural_capacity",
+                    "mutation_method": "HypercubeBindingLayer.refresh_hub_topology",
                 },
                 "structural_mutation_event": event,
+                "structural_delta": structural_delta,
                 "structural_report": deepcopy(report),
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": after_revision, **self._runtime_state.mutation_summary()},
@@ -225,13 +298,13 @@ class StructuralMutationExecutor:
     def _verify_checkpoint_transaction(
         self,
         path: Path,
-        expected_concept_state: Mapping[str, Any],
+        expected_binding_state: Mapping[str, Any],
         expected_revision: int,
     ) -> bool:
         return bool(
             path.exists()
             and self._verify_checkpoint(path)
-            and self._verify_checkpoint_snapshot(path, expected_concept_state, expected_revision)
+            and self._verify_checkpoint_snapshot(path, expected_binding_state, expected_revision)
         )
 
     def _commit_mutation(
@@ -243,7 +316,8 @@ class StructuralMutationExecutor:
         before_revision: int,
         before_dirty_state: bool,
     ) -> dict[str, Any]:
-        after_state = deepcopy(self._concept_store().state_dict())
+        binding = self._binding_layer()
+        after_state = deepcopy(binding.state_dict())
         after_revision = int(self._runtime_state.state_revision)
         try:
             checkpoint = self._save_checkpoint(str(committed_checkpoint_file))
@@ -267,7 +341,7 @@ class StructuralMutationExecutor:
                 "staged_committed_checkpoint_path": str(saved_file),
                 "current_checkpoint_manifest": manifest,
             }
-        self._concept_store().load_state_dict(dict(before_state))
+        binding.load_state_dict(dict(before_state))
         self._runtime_state.state_revision = before_revision
         self._runtime_state.dirty_state = before_dirty_state
         rollback_checkpoint_rewritten_verified = False
@@ -290,6 +364,42 @@ class StructuralMutationExecutor:
             "rollback_checkpoint_rewritten_verified": rollback_checkpoint_rewritten_verified,
             "committed_checkpoint_path": str(saved_file),
         }
+
+    @staticmethod
+    def _structural_delta(report: Mapping[str, Any]) -> dict[str, int]:
+        before = report.get("before") if isinstance(report.get("before"), Mapping) else {}
+        after = report.get("after") if isinstance(report.get("after"), Mapping) else {}
+        before_mutations = (
+            before.get("structural_mutations")
+            if isinstance(before.get("structural_mutations"), Mapping)
+            else {}
+        )
+        after_mutations = (
+            after.get("structural_mutations")
+            if isinstance(after.get("structural_mutations"), Mapping)
+            else {}
+        )
+        return {
+            "edges_added_delta": int(after_mutations.get("edges_added_total", 0))
+            - int(before_mutations.get("edges_added_total", 0)),
+            "edges_removed_delta": int(after_mutations.get("edges_removed_total", 0))
+            - int(before_mutations.get("edges_removed_total", 0)),
+            "growth_events_delta": int(after_mutations.get("growth_events", 0))
+            - int(before_mutations.get("growth_events", 0)),
+            "prune_events_delta": int(after_mutations.get("prune_events", 0))
+            - int(before_mutations.get("prune_events", 0)),
+        }
+
+    @staticmethod
+    def _sha256_json(payload: Mapping[str, Any]) -> str:
+        encoded = json.dumps(
+            dict(payload),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _committed_checkpoint_path(rollback_checkpoint_file: Path, operation: str) -> Path:

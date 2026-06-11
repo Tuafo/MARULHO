@@ -17,7 +17,9 @@ References:
 
 from __future__ import annotations
 
+import hashlib
 from itertools import combinations
+import json
 import math
 from typing import Any
 
@@ -445,6 +447,9 @@ class HypercubeBindingLayer:
         self._structural_edges_added_total = 0
         self._structural_edges_removed_total = 0
         self._structural_mutation_events: list[dict[str, Any]] = []
+        self._hub_evidence_update_count = 0
+        self._hub_topology_refresh_count = 0
+        self._last_hub_topology_refresh_reason: str | None = None
 
         self._base_neighbor_ids = torch.empty((n_columns, 0), dtype=torch.long, device=device)
         self._base_degree = torch.zeros(n_columns, dtype=torch.long, device=device)
@@ -670,6 +675,249 @@ class HypercubeBindingLayer:
         if profile_changed:
             self._refresh_structural_hub_connectivity(preserved_weights=preserved_weights)
 
+    def refresh_hub_topology(self, *, reason: str) -> dict[str, Any]:
+        """Explicitly refresh structural hub outreach from accumulated evidence.
+
+        This is a maintenance mutation surface. The always-on ``bind`` path
+        updates hub activation evidence only and never calls this method.
+        """
+        normalized_reason = str(reason or "").strip()
+        if not normalized_reason:
+            raise ValueError("hub topology refresh requires a reason")
+        before = self.hub_stats()
+        self._refresh_hub_profile()
+        self._hub_topology_refresh_count += 1
+        self._last_hub_topology_refresh_reason = normalized_reason
+        after = self.hub_stats()
+        return {
+            "reason": normalized_reason,
+            "refresh_count": int(self._hub_topology_refresh_count),
+            "before": before,
+            "after": after,
+            "topology_changed": (
+                before["structural_mutations"] != after["structural_mutations"]
+            ),
+        }
+
+    def plan_candidate_hub_topology(
+        self,
+        candidate_column_ids: list[int] | tuple[int, ...],
+        *,
+        max_total_edge_delta: int = 16,
+    ) -> dict[str, Any]:
+        """Plan bounded hub outreach for evidence-selected columns without mutation."""
+        budget = max(0, int(max_total_edge_delta))
+        candidates: list[int] = []
+        seen: set[int] = set()
+        for raw_id in candidate_column_ids:
+            column_id = int(raw_id)
+            if column_id < 0 or column_id >= self.n_columns or column_id in seen:
+                continue
+            seen.add(column_id)
+            candidates.append(column_id)
+
+        neighbor_ids_cpu = self.neighbor_ids.detach().to(device="cpu")
+        degree_cpu = self.degree.detach().to(device="cpu")
+        snapshot_bytes = int(
+            neighbor_ids_cpu.numel() * neighbor_ids_cpu.element_size()
+            + degree_cpu.numel() * degree_cpu.element_size()
+        )
+        max_degree = int(neighbor_ids_cpu.shape[1]) if neighbor_ids_cpu.ndim == 2 else 0
+        valid_slots = (
+            torch.arange(max_degree).unsqueeze(0) < degree_cpu.unsqueeze(1)
+            if max_degree > 0
+            else torch.zeros((self.n_columns, 0), dtype=torch.bool)
+        )
+        current_outgoing = {
+            source: set(
+                torch.nonzero(
+                    valid_slots & neighbor_ids_cpu.eq(source),
+                    as_tuple=False,
+                )[:, 0].tolist()
+            )
+            for source in candidates
+        }
+        available_by_source: dict[int, list[int]] = {}
+        for source in candidates:
+            existing = current_outgoing[source]
+            base_out_degree = len(self._base_outgoing_targets[source])
+            source_budget = min(base_out_degree, len(self._hub_target_candidates[source]))
+            available_by_source[source] = [
+                int(target)
+                for target in self._hub_target_candidates[source]
+                if int(target) not in existing
+            ][:source_budget]
+
+        proposed_edges: list[list[int]] = []
+        source_offsets = {source: 0 for source in candidates}
+        while len(proposed_edges) < budget:
+            added_this_round = False
+            for source in candidates:
+                offset = source_offsets[source]
+                available = available_by_source[source]
+                if offset >= len(available):
+                    continue
+                proposed_edges.append([int(available[offset]), int(source)])
+                source_offsets[source] = offset + 1
+                added_this_round = True
+                if len(proposed_edges) >= budget:
+                    break
+            if not added_this_round:
+                break
+
+        topology_hash = self._topology_material_hash(neighbor_ids_cpu, degree_cpu)
+        plan_material = {
+            "n_columns": int(self.n_columns),
+            "candidate_column_ids": candidates,
+            "max_total_edge_delta": budget,
+            "baseline_topology_hash": topology_hash,
+            "proposed_edges": proposed_edges,
+        }
+        plan_hash = hashlib.sha256(
+            json.dumps(
+                plan_material,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {
+            "surface": "binding_candidate_hub_topology_plan.v1",
+            "available": bool(candidates),
+            "candidate_column_ids": candidates,
+            "candidate_column_count": len(candidates),
+            "max_total_edge_delta": budget,
+            "proposed_total_edge_delta": len(proposed_edges),
+            "proposed_edges": proposed_edges,
+            "per_source": [
+                {
+                    "column_id": source,
+                    "proposed_edge_count": int(source_offsets[source]),
+                    "available_edge_count": int(len(available_by_source[source])),
+                }
+                for source in candidates
+            ],
+            "baseline_topology_hash": topology_hash,
+            "plan_hash": plan_hash,
+            "source_tensor_device": str(self.neighbor_ids.device),
+            "plan_compute_device": "cpu_control_plane",
+            "device_transfer_count": 2 * int(self.neighbor_ids.device.type != "cpu"),
+            "snapshot_bytes": snapshot_bytes,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "calls_topology_refresh": False,
+            "hot_path_effect": "none_explicit_slow_path",
+        }
+
+    def apply_candidate_hub_topology_plan(
+        self,
+        plan: dict[str, Any],
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Apply an exact planner artifact to this layer.
+
+        Callers must own checkpointing and rollback. Isolated evaluators use
+        this on a checkpoint clone; the live runtime uses a separate service
+        transaction boundary.
+        """
+        normalized_reason = str(reason or "").strip()
+        if not normalized_reason:
+            raise ValueError("candidate hub topology plan application requires a reason")
+        candidate_ids = [int(value) for value in list(plan.get("candidate_column_ids") or [])]
+        proposed_edges = [
+            (int(edge[0]), int(edge[1]))
+            for edge in list(plan.get("proposed_edges") or [])
+            if isinstance(edge, (list, tuple)) and len(edge) == 2
+        ]
+        max_total_edge_delta = int(plan.get("max_total_edge_delta", 0))
+        plan_material = {
+            "n_columns": int(self.n_columns),
+            "candidate_column_ids": candidate_ids,
+            "max_total_edge_delta": max_total_edge_delta,
+            "baseline_topology_hash": plan.get("baseline_topology_hash"),
+            "proposed_edges": [[target, source] for target, source in proposed_edges],
+        }
+        supplied_hash = str(plan.get("plan_hash") or "")
+        recomputed_hash = hashlib.sha256(
+            json.dumps(
+                plan_material,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if supplied_hash != recomputed_hash:
+            raise ValueError("candidate hub topology plan hash mismatch")
+        if str(plan.get("baseline_topology_hash") or "") != self._topology_material_hash():
+            raise ValueError("candidate hub topology baseline hash mismatch")
+        if not proposed_edges or len(proposed_edges) > max_total_edge_delta:
+            raise ValueError("candidate hub topology edge delta is empty or over budget")
+
+        before_state = self.state_dict()
+        before_edges = self._edge_set(self.neighbor_ids, self.degree)
+        proposed_set = set(proposed_edges)
+        if len(proposed_set) != len(proposed_edges):
+            raise ValueError("candidate hub topology plan contains duplicate edges")
+        try:
+            counts: dict[int, int] = {}
+            targets: dict[int, list[int]] = {}
+            for target, source in proposed_edges:
+                if source not in candidate_ids or not (0 <= target < self.n_columns):
+                    raise ValueError("candidate hub topology plan contains an invalid edge")
+                counts[source] = counts.get(source, 0) + 1
+                targets.setdefault(source, []).append(target)
+            for source, count in counts.items():
+                current_extra = int(self._hub_extra_connections[source].item())
+                expected_targets = self._hub_target_candidates[source][
+                    current_extra : current_extra + count
+                ]
+                if expected_targets != targets[source]:
+                    raise ValueError("candidate hub topology plan is not the next deterministic outreach prefix")
+                new_extra = current_extra + count
+                self._hub_extra_connections[source] = new_extra
+                self._hub_mask[source] = True
+                self._hub_strength[source] = 1.0
+                base_out_degree = len(self._base_outgoing_targets[source])
+                self._hub_connection_multiplier[source] = float(
+                    base_out_degree + new_extra
+                ) / float(max(1, base_out_degree))
+            self._refresh_structural_hub_connectivity()
+            after_edges = self._edge_set(self.neighbor_ids, self.degree)
+            added_edges = after_edges - before_edges
+            if added_edges != proposed_set:
+                raise ValueError("candidate hub topology applied edge delta does not match plan")
+            self._hub_topology_refresh_count += 1
+            self._last_hub_topology_refresh_reason = normalized_reason
+        except Exception:
+            self.load_state_dict(before_state)
+            raise
+        return {
+            "reason": normalized_reason,
+            "plan_hash": supplied_hash,
+            "baseline_topology_hash": plan.get("baseline_topology_hash"),
+            "applied_total_edge_delta": len(proposed_edges),
+            "applied_edges": [[target, source] for target, source in proposed_edges],
+            "topology_changed": True,
+            "structural_mutations": self.hub_stats()["structural_mutations"],
+        }
+
+    def _topology_material_hash(
+        self,
+        neighbor_ids: torch.Tensor | None = None,
+        degree: torch.Tensor | None = None,
+    ) -> str:
+        digest = hashlib.sha256()
+        for tensor in (
+            self.neighbor_ids if neighbor_ids is None else neighbor_ids,
+            self.degree if degree is None else degree,
+        ):
+            value = tensor.detach().to(device="cpu").contiguous()
+            digest.update(str(tuple(value.shape)).encode("ascii"))
+            digest.update(str(value.dtype).encode("ascii"))
+            digest.update(value.numpy().tobytes())
+        return digest.hexdigest()
+
     def hub_stats(self) -> dict[str, Any]:
         hub_indices = torch.nonzero(self._hub_mask, as_tuple=False).flatten().tolist()
         structural_mutations = {
@@ -689,6 +937,10 @@ class HypercubeBindingLayer:
             "mean_hub_strength": float(self._hub_strength.mean().item()) if self.n_columns > 0 else 0.0,
             "max_hub_connection_multiplier": float(self._hub_connection_multiplier.max().item()) if self.n_columns > 0 else 1.0,
             "mean_hub_connection_multiplier": float(self._hub_connection_multiplier.mean().item()) if self.n_columns > 0 else 1.0,
+            "evidence_update_count": int(self._hub_evidence_update_count),
+            "topology_refresh_count": int(self._hub_topology_refresh_count),
+            "last_topology_refresh_reason": self._last_hub_topology_refresh_reason,
+            "refresh_policy": "explicit_maintenance_only",
             "structural_mutations": structural_mutations,
         }
 
@@ -801,7 +1053,7 @@ class HypercubeBindingLayer:
             self._hub_ema_alpha * active_float
             + (1.0 - self._hub_ema_alpha) * self._hub_activation_ema
         )
-        self._refresh_hub_profile()
+        self._hub_evidence_update_count += 1
 
         return self.binding_state, strength
 
@@ -929,6 +1181,10 @@ class HypercubeBindingLayer:
             "hub_mask_device": str(self._hub_mask.device),
             "topology": self.topology.device_report(),
             "structural_mutations": self.hub_stats()["structural_mutations"],
+            "hub_refresh_policy": "explicit_maintenance_only",
+            "hub_evidence_update_count": int(self._hub_evidence_update_count),
+            "hub_topology_refresh_count": int(self._hub_topology_refresh_count),
+            "last_hub_topology_refresh_reason": self._last_hub_topology_refresh_reason,
             "n_bindings": int(self.n_bindings),
             "fan_in": int(self.fan_in),
         }
@@ -954,6 +1210,9 @@ class HypercubeBindingLayer:
             "structural_edges_added_total": int(self._structural_edges_added_total),
             "structural_edges_removed_total": int(self._structural_edges_removed_total),
             "structural_mutation_events": [dict(item) for item in self._structural_mutation_events],
+            "hub_evidence_update_count": int(self._hub_evidence_update_count),
+            "hub_topology_refresh_count": int(self._hub_topology_refresh_count),
+            "last_hub_topology_refresh_reason": self._last_hub_topology_refresh_reason,
             "topology_state": self.topology.state_dict(),
         }
 
@@ -1019,3 +1278,9 @@ class HypercubeBindingLayer:
             for item in list(snapshot.get("structural_mutation_events", []) or [])
             if isinstance(item, dict)
         ][-8:]
+        self._hub_evidence_update_count = int(snapshot.get("hub_evidence_update_count", 0))
+        self._hub_topology_refresh_count = int(snapshot.get("hub_topology_refresh_count", 0))
+        refresh_reason = snapshot.get("last_hub_topology_refresh_reason")
+        self._last_hub_topology_refresh_reason = (
+            str(refresh_reason) if refresh_reason is not None else None
+        )

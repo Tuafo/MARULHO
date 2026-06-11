@@ -124,6 +124,9 @@ def _build_architecture_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
         "type": "context",
         "params": {
             "context_mode": config.context_mode,
+            "plasticity_interval_tokens": int(
+                config.context_plasticity_interval_tokens
+            ),
         },
     })
     layers.append({
@@ -202,6 +205,9 @@ def _build_architecture_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
         "layers": layers,
         "config": {
             "context_mode": config.context_mode,
+            "context_plasticity_interval_tokens": int(
+                config.context_plasticity_interval_tokens
+            ),
             "plasticity_rule": config.plasticity_rule,
             "n_columns": int(config.n_columns),
             "cross_modal": bool(model.cross_modal is not None),
@@ -336,7 +342,33 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertFalse(column_runtime["runs_all_columns"])
         self.assertEqual(
             column_runtime["claim_boundary"],
-            "column_scheduler_evidence_only_not_sparse_execution_promotion",
+            "candidate_scoring_promoted_scheduler_sleep_and_cached_votes_remain_report_only",
+        )
+        self.assertEqual(column_runtime["execution"]["mode"], "not_run")
+        self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
+        self.assertEqual(column_runtime["execution"]["homeostasis_update_count"], 0)
+        self.assertEqual(column_runtime["execution"]["homeostasis_update_fraction"], 0.0)
+        self.assertFalse(
+            column_runtime["execution"]["sparse_candidate_execution_observed"]
+        )
+        self.assertEqual(
+            column_runtime["execution"]["claim_boundary"],
+            "observed_competitive_scoring_scope_only_not_full_column_sleep_scheduler",
+        )
+        self.assertEqual(column_runtime["metabolism"]["source_tensor_device"], "cpu")
+        self.assertEqual(column_runtime["metabolism"]["report_compute_device"], "cpu")
+        self.assertEqual(column_runtime["metabolism"]["snapshot_tensor_count"], 5)
+        self.assertEqual(
+            column_runtime["metabolism"]["claim_boundary"],
+            "report_sidecar_compute_only_not_column_execution_device",
+        )
+        self.assertEqual(column_runtime["registry"]["surface"], "column_registry.v1")
+        self.assertFalse(column_runtime["registry"]["mutates_runtime_state"])
+        self.assertFalse(column_runtime["scheduler"]["promoted_to_execution"])
+        self.assertTrue(column_runtime["growth_gate"]["repeated_surprise_available"])
+        self.assertTrue(column_runtime["local_associative_recall"]["available"])
+        self.assertFalse(
+            column_runtime["local_associative_recall"]["enabled_in_runtime_tick"]
         )
 
     def test_status_returns_memory_store(self) -> None:
@@ -424,6 +456,49 @@ class StatusReadModelTerminusStatusTests(unittest.TestCase):
 
 class StatusReadModelCacheTests(unittest.TestCase):
     """Cache and non-blocking semantics for status() and terminus_status()."""
+
+    def test_status_reuses_truth_labeled_runtime_scope_projection(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+        original = trainer.model.runtime_scope_report
+        call_count = 0
+
+        def counted_runtime_scope_report(**kwargs: Any) -> dict[str, Any]:
+            nonlocal call_count
+            call_count += 1
+            return original(**kwargs)
+
+        trainer.model.runtime_scope_report = counted_runtime_scope_report
+
+        fresh = model.status()
+        cached = model.terminus_status()
+
+        self.assertEqual(call_count, 1)
+        self.assertEqual(fresh["runtime_scope"]["projection_cache"]["status"], "fresh")
+        cache = cached["runtime_scope"]["projection_cache"]
+        self.assertEqual(cache["status"], "cached")
+        self.assertTrue(cache["read_only"])
+        self.assertEqual(
+            cache["claim_boundary"],
+            "bounded_status_projection_cache_not_runtime_state",
+        )
+
+    def test_explicit_fresh_status_bypasses_runtime_scope_projection_cache(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+        original = trainer.model.runtime_scope_report
+        call_count = 0
+
+        def counted_runtime_scope_report(**kwargs: Any) -> dict[str, Any]:
+            nonlocal call_count
+            call_count += 1
+            return original(**kwargs)
+
+        trainer.model.runtime_scope_report = counted_runtime_scope_report
+
+        model.status()
+        result = model.status(fresh_wait_seconds=0.5)
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(result["runtime_scope"]["projection_cache"]["status"], "fresh")
 
     def test_status_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, status() returns cached data instead of blocking."""
@@ -676,6 +751,7 @@ class StatusReadModelArchitectureSummaryTests(unittest.TestCase):
         self.assertIn("config", result)
         config = result["config"]
         self.assertIn("context_mode", config)
+        self.assertEqual(config["context_plasticity_interval_tokens"], 4)
         self.assertIn("plasticity_rule", config)
         self.assertIn("n_columns", config)
 
@@ -2142,6 +2218,37 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertTrue(report["rollback_evidence"]["bound_to_pre_snapshot"])
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
+    def test_binding_growth_trial_design_uses_live_failure_streaks_without_mutation(
+        self,
+    ) -> None:
+        model, trainer, _, runtime_state, _ = _build_read_model_with_living_loop()
+        trainer.model.predictive.prediction_error.fill_(0.9)
+        trainer.model.predictive.confidence.fill_(0.1)
+        trainer.model.predictive.prediction_failure_streak.fill_(4)
+        binding = trainer.model.binding_layer
+        neighbor_ids_before = binding.neighbor_ids.clone()
+        degree_before = binding.degree.clone()
+        rev_before = runtime_state.state_revision
+
+        design = model.binding_growth_trial_design(
+            max_candidates=4,
+            max_total_edge_delta=4,
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertEqual(design["surface"], "binding_growth_trial_design.v1")
+        self.assertEqual(
+            design["promotion_gate"]["status"],
+            "ready_for_isolated_binding_growth_trial",
+        )
+        self.assertTrue(design["promotion_gate"]["eligible_for_isolated_trial"])
+        self.assertEqual(design["growth_evidence"]["candidate_column_count"], 4)
+        self.assertLessEqual(design["topology_trial"]["proposed_total_edge_delta"], 4)
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["calls_topology_refresh"])
+        self.assertTrue(torch.equal(binding.neighbor_ids, neighbor_ids_before))
+        self.assertTrue(torch.equal(binding.degree, degree_before))
+
     def test_structural_mutation_design_does_not_advance_revision(self) -> None:
         """Structural mutation design is read-only and waits for preflight."""
         model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
@@ -2179,6 +2286,7 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             evaluation,
             operator_id="operator-structural-design",
             confirmation=True,
+            mutation_reason="repeated isolated prediction failure",
         )
 
         self.assertEqual(runtime_state.state_revision, rev_before)
@@ -2226,6 +2334,7 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             evaluation,
             operator_id="operator-structural-design",
             confirmation=True,
+            mutation_reason="repeated isolated prediction failure",
         )
         rev_before = runtime_state.state_revision
 
