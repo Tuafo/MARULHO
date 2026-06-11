@@ -472,6 +472,15 @@ This file records research anchors for current architecture work. It is not a pr
 - MARULHO also found that routine competitive-column processing scanned `steps_since_win` every tick and could revive dead columns directly from the hot path. Homeostatic plasticity and structural-pruning evidence support treating that as maintenance, not routing. The hot path now leaves stale columns as spike-health evidence; explicit deep-sleep or maintenance paths own revival.
 - The implementation direction is therefore narrower: retain cheap zero-state short-circuits, eliminate mathematically dead branches such as zero-weight input drive, move structural mutation out of routine ticks, and require endpoint-level evidence before promoting fusion, cadence, or event-driven alternatives.
 
+### Event-driven binding wake, June 2026
+
+- PyTorch profiler guidance supports measuring CPU launch and synchronization cost before assuming a CUDA kernel is the bottleneck: https://docs.pytorch.org/docs/stable/profiler.html
+- Thousand Brains Project learning modules remain independent local models that communicate through bounded messages and voting rather than requiring every module to update continuously: https://docs.thousandbrains.org/docs/learning-modules
+- Sparse Mixture-of-Experts routing provides an engineering analogue for bounded specialist activation, while Expert Choice routing emphasizes explicit capacity constraints rather than unconstrained expert fan-out: https://arxiv.org/abs/2202.09368
+- A representative 1024-column checkpoint showed inactive Hypercube Binding with zero usage and zero output while still paying routine launch cost. An isolated profiler trace measured 70 CUDA kernels and 136 ATen operations for one idle probe, versus zero CUDA kernels and zero ATen operations at the binding boundary for one cached idle skip.
+- MARULHO therefore promotes Conditional Binding Wake: inactive binding probes every four tokens and keeps cached neural state between probes; learned or checkpoint-restored binding wakes immediately and runs every tick. The policy is reversible through configuration and does not move topology mutation, replay, or checkpoint work into the hot path.
+- A synchronized RTX 3060 checkpoint A/B over 120 samples per arm measured median train-step latency from `32.2069` to `29.5535 ms`, p95 from `46.3573` to `42.7967 ms`, and mean from `32.6817` to `31.0250 ms`. Both arms retained zero binding usage/state and identical allocated/reserved VRAM, so this is evidence for skipped inactive work, not improved binding cognition.
+
 ### Cadenced adaptive-context plasticity, June 2026
 
 - Multiple-timescale plasticity work separates fast activity-dependent dynamics from slower homeostatic and consolidation processes, while local eligibility-trace approaches likewise preserve continuously evolving neural state without requiring every synaptic consequence to be materialized at every simulation step: https://www.nature.com/articles/ncomms7922 and https://proceedings.neurips.cc/paper_files/paper/2022/file/6fca3ed3c54ffeae947ae668a0841ab2-Paper-Conference.pdf

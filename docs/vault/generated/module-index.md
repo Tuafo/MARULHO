@@ -9,7 +9,7 @@ last_verified: 2026-06-11
 
 ## marulho.core
 
-- `src/marulho/core/hypercube.py`: 71 nodes
+- `src/marulho/core/hypercube.py`: 75 nodes
 - `src/marulho/core/topographic.py`: 53 nodes
 - `src/marulho/core/cross_modal.py`: 48 nodes
 - `src/marulho/core/columns.py`: 47 nodes

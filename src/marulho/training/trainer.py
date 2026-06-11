@@ -451,7 +451,15 @@ class MarulhoTrainer:
                 min=0.5,
                 max=1.5,
             )
-        if self.model.binding_layer is not None and context_prediction is not None:
+        binding_runtime_active = bool(
+            self.model.binding_layer is not None
+            and getattr(self.model.binding_layer, "runtime_active", True)
+        )
+        if (
+            self.model.binding_layer is not None
+            and context_prediction is not None
+            and binding_runtime_active
+        ):
             if routing_gain is None:
                 routing_gain = torch.ones(self.config.n_columns, device=self.model.device)
             routing_gain = torch.clamp(
@@ -505,9 +513,47 @@ class MarulhoTrainer:
         context_prediction: torch.Tensor | None,
         *,
         update_weights: bool,
-    ) -> tuple[torch.Tensor, float]:
+    ) -> tuple[torch.Tensor, float | torch.Tensor]:
         if self.model.binding_layer is None or context_prediction is None:
             return assembly, 0.0
+
+        runtime_bind = getattr(self.model.binding_layer, "bind_runtime", None)
+        if callable(runtime_bind):
+            interval = max(
+                1,
+                int(self.config.binding_idle_probe_interval_tokens),
+            )
+            runtime_active = bool(
+                getattr(self.model.binding_layer, "runtime_active", False)
+            )
+            probe_due = runtime_active or self.token_count % interval == 0
+            if not probe_due:
+                record_skip = getattr(
+                    self.model.binding_layer,
+                    "record_runtime_idle_skip",
+                    None,
+                )
+                if callable(record_skip):
+                    record_skip()
+                return assembly, getattr(self, "_cached_binding_strength", 0.0)
+
+            context_active = bool(
+                self.model.context_layer is not None
+                and getattr(self.model.context_layer, "state_update_count", 0) > 0
+            )
+            bound_assembly, binding_strength = runtime_bind(
+                context_prediction,
+                assembly,
+                update_weights=update_weights,
+                inputs_active=context_active,
+            )
+            if not runtime_active:
+                observed_strength = float(binding_strength.item())
+                self._cached_binding_strength = observed_strength
+                self.model.binding_layer.runtime_active = observed_strength > 0.0
+                binding_strength = observed_strength
+            has_binding = bound_assembly.sum() > 0.0
+            return torch.where(has_binding, bound_assembly, assembly), binding_strength
 
         bound_assembly, binding_strength = self.model.binding_layer.bind(
             context_prediction,
@@ -1344,7 +1390,33 @@ class MarulhoTrainer:
         metrics["abstraction_certainty_mean"] = _abs_cert
         metrics["abstraction_gain_mean"] = _abs_gain
         metrics["abstraction_gap_score_max"] = _abs_gap
-        metrics["binding_strength"] = float(binding_strength)
+        if isinstance(binding_strength, torch.Tensor):
+            if _telemetry_tick:
+                self._cached_binding_strength = float(binding_strength.item())
+            elif not hasattr(self, "_cached_binding_strength"):
+                self._cached_binding_strength = 0.0
+            metrics["binding_strength"] = self._cached_binding_strength
+        else:
+            metrics["binding_strength"] = float(binding_strength)
+        binding_layer = self.model.binding_layer
+        metrics["binding_runtime_active"] = bool(
+            binding_layer is not None
+            and getattr(binding_layer, "runtime_active", True)
+        )
+        metrics["binding_execution_mode"] = (
+            str(getattr(binding_layer, "last_runtime_execution_mode", "not_run"))
+            if binding_layer is not None
+            else "disabled"
+        )
+        metrics["binding_runtime_bind_count"] = int(
+            getattr(binding_layer, "runtime_bind_count", 0)
+        )
+        metrics["binding_runtime_idle_skip_count"] = int(
+            getattr(binding_layer, "runtime_idle_skip_count", 0)
+        )
+        metrics["binding_idle_probe_interval_tokens"] = int(
+            self.config.binding_idle_probe_interval_tokens
+        )
         metrics["cross_modal_visual_confidence"] = cross_modal_visual_conf
         metrics["cross_modal_audio_confidence"] = cross_modal_audio_conf
         metrics["cross_modal_visual_accepted"] = cross_modal_visual_accepted

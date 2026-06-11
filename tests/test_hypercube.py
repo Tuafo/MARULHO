@@ -287,6 +287,25 @@ class TestHypercubeBindingLayer:
         assert isinstance(result[0], torch.Tensor)
         assert isinstance(result[1], float)
 
+    def test_bind_runtime_keeps_strength_on_device(self, layer_32):
+        ctx = torch.ones(32)
+        asm = torch.ones(32)
+        state, strength = layer_32.bind_runtime(ctx, asm)
+        assert state.shape == (32,)
+        assert isinstance(strength, torch.Tensor)
+        assert strength.shape == ()
+        assert strength.device == state.device
+        assert layer_32.runtime_bind_count == 1
+        assert layer_32.last_runtime_execution_mode == "idle_probe"
+
+    def test_runtime_idle_skip_is_reported_without_binding_update(self, layer_32):
+        before = layer_32.coincidence_trace.clone()
+        layer_32.record_runtime_idle_skip()
+        assert torch.equal(layer_32.coincidence_trace, before)
+        report = layer_32.device_report()
+        assert report["runtime_idle_skip_count"] == 1
+        assert report["last_runtime_execution_mode"] == "idle_cached_state"
+
     def test_modulation_gain_shape(self, layer_32):
         ctx = torch.randn(32).abs()
         gain = layer_32.modulation_gain(ctx)
@@ -357,6 +376,19 @@ class TestHypercubeBindingLayer:
         assert torch.equal(layer_32.neighbor_ids, layer2.neighbor_ids)
         assert torch.equal(layer_32.degree, layer2.degree)
         assert layer2.hub_stats()["structural_mutations"] == layer_32.hub_stats()["structural_mutations"]
+
+    def test_restored_binding_usage_wakes_runtime_without_idle_probe(self, layer_32):
+        state = layer_32.state_dict()
+        state["binding_usage"] = torch.ones(32)
+
+        restored = HypercubeBindingLayer(
+            n_columns=32,
+            device=torch.device("cpu"),
+        )
+        restored.load_state_dict(state)
+
+        assert restored.runtime_active is True
+        assert restored.device_report()["runtime_active"] is True
 
     def test_structural_hub_mutation_ledger_tracks_growth_and_pruning(self, layer_32):
         layer_32._hub_activation_ema.zero_()
@@ -555,6 +587,15 @@ class TestConfigIntegration:
                 binding_mode="invalid",
             )
 
+    def test_config_rejects_nonpositive_binding_idle_probe_interval(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(
+            ValueError,
+            match="binding_idle_probe_interval_tokens",
+        ):
+            MarulhoConfig(binding_idle_probe_interval_tokens=0)
+
     def test_model_creates_hypercube_binding(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
@@ -571,6 +612,80 @@ class TestConfigIntegration:
         assert report is not None
         assert report["module"] == "hypercube_binding"
         assert report["neighbor_ids_device"] == str(model.binding_layer.neighbor_ids.device)
+
+    def test_trainer_probes_idle_hypercube_binding_without_running_every_tick(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=32,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            enable_context_layer=True,
+            context_mode="adaptive",
+            enable_binding_layer=True,
+            binding_mode="hypercube",
+            binding_idle_probe_interval_tokens=4,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.rand(cfg.input_dim)
+
+        metrics = {}
+        for _ in range(4):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="idle binding probe",
+                allow_sleep_maintenance=False,
+            )
+
+        report = trainer.model.binding_layer.device_report()
+        assert report["runtime_active"] is False
+        assert report["runtime_bind_count"] == 1
+        assert report["runtime_idle_skip_count"] == 3
+        assert report["last_runtime_execution_mode"] == "idle_cached_state"
+        assert metrics["binding_runtime_active"] is False
+        assert metrics["binding_execution_mode"] == "idle_cached_state"
+        assert metrics["binding_runtime_bind_count"] == 1
+        assert metrics["binding_runtime_idle_skip_count"] == 3
+        assert metrics["binding_idle_probe_interval_tokens"] == 4
+
+    def test_active_hypercube_binding_runs_every_tick(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=32,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            enable_context_layer=True,
+            context_mode="adaptive",
+            enable_binding_layer=True,
+            binding_mode="hypercube",
+            binding_idle_probe_interval_tokens=4,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.model.binding_layer.runtime_active = True
+        pattern = torch.rand(cfg.input_dim)
+
+        for _ in range(4):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="active binding",
+                allow_sleep_maintenance=False,
+            )
+
+        report = trainer.model.binding_layer.device_report()
+        assert report["runtime_bind_count"] == 4
+        assert report["runtime_idle_skip_count"] == 0
+        assert report["last_runtime_execution_mode"] == "active_binding"
+        assert metrics["binding_runtime_active"] is True
+        assert metrics["binding_execution_mode"] == "active_binding"
 
 
 # ── Benchmark ──────────────────────────────────────────────────────

@@ -365,10 +365,7 @@ class HypercubeTopology:
 
 
 def _normalize(x: torch.Tensor) -> torch.Tensor:
-    s = x.sum()
-    if s <= 0.0:
-        return x
-    return x / s
+    return x / x.sum().clamp(min=1e-8)
 
 
 class HypercubeBindingLayer:
@@ -450,6 +447,10 @@ class HypercubeBindingLayer:
         self._hub_evidence_update_count = 0
         self._hub_topology_refresh_count = 0
         self._last_hub_topology_refresh_reason: str | None = None
+        self.runtime_active = False
+        self.runtime_bind_count = 0
+        self.runtime_idle_skip_count = 0
+        self.last_runtime_execution_mode = "not_run"
 
         self._base_neighbor_ids = torch.empty((n_columns, 0), dtype=torch.long, device=device)
         self._base_degree = torch.zeros(n_columns, dtype=torch.long, device=device)
@@ -981,13 +982,33 @@ class HypercubeBindingLayer:
 
         Same interface as BindingLayer.bind() / SpatialBindingLayer.bind().
         """
-        context = _normalize(context_prediction.to(self.device))
-        current = _normalize(assembly.to(self.device))
+        state, strength = self.bind_runtime(
+            context_prediction,
+            assembly,
+            update_weights=update_weights,
+        )
+        return state, float(strength.item())
 
-        if context.sum() <= 0.0 or current.sum() <= 0.0:
+    def bind_runtime(
+        self,
+        context_prediction: torch.Tensor,
+        assembly: torch.Tensor,
+        update_weights: bool = True,
+        *,
+        inputs_active: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Bind without materializing the scalar strength on the host."""
+        self.runtime_bind_count += 1
+        self.last_runtime_execution_mode = (
+            "active_binding" if self.runtime_active else "idle_probe"
+        )
+        if not inputs_active:
             self.coincidence_trace *= max(0.0, 1.0 - 1.0 / self.tau_binding)
             self.binding_state.zero_()
-            return self.binding_state, 0.0
+            return self.binding_state, torch.zeros((), device=self.device)
+
+        context = _normalize(context_prediction.to(self.device))
+        current = _normalize(assembly.to(self.device))
 
         # Local drive from hypercube neighbors
         ctx_drive = self._sparse_drive(context, already_normalized=True)
@@ -1005,10 +1026,7 @@ class HypercubeBindingLayer:
 
         # PV inhibition
         mean_activity = self.coincidence_trace.mean()
-        if mean_activity > self.pv_threshold:
-            self.pv_inhibition = self.pv_gain * (mean_activity - self.pv_threshold)
-        else:
-            self.pv_inhibition = torch.tensor(0.0, device=self.device)
+        self.pv_inhibition = self.pv_gain * torch.relu(mean_activity - self.pv_threshold)
 
         # Binding output
         output = torch.relu(self.coincidence_trace - self.threshold - self.pv_inhibition)
@@ -1020,30 +1038,30 @@ class HypercubeBindingLayer:
         support = (neighbor_outputs * self.learned_weights).sum(dim=1)
         self.binding_state = _normalize(support)
 
-        strength = float(output.sum().item())
+        strength = output.sum()
 
         # Hebbian weight update
-        if update_weights and strength > 0.0:
+        if update_weights:
             active_mask = output > 0.0
-            if active_mask.any():
-                target_neighbors = current[safe_ids]  # [n_columns, max_degree]
-                update = (self.association_lr
-                          * output.unsqueeze(1)
-                          * target_neighbors)
-                self.learned_weights = torch.where(
-                    active_mask.unsqueeze(1),
-                    torch.clamp(
-                        self.learned_weights * self.association_decay + update,
-                        min=0.0, max=1.0,
-                    ),
-                    self.learned_weights,
-                )
-                # Re-zero padded positions
-                pad_mask = self.neighbor_ids < 0
-                self.learned_weights[pad_mask] = 0.0
-                # Renormalize per-column
-                weight_sums = self.learned_weights.sum(dim=1, keepdim=True).clamp(min=1e-8)
-                self.learned_weights = self.learned_weights / weight_sums
+            target_neighbors = current[safe_ids]  # [n_columns, max_degree]
+            update = (
+                self.association_lr
+                * output.unsqueeze(1)
+                * target_neighbors
+            )
+            self.learned_weights = torch.where(
+                active_mask.unsqueeze(1),
+                torch.clamp(
+                    self.learned_weights * self.association_decay + update,
+                    min=0.0,
+                    max=1.0,
+                ),
+                self.learned_weights,
+            )
+            pad_mask = self.neighbor_ids < 0
+            self.learned_weights[pad_mask] = 0.0
+            weight_sums = self.learned_weights.sum(dim=1, keepdim=True).clamp(min=1e-8)
+            self.learned_weights = self.learned_weights / weight_sums
 
         # Update hub activation tracking after the current bind step has fully
         # consumed the existing structural graph. The refreshed hub structure
@@ -1057,13 +1075,14 @@ class HypercubeBindingLayer:
 
         return self.binding_state, strength
 
+    def record_runtime_idle_skip(self) -> None:
+        """Record a trainer-owned conditional-execution skip."""
+        self.runtime_idle_skip_count += 1
+        self.last_runtime_execution_mode = "idle_cached_state"
+
     def binding_prediction(self, context_prediction: torch.Tensor) -> torch.Tensor:
         """Predict column activation from hypercube binding context."""
         context = _normalize(context_prediction.to(self.device))
-        if context.sum() <= 0.0:
-            return torch.zeros(self.n_columns, device=self.device)
-        if self.binding_usage.max() <= 1e-6:
-            return torch.zeros(self.n_columns, device=self.device)
         predicted = self._sparse_drive(context, already_normalized=True) * self.binding_usage
         return _normalize(predicted)
 
@@ -1072,8 +1091,6 @@ class HypercubeBindingLayer:
 
     def modulation_gain_for_context(self, context_prediction: torch.Tensor) -> torch.Tensor:
         prediction = self.binding_prediction(context_prediction)
-        if prediction.sum() <= 0.0:
-            return torch.ones(self.n_columns, device=self.device)
         centered = prediction - prediction.mean()
         scale = torch.clamp(centered.abs().max(), min=1e-8)
         gain = 1.0 + self.gain_strength * (centered / scale)
@@ -1185,6 +1202,10 @@ class HypercubeBindingLayer:
             "hub_evidence_update_count": int(self._hub_evidence_update_count),
             "hub_topology_refresh_count": int(self._hub_topology_refresh_count),
             "last_hub_topology_refresh_reason": self._last_hub_topology_refresh_reason,
+            "runtime_active": bool(self.runtime_active),
+            "runtime_bind_count": int(self.runtime_bind_count),
+            "runtime_idle_skip_count": int(self.runtime_idle_skip_count),
+            "last_runtime_execution_mode": str(self.last_runtime_execution_mode),
             "n_bindings": int(self.n_bindings),
             "fan_in": int(self.fan_in),
         }
@@ -1253,6 +1274,11 @@ class HypercubeBindingLayer:
                 setattr(self, attr, value.to(self.device))
             else:
                 setattr(self, attr, default_fn())
+        restored_usage = snapshot.get("binding_usage")
+        self.runtime_active = bool(
+            isinstance(restored_usage, torch.Tensor)
+            and int(torch.count_nonzero(restored_usage).item()) > 0
+        )
 
         pv = snapshot.get("pv_inhibition")
         if isinstance(pv, torch.Tensor):

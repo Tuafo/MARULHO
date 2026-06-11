@@ -3,7 +3,9 @@ type: concept
 status: draft
 related_code:
   - ../../../src/marulho/core/column_runtime.py
+  - ../../../src/marulho/core/hypercube.py
   - ../../../src/marulho/training/model.py
+  - ../../../src/marulho/training/trainer.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -75,11 +77,15 @@ On 2026-06-11, hypercube hub topology refresh was removed from the always-on bin
 
 The explicit helper is now promoted through the existing structural mutation transaction. The design and preflight bind the binding-hub target, core method, operator reason, edge budget, revision, and rollback checkpoint. The executor verifies the serialized binding state, applies one refresh, reports exact growth/prune and edge deltas, and rolls back on no-op, over-budget, tampered, or unverified commits. The previous executor path that consumed binding evidence but mutated `ConceptStore` capacity was removed.
 
-The preceding trial-design stage now derives candidate source columns from live repeated prediction failures rather than caller-authored IDs. It proposes exact sparse edges but does not apply them. A future checkpoint-clone runner must test those edges against prediction, spike health, Runtime Truth, and metabolism before adapting the operator transaction to consume an exact approved plan.
+The preceding trial-design stage derives candidate source columns from live repeated prediction failures rather than caller-authored IDs. It proposes exact sparse edges but does not apply them. The explicit checkpoint-clone binding-growth evaluator can test those edges against prediction, spike health, Runtime Truth, and metabolism without touching the always-on runtime; only successful evidence should advance toward the operator transaction.
+
+On 2026-06-11, Hypercube Binding became the first larger Subcortex specialist with an explicit event-driven wake policy. While learned binding usage is absent, the trainer runs a probe every four tokens and preserves cached state on the other ticks; active or checkpoint-restored binding runs every tick. Runtime Truth exposes `runtime_active`, bind/probe count, idle-skip count, last execution mode, interval, and CUDA tensor placement.
+
+The repeatable runner at `marulho.evaluation.binding_wake_benchmark` compared interval 1 with interval 4 on the same 1024-column checkpoint and synchronized RTX 3060 inputs. Across 120 samples per arm, median latency improved from `32.2069` to `29.5535 ms` (`8.24%`), p95 from `46.3573` to `42.7967 ms` (`7.68%`), and mean by `5.07%`; allocated/reserved VRAM stayed `20.4585/48.0 MB`. An isolated profiler trace measured 70 CUDA kernels for an idle probe and zero for a cached skip. A post-restart live tick reported Runtime Truth `alive`, binding tensors on `cuda:0`, 3 probes, 11 cached skips, and a 14-token tick in `2521.655 ms`.
 
 ## Next Gate
 
-The next promotion should connect repeated predictive-failure/growth-gate evidence to generation of an isolated binding-topology trial, without allowing the always-on scheduler or Runtime Truth reads to invoke mutation. A fused CUDA predictive update remains a separate performance continuation only if it beats the current dense CUDA path. Applied binding growth is now available solely through the explicit operator transaction; autonomous growth remains unavailable.
+The next velocity promotion should profile the remaining always-running context/predictive/cross-modal specialists and select one evidence-backed wake or fusion boundary without widening the awake set. The architectural continuation remains connecting repeated predictive-failure evidence to the existing isolated binding-growth trial and, only after trial success, the reviewed structural transaction. Autonomous growth remains unavailable.
 
 ## Links
 

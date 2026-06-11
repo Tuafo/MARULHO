@@ -167,6 +167,7 @@ class MarulhoConfig:
     binding_stp_tau_d: float = 4.0
     binding_pv_threshold: float = 0.12
     binding_pv_gain: float = 0.60
+    binding_idle_probe_interval_tokens: int = 4
 
     enable_cross_modal: bool = False
     cross_modal_dim_visual: int = 256
@@ -296,6 +297,8 @@ class MarulhoConfig:
             raise ValueError("binding_pv_threshold must be non-negative")
         if self.binding_pv_gain < 0.0:
             raise ValueError("binding_pv_gain must be non-negative")
+        if self.binding_idle_probe_interval_tokens <= 0:
+            raise ValueError("binding_idle_probe_interval_tokens must be positive")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:
