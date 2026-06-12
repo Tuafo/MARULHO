@@ -33,6 +33,10 @@ related_benchmarks: []
 
         Hypercube binding separates hub evidence from topology mutation. `bind()` updates activation EMA but cannot change adjacency or structural mutation ledgers. `refresh_hub_topology(reason=...)` is an explicit maintenance mutation called only through the service-owned checkpoint transaction; core continues to own the topology algorithm and exact mutation ledger.
 
+        Predictive voting derives consensus gain directly from winner confidence and reference-frame location. It does not persist a separate full-column `hypothesis` tensor because that state had no runtime consumer and added checkpoint plus per-tick CUDA writes.
+
+        `core.fused_route_vote_cuda` owns the exact two-launch Triton scoring and vote kernels used by the checkpoint-opt-in text/idle route. Core owns tensor semantics only; `ColumnTransitionRuntime` in training owns warmup, persistent buffers, eligibility, fallback, counters, and checkpoint lifecycle.
+
         `plan_candidate_hub_topology(...)` is the non-mutating precursor for repeated-failure growth evidence. It snapshots sparse adjacency, distributes a fixed edge budget across evidence-selected sources, hashes the baseline topology and exact proposal, and reports CPU-control/CUDA-transfer metabolism. It is never called by `bind()` or the trainer tick.
 
         Competitive processing no longer revives dead columns in the always-on tick. It records `steps_since_win` and spike-health stale evidence, while `force_revive_dead_columns` remains the explicit maintenance/deep-sleep mutation path.

@@ -28,6 +28,7 @@ DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
+DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL = 8
 _BACKGROUND_SOURCE_UTILITY_INT_FIELDS = (
     "attempts",
     "selections",
@@ -73,6 +74,7 @@ BRAIN_RUNTIME_STATE_FIELDS = frozenset({
     "_brain_last_acquisition_token_count",
     "_brain_last_tick_completed_at",
     "_brain_last_tick_duration_ms",
+    "_brain_last_tick_stage_timings_ms",
     "_brain_last_tick_token_delta",
     "_brain_last_work_at",
     "_last_real_sensory_episode_time",
@@ -172,6 +174,7 @@ class BrainRuntime:
         self._brain_last_acquisition_token_count = token_count
         self._brain_last_tick_completed_at = None
         self._brain_last_tick_duration_ms = None
+        self._brain_last_tick_stage_timings_ms: dict[str, float] = {}
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at = None
         self._last_real_sensory_episode_time = 0.0
@@ -274,6 +277,7 @@ class BrainRuntime:
         }
         self._brain_last_tick_completed_at = None
         self._brain_last_tick_duration_ms = None
+        self._brain_last_tick_stage_timings_ms = {}
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at = None
         self._brain_stop_requested_at = None
@@ -389,33 +393,115 @@ class BrainRuntime:
         sub_batch_size: int,
         yield_seconds: float,
         memory_metadata: Mapping[str, Any] | None = None,
-    ) -> tuple[int, Any, list[str]]:
+        stage_timings_ms: dict[str, float] | None = None,
+    ) -> tuple[int, Any, list[str], dict[str, Any]]:
         total_trained = 0
         last_metrics = None
         batch_size = max(1, int(sub_batch_size))
         pause_seconds = max(0.0, float(yield_seconds))
         evidence_windows: deque[str] = deque(maxlen=128)
+        observation_interval = DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL
+        concept_observation_attempts = 0
+        concept_observations = 0
+        pending_concept_observation: tuple[str, dict[str, Any]] | None = None
         for i in range(0, len(chunk), batch_size):
             if stop_event is not None and stop_event.is_set():
                 break
             sub = chunk[i : i + batch_size]
+            lock_wait_started = time.perf_counter()
             with self._lock:
-                for raw_window, pattern in sub:
+                if stage_timings_ms is not None:
+                    stage_timings_ms["train_lock_wait"] = stage_timings_ms.get(
+                        "train_lock_wait", 0.0
+                    ) + float((time.perf_counter() - lock_wait_started) * 1000.0)
+                train_started = time.perf_counter()
+                for offset, (raw_window, pattern) in enumerate(sub):
+                    trainer_step_started = time.perf_counter()
                     last_metrics = self._trainer.train_step(
                         pattern,
                         raw_window=raw_window,
                         memory_metadata=memory_metadata,
                     )
+                    if stage_timings_ms is not None:
+                        stage_timings_ms["trainer_step"] = stage_timings_ms.get(
+                            "trainer_step", 0.0
+                        ) + float(
+                            (time.perf_counter() - trainer_step_started) * 1000.0
+                        )
                     raw_text = str(raw_window)
                     if raw_text:
                         evidence_windows.append(raw_text)
-                if sub:
-                    self._observe_runtime_concepts_locked(raw_window=sub[-1][0], metrics=last_metrics)
+                    metrics = dict(last_metrics or {})
+                    pending_concept_observation = (raw_text, metrics)
+                    token_ordinal = total_trained + offset + 1
+                    if token_ordinal == 1 or token_ordinal % observation_interval == 0:
+                        concept_observation_started = time.perf_counter()
+                        observed = self._observe_runtime_concepts_locked(
+                            raw_window=raw_text,
+                            metrics=metrics,
+                        )
+                        concept_observation_attempts += 1
+                        concept_observations += int(observed is not None)
+                        pending_concept_observation = None
+                        if stage_timings_ms is not None:
+                            stage_timings_ms["concept_observation"] = stage_timings_ms.get(
+                                "concept_observation", 0.0
+                            ) + float(
+                                (time.perf_counter() - concept_observation_started)
+                                * 1000.0
+                            )
                 total_trained += len(sub)
+                mutation_mark_started = time.perf_counter()
                 self._runtime_state.mark_mutated()
+                if stage_timings_ms is not None:
+                    stage_timings_ms["runtime_mutation_mark"] = stage_timings_ms.get(
+                        "runtime_mutation_mark", 0.0
+                    ) + float(
+                        (time.perf_counter() - mutation_mark_started) * 1000.0
+                    )
+                if stage_timings_ms is not None:
+                    stage_timings_ms["train_compute"] = stage_timings_ms.get(
+                        "train_compute", 0.0
+                    ) + float((time.perf_counter() - train_started) * 1000.0)
             if pause_seconds > 0.0:
+                yield_started = time.perf_counter()
                 time.sleep(pause_seconds)
-        return total_trained, last_metrics, list(evidence_windows)
+                if stage_timings_ms is not None:
+                    stage_timings_ms["train_yield"] = stage_timings_ms.get(
+                        "train_yield", 0.0
+                    ) + float((time.perf_counter() - yield_started) * 1000.0)
+        if pending_concept_observation is not None:
+            concept_lock_started = time.perf_counter()
+            with self._lock:
+                if stage_timings_ms is not None:
+                    stage_timings_ms["concept_lock_wait"] = float(
+                        (time.perf_counter() - concept_lock_started) * 1000.0
+                    )
+                raw_window, metrics = pending_concept_observation
+                concept_observation_started = time.perf_counter()
+                observed = self._observe_runtime_concepts_locked(
+                    raw_window=raw_window,
+                    metrics=metrics,
+                )
+                concept_observation_attempts += 1
+                concept_observations += int(observed is not None)
+                if stage_timings_ms is not None:
+                    stage_timings_ms["concept_observation"] = stage_timings_ms.get(
+                        "concept_observation", 0.0
+                    ) + float(
+                        (time.perf_counter() - concept_observation_started) * 1000.0
+                    )
+        return (
+            total_trained,
+            last_metrics,
+            list(evidence_windows),
+            {
+                "mode": "sampled",
+                "interval_tokens": int(observation_interval),
+                "attempts": int(concept_observation_attempts),
+                "observations": int(concept_observations),
+            },
+        )
 
     def _prefetch_runtime_queue_unlocked(
         self,
@@ -867,8 +953,15 @@ class BrainRuntime:
         total_trained: int,
         last_metrics: Any,
         evidence_windows: Sequence[str],
+        stage_timings_ms: Mapping[str, float] | None = None,
+        concept_observation_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Update counters after training, run multimodal + autonomy. Under lock."""
+        timings = {
+            str(name): max(0.0, float(value))
+            for name, value in dict(stage_timings_ms or {}).items()
+        }
+        finalize_started = time.perf_counter()
         token_count_before = int(self._trainer.token_count) - total_trained
         token_count_after = int(self._trainer.token_count)
 
@@ -898,12 +991,22 @@ class BrainRuntime:
                 "prefetch_events": int(runtime.prefetch_events),
                 "queue_hits": int(runtime.queue_hits),
                 "last_metrics": last_metrics,
+                "concept_observation": dict(concept_observation_summary or {}),
             }
         else:
             source_summary = {"did_work": False, "reason": "no_tokens"}
 
+        autonomy_started = time.perf_counter()
         autonomy_summary = self._run_brain_autonomy_locked()
+        timings["finalize_autonomy"] = float(
+            (time.perf_counter() - autonomy_started) * 1000.0
+        )
+        delayed_started = time.perf_counter()
         delayed_consequence_maintenance = self._maintain_delayed_consequence_records_locked()
+        timings["finalize_delayed_consequence"] = float(
+            (time.perf_counter() - delayed_started) * 1000.0
+        )
+        source_observation_started = time.perf_counter()
         if source_info is not None and total_trained > 0:
             try:
                 source_runtime = cast(_BrainSourceRuntime, source_info["runtime"])
@@ -922,14 +1025,24 @@ class BrainRuntime:
                 )
             except Exception:
                 pass
+        timings["finalize_source_observation"] = float(
+            (time.perf_counter() - source_observation_started) * 1000.0
+        )
 
+        sensory_started = time.perf_counter()
         sensory_summary = self._run_real_sensory_episode_locked()
         token_count_after = int(self._trainer.token_count)
         multimodal_summary = self._multimodal_runtime_summary_locked() if sensory_summary is not None else None
+        timings["finalize_sensory"] = float(
+            (time.perf_counter() - sensory_started) * 1000.0
+        )
         did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or sensory_summary is not None
 
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
+        timings["finalize_total"] = float(
+            (time.perf_counter() - finalize_started) * 1000.0
+        )
         summary = {
             "type": "tick",
             "did_work": did_work,
@@ -939,10 +1052,12 @@ class BrainRuntime:
             "autonomy": autonomy_summary,
             "delayed_consequence_maintenance": delayed_consequence_maintenance,
             "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
+            "stage_timings_ms": timings,
             "token_delta": int(token_delta),
         }
         self._brain_last_tick_completed_at = completed_at
         self._brain_last_tick_duration_ms = float(summary["tick_duration_ms"])
+        self._brain_last_tick_stage_timings_ms = dict(timings)
         self._brain_last_tick_token_delta = int(token_delta)
         if did_work:
             self._brain_last_work_at = completed_at
@@ -1302,6 +1417,7 @@ class BrainRuntime:
             "execution": execution_snapshot,
             "last_tick_completed_at": self._brain_last_tick_completed_at,
             "last_tick_duration_ms": self._brain_last_tick_duration_ms,
+            "last_tick_stage_timings_ms": dict(self._brain_last_tick_stage_timings_ms),
             "last_tick_token_delta": int(self._brain_last_tick_token_delta),
             "tokens_per_second": float(
                 (self._brain_last_tick_token_delta / (self._brain_last_tick_duration_ms / 1000.0))

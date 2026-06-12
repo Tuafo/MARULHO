@@ -141,6 +141,75 @@ class TestAwakeRippleTagging:
         store.ripple_tag_awake(current_token=45, window_tokens=50, da_level=0.85)
         assert store.ripple_tagged_count == 5  # All within window
 
+    def test_vectorized_ripple_tag_matches_retained_scalar_formula(self):
+        store = DualMemoryStore(capacity=32)
+        for i in range(12):
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 17,
+                tag_strength=0.1 + i * 0.01,
+            )
+        retained = DualMemoryStore(capacity=32)
+        retained.restore(store.snapshot())
+
+        current_token = 220
+        window_tokens = 95
+        da_level = 0.91
+        da_threshold = 0.7
+        floor_token = max(0, current_token - window_tokens)
+        window_span = max(1.0, float(window_tokens))
+        da_scale = max(
+            0.0,
+            min(
+                1.0,
+                (da_level - da_threshold) / max(1e-6, 1.0 - da_threshold),
+            ),
+        )
+        retained._advance_state(current_token)
+        retained_tagged = 0
+        for idx, timestamp in enumerate(retained.slow_entry_timestamps):
+            entry_token = int(timestamp)
+            if entry_token < floor_token:
+                continue
+            recency_scale = max(
+                0.0,
+                min(
+                    1.0,
+                    (float(entry_token) - float(floor_token)) / window_span,
+                ),
+            )
+            strength = retained._clip_ripple_strength(
+                0.5 + 0.30 * da_scale + 0.20 * recency_scale
+            )
+            was_untagged = retained.slow_ripple_strength[idx] <= 0.0
+            retained.slow_ripple_strength[idx] = max(
+                retained.slow_ripple_strength[idx],
+                strength,
+            )
+            retained.slow_capture_tag[idx] = min(
+                1.0,
+                retained.slow_capture_tag[idx] + 0.10 + 0.25 * strength,
+            )
+            retained_tagged += int(was_untagged)
+
+        tagged = store.ripple_tag_awake(
+            current_token=current_token,
+            window_tokens=window_tokens,
+            da_level=da_level,
+            da_threshold=da_threshold,
+        )
+
+        assert tagged == retained_tagged
+        assert list(store.slow_ripple_strength) == pytest.approx(
+            list(retained.slow_ripple_strength),
+            abs=1e-12,
+        )
+        assert list(store.slow_capture_tag) == pytest.approx(
+            list(retained.slow_capture_tag),
+            abs=1e-12,
+        )
+
 
 class TestSmallWorldHubTracking:
     """Test hub tracking in HypercubeBindingLayer."""

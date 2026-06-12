@@ -152,3 +152,68 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
 
             self.assertEqual(restored, 1)
             self.assertEqual(list(restored_runtime.buffered_patterns), [("restored-window", "restored-pattern")])
+
+    def test_local_file_runtime_cache_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "local-source.txt"
+            source_path.write_text("local source text", encoding="utf-8")
+            module = _runtime_sources(_FakeManager(root))
+            spec = {
+                "name": "local_source",
+                "source": str(source_path),
+                "source_type": "file",
+            }
+            runtime = _BrainSourceRuntime(
+                spec=spec,
+                stream=iter([]),
+                buffered_patterns=deque([("window-1", "pattern-1")]),
+            )
+
+            module._update_brain_runtime_cache_locked(
+                runtime,
+                served_examples=[("window-0", "pattern-0")],
+            )
+            cache_path = module._brain_runtime_cache_path(spec)
+            self.assertTrue(cache_path.exists())
+
+            restored_runtime = _BrainSourceRuntime(
+                spec=spec,
+                stream=iter([]),
+                buffered_patterns=deque(),
+            )
+            with patch(
+                "marulho.service.runtime_sources.labeled_pattern_stream",
+                return_value=iter([
+                    ("restored-window-0", "restored-pattern-0"),
+                    ("restored-window-1", "restored-pattern-1"),
+                ]),
+            ):
+                restored = module._restore_brain_runtime_cache_locked(restored_runtime)
+
+            self.assertEqual(restored, 2)
+            self.assertEqual(
+                list(restored_runtime.buffered_patterns),
+                [
+                    ("restored-window-0", "restored-pattern-0"),
+                    ("restored-window-1", "restored-pattern-1"),
+                ],
+            )
+
+    def test_local_file_runtime_cache_key_changes_when_source_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "local-source.txt"
+            source_path.write_text("first", encoding="utf-8")
+            module = _runtime_sources(_FakeManager(root))
+            spec = {
+                "name": "local_source",
+                "source": str(source_path),
+                "source_type": "file",
+            }
+
+            before = module._brain_runtime_cache_path(spec)
+            source_path.write_text("second version with different size", encoding="utf-8")
+            after = module._brain_runtime_cache_path(spec)
+
+            self.assertNotEqual(before, after)

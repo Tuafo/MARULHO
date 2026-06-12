@@ -317,6 +317,12 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "context_plasticity_interval_tokens"):
             MarulhoConfig(context_plasticity_interval_tokens=0)
 
+    def test_trainer_telemetry_interval_must_be_positive(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "trainer_telemetry_interval_tokens"):
+            MarulhoConfig(trainer_telemetry_interval_tokens=0)
+
     def test_config_default_is_fixed(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 

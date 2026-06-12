@@ -78,7 +78,16 @@ class MarulhoConfig:
     routing_shards: int = 1
     shard_candidate_factor: int = 2
     merge_torch_routing_shards: bool = True
-    predictive_dense_transition_mode: Literal["legacy", "fused_eager", "compiled"] = "compiled"
+    predictive_dense_transition_mode: Literal[
+        "legacy",
+        "fused_eager",
+        "compiled",
+        "inplace_triton",
+    ] = "compiled"
+    predictive_route_vote_mode: Literal[
+        "tensor",
+        "fused_triton_text",
+    ] = "tensor"
 
     eta_competitive: float = 0.01
     eta_decay: float = 1e-6
@@ -92,6 +101,7 @@ class MarulhoConfig:
     threshold_min: float = 0.05
     threshold_max: float = 1.5
     dead_column_steps: int = 2000
+    candidate_homeostasis_start_tokens: int = 512
     dead_column_noise: float = 0.05
 
     silhouette_min: float = 0.20
@@ -133,6 +143,7 @@ class MarulhoConfig:
     drift_floor_window_tokens: int = 10000
     drift_floor_trigger_min_tokens: int = 1000
     drift_floor_rise_tolerance: float = 0.0
+    trainer_telemetry_interval_tokens: int = 64
     prototype_momentum: float = 0.85
 
     enable_context_layer: bool = False
@@ -178,7 +189,7 @@ class MarulhoConfig:
     cross_modal_A_minus: float = 0.012
     cross_modal_tau_trace: float = 10.0
     cross_modal_confidence_alpha: float = 0.01
-    cross_modal_text_idle_probe_interval_tokens: int = 4
+    cross_modal_text_idle_probe_interval_tokens: int = 16
 
     acquisition_concept_novelty_weight: float = 0.08  # Reduced from 0.20 to prevent cold-start uncertainty inflation
     acquisition_concept_uncertainty_weight: float = 0.10  # Reduced from 0.25 to prevent cold-start uncertainty inflation
@@ -276,6 +287,8 @@ class MarulhoConfig:
             raise ValueError("context_inhibition_strength must be non-negative")
         if self.context_plasticity_interval_tokens <= 0:
             raise ValueError("context_plasticity_interval_tokens must be positive")
+        if self.trainer_telemetry_interval_tokens <= 0:
+            raise ValueError("trainer_telemetry_interval_tokens must be positive")
         if self.abstraction_n_concepts <= 0:
             raise ValueError("abstraction_n_concepts must be positive")
         if not 0.0 < self.abstraction_slow_rate <= 1.0:
@@ -304,6 +317,10 @@ class MarulhoConfig:
             raise ValueError("binding_idle_probe_interval_tokens must be positive")
         if self.cross_modal_text_idle_probe_interval_tokens <= 0:
             raise ValueError("cross_modal_text_idle_probe_interval_tokens must be positive")
+        if self.dead_column_steps <= 0:
+            raise ValueError("dead_column_steps must be positive")
+        if self.candidate_homeostasis_start_tokens < 0:
+            raise ValueError("candidate_homeostasis_start_tokens must be non-negative")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:
@@ -360,9 +377,21 @@ class MarulhoConfig:
             raise ValueError("routing_index_mode must be one of auto, faiss_hnsw, torch_topk, exact_cosine, turboquant_plus")
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
-        if self.predictive_dense_transition_mode not in {"legacy", "fused_eager", "compiled"}:
+        if self.predictive_dense_transition_mode not in {
+            "legacy",
+            "fused_eager",
+            "compiled",
+            "inplace_triton",
+        }:
             raise ValueError(
-                "predictive_dense_transition_mode must be legacy, fused_eager, or compiled"
+                "predictive_dense_transition_mode must be legacy, fused_eager, compiled, or inplace_triton"
+            )
+        if self.predictive_route_vote_mode not in {
+            "tensor",
+            "fused_triton_text",
+        }:
+            raise ValueError(
+                "predictive_route_vote_mode must be tensor or fused_triton_text"
             )
 
     def resolve_device(self) -> torch.device:

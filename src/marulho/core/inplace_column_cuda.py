@@ -27,6 +27,155 @@ def ensure_windows_triton_compiler() -> str | None:
 
 if triton is not None:
 
+    @triton.jit(do_not_specialize_on_alignment=["candidates"])
+    def _single_winner_selection_kernel(
+        combined,
+        inhibition,
+        candidates,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        candidate_count: tl.constexpr,
+        block_candidates: tl.constexpr,
+    ):
+        offsets = tl.arange(0, block_candidates)
+        mask = offsets < candidate_count
+        combined_values = tl.load(
+            combined + offsets,
+            mask=mask,
+            other=-float("inf"),
+        )
+        inhibition_values = tl.load(
+            inhibition + offsets,
+            mask=mask,
+            other=0.0,
+        )
+        activations = tl.maximum(combined_values - inhibition_values, 0.0)
+        had_positive = tl.max(activations, axis=0) > 0.0
+        selection_scores = tl.where(
+            had_positive,
+            activations,
+            combined_values,
+        )
+        local_winner = tl.argmax(selection_scores, axis=0)
+        winner = tl.load(candidates + local_winner)
+        tl.store(winner_out, winner)
+        tl.store(strength_out, 1.0)
+        tl.store(competition_had_positive, had_positive)
+
+    @triton.jit(do_not_specialize_on_alignment=["candidates"])
+    def _fused_vote_competition_kernel(
+        routing_key,
+        prototypes,
+        thresholds,
+        prediction_location,
+        candidates,
+        previous_winner,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        column_dim: tl.constexpr,
+        location_dim: tl.constexpr,
+        candidate_count: tl.constexpr,
+        block_candidates: tl.constexpr,
+        block_d: tl.constexpr,
+        block_location: tl.constexpr,
+    ):
+        candidate_offsets = tl.arange(0, block_candidates)
+        candidate_mask = candidate_offsets < candidate_count
+        candidate_ids = tl.load(
+            candidates + candidate_offsets,
+            mask=candidate_mask,
+            other=0,
+        )
+
+        dimension_offsets = tl.arange(0, block_d)
+        dimension_mask = dimension_offsets < column_dim
+        prototype_values = tl.load(
+            prototypes
+            + candidate_ids[:, None] * column_dim
+            + dimension_offsets[None, :],
+            mask=candidate_mask[:, None] & dimension_mask[None, :],
+            other=0.0,
+        )
+        routing_values = tl.load(
+            routing_key + dimension_offsets,
+            mask=dimension_mask,
+            other=0.0,
+        )
+        similarity = tl.sum(
+            prototype_values * routing_values[None, :],
+            axis=1,
+        )
+
+        prior_winner = tl.load(previous_winner)
+        has_prior_winner = prior_winner >= 0
+        safe_prior_winner = tl.maximum(prior_winner, 0)
+        location_offsets = tl.arange(0, block_location)
+        location_mask = location_offsets < location_dim
+        candidate_locations = tl.load(
+            prediction_location
+            + candidate_ids[:, None] * location_dim
+            + location_offsets[None, :],
+            mask=candidate_mask[:, None] & location_mask[None, :],
+            other=0.0,
+        )
+        prior_location = tl.load(
+            prediction_location
+            + safe_prior_winner * location_dim
+            + location_offsets,
+            mask=location_mask,
+            other=0.0,
+        )
+        location_dot = tl.sum(
+            candidate_locations * prior_location[None, :],
+            axis=1,
+        )
+        candidate_norm = tl.sqrt(
+            tl.sum(candidate_locations * candidate_locations, axis=1)
+        )
+        prior_norm = tl.sqrt(tl.sum(prior_location * prior_location, axis=0))
+        location_similarity = location_dot / tl.maximum(
+            candidate_norm * prior_norm,
+            1e-8,
+        )
+        location_similarity = tl.maximum(
+            -1.0,
+            tl.minimum(1.0, location_similarity),
+        )
+        consensus_gain = tl.where(
+            has_prior_winner,
+            1.0 + 0.3 * location_similarity,
+            1.0,
+        )
+        combined = similarity * consensus_gain
+        candidate_thresholds = tl.load(
+            thresholds + candidate_ids,
+            mask=candidate_mask,
+            other=float("inf"),
+        )
+        activations = tl.maximum(combined - candidate_thresholds, 0.0)
+        had_positive = tl.max(
+            tl.where(candidate_mask, activations, -float("inf")),
+            axis=0,
+        ) > 0.0
+        selection_scores = tl.where(
+            had_positive,
+            activations,
+            combined,
+        )
+        selection_scores = tl.where(
+            candidate_mask,
+            selection_scores,
+            -float("inf"),
+        )
+        local_winner = tl.argmax(selection_scores, axis=0)
+        winner = tl.load(candidates + local_winner)
+        tl.store(winner_out, winner)
+        tl.store(previous_winner, winner)
+        tl.store(strength_out, 1.0)
+        tl.store(competition_had_positive, had_positive)
+
     @triton.jit(
         do_not_specialize=[
             "base_modulator",
@@ -512,4 +661,290 @@ def inplace_column_transition_cuda(
         block_location=triton.next_power_of_2(int(location.shape[1])),
         block_candidates=triton.next_power_of_2(int(candidates.numel())),
         num_warps=8,
+    )
+
+
+def select_single_winner_cuda(
+    *,
+    combined: torch.Tensor,
+    inhibition: torch.Tensor,
+    candidates: torch.Tensor,
+    winner_out: torch.Tensor,
+    strength_out: torch.Tensor,
+    competition_had_positive: torch.Tensor,
+) -> None:
+    """Select one candidate winner without synchronizing the CUDA stream."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    if not combined.is_cuda:
+        raise ValueError("single-winner selection requires CUDA tensors")
+    tensors = (
+        combined,
+        inhibition,
+        candidates,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+    )
+    if any(tensor.device != combined.device for tensor in tensors):
+        raise ValueError("all single-winner tensors must share one CUDA device")
+    candidate_count = int(candidates.numel())
+    if candidate_count <= 0:
+        raise ValueError("single-winner selection requires candidates")
+    if int(combined.numel()) != candidate_count:
+        raise ValueError("combined must have one value per candidate")
+    if int(inhibition.numel()) != candidate_count:
+        raise ValueError("inhibition must have one value per candidate")
+    if int(winner_out.numel()) != 1 or winner_out.dtype != torch.long:
+        raise ValueError("winner_out must be one int64 value")
+    if int(strength_out.numel()) != 1:
+        raise ValueError("strength_out must contain one value")
+    if (
+        int(competition_had_positive.numel()) != 1
+        or competition_had_positive.dtype != torch.bool
+    ):
+        raise ValueError("competition_had_positive must be one bool value")
+
+    ensure_windows_triton_compiler()
+    _single_winner_selection_kernel[(1,)](
+        combined,
+        inhibition,
+        candidates,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        candidate_count=candidate_count,
+        block_candidates=triton.next_power_of_2(candidate_count),
+        num_warps=1,
+    )
+
+
+def select_fused_vote_competition_cuda(
+    *,
+    routing_key: torch.Tensor,
+    prototypes: torch.Tensor,
+    thresholds: torch.Tensor,
+    prediction_location: torch.Tensor,
+    candidates: torch.Tensor,
+    previous_winner: torch.Tensor,
+    winner_out: torch.Tensor,
+    strength_out: torch.Tensor,
+    competition_had_positive: torch.Tensor,
+) -> None:
+    """Fuse predictive vote, candidate score, inhibition, and selection."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    if not routing_key.is_cuda:
+        raise ValueError("fused vote competition requires CUDA tensors")
+    tensors = (
+        routing_key,
+        prototypes,
+        thresholds,
+        prediction_location,
+        candidates,
+        previous_winner,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+    )
+    if any(tensor.device != routing_key.device for tensor in tensors):
+        raise ValueError("all fused vote competition tensors must share one CUDA device")
+    candidate_count = int(candidates.numel())
+    if candidate_count <= 0:
+        raise ValueError("fused vote competition requires candidates")
+    if int(routing_key.numel()) != int(prototypes.shape[1]):
+        raise ValueError("routing_key must match prototype column dimension")
+    if int(thresholds.numel()) != int(prototypes.shape[0]):
+        raise ValueError("thresholds must have one value per prototype")
+    if int(prediction_location.shape[0]) != int(prototypes.shape[0]):
+        raise ValueError("prediction_location must have one row per prototype")
+    if int(previous_winner.numel()) != 1 or previous_winner.dtype != torch.long:
+        raise ValueError("previous_winner must be one int64 value")
+
+    ensure_windows_triton_compiler()
+    _fused_vote_competition_kernel[(1,)](
+        routing_key,
+        prototypes,
+        thresholds,
+        prediction_location,
+        candidates,
+        previous_winner,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        column_dim=int(prototypes.shape[1]),
+        location_dim=int(prediction_location.shape[1]),
+        candidate_count=candidate_count,
+        block_candidates=triton.next_power_of_2(candidate_count),
+        block_d=triton.next_power_of_2(int(prototypes.shape[1])),
+        block_location=triton.next_power_of_2(int(prediction_location.shape[1])),
+        num_warps=4,
+    )
+
+
+def warmup_fused_vote_competition_cuda(
+    *,
+    routing_key: torch.Tensor,
+    prototypes: torch.Tensor,
+    thresholds: torch.Tensor,
+    prediction_location: torch.Tensor,
+    candidates: torch.Tensor,
+    previous_winner: torch.Tensor,
+    winner_out: torch.Tensor,
+    strength_out: torch.Tensor,
+    competition_had_positive: torch.Tensor,
+) -> None:
+    """Compile one fused vote/competition shape without launching it."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    candidate_count = int(candidates.numel())
+    ensure_windows_triton_compiler()
+    _fused_vote_competition_kernel.warmup(
+        routing_key,
+        prototypes,
+        thresholds,
+        prediction_location,
+        candidates,
+        previous_winner,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        column_dim=int(prototypes.shape[1]),
+        location_dim=int(prediction_location.shape[1]),
+        candidate_count=candidate_count,
+        block_candidates=triton.next_power_of_2(candidate_count),
+        block_d=triton.next_power_of_2(int(prototypes.shape[1])),
+        block_location=triton.next_power_of_2(int(prediction_location.shape[1])),
+        num_warps=4,
+        grid=(1,),
+    )
+
+
+def warmup_single_winner_cuda(
+    *,
+    combined: torch.Tensor,
+    inhibition: torch.Tensor,
+    candidates: torch.Tensor,
+    winner_out: torch.Tensor,
+    strength_out: torch.Tensor,
+    competition_had_positive: torch.Tensor,
+) -> None:
+    """Compile one selector shape without launching or mutating state."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    if not combined.is_cuda:
+        raise ValueError("single-winner warmup requires CUDA tensors")
+    candidate_count = int(candidates.numel())
+    if candidate_count <= 0:
+        raise ValueError("single-winner warmup requires candidates")
+    ensure_windows_triton_compiler()
+    _single_winner_selection_kernel.warmup(
+        combined,
+        inhibition,
+        candidates,
+        winner_out,
+        strength_out,
+        competition_had_positive,
+        candidate_count=candidate_count,
+        block_candidates=triton.next_power_of_2(candidate_count),
+        num_warps=1,
+        grid=(1,),
+    )
+
+
+def warmup_inplace_column_transition_cuda(
+    *,
+    prototypes: torch.Tensor,
+    prototype_velocity: torch.Tensor,
+    thresholds: torch.Tensor,
+    win_rate_ema: torch.Tensor,
+    steps_since_win: torch.Tensor,
+    location: torch.Tensor,
+    location_velocity: torch.Tensor,
+    prediction_weights: torch.Tensor,
+    prediction_error: torch.Tensor,
+    prediction_failure_streak: torch.Tensor,
+    confidence: torch.Tensor,
+    recent_spike_window: torch.Tensor,
+    assembly: torch.Tensor,
+    prediction_boost_out: torch.Tensor,
+    effective_modulator_out: torch.Tensor,
+    routing_key: torch.Tensor,
+    previous_routing_key: torch.Tensor,
+    winners: torch.Tensor,
+    candidates: torch.Tensor,
+    consolidation: torch.Tensor,
+    competition_had_positive: torch.Tensor,
+    recent_spike_row: torch.Tensor,
+    prototype_momentum: float,
+    homeostasis_beta: float,
+    homeostasis_lr: float,
+    target_firing_rate: float,
+    threshold_min: float,
+    threshold_max: float,
+    prediction_error_ema_alpha: float,
+    prediction_failure_streak_threshold: float,
+    prediction_learning_rate: float,
+) -> None:
+    """Compile one candidate shape without launching or mutating state."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    if not prototypes.is_cuda:
+        raise ValueError("in-place column transition warmup requires CUDA tensors")
+    n_columns, column_dim = prototypes.shape
+    ensure_windows_triton_compiler()
+    _inplace_column_transition_kernel.warmup(
+        prototypes,
+        prototype_velocity,
+        thresholds,
+        win_rate_ema,
+        steps_since_win,
+        location,
+        location_velocity,
+        prediction_weights,
+        prediction_error,
+        prediction_failure_streak,
+        confidence,
+        recent_spike_window,
+        assembly,
+        prediction_boost_out,
+        effective_modulator_out,
+        routing_key,
+        previous_routing_key,
+        winners,
+        candidates,
+        consolidation,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        competition_had_positive,
+        recent_spike_row,
+        has_previous_routing_key=0,
+        n_columns=int(n_columns),
+        column_dim=int(column_dim),
+        location_dim=int(location.shape[1]),
+        candidate_count=int(candidates.numel()),
+        prototype_momentum=float(prototype_momentum),
+        homeostasis_beta=float(homeostasis_beta),
+        homeostasis_lr=float(homeostasis_lr),
+        target_firing_rate=float(target_firing_rate),
+        threshold_min=float(threshold_min),
+        threshold_max=float(threshold_max),
+        prediction_error_ema_alpha=float(prediction_error_ema_alpha),
+        prediction_failure_streak_threshold=float(
+            prediction_failure_streak_threshold
+        ),
+        prediction_learning_rate=float(prediction_learning_rate),
+        block_n=triton.next_power_of_2(int(n_columns)),
+        block_d=triton.next_power_of_2(int(column_dim)),
+        block_location=triton.next_power_of_2(int(location.shape[1])),
+        block_candidates=triton.next_power_of_2(int(candidates.numel())),
+        num_warps=8,
+        grid=(1,),
     )

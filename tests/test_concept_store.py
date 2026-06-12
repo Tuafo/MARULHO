@@ -48,6 +48,10 @@ class ConceptStoreTests(unittest.TestCase):
         restored = ConceptStore.from_state_dict(store.state_dict())
         restored_snapshot = restored.snapshot()
 
+        self.assertEqual(
+            len(restored._normalized_centroid_cache),
+            len(restored._entries),
+        )
         self.assertEqual(restored_snapshot["concept_count"], snapshot["concept_count"])
         self.assertEqual(restored_snapshot["top_concepts"][0]["concept_id"], snapshot["top_concepts"][0]["concept_id"])
         self.assertEqual(restored_snapshot["concept_mode"], "slow_feature_concept_memory")

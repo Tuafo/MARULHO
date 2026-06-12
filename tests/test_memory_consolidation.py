@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from array import array
+import math
 import unittest
 from unittest.mock import patch
 
@@ -91,6 +93,72 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["slow_routing_key_devices"], {"cpu": 1})
         self.assertEqual(report["fast_ema_device"], "cpu")
         self.assertTrue(report["all_archival_tensors_cpu"])
+        self.assertEqual(report["stc_state_storage"], "zero_copy_array_buffer")
+        self.assertTrue(report["stc_decay_zero_copy"])
+        self.assertEqual(report["stc_state_bytes"], 17)
+        self.assertEqual(report["hot_path"]["update_calls"], 1)
+        self.assertEqual(report["hot_path"]["admission_count"], 1)
+        self.assertEqual(report["hot_path"]["optional_payload_copy_count"], 2)
+
+    def test_memory_store_rejected_reservoir_sample_skips_optional_payload_copies(self) -> None:
+        store = DualMemoryStore(capacity=1)
+        store.update(
+            torch.tensor([1.0, 0.0]),
+            token_count=1,
+            input_pattern=torch.tensor([0.0, 1.0]),
+            routing_key=torch.tensor([1.0, 0.0]),
+        )
+        copies_before = store.optional_payload_copy_count
+
+        with patch("torch.randint", return_value=torch.tensor([1])):
+            admitted = store.update(
+                torch.tensor([0.0, 1.0]),
+                token_count=2,
+                input_pattern=torch.tensor([1.0, 0.0]),
+                routing_key=torch.tensor([0.0, 1.0]),
+            )
+
+        self.assertIsNone(admitted)
+        self.assertEqual(store.optional_payload_copy_count, copies_before)
+        self.assertEqual(store.optional_payload_copy_avoidance_count, 2)
+        self.assertEqual(store.reservoir_rejection_count, 1)
+        self.assertEqual(store.update_calls, 2)
+
+    def test_stc_decay_uses_zero_copy_numeric_buffers_with_expected_values(self) -> None:
+        store = DualMemoryStore(
+            capacity=2,
+            functional_minute=10,
+            capture_tag_decay=0.5,
+            tag_duration_weak=1e12,
+            tag_duration_strong=1e12,
+            prp_tau_weak=1e12,
+            prp_tau_strong=1e12,
+        )
+        store.update(
+            torch.tensor([1.0, 0.0]),
+            token_count=0,
+            importance=1.0,
+            capture_tag=1.0,
+        )
+        tag_buffer = store.slow_capture_tag
+        prp_buffer = store.slow_local_prp
+        initial_prp = store.slow_local_prp[0]
+
+        store._advance_state(10)
+
+        self.assertIsInstance(store.slow_capture_tag, array)
+        self.assertIsInstance(store.slow_tag_is_strong, array)
+        self.assertIsInstance(store.slow_local_prp, array)
+        self.assertIs(store.slow_capture_tag, tag_buffer)
+        self.assertIs(store.slow_local_prp, prp_buffer)
+        expected_tag = 0.5 * math.exp(
+            -10.0 / store._tag_tau_tokens(True)
+        )
+        expected_prp = initial_prp * math.exp(
+            -10.0 / store._prp_tau_tokens(True)
+        )
+        self.assertAlmostEqual(store.slow_capture_tag[0], expected_tag, places=12)
+        self.assertAlmostEqual(store.slow_local_prp[0], expected_prp, places=12)
 
     def test_model_device_report_includes_memory_store_boundary(self) -> None:
         cfg = MarulhoConfig(n_columns=4, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=8)
@@ -438,6 +506,12 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(restored.slow_replay_count, store.slow_replay_count)
         self.assertAlmostEqual(restored.global_prp_pool, store.global_prp_pool, places=6)
         self.assertAlmostEqual(restored.summary_stats()["mean_capture_strength"], store.summary_stats()["mean_capture_strength"], places=6)
+        self.assertEqual(restored.update_calls, store.update_calls)
+        self.assertEqual(restored.admission_count, store.admission_count)
+        self.assertEqual(
+            restored.optional_payload_copy_count,
+            store.optional_payload_copy_count,
+        )
 
     def test_stc_sensitivity_task_a_recall_robust_across_functional_minute(self) -> None:
         """§4.9 STC sensitivity: Task-A recall must be robust across 100x range of functional_minute."""

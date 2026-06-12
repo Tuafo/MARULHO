@@ -25,6 +25,8 @@ related_benchmarks: []
 
         Treat runtime-critical tensor/state work as hot path only when it is required for live service behavior. Reporting, vault generation, and research-memory work stay slow path. Torch-backed routing owns `search_tensors()` for candidate ids and distances that stay on the routing device for live trainer competition and compiled CUDA kernels. Logically sharded torch indexes may use one exact merged cache to reduce launch count while retaining shard-owned updates; cache bytes, readiness, devices, and invalidation state are Runtime Scope evidence. Legacy list-returning `search()` remains a compatibility/control-plane surface and should not be used as the production-velocity path.
 
+        `routing_tensor_cache()` exposes the current exact torch cache by reference for the checkpoint-opt-in fused text route/vote lifecycle. Retrieval remains responsible for invalidation and rebuild; training may refresh pointers but must not duplicate cache mutation policy.
+
         ## Key Files
 
         - [src/marulho/retrieval](../../../src/marulho/retrieval)

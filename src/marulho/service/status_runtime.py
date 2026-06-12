@@ -158,13 +158,41 @@ class RuntimeStatusCore:
         }
 
         last_tick_duration = terminus_runtime.get("last_tick_duration_ms")
+        stage_timings_raw = terminus_runtime.get("last_tick_stage_timings_ms")
+        stage_timings_ms = {
+            str(name): float(duration)
+            for name, duration in (
+                stage_timings_raw.items()
+                if isinstance(stage_timings_raw, Mapping)
+                else ()
+            )
+            if isinstance(duration, (int, float))
+        }
         latency_ms = {
             "last_tick": None if last_tick_duration is None else float(last_tick_duration),
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
+            "stages": stage_timings_ms,
         }
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
         device_evidence = self._runtime_device_evidence(runtime_scope=runtime_scope)
         column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        column_transition_runtime = dict(
+            scope.get("column_transition_runtime")
+            if isinstance(scope.get("column_transition_runtime"), Mapping)
+            else {}
+        )
+        memory_hot_path = {
+            "ripple_scalar_scan_count": int(
+                memory_store.get("ripple_scalar_scan_count", 0) or 0
+            ),
+            "ripple_vector_scan_count": int(
+                memory_store.get("ripple_vector_scan_count", 0) or 0
+            ),
+            "last_ripple_scan_mode": str(
+                memory_store.get("last_ripple_scan_mode") or "not_run"
+            ),
+        }
 
         return {
             "schema_version": 1,
@@ -196,6 +224,8 @@ class RuntimeStatusCore:
                 "cuda_available": device_evidence["cuda_available"],
                 "observed_cuda_execution": device_evidence["observed_cuda_execution"],
                 "column_runtime": column_runtime,
+                "column_transition_runtime": column_transition_runtime,
+                "memory_hot_path": memory_hot_path,
             },
         }
 
@@ -351,6 +381,13 @@ class RuntimeStatusCore:
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
             last_winner=getattr(self._trainer, "last_winner", None),
         )
+        transition_reporter = getattr(
+            self._trainer,
+            "column_transition_runtime_report",
+            None,
+        )
+        if callable(transition_reporter):
+            runtime_scope["column_transition_runtime"] = transition_reporter()
         trace_history_size = int(len(self._trace_history))
         return {
             "checkpoint_path": str(self._checkpoint_path),
@@ -785,6 +822,13 @@ class RuntimeStatusCore:
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
             last_winner=getattr(self._trainer, "last_winner", None),
         )
+        transition_reporter = getattr(
+            self._trainer,
+            "column_transition_runtime_report",
+            None,
+        )
+        if callable(transition_reporter):
+            runtime_scope["column_transition_runtime"] = transition_reporter()
         trace_history_size = int(len(self._trace_history))
         return {
             "terminus_runtime": terminus_runtime,

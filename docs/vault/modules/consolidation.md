@@ -25,6 +25,14 @@ related_benchmarks: []
 
         Treat runtime-critical tensor/state work as hot path only when it is required for live service behavior. Reporting, vault generation, and research-memory work stay slow path.
 
+        Reservoir admission is decided before optional input-pattern and routing-key tensors are copied from CUDA into the CPU archival ledger. Assembly EMA/drift observation, STC state advance, reservoir probability, admitted payloads, and replay semantics remain unchanged. Device evidence reports update, admission, rejection, copied-payload, and avoided-copy counters.
+
+        Capture tags, strong-tag flags, and local PRP values use contiguous Python numeric arrays. NumPy obtains zero-copy views over those buffers for exact in-place decay, avoiding three list-to-array/array-to-list conversions on every state advance. Checkpoint snapshots still serialize ordinary lists, and restore rebuilds the numeric buffers. Runtime Truth reports the storage mode, zero-copy decay status, and exact STC scalar-state bytes.
+
+        Awake-ripple tagging keeps the scalar loop for small ledgers and switches to zero-copy NumPy scans only at the measured large-ledger crossover. Runtime Truth reports scalar/vector scan counts and the last scan mode under memory hot-path evidence.
+
+        The archival boundary remains CPU-owned. A tested CUDA observation variant was slower (`75.69` versus `97.18 ticks/sec`), and bulk asynchronous staging was neutral in complete runs. Sampled replay tensors move to the model device only when replay computation consumes them.
+
         ## Key Files
 
         - [src/marulho/consolidation](../../../src/marulho/consolidation)

@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 import torch
 
 from marulho.evaluation.inplace_hot_window_benchmark import (
-    install_inplace_transition_for_evaluation,
+    install_inplace_transition_for_benchmark,
 )
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.checkpointing import load_trainer_checkpoint
@@ -76,8 +76,8 @@ def _run_arm(
     trainer, metadata = load_trainer_checkpoint(checkpoint)
     trainer.config.micro_sleep_interval_tokens = 10**9
     trainer.config.deep_sleep_interval_tokens = 10**9
-    if executor == "inplace_triton_evaluation":
-        install_inplace_transition_for_evaluation(trainer)
+    if executor == "inplace_triton_runtime":
+        install_inplace_transition_for_benchmark(trainer)
     elif executor != "runtime":
         raise ValueError(f"unsupported transition executor: {executor}")
 
@@ -318,7 +318,7 @@ def run_inplace_transition_quality_benchmark(
     torch.cuda.empty_cache()
     variant = _run_arm(
         checkpoint,
-        executor="inplace_triton_evaluation",
+        executor="inplace_triton_runtime",
         patterns=patterns,
         warmup_steps=warmup_steps,
     )
@@ -348,9 +348,12 @@ def run_inplace_transition_quality_benchmark(
         "comparison": comparison,
         "promotion_gate": {
             "runtime_default_changed": False,
-            "requires_operator_review": True,
-            "requires_grounded_visual_or_audio_quality_evidence": True,
-            "requires_cold_start_compile_solution": True,
+            "checkpoint_opt_in_required": True,
+            "compile_only_startup_warmup_available": True,
+            "grounded_visual_or_audio_quality_evidence_available_elsewhere": True,
+            "production_executor_available": bool(
+                comparison["promotion_eligible"]
+            ),
             "eligible": bool(comparison["promotion_eligible"]),
         },
         "mutates_live_runtime": False,

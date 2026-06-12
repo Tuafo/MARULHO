@@ -398,9 +398,20 @@ class StatusReadModel:
         }
 
         last_tick_duration = terminus_runtime.get("last_tick_duration_ms")
+        stage_timings_raw = terminus_runtime.get("last_tick_stage_timings_ms")
+        stage_timings_ms = {
+            str(name): float(duration)
+            for name, duration in (
+                stage_timings_raw.items()
+                if isinstance(stage_timings_raw, Mapping)
+                else ()
+            )
+            if isinstance(duration, (int, float))
+        }
         latency_ms = {
             "last_tick": None if last_tick_duration is None else float(last_tick_duration),
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
+            "stages": stage_timings_ms,
         }
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
         subcortex_spike_health = self._trainer.model.competitive.spike_health_report()
@@ -871,6 +882,23 @@ class StatusReadModel:
         benchmark_evidence_currency = self._benchmark_evidence_currency()
         runtime_device = self._runtime_device_evidence(runtime_scope=runtime_scope)
         column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
+        scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
+        column_transition_runtime = dict(
+            scope.get("column_transition_runtime")
+            if isinstance(scope.get("column_transition_runtime"), Mapping)
+            else {}
+        )
+        memory_hot_path = {
+            "ripple_scalar_scan_count": int(
+                memory_store.get("ripple_scalar_scan_count", 0) or 0
+            ),
+            "ripple_vector_scan_count": int(
+                memory_store.get("ripple_vector_scan_count", 0) or 0
+            ),
+            "last_ripple_scan_mode": str(
+                memory_store.get("last_ripple_scan_mode") or "not_run"
+            ),
+        }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -901,6 +929,8 @@ class StatusReadModel:
                 "cuda_available": runtime_device["cuda_available"],
                 "observed_cuda_execution": runtime_device["observed_cuda_execution"],
                 "column_runtime": column_runtime,
+                "column_transition_runtime": column_transition_runtime,
+                "memory_hot_path": memory_hot_path,
                 "subcortex_spike_health": subcortex_spike_health,
                 "self_repair_gate": self_repair_gate,
                 "self_repair_evaluation_gate": self_repair_evaluation_gate,
@@ -2948,6 +2978,15 @@ class StatusReadModel:
             cuda_runtime["encoder_device_report"] = deepcopy(encoder_report)
         else:
             runtime_scope["cuda_first_runtime"] = {"encoder_device_report": deepcopy(encoder_report)}
+        transition_reporter = getattr(
+            self._trainer,
+            "column_transition_runtime_report",
+            None,
+        )
+        if callable(transition_reporter):
+            runtime_scope["column_transition_runtime"] = deepcopy(
+                transition_reporter()
+            )
         self._cached_runtime_scope = deepcopy(runtime_scope)
         self._cached_runtime_scope_at = now
         self._cached_runtime_scope_token_count = current_token_count

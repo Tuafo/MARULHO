@@ -120,6 +120,25 @@ def _cosine_similarity(left: torch.Tensor | None, right: torch.Tensor | None) ->
     return float(torch.dot(left_aligned, right_aligned).item())
 
 
+def _unit_cosine_similarity(
+    left: torch.Tensor | None,
+    right: torch.Tensor | None,
+) -> float:
+    """Cosine similarity for already-normalized CPU vectors."""
+    if left is None or right is None:
+        return 0.0
+    left_dim = int(left.numel())
+    right_dim = int(right.numel())
+    if left_dim <= 0 or right_dim <= 0:
+        return 0.0
+    if left_dim == right_dim:
+        return float(torch.dot(left, right).item())
+    target_dim = max(left_dim, right_dim)
+    left_aligned = left if left_dim == target_dim else F.pad(left, (0, target_dim - left_dim))
+    right_aligned = right if right_dim == target_dim else F.pad(right, (0, target_dim - right_dim))
+    return float(torch.dot(left_aligned, right_aligned).item())
+
+
 def _blend_centroid(
     current: torch.Tensor | None,
     incoming: torch.Tensor | None,
@@ -412,6 +431,10 @@ class ConceptStore:
         self._growth_events: list[dict[str, Any]] = []
         self._last_growth_episode = 0
         self._last_prune_episode = 0
+        self._normalized_centroid_cache: dict[
+            str,
+            tuple[torch.Tensor | None, torch.Tensor | None],
+        ] = {}
 
     @classmethod
     def from_state_dict(cls, payload: dict[str, Any] | None) -> ConceptStore:
@@ -486,6 +509,25 @@ class ConceptStore:
 
     def _top_terms(self, entry: dict[str, Any], limit: int = 4) -> list[str]:
         return [str(term) for term, _ in entry["term_weights"].most_common(limit)]
+
+    def _normalized_entry_centroids(
+        self,
+        entry: dict[str, Any],
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        concept_id = str(entry["concept_id"])
+        cached = self._normalized_centroid_cache.get(concept_id)
+        if cached is not None:
+            return cached
+        normalized = (
+            _normalize_signature(entry.get("raw_centroid")),
+            _normalize_signature(entry.get("slow_centroid")),
+        )
+        self._normalized_centroid_cache[concept_id] = normalized
+        return normalized
+
+    def _invalidate_normalized_centroids(self, *concept_ids: str) -> None:
+        for concept_id in concept_ids:
+            self._normalized_centroid_cache.pop(str(concept_id), None)
 
     def _concept_uncertainty(self, entry: dict[str, Any]) -> float:
         observations = max(1, int(entry.get("observations", 0)))
@@ -597,17 +639,21 @@ class ConceptStore:
         self,
         entry: dict[str, Any],
         token_set: set[str],
-        raw_signature: torch.Tensor | None,
-        slow_signature: torch.Tensor | None,
+        raw_unit_signature: torch.Tensor | None,
+        slow_unit_signature: torch.Tensor | None,
     ) -> tuple[float, float, float, float]:
         concept_terms = set(self._top_terms(entry, limit=8))
         lexical_overlap = 0.0 if not token_set else float(len(token_set & concept_terms) / max(1, len(token_set)))
-        slow_reference = _normalize_signature(entry.get("slow_centroid"))
+        raw_reference, slow_reference = self._normalized_entry_centroids(entry)
         if slow_reference is None:
-            slow_reference = _normalize_signature(entry.get("raw_centroid"))
-        slow_query = slow_signature if slow_signature is not None else raw_signature
-        slow_similarity = _cosine_similarity(slow_query, slow_reference)
-        raw_similarity = _cosine_similarity(raw_signature, _normalize_signature(entry.get("raw_centroid")))
+            slow_reference = raw_reference
+        slow_query = (
+            slow_unit_signature
+            if slow_unit_signature is not None
+            else raw_unit_signature
+        )
+        slow_similarity = _unit_cosine_similarity(slow_query, slow_reference)
+        raw_similarity = _unit_cosine_similarity(raw_unit_signature, raw_reference)
         score = float(0.70 * slow_similarity + 0.18 * raw_similarity + self._lexical_weight * lexical_overlap)
         return score, slow_similarity, raw_similarity, lexical_overlap
 
@@ -619,6 +665,8 @@ class ConceptStore:
         slow_signature: torch.Tensor | None,
     ) -> str:
         token_set = set(tokens)
+        raw_unit_signature = _normalize_signature(raw_signature)
+        slow_unit_signature = _normalize_signature(slow_signature)
         best_id: str | None = None
         best_score = -1.0
         best_slow = 0.0
@@ -629,8 +677,8 @@ class ConceptStore:
             score, slow_similarity, raw_similarity, lexical_overlap = self._assignment_score(
                 entry,
                 token_set,
-                raw_signature,
-                slow_signature,
+                raw_unit_signature,
+                slow_unit_signature,
             )
             if score > best_score:
                 best_id = concept_id
@@ -660,6 +708,7 @@ class ConceptStore:
         )
         concept_id = str(entry["concept_id"])
         self._entries[concept_id] = entry
+        self._invalidate_normalized_centroids(concept_id)
         return concept_id
 
     def _update_entry(
@@ -753,6 +802,7 @@ class ConceptStore:
         for rank, token in enumerate(tokens[:8]):
             entry["term_weights"][str(token)] += rank_gain * float(score) / max(1.0, float(rank + 1))
         self._refresh_entry_structure(entry)
+        self._invalidate_normalized_centroids(str(entry["concept_id"]))
 
     def _concept_payload(
         self,
@@ -835,6 +885,7 @@ class ConceptStore:
         keeper["first_episode"] = min(int(keeper.get("first_episode", 0)), int(donor.get("first_episode", 0)))
         keeper["last_episode"] = max(int(keeper.get("last_episode", 0)), int(donor.get("last_episode", 0)))
         self._refresh_entry_structure(keeper)
+        self._invalidate_normalized_centroids(keeper_id, donor_id)
 
     def refresh_structural_capacity(self, *, grouped: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         growth_candidates = [
@@ -881,9 +932,9 @@ class ConceptStore:
             for left_id in concept_ids:
                 left = self._entries[left_id]
                 left_terms = set(self._top_terms(left, limit=6))
-                left_signature = _normalize_signature(left.get("slow_centroid"))
+                left_raw_signature, left_signature = self._normalized_entry_centroids(left)
                 if left_signature is None:
-                    left_signature = _normalize_signature(left.get("raw_centroid"))
+                    left_signature = left_raw_signature
                 if left_signature is None:
                     continue
                 for right_id in concept_ids:
@@ -900,10 +951,10 @@ class ConceptStore:
                     )
                     if lexical_overlap < 0.75:
                         continue
-                    right_signature = _normalize_signature(right.get("slow_centroid"))
+                    right_raw_signature, right_signature = self._normalized_entry_centroids(right)
                     if right_signature is None:
-                        right_signature = _normalize_signature(right.get("raw_centroid"))
-                    similarity = _cosine_similarity(left_signature, right_signature)
+                        right_signature = right_raw_signature
+                    similarity = _unit_cosine_similarity(left_signature, right_signature)
                     if similarity < 0.97:
                         continue
                     score = 0.65 * similarity + 0.35 * lexical_overlap
@@ -928,6 +979,7 @@ class ConceptStore:
                         dict.fromkeys([*list(keeper_group.get("example_windows", [])), *list(donor_group.get("example_windows", []))])
                     )
                 del self._entries[donor_id]
+                self._invalidate_normalized_centroids(donor_id)
                 self._prune_event_count += 1
                 self._last_prune_episode = int(self._episode_index)
                 self._growth_events.append(
@@ -1345,6 +1397,7 @@ class ConceptStore:
 
     def load_state_dict(self, payload: dict[str, Any]) -> None:
         self._entries = {}
+        self._normalized_centroid_cache = {}
         self._observations = int(payload.get("observations", 0))
         self._episode_index = int(payload.get("episode_index", 0))
         self._next_id = int(payload.get("next_id", 1))
@@ -1374,11 +1427,18 @@ class ConceptStore:
             raw_centroid = _tensor(item.get("raw_centroid", item.get("centroid")))
             slow_centroid = _tensor(item.get("slow_centroid", item.get("centroid")))
             last_slow = _tensor(item.get("last_slow_signature", item.get("slow_centroid", item.get("centroid"))))
+            restored_slow_centroid = (
+                slow_centroid if slow_centroid is not None else raw_centroid
+            )
             self._entries[concept_id] = {
                 "concept_id": concept_id,
                 "raw_centroid": raw_centroid,
-                "slow_centroid": slow_centroid if slow_centroid is not None else raw_centroid,
-                "last_slow_signature": last_slow if last_slow is not None else slow_centroid if slow_centroid is not None else raw_centroid,
+                "slow_centroid": restored_slow_centroid,
+                "last_slow_signature": (
+                    last_slow
+                    if last_slow is not None
+                    else restored_slow_centroid
+                ),
                 "score_total": float(item.get("score_total", 0.0)),
                 "observations": int(item.get("observations", 0)),
                 "match_count_total": int(item.get("match_count_total", 0)),
@@ -1395,3 +1455,7 @@ class ConceptStore:
                 "first_episode": int(item.get("first_episode", 0)),
                 "last_episode": int(item.get("last_episode", item.get("first_episode", 0))),
             }
+            self._normalized_centroid_cache[concept_id] = (
+                raw_centroid,
+                restored_slow_centroid,
+            )

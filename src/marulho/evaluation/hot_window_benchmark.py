@@ -44,16 +44,27 @@ def run_hot_window_benchmark(
         raise ValueError("warmup_steps must be non-negative")
     if routing_candidate_mode not in {"list", "tensor"}:
         raise ValueError("routing_candidate_mode must be list or tensor")
-    if predictive_transition_mode not in {None, "legacy", "fused_eager", "compiled"}:
+    if predictive_transition_mode not in {
+        None,
+        "legacy",
+        "fused_eager",
+        "compiled",
+        "inplace_triton",
+    }:
         raise ValueError(
-            "predictive_transition_mode must be legacy, fused_eager, compiled, or None"
+            "predictive_transition_mode must be legacy, fused_eager, compiled, inplace_triton, or None"
         )
-
     trainer, _metadata = load_trainer_checkpoint(checkpoint)
     trainer.config.micro_sleep_interval_tokens = 10**9
     trainer.config.deep_sleep_interval_tokens = 10**9
     if predictive_transition_mode is not None:
         trainer.config.predictive_dense_transition_mode = predictive_transition_mode
+        if predictive_transition_mode == "inplace_triton":
+            from marulho.training.column_transition_runtime import (
+                ColumnTransitionRuntime,
+            )
+
+            trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
     if _trainer_setup is not None:
         _trainer_setup(trainer)
     device = trainer.model.device
@@ -169,9 +180,18 @@ def run_hot_window_benchmark(
                 if trainer.model.cross_modal is not None
                 else "disabled"
             ),
+            "cross_modal_text_idle_probe_interval_tokens": int(
+                trainer.config.cross_modal_text_idle_probe_interval_tokens
+            ),
+            "candidate_homeostasis_start_tokens": int(
+                trainer.config.candidate_homeostasis_start_tokens
+            ),
             "routing_index": trainer.model.hnsw_index.stats(),
             "competitive": trainer.model.competitive.execution_report(),
             "predictive": trainer.model.predictive.device_report(),
+            "column_transition_runtime": (
+                trainer.column_transition_runtime_report()
+            ),
         },
         "cuda_memory": cuda_memory,
     }
@@ -191,7 +211,7 @@ def main() -> int:
     parser.add_argument("--disable-merged-torch-shards", action="store_true")
     parser.add_argument(
         "--predictive-transition-mode",
-        choices=("legacy", "fused_eager", "compiled"),
+        choices=("legacy", "fused_eager", "compiled", "inplace_triton"),
     )
     parser.add_argument("--seed", type=int, default=20260611)
     args = parser.parse_args()

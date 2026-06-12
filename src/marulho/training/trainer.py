@@ -20,6 +20,7 @@ from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
 from marulho.training.model import MarulhoModel
 from marulho.training.bootstrap import PredictiveBootstrap
+from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 
 
 class MarulhoTrainer:
@@ -55,6 +56,7 @@ class MarulhoTrainer:
         self._recent_stream_text = ""
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None
+        self._cached_episode_terms: set[str] = set()
         self._last_episode_refresh_length = 0
         self._segment_cache_key: str | None = None
         self._segment_cache_result: list[str] | None = None
@@ -100,10 +102,27 @@ class MarulhoTrainer:
         self._hnsw_buffer_ids: list[int] = []
         self._hnsw_buffer_vecs: list[torch.Tensor] = []
         self._hnsw_flush_interval = 16
+        self._column_transition_runtime = ColumnTransitionRuntime(self)
 
-    def _buffer_hnsw_update(self, indices: torch.Tensor, vectors: torch.Tensor) -> None:
+    def column_transition_runtime_report(self) -> dict[str, Any]:
+        return self._column_transition_runtime.report()
+
+    def _buffer_hnsw_update(
+        self,
+        indices: torch.Tensor,
+        vectors: torch.Tensor,
+        *,
+        known_ids: list[int] | None = None,
+    ) -> None:
         """Buffer HNSW updates; flush when buffer reaches interval size."""
-        ids = indices.detach().tolist() if not indices.is_cuda else indices.detach().cpu().tolist()
+        if known_ids is not None:
+            ids = [int(value) for value in known_ids]
+        elif indices.is_cuda:
+            ids = indices.detach().cpu().tolist()
+        else:
+            ids = indices.detach().tolist()
+        if len(ids) != int(vectors.shape[0]):
+            raise ValueError("known_ids must align with buffered HNSW vectors")
         vecs = vectors.detach()
         for i, vid in enumerate(ids):
             self._hnsw_buffer_ids.append(int(vid))
@@ -133,6 +152,7 @@ class MarulhoTrainer:
         if candidate_ids.dim() != 2 or int(candidate_ids.shape[1]) <= 0:
             return None
         return candidate_ids[0].to(device=self.model.device, dtype=torch.long)
+
 
     def update_word_grounding(
         self,
@@ -206,6 +226,7 @@ class MarulhoTrainer:
             self._last_raw_window_text = None
             self._recent_stream_text = ""
             self._cached_episode_text = None
+            self._cached_episode_terms = set()
             self._last_episode_refresh_length = 0
             return None
 
@@ -220,6 +241,7 @@ class MarulhoTrainer:
             self._last_raw_window_text = current
             episode_text = self._current_episode_text(current)
             self._cached_episode_text = episode_text
+            self._cached_episode_terms = self._episode_terms(episode_text)
             self._last_episode_refresh_length = len(self._recent_stream_text)
             return episode_text
 
@@ -252,11 +274,6 @@ class MarulhoTrainer:
             self._last_episode_refresh_length = min(self._last_episode_refresh_length, len(self._recent_stream_text))
 
         if getattr(self.encoder, "uses_learned_chunking", False):
-            cached_terms = {
-                token.lower()
-                for token in re.findall(r"[A-Za-z0-9']+", str(self._cached_episode_text or ""))
-                if len(token) > 2
-            }
             current_terms = {
                 token.lower()
                 for token in re.findall(r"[A-Za-z0-9']+", current)
@@ -266,15 +283,24 @@ class MarulhoTrainer:
                 self._cached_episode_text is None
                 or len(self._recent_stream_text) - self._last_episode_refresh_length >= 24
                 or any(ch in ".!?\n" for ch in appended)
-                or bool(current_terms - cached_terms)
+                or bool(current_terms - self._cached_episode_terms)
             )
             if not refresh_due:
                 return self._cached_episode_text
 
         episode_text = self._current_episode_text(current)
         self._cached_episode_text = episode_text
+        self._cached_episode_terms = self._episode_terms(episode_text)
         self._last_episode_refresh_length = len(self._recent_stream_text)
         return episode_text
+
+    @staticmethod
+    def _episode_terms(text: str | None) -> set[str]:
+        return {
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9']+", str(text or ""))
+            if len(token) > 2
+        }
 
     def _current_episode_text(self, raw_window: str) -> Optional[str]:
         text = self._recent_stream_text.strip()
@@ -902,6 +928,14 @@ class MarulhoTrainer:
         float,
         float,
     ]:
+        if self._column_transition_runtime.active:
+            return self._column_transition_runtime.apply(
+                routing_key=routing_key,
+                candidates=candidates,
+                winners=winners,
+                modulator=modulator,
+            )
+
         winner_id_list = winners.tolist()
         winner_id = int(winner_id_list[0])
 
@@ -928,6 +962,9 @@ class MarulhoTrainer:
         predictive_scope_ready = self.token_count >= int(
             self.config.dead_column_steps
         )
+        homeostasis_scope_ready = self.token_count >= int(
+            self.config.candidate_homeostasis_start_tokens
+        )
         predictive_scope_cuda_fallback = (
             predictive_scope_ready and self.model.device.type == "cuda"
         )
@@ -943,6 +980,12 @@ class MarulhoTrainer:
         )
         if use_dense_transition:
             dense_transition_mode = self.config.predictive_dense_transition_mode
+            transition_runtime_fallback = None
+            if dense_transition_mode == "inplace_triton":
+                dense_transition_mode = "compiled"
+                transition_runtime_fallback = (
+                    self._column_transition_runtime.fallback_reason
+                )
             if (
                 dense_transition_mode == "compiled"
                 and self._prev_routing_key is None
@@ -955,6 +998,10 @@ class MarulhoTrainer:
                 learning_rate=0.005,
                 transition_mode=dense_transition_mode,
             )
+            if transition_runtime_fallback is not None:
+                self.model.predictive.last_dense_transition_fallback_reason = (
+                    transition_runtime_fallback
+                )
         else:
             pred_error_mod = self.model.predictive.compute_prediction_error(
                 winner_id_list,
@@ -992,7 +1039,7 @@ class MarulhoTrainer:
             * pred_boost
         )
         homeostasis_update_indices = (
-            candidates if predictive_scope_ready else None
+            candidates if homeostasis_scope_ready else None
         )
         assembly = self.model.competitive.process(
             routing_key,
@@ -1031,7 +1078,11 @@ class MarulhoTrainer:
         context_gain = None
         context_prediction = None
         binding_strength = 0.0
-        _telemetry_tick = (self.token_count % 10 == 0)
+        telemetry_interval = max(
+            1,
+            int(self.config.trainer_telemetry_interval_tokens),
+        )
+        _telemetry_tick = (self.token_count % telemetry_interval == 0)
 
         # Drift computation is expensive; only recompute every N steps
         if self.token_count % 50 == 0 or self._cached_drift is None:
@@ -1152,7 +1203,10 @@ class MarulhoTrainer:
 
         # Predictive column consensus voting: columns that agree with
         # recent winners get a routing boost (Thousand Brains voting)
-        if self.last_winner is not None:
+        if (
+            self.last_winner is not None
+            and not self._column_transition_runtime.handles_predictive_vote
+        ):
             consensus_gain = self.model.predictive.vote(
                 [self.last_winner], routing_key
             )
@@ -1161,14 +1215,27 @@ class MarulhoTrainer:
             else:
                 context_gain = consensus_gain
 
-        candidates = self._routing_candidates(routing_key)
-
-        winners, strengths, _ = self.model.competitive.compete(
+        candidates = self._column_transition_runtime.route_candidates(
             routing_key,
-            candidates,
-            fallback_allowed=self.is_bootstrap,
-            context_gain=context_gain,
+            sensory_tick=visual_spikes is not None or audio_spikes is not None,
         )
+        if candidates is None:
+            candidates = self._routing_candidates(routing_key)
+
+        if self._column_transition_runtime.active:
+            winners, strengths, _ = self._column_transition_runtime.select_winner(
+                routing_key=routing_key,
+                candidates=candidates,
+                fallback_allowed=self.is_bootstrap,
+                context_gain=context_gain,
+            )
+        else:
+            winners, strengths, _ = self.model.competitive.compete(
+                routing_key,
+                candidates,
+                fallback_allowed=self.is_bootstrap,
+                context_gain=context_gain,
+            )
 
         (
             assembly,
@@ -1237,7 +1304,10 @@ class MarulhoTrainer:
             # cross-modal Hebbian learning.  With hashed_ngram encoding
             # different words are nearly orthogonal, giving each word its
             # own cross-modal association without column contamination.
-            text_spike = F.normalize(x.detach().unsqueeze(0), dim=1).squeeze(0)
+            text_spike = F.normalize(
+                x.detach().unsqueeze(0),
+                dim=1,
+            ).squeeze(0)
 
             # Visual path — fire BEFORE text
             if visual_spikes is not None:
@@ -1348,13 +1418,19 @@ class MarulhoTrainer:
                 self._last_self_criticism_token = self.token_count
 
         updated_indices = winners
+        updated_id_list = winner_id_list
         if int(self.model.competitive.last_revived_indices.numel()) > 0:
             updated_indices = torch.unique(
                 torch.cat([winners, self.model.competitive.last_revived_indices.to(self.model.device)]),
                 sorted=True,
             )
+            updated_id_list = updated_indices.detach().cpu().tolist()
         winner_vectors = self.model.competitive.prototypes[updated_indices].detach()
-        self._buffer_hnsw_update(updated_indices, winner_vectors)
+        self._buffer_hnsw_update(
+            updated_indices,
+            winner_vectors,
+            known_ids=updated_id_list,
+        )
 
         next_token = self.token_count + 1
         warm_started = self._maybe_warm_start_memory(next_token)
@@ -1461,6 +1537,15 @@ class MarulhoTrainer:
         )
         metrics["context_plasticity_interval_tokens"] = int(context_plasticity_interval)
         metrics["context_plasticity_due"] = int(context_plasticity_due)
+        metrics["trainer_telemetry_interval_tokens"] = int(telemetry_interval)
+        metrics["trainer_telemetry_due"] = int(_telemetry_tick)
+        metrics["candidate_homeostasis_start_tokens"] = int(
+            self.config.candidate_homeostasis_start_tokens
+        )
+        metrics["candidate_homeostasis_due"] = int(
+            self.token_count
+            >= int(self.config.candidate_homeostasis_start_tokens)
+        )
         if self.model.abstraction_layer is not None and _telemetry_tick:
             _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())
             _abs_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())

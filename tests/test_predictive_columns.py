@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 import pytest
 
+from marulho.config.model_config import MarulhoConfig
 from marulho.core.predictive_columns import PredictiveColumnState
 
 
@@ -307,6 +308,17 @@ class TestPredictiveColumnState:
         assert torch.allclose(state.confidence, state2.confidence)
         assert torch.equal(state.prediction_failure_streak, state2.prediction_failure_streak)
 
+    def test_legacy_hypothesis_checkpoint_field_is_ignored(self):
+        state = PredictiveColumnState(n_columns=16, location_dim=4)
+        saved = state.state_dict()
+        saved["hypothesis"] = torch.ones(16)
+
+        restored = PredictiveColumnState(n_columns=16, location_dim=4)
+        restored.load_state_dict(saved)
+
+        assert "hypothesis" not in restored.state_dict()
+        assert not hasattr(restored, "hypothesis")
+
     def test_reset(self):
         state = PredictiveColumnState(n_columns=8, location_dim=4)
         state.location += 10.0
@@ -337,6 +349,24 @@ class TestPredictiveColumnState:
 class TestPredictiveColumnsInTrainer:
     """Test that predictive columns are wired into the training loop."""
 
+    def test_hnsw_buffer_reuses_known_winner_ids(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(n_columns=16, column_latent_dim=8)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        indices = torch.tensor([7], dtype=torch.long)
+        vectors = trainer.model.competitive.prototypes[[3]].detach()
+
+        trainer._buffer_hnsw_update(
+            indices,
+            vectors,
+            known_ids=[3],
+        )
+
+        assert trainer._hnsw_buffer_ids == [3]
+
     def test_model_has_predictive_state(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
@@ -359,12 +389,29 @@ class TestPredictiveColumnsInTrainer:
         # Run a few steps
         for i in range(10):
             x = torch.randn(cfg.input_dim)
-            trainer.train_step(x, raw_window=f'tok_{i}')
+            metrics = trainer.train_step(x, raw_window=f'tok_{i}')
 
         # Predictive state should have evolved
         assert model.predictive.prediction_error.sum().item() > 0
         assert model.predictive.prediction_failure_streak.sum().item() >= 0
         assert trainer._prev_routing_key is not None
+        assert metrics["trainer_telemetry_interval_tokens"] == cfg.trainer_telemetry_interval_tokens
+
+    def test_trainer_caches_episode_terms_for_stream_text_refresh(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(n_columns=8, column_latent_dim=4, bootstrap_tokens=0, memory_capacity=16)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+
+        first = trainer._update_stream_text("alpha beta memory")
+        terms = trainer._cached_episode_terms
+        second = trainer._update_stream_text("alpha beta memory")
+
+        assert first == second
+        assert terms == {"alpha", "beta", "memory"}
+        assert trainer._cached_episode_terms is terms
 
     def test_trainer_delays_candidate_scoped_predictive_updates(self):
         from marulho.config.model_config import MarulhoConfig
@@ -392,6 +439,42 @@ class TestPredictiveColumnsInTrainer:
         assert model.predictive.last_prediction_update_mode == "candidate_subset"
         assert model.predictive.last_prediction_update_count == cfg.k_routing
         assert model.predictive.last_prediction_update_fraction < 1.0
+
+    def test_candidate_homeostasis_can_start_before_dead_column_scope(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            dead_column_steps=100,
+            candidate_homeostasis_start_tokens=1,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = cfg.candidate_homeostasis_start_tokens
+
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="scoped homeostasis")
+
+        competitive = model.competitive.execution_report()
+        assert competitive["homeostasis_update_mode"] == "candidate_subset"
+        assert competitive["homeostasis_update_count"] == cfg.k_routing
+        assert model.predictive.last_prediction_update_mode == "all_columns"
+        assert model.predictive.last_prediction_update_count == cfg.n_columns
+
+    def test_candidate_homeostasis_start_tokens_must_be_non_negative(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_homeostasis_start_tokens"):
+            MarulhoConfig(candidate_homeostasis_start_tokens=-1)
+
+    def test_predictive_route_vote_mode_must_be_supported(self):
+        with pytest.raises(ValueError, match="predictive_route_vote_mode"):
+            MarulhoConfig(predictive_route_vote_mode="always")  # type: ignore[arg-type]
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_trainer_reports_cuda_predictive_scope_fallback(self):

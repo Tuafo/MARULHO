@@ -35,7 +35,7 @@ last_verified: 2026-06-12
 
 - `src/marulho/semantics/language_surface.py`: 78 nodes
 - `src/marulho/semantics/spike_language_neurons.py`: 65 nodes
-- `src/marulho/semantics/concepts.py`: 48 nodes
+- `src/marulho/semantics/concepts.py`: 52 nodes
 - `src/marulho/semantics/grounding_text.py`: 28 nodes
 - `src/marulho/semantics/geometric_curiosity.py`: 20 nodes
 - `src/marulho/semantics/language_packet.py`: 13 nodes
@@ -57,7 +57,7 @@ last_verified: 2026-06-12
 - `src/marulho/service/action_loop.py`: 53 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 58 nodes
+- `src/marulho/training/trainer.py`: 60 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
@@ -65,14 +65,14 @@ last_verified: 2026-06-12
 - `src/marulho/training/long_test_runner.py`: 30 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
+- `src/marulho/training/column_transition_runtime.py`: 17 nodes
 - `src/marulho/training/model.py`: 16 nodes
-- `src/marulho/training/checkpointing.py`: 15 nodes
 ## marulho.evaluation
 
 - `src/marulho/evaluation/arc_agi.py`: 65 nodes
 - `src/marulho/evaluation/baselines.py`: 54 nodes
 - `src/marulho/evaluation/service_benchmark.py`: 44 nodes
-- `src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py`: 21 nodes
+- `src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py`: 36 nodes
 - `src/marulho/evaluation/replay_training_approval.py`: 18 nodes
 - `src/marulho/evaluation/autonomy_ladder.py`: 17 nodes
 - `src/marulho/evaluation/grounding_probe.py`: 17 nodes
@@ -85,7 +85,7 @@ last_verified: 2026-06-12
 - `src/marulho/consolidation/__init__.py`: 1 nodes
 ## marulho.retrieval
 
-- `src/marulho/retrieval/hnsw_index.py`: 37 nodes
+- `src/marulho/retrieval/hnsw_index.py`: 41 nodes
 - `src/marulho/retrieval/turboquant_store.py`: 36 nodes
 - `src/marulho/retrieval/ivf_router.py`: 20 nodes
 - `src/marulho/retrieval/decoder.py`: 17 nodes

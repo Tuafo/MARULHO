@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 from marulho.config.model_config import MarulhoConfig
 from marulho.evaluation.inplace_hot_window_benchmark import (
-    install_inplace_transition_for_evaluation,
+    install_inplace_transition_for_benchmark,
 )
 from marulho.evaluation.inplace_transition_quality_benchmark import (
     _percentile,
@@ -209,8 +209,14 @@ def _run_grounded_arm(
     trainer.developmental_stage = 1
     if trainer.model.cross_modal is None:
         raise RuntimeError("grounded checkpoint has no cross-modal layer")
-    if executor == "inplace_triton_evaluation":
-        install_inplace_transition_for_evaluation(trainer)
+    if executor == "inplace_triton_runtime":
+        install_inplace_transition_for_benchmark(trainer)
+    elif executor == "fused_triton_text_runtime":
+        from marulho.evaluation.fused_route_vote_hot_window_benchmark import (
+            install_fused_route_vote_for_benchmark,
+        )
+
+        install_fused_route_vote_for_benchmark(trainer)
     elif executor != "runtime":
         raise ValueError(f"unsupported executor: {executor}")
 
@@ -363,6 +369,9 @@ def _run_grounded_arm(
             ),
             "device_report": cross_modal.device_report(),
         },
+        "column_transition_runtime": (
+            trainer.column_transition_runtime_report()
+        ),
         "cuda_memory": (
             {
                 "peak_allocated_mb": torch.cuda.max_memory_allocated(device) / 1024**2,
@@ -483,7 +492,7 @@ def run_inplace_grounded_quality_benchmark(
     torch.cuda.empty_cache()
     variant, variant_state = _run_grounded_arm(
         checkpoint,
-        executor="inplace_triton_evaluation",
+        executor="inplace_triton_runtime",
         stream=stream,
         warmup_steps=warmup_steps,
     )
@@ -499,7 +508,7 @@ def run_inplace_grounded_quality_benchmark(
         "surface": "inplace_grounded_quality_benchmark.v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": (
-            "grounded_quality_supported_pending_startup_solution"
+            "production_executor_grounded_quality_supported"
             if comparison["promotion_eligible"]
             else "blocked_grounded_quality_regression"
         ),
@@ -516,9 +525,9 @@ def run_inplace_grounded_quality_benchmark(
         "comparison": comparison,
         "promotion_gate": {
             "runtime_default_changed": False,
-            "requires_operator_review": True,
-            "requires_cold_start_compile_solution": True,
-            "eligible_after_startup_solution": bool(
+            "checkpoint_opt_in_required": True,
+            "compile_only_startup_warmup_available": True,
+            "production_executor_available": bool(
                 comparison["promotion_eligible"]
             ),
         },

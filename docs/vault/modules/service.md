@@ -41,6 +41,10 @@ related_benchmarks: []
 
         Terminus background tick execution evidence belongs to `RuntimeControl`. The controller may expose a read-only heartbeat with active request count, idle state, tick phase, source, target token count, and elapsed time so `/terminus` and the UI can show live first-tick progress while `/status` keeps its cached fallback semantics. This heartbeat must not become a scheduler, learning rule, or mutation authority.
 
+        RuntimeControl may record bounded wall-clock stage timings and schedule the existing remote refill worker after consuming a source chunk so provider I/O overlaps trainer execution. It must not synchronize CUDA for telemetry, implement semantic assignment, or move source algorithms into service.
+
+        Runtime sources may cache bounded encoded windows for deterministic local/file text sources using a file fingerprint in the cache key. Restored file-source queues reduce first-tick source collection without changing Subcortex state, replay, memory admission, or trainer semantics. Stale source files naturally miss the cache because size and modification timestamp are part of the key.
+
         Structural Mutation Application orchestrates the explicit binding-hub topology transaction. Service binds operator reason, target, method, edge budget, revision, and checkpoint path into reviewed hashes; verifies the full binding snapshot before and after mutation; publishes only a verified committed checkpoint; and restores binding state plus Runtime State revision on no-op, over-budget, tampered, or failed commits. The topology algorithm remains in `core`.
 
         `/terminus/subcortical-structural-plasticity/binding-growth-trial` is an explicit read-only review request. `StatusReadModel` reads server-owned repeated-failure candidates and delegates edge planning to core, then semantics binds the result to revision and promotion evidence. Service does not select edges or execute the trial.

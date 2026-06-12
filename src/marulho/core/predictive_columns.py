@@ -196,9 +196,6 @@ class PredictiveColumnState:
         # Column confidence (how well predictions have matched reality)
         self.confidence = torch.ones(n_columns, device=self.device) * 0.5
 
-        # Voting state -- each column's hypothesis about active concept
-        self.hypothesis = torch.zeros(n_columns, device=self.device)
-
         self.last_prediction_update_mode = "all_columns"
         self.last_prediction_update_count = int(n_columns)
         self.last_prediction_update_fraction = 1.0
@@ -539,7 +536,11 @@ class PredictiveColumnState:
             high_pred_non_winners = candidates[non_winner_mask & (prediction > 0.5)]
             self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
 
-    def vote(self, winners: list[int], top_k_activations: torch.Tensor) -> torch.Tensor:
+    def vote(
+        self,
+        winners: list[int],
+        top_k_activations: torch.Tensor,
+    ) -> torch.Tensor:
         """Inter-column voting to reach consensus.
 
         Winner columns broadcast their "hypothesis" (confidence-weighted
@@ -548,17 +549,12 @@ class PredictiveColumnState:
         Returns a consensus gain vector [n_columns] that modulates
         the next competitive step.
         """
-        # Each winner votes with its confidence
-        self.hypothesis.zero_()
-        for w in winners:
-            self.hypothesis[w] = self.confidence[w]
-
         # Compute agreement: columns whose location is similar to winners
         # get a consensus boost (they're "in the same reference frame")
         if not winners:
             return torch.ones(self.n_columns, device=self.device)
 
-        winner_locs = self.location[winners]  # [k, location_dim]
+        winner_locs = self.location[winners]
         # Cosine similarity between each column's location and winner centroid
         centroid = winner_locs.mean(dim=0)  # [location_dim]
         centroid_norm = centroid.norm().clamp(min=1e-8)
@@ -591,7 +587,6 @@ class PredictiveColumnState:
             "prediction_failure_streak_device": str(self.prediction_failure_streak.device),
             "prediction_failure_streak_available": True,
             "confidence_device": str(self.confidence.device),
-            "hypothesis_device": str(self.hypothesis.device),
             "n_columns": int(self.n_columns),
             "location_dim": int(self.location_dim),
             "last_prediction_update_mode": self.last_prediction_update_mode,
@@ -612,7 +607,6 @@ class PredictiveColumnState:
             "prediction_error": self.prediction_error.detach().clone().cpu(),
             "prediction_failure_streak": self.prediction_failure_streak.detach().clone().cpu(),
             "confidence": self.confidence.detach().clone().cpu(),
-            "hypothesis": self.hypothesis.detach().clone().cpu(),
         }
 
     def load_state_dict(self, state: dict[str, torch.Tensor]) -> None:
@@ -624,7 +618,6 @@ class PredictiveColumnState:
             "prediction_error",
             "prediction_failure_streak",
             "confidence",
-            "hypothesis",
         ):
             tensor_key = key if key != "prediction_weights" else "_prediction_weights"
             attr_name = tensor_key if not key.startswith("_") else key
@@ -650,4 +643,3 @@ class PredictiveColumnState:
         self.prediction_error.zero_()
         self.prediction_failure_streak.zero_()
         self.confidence.fill_(0.5)
-        self.hypothesis.zero_()

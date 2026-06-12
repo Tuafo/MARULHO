@@ -267,6 +267,32 @@ class RuntimeSources:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
+    @staticmethod
+    def _source_file_fingerprint(spec: Mapping[str, Any]) -> dict[str, Any] | None:
+        source = str(spec.get("source", "") or "").strip()
+        if not source or source.startswith(("http://", "https://")):
+            return None
+        source_type = str(spec.get("source_type", "auto") or "auto").strip().lower()
+        path = Path(source)
+        if source_type not in {"file", "auto"} and not path.exists():
+            return None
+        if not path.is_file():
+            return None
+        try:
+            stat = path.stat()
+            resolved = str(path.resolve())
+        except OSError:
+            return None
+        return {
+            "resolved_path": resolved,
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+
+    @classmethod
+    def _brain_runtime_cache_enabled(cls, spec: Mapping[str, Any]) -> bool:
+        return cls._source_spec_uses_live_remote(spec) or cls._source_file_fingerprint(spec) is not None
+
     def _runtime_cache_key(self, *, kind: str, spec: Mapping[str, Any]) -> str:
         payload = {
             "kind": str(kind),
@@ -275,6 +301,7 @@ class RuntimeSources:
             "visual_dim": int(getattr(self._trainer.config, "cross_modal_dim_visual", 64)),
             "audio_dim": int(getattr(self._trainer.config, "cross_modal_dim_audio", 64)),
             "spec": dict(spec),
+            "source_file_fingerprint": self._source_file_fingerprint(spec),
         }
         encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -307,7 +334,7 @@ class RuntimeSources:
         *,
         served_examples: Sequence[tuple[str, torch.Tensor]] | None = None,
     ) -> None:
-        if not self._source_spec_uses_live_remote(runtime.spec):
+        if not self._brain_runtime_cache_enabled(runtime.spec):
             return
         ingestion = self._brain_config.get("ingestion") or {}
         tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
@@ -330,7 +357,7 @@ class RuntimeSources:
             return
 
     def _restore_brain_runtime_cache_locked(self, runtime: _BrainSourceRuntime) -> int:
-        if not self._source_spec_uses_live_remote(runtime.spec):
+        if not self._brain_runtime_cache_enabled(runtime.spec):
             return 0
         path = self._brain_runtime_cache_path(runtime.spec)
         if not path.exists():

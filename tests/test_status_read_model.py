@@ -451,6 +451,22 @@ class StatusReadModelTerminusStatusTests(unittest.TestCase):
         result = model.terminus_status()
         self.assertIn("multimodal", result)
 
+    def test_terminus_status_exposes_column_transition_runtime_truth(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+
+        result = model.terminus_status()
+        scope_report = result["runtime_scope"]["column_transition_runtime"]
+        truth_report = result["runtime_truth"]["evidence"][
+            "column_transition_runtime"
+        ]
+
+        self.assertEqual(scope_report, trainer.column_transition_runtime_report())
+        self.assertEqual(truth_report, scope_report)
+        self.assertEqual(
+            truth_report["runtime_failure_policy"],
+            "fail_closed_no_post_mutation_fallback",
+        )
+
     def test_terminus_status_verdict_partial_when_unconfigured(self) -> None:
         model, _, _, _ = _build_read_model()
         result = model.terminus_status()
@@ -2458,6 +2474,13 @@ def _build_alive_brain_snapshot() -> dict[str, Any]:
         "sleep_interval_seconds": 0.01,
         "tick_tokens": 64,
         "repeat_sources": True,
+        "last_tick_duration_ms": 12.5,
+        "tokens_per_second": 80.0,
+        "last_tick_stage_timings_ms": {
+            "collect_source_queue": 0.25,
+            "trainer_step": 9.5,
+            "concept_observation": 1.25,
+        },
     }
 
 
@@ -2748,6 +2771,14 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         latency = truth["latency_ms"]
         self.assertIn("last_tick", latency)
         self.assertIn("tokens_per_second", latency)
+        self.assertEqual(
+            latency["stages"],
+            {
+                "collect_source_queue": 0.25,
+                "trainer_step": 9.5,
+                "concept_observation": 1.25,
+            },
+        )
 
 
 class StatusReadModelRuntimeStatePropagationTests(unittest.TestCase):
@@ -3074,6 +3105,19 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertNotIn("retired_runtime_path_enabled", truth["evidence"])
         self.assertNotIn("retired_runtime_path_retired", truth["evidence"])
         self.assertIn("token_count", truth["evidence"])
+        self.assertIn("memory_hot_path", truth["evidence"])
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["ripple_scalar_scan_count"],
+            result["memory_store"]["ripple_scalar_scan_count"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["ripple_vector_scan_count"],
+            result["memory_store"]["ripple_vector_scan_count"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["last_ripple_scan_mode"],
+            result["memory_store"]["last_ripple_scan_mode"],
+        )
         self.assertIn("subcortex_spike_health", truth["evidence"])
         self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])
         self.assertEqual(truth["verdict"], "partial")

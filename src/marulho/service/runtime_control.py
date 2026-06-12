@@ -482,7 +482,9 @@ class RuntimeControl(RuntimePrewarmer):
         yield_seconds: float,
     ) -> dict[str, Any] | None:
         tick_started = time.perf_counter()
+        stage_timings_ms: dict[str, float] = {}
         try:
+            select_started = time.perf_counter()
             with self._lock:
                 if stop_event is not None and stop_event.is_set():
                     return None
@@ -502,6 +504,9 @@ class RuntimeControl(RuntimePrewarmer):
                 )
                 encoder_ref = self._encoder
                 window_size = self._trainer.config.window_size
+            stage_timings_ms["select_source"] = float(
+                (time.perf_counter() - select_started) * 1000.0
+            )
 
             if len(runtimes) <= 1:
                 ordered_indices = [0]
@@ -522,6 +527,7 @@ class RuntimeControl(RuntimePrewarmer):
                     target_tokens=tick_tokens,
                 )
 
+            collect_started = time.perf_counter()
             chunk, collect_meta = self._collect_chunk_unlocked(
                 runtimes,
                 ordered_indices,
@@ -532,6 +538,9 @@ class RuntimeControl(RuntimePrewarmer):
                 window_size,
                 stop_event,
             )
+            stage_timings_ms["collect_source_queue"] = float(
+                (time.perf_counter() - collect_started) * 1000.0
+            )
 
             if stop_event is not None and stop_event.is_set():
                 return None
@@ -541,6 +550,7 @@ class RuntimeControl(RuntimePrewarmer):
                     self._begin_brain_tick_progress_locked(phase="idle_no_chunk")
                     return self._brain_tick_idle_locked(tick_started, source_meta=collect_meta)
 
+            prepare_started = time.perf_counter()
             with self._lock:
                 source_name = None if collect_meta is None else str(collect_meta["runtime"].name)
                 self._begin_brain_tick_progress_locked(
@@ -551,14 +561,24 @@ class RuntimeControl(RuntimePrewarmer):
                 self._commit_collected_runtime_locked(collect_meta)
                 if collect_meta is not None:
                     self._update_brain_runtime_cache_locked(collect_meta["runtime"], served_examples=chunk)
+                self._start_remote_warm_promotion_locked(trigger="post_collect")
+            stage_timings_ms["prepare_training"] = float(
+                (time.perf_counter() - prepare_started) * 1000.0
+            )
 
             background_memory_metadata = None if collect_meta is None else self._brain_source_memory_metadata(collect_meta["runtime"])
-            total_trained, last_metrics, evidence_windows = self._train_chunk_in_sub_batches(
+            (
+                total_trained,
+                last_metrics,
+                evidence_windows,
+                concept_observation_summary,
+            ) = self._train_chunk_in_sub_batches(
                 chunk,
                 stop_event=stop_event,
                 sub_batch_size=sub_batch_size,
                 yield_seconds=yield_seconds,
                 memory_metadata=background_memory_metadata,
+                stage_timings_ms=stage_timings_ms,
             )
             source_info = {
                 "runtime": collect_meta["runtime"],
@@ -577,6 +597,8 @@ class RuntimeControl(RuntimePrewarmer):
                     total_trained,
                     last_metrics,
                     evidence_windows,
+                    stage_timings_ms=stage_timings_ms,
+                    concept_observation_summary=concept_observation_summary,
                 )
         finally:
             with self._lock:

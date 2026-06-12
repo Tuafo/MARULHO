@@ -374,6 +374,15 @@ class HierarchicalAssemblyIndex:
             )
         return ids, dists
 
+    def routing_tensor_cache(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return the current exact torch routing cache without copying it."""
+
+        if self._backend != "torch_topk":
+            raise RuntimeError("routing tensor cache requires torch_topk")
+        if self._torch_cache_dirty:
+            self._rebuild_torch_cache()
+        return self._torch_vectors, self._torch_ids
+
     def stats(self) -> dict[str, Any]:
         info: dict[str, Any] = {
             "index_type": self._backend,
@@ -608,6 +617,17 @@ class ShardedHierarchicalAssemblyIndex:
         top_dists, top_positions = torch.topk(all_dists, k=topk, largest=False, dim=1)
         top_ids = torch.gather(all_ids, 1, top_positions)
         return top_ids.long(), top_dists.float()
+
+    def routing_tensor_cache(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Return one merged exact torch cache for fused routing."""
+
+        if not self._uses_merged_torch_search():
+            raise RuntimeError(
+                "fused routing requires merged torch-backed routing shards"
+            )
+        if self._merged_torch_cache_dirty:
+            self._rebuild_merged_torch_cache()
+        return self._merged_torch_vectors, self._merged_torch_ids
 
     def stats(self) -> dict[str, Any]:
         shard_stats = [shard.stats() for shard in self.shards]

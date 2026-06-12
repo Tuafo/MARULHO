@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from array import array
 import math
 from collections import defaultdict
 from typing import Any, List, Mapping, Optional, Sequence
@@ -66,16 +67,17 @@ class DualMemoryStore:
         self.slow_metadata: List[Optional[dict[str, Any]]] = []
         self.slow_bucket_ids: List[Optional[int]] = []
         self.slow_importance: List[float] = []
-        self.slow_capture_tag: List[float] = []
-        self.slow_tag_is_strong: List[bool] = []
-        self.slow_local_prp: List[float] = []
+        self.slow_capture_tag = array("d")
+        self.slow_tag_is_strong = array("b")
+        self.slow_local_prp = array("d")
         self.slow_last_capture_token: List[int] = []
         self.slow_consolidation_level: List[float] = []
         self.slow_consolidation_events: List[int] = []
-        self.slow_entry_timestamps: List[int] = []
+        self.slow_entry_timestamps = array("q")
         self.slow_last_replay_token: List[int] = []
         self.slow_replay_count: List[int] = []
-        self.slow_ripple_strength: List[float] = []  # Awake ripple priority strength (0=no tag, 0.5-1.0=3-5x replay boost)
+        # Awake ripple priority strength (0=no tag, 0.5-1.0=3-5x replay boost).
+        self.slow_ripple_strength = array("d")
         self.fast_ema: Optional[torch.Tensor] = None
         self.local_fast_ema: dict[int, torch.Tensor] = {}
         self.local_slow_mean: dict[int, torch.Tensor] = {}
@@ -85,6 +87,14 @@ class DualMemoryStore:
         self.global_prp_pool = 0.0
         self.bucket_prp_pool: dict[int, float] = defaultdict(float)
         self._state_token = 0
+        self.update_calls = 0
+        self.admission_count = 0
+        self.reservoir_rejection_count = 0
+        self.optional_payload_copy_count = 0
+        self.optional_payload_copy_avoidance_count = 0
+        self.ripple_scalar_scan_count = 0
+        self.ripple_vector_scan_count = 0
+        self.last_ripple_scan_mode = "not_run"
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -100,16 +110,16 @@ class DualMemoryStore:
         self.slow_metadata = []
         self.slow_bucket_ids = []
         self.slow_importance = []
-        self.slow_capture_tag = []
-        self.slow_tag_is_strong = []
-        self.slow_local_prp = []
+        self.slow_capture_tag = array("d")
+        self.slow_tag_is_strong = array("b")
+        self.slow_local_prp = array("d")
         self.slow_last_capture_token = []
         self.slow_consolidation_level = []
         self.slow_consolidation_events = []
-        self.slow_entry_timestamps = []
+        self.slow_entry_timestamps = array("q")
         self.slow_last_replay_token = []
         self.slow_replay_count = []
-        self.slow_ripple_strength = []
+        self.slow_ripple_strength = array("d")
         self.fast_ema = None
         self.local_fast_ema = {}
         self.local_slow_mean = {}
@@ -118,6 +128,14 @@ class DualMemoryStore:
         self.global_prp_pool = 0.0
         self.bucket_prp_pool = defaultdict(float)
         self._state_token = 0
+        self.update_calls = 0
+        self.admission_count = 0
+        self.reservoir_rejection_count = 0
+        self.optional_payload_copy_count = 0
+        self.optional_payload_copy_avoidance_count = 0
+        self.ripple_scalar_scan_count = 0
+        self.ripple_vector_scan_count = 0
+        self.last_ripple_scan_mode = "not_run"
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -258,6 +276,28 @@ class DualMemoryStore:
                 if self._bucket_consolidation_cpu is None
                 else int(self._bucket_consolidation_cpu.numel())
             ),
+            "stc_state_storage": "zero_copy_array_buffer",
+            "stc_decay_zero_copy": True,
+            "stc_state_bytes": int(
+                self.slow_capture_tag.buffer_info()[1]
+                * self.slow_capture_tag.itemsize
+                + self.slow_local_prp.buffer_info()[1]
+                * self.slow_local_prp.itemsize
+                + self.slow_tag_is_strong.buffer_info()[1]
+                * self.slow_tag_is_strong.itemsize
+            ),
+            "hot_path": {
+                "update_calls": int(self.update_calls),
+                "admission_count": int(self.admission_count),
+                "reservoir_rejection_count": int(self.reservoir_rejection_count),
+                "optional_payload_copy_count": int(self.optional_payload_copy_count),
+                "optional_payload_copy_avoidance_count": int(
+                    self.optional_payload_copy_avoidance_count
+                ),
+                "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
+                "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+                "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
+            },
             "all_archival_tensors_cpu": all(
                 device == "cpu"
                 for counts in (
@@ -306,16 +346,25 @@ class DualMemoryStore:
                 tag_decay_weak *= extra
                 tag_decay_strong *= extra
 
-            # Vectorized decay via numpy (avoids O(N) Python loop)
-            tags = np.array(self.slow_capture_tag[:size], dtype=np.float64)
-            prps = np.array(self.slow_local_prp[:size], dtype=np.float64)
-            strong = np.array(self.slow_tag_is_strong[:size], dtype=bool)
+            tags = np.frombuffer(
+                self.slow_capture_tag,
+                dtype=np.float64,
+                count=size,
+            )
+            prps = np.frombuffer(
+                self.slow_local_prp,
+                dtype=np.float64,
+                count=size,
+            )
+            strong = np.frombuffer(
+                self.slow_tag_is_strong,
+                dtype=np.int8,
+                count=size,
+            )
             tags *= np.where(strong, tag_decay_strong, tag_decay_weak)
             prps *= np.where(strong, prp_decay_strong, prp_decay_weak)
             np.maximum(tags, 0.0, out=tags)
             np.maximum(prps, 0.0, out=prps)
-            self.slow_capture_tag[:size] = tags.tolist()
-            self.slow_local_prp[:size] = prps.tolist()
 
         global_decay = math.exp(-float(delta) / self._prp_tau_tokens(True))
         self.global_prp_pool = float(max(0.0, self.global_prp_pool * global_decay))
@@ -636,13 +685,9 @@ class DualMemoryStore:
         tag_strength: float = 0.0,
         capture_tag: float | None = None,
     ) -> int | None:
+        self.update_calls += 1
         _on_cpu = not assembly.is_cuda
         x = assembly.detach().clone() if _on_cpu else assembly.detach().clone().cpu()
-        stored_input = (input_pattern.detach().clone() if _on_cpu else input_pattern.detach().clone().cpu()) if input_pattern is not None else None
-        stored_routing = (routing_key.detach().clone() if _on_cpu else routing_key.detach().clone().cpu()) if routing_key is not None else None
-        stored_window = None if raw_window is None else str(raw_window)
-        stored_text = None if text is None else str(text)
-        stored_metadata = None if metadata is None else {str(key): value for key, value in dict(metadata).items()}
         token_marker = int(self.n_seen if token_count is None else token_count)
         capture_value = float(max(0.0, tag_strength if capture_tag is None else capture_tag))
 
@@ -659,6 +704,38 @@ class DualMemoryStore:
             self._update_local_bucket(x, int(bucket_id), token_marker)
 
         if len(self.slow_buffer) < self.capacity:
+            admission_index = len(self.slow_buffer)
+        else:
+            candidate_index = int(torch.randint(0, self.n_seen, (1,)).item())
+            if candidate_index >= self.capacity:
+                self.reservoir_rejection_count += 1
+                self.optional_payload_copy_avoidance_count += int(
+                    input_pattern is not None
+                ) + int(routing_key is not None)
+                return None
+            admission_index = candidate_index
+
+        stored_input = (
+            input_pattern.detach().clone()
+            if _on_cpu
+            else input_pattern.detach().clone().cpu()
+        ) if input_pattern is not None else None
+        stored_routing = (
+            routing_key.detach().clone()
+            if _on_cpu
+            else routing_key.detach().clone().cpu()
+        ) if routing_key is not None else None
+        self.optional_payload_copy_count += int(stored_input is not None) + int(
+            stored_routing is not None
+        )
+        stored_window = None if raw_window is None else str(raw_window)
+        stored_text = None if text is None else str(text)
+        stored_metadata = None if metadata is None else {
+            str(key): value for key, value in dict(metadata).items()
+        }
+        self.admission_count += 1
+
+        if admission_index == len(self.slow_buffer):
             self.slow_buffer.append(x)
             self.slow_input_patterns.append(stored_input)
             self.slow_routing_keys.append(stored_routing)
@@ -693,26 +770,23 @@ class DualMemoryStore:
             self._append_to_slow_mean(x)
             return len(self.slow_buffer) - 1
 
-        j = int(torch.randint(0, self.n_seen, (1,)).item())
-        if j < self.capacity:
-            old = self.slow_buffer[j]
-            old_timestamp = self.slow_entry_timestamps[j]
-            self._store_slot(
-                j,
-                assembly=x,
-                stored_input=stored_input,
-                stored_routing=stored_routing,
-                stored_window=stored_window,
-                stored_text=stored_text,
-                stored_metadata=stored_metadata,
-                bucket_id=bucket_id,
-                importance=importance,
-                capture_value=capture_value,
-                token_marker=token_marker,
-            )
-            self._replace_in_slow_mean(old, old_timestamp, x, token_marker)
-            return j
-        return None
+        old = self.slow_buffer[admission_index]
+        old_timestamp = self.slow_entry_timestamps[admission_index]
+        self._store_slot(
+            admission_index,
+            assembly=x,
+            stored_input=stored_input,
+            stored_routing=stored_routing,
+            stored_window=stored_window,
+            stored_text=stored_text,
+            stored_metadata=stored_metadata,
+            bucket_id=bucket_id,
+            importance=importance,
+            capture_value=capture_value,
+            token_marker=token_marker,
+        )
+        self._replace_in_slow_mean(old, old_timestamp, x, token_marker)
+        return admission_index
 
     @staticmethod
     def _clip_ripple_strength(value: float) -> float:
@@ -783,23 +857,93 @@ class DualMemoryStore:
 
         self._advance_state(current_token)
         floor_token = max(0, int(current_token) - int(window_tokens))
-        tagged = 0
         window_span = max(1.0, float(window_tokens))
         da_scale = max(0.0, min(1.0, (float(da_level) - float(da_threshold)) / max(1e-6, 1.0 - float(da_threshold))))
-        for idx, ts in enumerate(self.slow_entry_timestamps):
-            entry_token = int(ts)
-            if entry_token < floor_token:
-                continue
-            recency_scale = max(0.0, min(1.0, (float(entry_token) - float(floor_token)) / window_span))
-            ripple_strength = self._clip_ripple_strength(0.5 + 0.30 * da_scale + 0.20 * recency_scale)
-            was_untagged = idx >= len(self.slow_ripple_strength) or float(self.slow_ripple_strength[idx]) <= 0.0
-            if idx < len(self.slow_ripple_strength):
-                self.slow_ripple_strength[idx] = float(max(self.slow_ripple_strength[idx], ripple_strength))
-            boost = 0.10 + 0.25 * ripple_strength
-            self.slow_capture_tag[idx] = float(min(1.0, self.slow_capture_tag[idx] + boost))
-            if was_untagged:
-                tagged += 1
-        return tagged
+        size = min(
+            len(self.slow_entry_timestamps),
+            len(self.slow_ripple_strength),
+            len(self.slow_capture_tag),
+        )
+        if size <= 0:
+            return 0
+        if size < 512:
+            self.last_ripple_scan_mode = "scalar_small_memory"
+            self.ripple_scalar_scan_count += 1
+            tagged = 0
+            for idx, timestamp in enumerate(self.slow_entry_timestamps):
+                entry_token = int(timestamp)
+                if entry_token < floor_token:
+                    continue
+                recency_scale = max(
+                    0.0,
+                    min(
+                        1.0,
+                        (float(entry_token) - float(floor_token))
+                        / window_span,
+                    ),
+                )
+                ripple_strength = self._clip_ripple_strength(
+                    0.5 + 0.30 * da_scale + 0.20 * recency_scale
+                )
+                was_untagged = (
+                    float(self.slow_ripple_strength[idx]) <= 0.0
+                )
+                self.slow_ripple_strength[idx] = float(
+                    max(
+                        self.slow_ripple_strength[idx],
+                        ripple_strength,
+                    )
+                )
+                self.slow_capture_tag[idx] = float(
+                    min(
+                        1.0,
+                        self.slow_capture_tag[idx]
+                        + 0.10
+                        + 0.25 * ripple_strength,
+                    )
+                )
+                tagged += int(was_untagged)
+            return tagged
+
+        self.last_ripple_scan_mode = "vector_large_memory"
+        self.ripple_vector_scan_count += 1
+        timestamps = np.frombuffer(
+            self.slow_entry_timestamps,
+            dtype=np.int64,
+            count=size,
+        )
+        ripple = np.frombuffer(
+            self.slow_ripple_strength,
+            dtype=np.float64,
+            count=size,
+        )
+        capture = np.frombuffer(
+            self.slow_capture_tag,
+            dtype=np.float64,
+            count=size,
+        )
+        recent = timestamps >= floor_token
+        if not bool(np.any(recent)):
+            return 0
+
+        previous = ripple[recent].copy()
+        recency_scale = np.clip(
+            (timestamps[recent].astype(np.float64) - float(floor_token))
+            / window_span,
+            0.0,
+            1.0,
+        )
+        next_ripple = np.clip(
+            0.5 + 0.30 * da_scale + 0.20 * recency_scale,
+            0.0,
+            1.0,
+        )
+        ripple[recent] = np.maximum(previous, next_ripple)
+        capture[recent] = np.minimum(
+            1.0,
+            capture[recent] + 0.10 + 0.25 * next_ripple,
+        )
+        return int(np.count_nonzero(previous <= 0.0))
 
     @property
     def ripple_tagged_count(self) -> int:
@@ -1116,6 +1260,9 @@ class DualMemoryStore:
                 "active_prp_buckets": int(len(self.bucket_prp_pool)),
                 "fast_ema_norm": 0.0, "slow_mean_norm": 0.0,
                 "drift": float(self.compute_drift()),
+                "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
+                "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+                "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -1167,6 +1314,9 @@ class DualMemoryStore:
             "strong_tag_fraction": float(n_strong / max(1, size)),
             "mean_ripple_strength": float(ripple_t.mean().item()),
             "max_ripple_strength": float(ripple_t.max().item()),
+            "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
+            "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+            "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
             "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
@@ -1233,6 +1383,16 @@ class DualMemoryStore:
             "bucket_prp_pool": {int(key): float(value) for key, value in self.bucket_prp_pool.items()},
             "state_token": int(self._state_token),
             "n_seen": int(self.n_seen),
+            "update_calls": int(self.update_calls),
+            "admission_count": int(self.admission_count),
+            "reservoir_rejection_count": int(self.reservoir_rejection_count),
+            "optional_payload_copy_count": int(self.optional_payload_copy_count),
+            "optional_payload_copy_avoidance_count": int(
+                self.optional_payload_copy_avoidance_count
+            ),
+            "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
+            "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+            "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
             "slow_mean_token": None if self._slow_mean_token is None else int(self._slow_mean_token),
@@ -1289,15 +1449,30 @@ class DualMemoryStore:
         self.slow_bucket_ids = [None if value is None else int(value) for value in _pad(snapshot.get("slow_bucket_ids"), None, size)]
         self.slow_importance = [float(value) for value in _pad(snapshot.get("slow_importance"), 1.0, size)]
 
-        self.slow_capture_tag = [float(value) for value in _pad(snapshot.get("slow_capture_tag"), 0.0, size)]
+        self.slow_capture_tag = array(
+            "d",
+            (float(value) for value in _pad(snapshot.get("slow_capture_tag"), 0.0, size)),
+        )
         strong_flags = snapshot.get("slow_tag_is_strong")
         if strong_flags is None:
-            self.slow_tag_is_strong = [bool(value >= self.strong_event_threshold) for value in self.slow_capture_tag]
+            self.slow_tag_is_strong = array(
+                "b",
+                (
+                    bool(value >= self.strong_event_threshold)
+                    for value in self.slow_capture_tag
+                ),
+            )
         else:
-            self.slow_tag_is_strong = [bool(value) for value in _pad(strong_flags, False, size)]
-        self.slow_local_prp = [float(value) for value in _pad(snapshot.get("slow_local_prp"), 0.0, size)]
+            self.slow_tag_is_strong = array(
+                "b",
+                (bool(value) for value in _pad(strong_flags, False, size)),
+            )
+        self.slow_local_prp = array(
+            "d",
+            (float(value) for value in _pad(snapshot.get("slow_local_prp"), 0.0, size)),
+        )
         timestamps = [int(value) for value in _pad(snapshot.get("slow_entry_timestamps"), 0, size)]
-        self.slow_entry_timestamps = timestamps
+        self.slow_entry_timestamps = array("q", timestamps)
         self.slow_last_capture_token = _pad(snapshot.get("slow_last_capture_token"), None, size)
         self.slow_last_capture_token = [
             timestamps[idx] if value is None else int(value)
@@ -1312,7 +1487,17 @@ class DualMemoryStore:
             for idx, value in enumerate(self.slow_last_replay_token)
         ]
         self.slow_replay_count = [int(value) for value in _pad(snapshot.get("slow_replay_count"), 0, size)]
-        self.slow_ripple_strength = [float(value) for value in _pad(snapshot.get("slow_ripple_strength"), 0.0, size)]
+        self.slow_ripple_strength = array(
+            "d",
+            [
+                float(value)
+                for value in _pad(
+                    snapshot.get("slow_ripple_strength"),
+                    0.0,
+                    size,
+                )
+            ],
+        )
 
         fast_ema = snapshot.get("fast_ema")
         self.fast_ema = fast_ema.detach().clone().cpu() if isinstance(fast_ema, torch.Tensor) else None
@@ -1337,8 +1522,33 @@ class DualMemoryStore:
             float,
             {int(key): float(value) for key, value in dict(snapshot.get("bucket_prp_pool", {})).items()},
         )
-        self._state_token = int(snapshot.get("state_token", max(self.slow_entry_timestamps, default=0)))
+        self._state_token = int(
+            snapshot.get("state_token", max(self.slow_entry_timestamps, default=0))
+        )
         self.n_seen = int(snapshot.get("n_seen", size))
+        self.update_calls = int(snapshot.get("update_calls", self.n_seen))
+        self.admission_count = int(snapshot.get("admission_count", size))
+        self.reservoir_rejection_count = int(
+            snapshot.get(
+                "reservoir_rejection_count",
+                max(0, self.update_calls - self.admission_count),
+            )
+        )
+        self.optional_payload_copy_count = int(
+            snapshot.get("optional_payload_copy_count", 0)
+        )
+        self.optional_payload_copy_avoidance_count = int(
+            snapshot.get("optional_payload_copy_avoidance_count", 0)
+        )
+        self.ripple_scalar_scan_count = int(
+            snapshot.get("ripple_scalar_scan_count", 0)
+        )
+        self.ripple_vector_scan_count = int(
+            snapshot.get("ripple_vector_scan_count", 0)
+        )
+        self.last_ripple_scan_mode = str(
+            snapshot.get("last_ripple_scan_mode", "not_run")
+        )
         slow_mean = snapshot.get("slow_mean")
         self._slow_mean = slow_mean.detach().clone().cpu() if isinstance(slow_mean, torch.Tensor) else None
         self._slow_weight_sum = float(snapshot.get("slow_weight_sum", 0.0))

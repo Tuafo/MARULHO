@@ -154,6 +154,7 @@ class _BrainRuntimeFixtureBase:
         self._brain_running_since = None
         self._brain_last_tick_completed_at = None
         self._brain_last_tick_duration_ms = None
+        self._brain_last_tick_stage_timings_ms = {}
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at = None
         self._brain_stop_requested_at = None
@@ -302,7 +303,11 @@ def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRunti
         living_loop_snapshot_locked=fixture._living_loop_snapshot_locked,
         maybe_mark_ingestion_warm_locked=lambda **kwargs: None,
         maybe_mark_sensory_warm_locked=lambda **kwargs: None,
-        observe_runtime_concepts_locked=lambda **kwargs: None,
+        observe_runtime_concepts_locked=getattr(
+            fixture,
+            "_observe_runtime_concepts_locked",
+            lambda **kwargs: None,
+        ),
         runtime_concept_callback_locked=lambda **kwargs: None,
         run_real_sensory_episode_locked=fixture._run_real_sensory_episode_locked,
         record_brain_event_locked=fixture._record_brain_event_locked,
@@ -321,6 +326,34 @@ def _brain_runtime_from_fixture(fixture: _BrainRuntimeFixtureBase) -> BrainRunti
 
 class _FinalizeTickManager(_BrainRuntimeFixtureBase):
     pass
+
+
+class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.concept_observation_windows: list[str] = []
+        self._trainer = SimpleNamespace(
+            token_count=0,
+            config=SimpleNamespace(window_size=32),
+            train_step=self._train_step,
+            model=self._trainer.model,
+        )
+
+    def _train_step(self, pattern: object, **kwargs: object) -> dict[str, object]:
+        self._trainer.token_count += 1
+        return {
+            "memory_index": self._trainer.token_count - 1,
+            "winner": 0,
+        }
+
+    def _observe_runtime_concepts_locked(
+        self,
+        *,
+        raw_window: str | None,
+        metrics: dict[str, Any] | None,
+    ) -> dict[str, object]:
+        self.concept_observation_windows.append(str(raw_window))
+        return {"observed": True}
 
 
 class _SnapshotManager(_BrainRuntimeFixtureBase):
@@ -345,6 +378,11 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
         self._brain_last_acquisition_summary = {"tokens_trained_total": 8}
         self._brain_last_tick_completed_at = _SNAPSHOT_TIMESTAMP
         self._brain_last_tick_duration_ms = 12.5
+        self._brain_last_tick_stage_timings_ms = {
+            "collect_source_queue": 1.5,
+            "train_compute": 9.0,
+            "finalize_total": 2.0,
+        }
         self._brain_last_tick_token_delta = 8
         self._brain_last_work_at = _SNAPSHOT_TIMESTAMP
         self._runtime_state = _FakeRuntimeState(
@@ -397,6 +435,17 @@ class BrainRuntimeSeamTests(unittest.TestCase):
                 "Cats rest indoors and chase mice at night.",
                 "They hunt quietly from the shadows.",
             ],
+            stage_timings_ms={
+                "collect_source_queue": 1.25,
+                "train_lock_wait": 0.5,
+                "train_compute": 8.0,
+            },
+            concept_observation_summary={
+                "mode": "sampled",
+                "interval_tokens": 8,
+                "attempts": 2,
+                "observations": 2,
+            },
         )
 
         self.assertTrue(summary["did_work"])
@@ -411,6 +460,19 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(runtime.tokens_processed, 8)
         self.assertEqual(runtime.tick_visits, 1)
         self.assertEqual(runtime.last_tokens_trained, 8)
+        self.assertEqual(
+            summary["source"]["concept_observation"],
+            {
+                "mode": "sampled",
+                "interval_tokens": 8,
+                "attempts": 2,
+                "observations": 2,
+            },
+        )
+        self.assertEqual(summary["stage_timings_ms"]["collect_source_queue"], 1.25)
+        self.assertEqual(summary["stage_timings_ms"]["train_lock_wait"], 0.5)
+        self.assertEqual(summary["stage_timings_ms"]["train_compute"], 8.0)
+        self.assertGreaterEqual(summary["stage_timings_ms"]["finalize_total"], 0.0)
         self.assertEqual(module._brain_background_tokens, 8)
         self.assertEqual(module._brain_tick_count, 1)
         self.assertEqual(module._brain_source_index, 1)
@@ -442,6 +504,39 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(manager._brain_events[-1]["type"], "tick")
         self.assertGreater(module._background_source_utility_entry_locked(runtime)["utility_ema"], 0.0)
 
+    def test_background_training_samples_concept_observation(self) -> None:
+        manager = _ConceptSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        stage_timings: dict[str, float] = {}
+        chunk = [(f"window-{index}", object()) for index in range(1, 13)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=1,
+            yield_seconds=0.0,
+            stage_timings_ms=stage_timings,
+        )
+
+        self.assertEqual(trained, 12)
+        self.assertEqual(metrics["memory_index"], 11)
+        self.assertEqual(len(windows), 12)
+        self.assertEqual(
+            manager.concept_observation_windows,
+            ["window-1", "window-8", "window-12"],
+        )
+        self.assertEqual(
+            observation,
+            {
+                "mode": "sampled",
+                "interval_tokens": 8,
+                "attempts": 3,
+                "observations": 3,
+            },
+        )
+        self.assertIn("trainer_step", stage_timings)
+        self.assertIn("concept_observation", stage_timings)
+
     def test_brain_runtime_snapshot_exposes_source_progress_and_status_state(self) -> None:
         manager = _SnapshotManager()
         module = _brain_runtime_from_fixture(manager)
@@ -454,6 +549,14 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(snapshot["next_source_name"], "source_a")
         self.assertEqual(snapshot["background_tokens_processed"], 8)
         self.assertEqual(snapshot["tick_count"], 0)
+        self.assertEqual(
+            snapshot["last_tick_stage_timings_ms"],
+            {
+                "collect_source_queue": 1.5,
+                "train_compute": 9.0,
+                "finalize_total": 2.0,
+            },
+        )
         self.assertEqual(snapshot["last_event"]["type"], "tick")
         self.assertEqual(snapshot["source_progress"][0]["name"], "source_a")
         self.assertEqual(snapshot["source_progress"][0]["tokens_processed"], 8)

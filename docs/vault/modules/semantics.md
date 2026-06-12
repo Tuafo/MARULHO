@@ -25,6 +25,8 @@ related_benchmarks: []
 
         Treat runtime-critical tensor/state work as hot path only when it is required for live service behavior. Reporting, vault generation, and research-memory work stay slow path.
 
+        `ConceptStore` keeps a mutation-aware cache of normalized centroids so repeated assignment and structural-capacity scans do not clone and normalize unchanged CPU vectors. Checkpoint restore rebuilds this derived cache during the explicit startup path; the serialized schema remains unchanged.
+
         ## Key Files
 
         - [src/marulho/semantics](../../../src/marulho/semantics)

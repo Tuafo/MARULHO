@@ -27,9 +27,16 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Context and abstraction layers must expose live tensor device reports because they control routing gain, curiosity pressure, and top-down feedback.
 - Text encoders must keep tensor-heavy state on the runtime device, including learned chunking codebooks, semantic bucket embeddings, adapter tensors, emitted feature vectors, and spike traces. Python string parsing, segmentation lists, and hash-loop control flow remain CPU/control-plane work.
 - The Memory Store must report its device boundary explicitly: archival replay records remain CPU storage, while trainer replay computation moves sampled tensors to the model device before use.
+- Archival capture-tag, local-PRP, and strong-tag state remains CPU-resident and uses contiguous numeric buffers with zero-copy in-place decay. Small CUDA observation kernels and bulk asynchronous archival staging are not part of the CUDA-first claim unless complete-tick evidence beats the CPU control-plane implementation and preserves synchronization-safe checkpoint ownership.
 - Sensory encoders must expose device reports, and real sensory episodes must carry encoder/device/spike-device metadata into grounded observations and preview metadata.
 - Standalone sensory streams and multimodal loaders must resolve omitted devices the same way as the runtime posture: explicit device first, `MARULHO_DEVICE` second, CUDA when available, CPU only as the deterministic fallback. Directory-backed visual/audio tensors must load onto that resolved device before encoding.
 - Unit tests should continue to default to CPU unless a test is explicitly marked as a CUDA scale or device test.
+- The in-place steady-state column transition may be selected by checkpoint configuration only when CUDA, lightweight plasticity, and zero input-weight blend satisfy its proven execution boundary. Startup must compile all bounded candidate shapes without launching the mutating kernel. Unsupported configurations may fall back before mutation; launch-time failures must fail closed rather than retry after possible partial mutation.
+- The trainer owns the in-place executor lifecycle, persistent work buffers, and execution counters. Runtime Truth must report requested and resolved mode, device, precompiled candidate counts, warmup result and latency, execution/failure counts, last execution mode, fallback reason, and the no-post-mutation-fallback policy.
+- When that executor is active, its bounded single-winner decision stays on CUDA: a precompiled Triton selector writes winner, strength, and positive-activation evidence into persistent device buffers. The existing in-place transition consumes that evidence and applies fallback threshold decay, avoiding a separate host-visible positivity branch. Retained and CPU paths keep the existing PyTorch competition implementation.
+- For the proven learned-chunk, zero-input-blend, one-winner shape with no context, abstraction, or binding gain, that selector also fuses predictive reference-frame voting and candidate prototype scoring. It owns a persistent previous-winner device scalar, reports execution/fallback counters, and falls back to the retained dense vote plus ordinary selector when any eligibility condition is absent.
+- Exact torch-cache routing may join that selector only through checkpoint mode `predictive_route_vote_mode=fused_triton_text`. Retrieval exposes the current cache without copying, core owns the two Triton kernels, and `ColumnTransitionRuntime` owns compile-only warmup, persistent workspaces, cache-pointer refresh, execution/fallback counters, and fail-closed selection state.
+- Fused route/vote is limited to text/idle ticks. Visual or audio evidence must use retained tensor routing because the global sensory variant did not establish a repeatable gain; Runtime Truth must count those sensory fallbacks. Cache shape changes disable the specialization before mutation.
 - The former Cortex execution path is retired from active runtime claims and is not part of the CUDA-first claim. NIM/LLM adapters were removed; future experiments must not return as runtime paths or living-substrate dependencies.
 - Digital action execution records evidence in the Subcortex action ledger and must not initialize the retired external LLM/ThoughtLoop path for action-memory mirroring.
 - Source and sensory observations are Subcortex-owned grounded evidence. They must be emitted from source/sensory runtime paths without requiring ThoughtLoop observation or surprise injection, and focus terms must come from Subcortex query gaps, autonomy, curiosity, concept state, or source metadata.
@@ -82,12 +89,17 @@ The first acceleration targets are routing/index search, predictive column state
 - Device behavior stays observable through existing runtime-scope and routing-index telemetry.
 - CPU tests continue to protect correctness and portability.
 - Future performance work has a clear target list instead of ad hoc device changes.
+- The promoted in-place column executor removes repeated full-state output/writeback cost while preserving checkpoint-owned state and an explicit rollback image.
 
 ### Negative
 
 - CUDA paths need dedicated benchmark validation because CPU-only tests cannot prove GPU performance.
 - Some current Python loops around tensor operations may limit GPU benefit until vectorized.
+- First-process Triton compilation can remain expensive even when disk-cache startup is fast, so deployment/install validation must distinguish cold compiler setup from steady runtime.
+- Adding the selector specialization produced an empty-process Windows compile-only warmup of about `111 s` in one run, while populated-cache startup returned below one second. Runtime packaging must preserve or prewarm the compiler cache before startup is treated as production-ready.
+- The fused text route/vote specialization added about `2.58 s` cold compile-only warmup in the measured process and about `0.206 ms` with a populated cache. It also keeps one 1024-score workspace and candidate buffers on CUDA, so checkpoint operators must account for startup/cache packaging and bounded extra VRAM.
 - Approximate routing backends need recall/latency evidence before they can replace exact search in evidence claims.
+- CUDA-first does not mean moving small host-visible archival bookkeeping to the GPU. Measured launch, transfer, and synchronization cost can make CPU numeric buffers the faster production boundary.
 
 ### Neutral
 

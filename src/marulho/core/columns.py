@@ -778,7 +778,7 @@ class CompetitiveColumnLayer:
                 self.last_input_plasticity_mode == "skipped_zero_blend"
             ),
             "sparse_candidate_execution_observed": bool(
-                self.last_execution_mode == "candidate_subset"
+                self.last_execution_mode.startswith("candidate_subset")
                 and 0 < scored < self.n_columns
             ),
             "tensor_device": str(self.device),

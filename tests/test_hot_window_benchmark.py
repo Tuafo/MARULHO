@@ -47,6 +47,16 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
     assert report["predictive_transition_mode"] == "legacy"
     assert report["warmup_elapsed_s"] >= 0.0
     assert report["runtime_counters"]["routing_index"]["last_search_mode"] == "tensor"
+    assert (
+        report["runtime_counters"][
+            "cross_modal_text_idle_probe_interval_tokens"
+        ]
+        == cfg.cross_modal_text_idle_probe_interval_tokens
+    )
+    assert (
+        report["runtime_counters"]["candidate_homeostasis_start_tokens"]
+        == cfg.candidate_homeostasis_start_tokens
+    )
     assert report["runtime_counters"]["competitive"]["input_plasticity_mode"] in {
         "lite_active",
         "skipped_zero_blend",

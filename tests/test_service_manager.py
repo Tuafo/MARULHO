@@ -4403,6 +4403,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 ), patch(
                     "marulho.service.terminus_sensory._load_s1_recaption_index",
                     side_effect=_slow_index_loader,
+                ), patch.object(
+                    runtime_prewarm_module,
+                    "DEFAULT_REMOTE_PROMOTION_BOOTSTRAP_GRACE_SECONDS",
+                    0.0,
                 ):
                     configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
@@ -8634,7 +8638,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     pass
                 manager.close()
 
-    def test_stop_timeout_records_shutdown_state_and_interrupts_streams(self) -> None:
+    def test_stop_timeout_records_shutdown_state_without_closing_streams_under_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_stop_timeout")
@@ -8694,8 +8698,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertTrue(runtime["shutdown"]["stop_timed_out"])
                 self.assertTrue(runtime["shutdown"]["thread_alive"])
                 self.assertIn("did not stop within", runtime["last_error"])
-                self.assertTrue(brain_stream.closed)
-                self.assertTrue(sensory_stream.closed)
+                self.assertFalse(brain_stream.closed)
+                self.assertFalse(sensory_stream.closed)
                 self.assertEqual(runtime["recent_events"][0]["type"], "stop_timeout")
             finally:
                 stuck_thread._alive = False
