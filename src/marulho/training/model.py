@@ -228,6 +228,7 @@ class MarulhoModel:
                 shard_candidate_factor=self.config.shard_candidate_factor,
                 device=self.device,
                 backend=self.config.routing_index_mode,
+                merge_torch_shards=self.config.merge_torch_routing_shards,
             )
         else:
             self.hnsw_index = HierarchicalAssemblyIndex(
@@ -355,7 +356,13 @@ class MarulhoModel:
                 + "and an explicit tag/PRP replay-consolidation stack."
                 if local_stdp_active
                 else (
-                    "The runnable scaffold uses active column input weights, competitive prototypes, a latent projection matrix, "
+                    "The runnable scaffold uses "
+                    + (
+                        "active blended column input weights, "
+                        if self.competitive.input_weight_blend > 0.0
+                        else "dormant checkpointed column input weights excluded from live scoring and lightweight plasticity, "
+                    )
+                    + "competitive prototypes, a latent projection matrix, "
                     + ("column sharding for scalable routing, " if sharding_active else "")
                     + "and an explicit tag/PRP replay-consolidation stack."
                 )

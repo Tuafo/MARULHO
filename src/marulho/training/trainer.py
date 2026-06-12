@@ -125,6 +125,15 @@ class MarulhoTrainer:
         self._hnsw_buffer_ids.clear()
         self._hnsw_buffer_vecs.clear()
 
+    def _routing_candidates(self, routing_key: torch.Tensor) -> torch.Tensor | None:
+        candidate_ids, _ = self.model.hnsw_index.search_tensors(
+            routing_key.unsqueeze(0),
+            k=self.config.k_routing,
+        )
+        if candidate_ids.dim() != 2 or int(candidate_ids.shape[1]) <= 0:
+            return None
+        return candidate_ids[0].to(device=self.model.device, dtype=torch.long)
+
     def update_word_grounding(
         self,
         word: str,
@@ -721,15 +730,7 @@ class MarulhoTrainer:
             if replay_use_stored_bucket and stored_bucket_id is not None:
                 winner = torch.tensor([int(stored_bucket_id)], device=self.model.device)
             else:
-                candidate_ids, _ = self.model.hnsw_index.search(
-                    routing_key.unsqueeze(0),
-                    k=self.config.k_routing,
-                )
-                candidates = (
-                    torch.tensor(candidate_ids[0], device=self.model.device)
-                    if candidate_ids and candidate_ids[0]
-                    else None
-                )
+                candidates = self._routing_candidates(routing_key)
                 winner, _, _ = self.model.competitive.compete(
                     routing_key,
                     candidates,
@@ -882,6 +883,139 @@ class MarulhoTrainer:
 
         return applied
 
+    def _apply_awake_column_transition(
+        self,
+        *,
+        routing_key: torch.Tensor,
+        candidates: torch.Tensor | None,
+        winners: torch.Tensor,
+        strengths: torch.Tensor,
+        modulator: float,
+        local_trace: torch.Tensor | None,
+        compute_metrics: bool,
+    ) -> tuple[
+        torch.Tensor,
+        list[int],
+        int,
+        float,
+        float,
+        float,
+        float,
+    ]:
+        winner_id_list = winners.tolist()
+        winner_id = int(winner_id_list[0])
+
+        winner_consolidation = 0.0
+        if self.memory_warm_started:
+            winner_levels = [
+                self.model.memory_store.bucket_consolidation_level(wid)
+                for wid in winner_id_list
+            ]
+            if winner_levels:
+                winner_consolidation = float(
+                    sum(winner_levels) / len(winner_levels)
+                )
+
+        dopamine = self.model.surprise.dopamine
+        serotonin = self.model.surprise.serotonin
+        dopamine_ltp_gain = 0.8 + 0.4 * dopamine
+        serotonin_patience = max(0.2, 1.0 - 0.6 * serotonin)
+        wake_plasticity_scale = (
+            max(0.2, 1.0 - 0.8 * winner_consolidation)
+            * serotonin_patience
+        )
+
+        predictive_scope_ready = self.token_count >= int(
+            self.config.dead_column_steps
+        )
+        predictive_scope_cuda_fallback = (
+            predictive_scope_ready and self.model.device.type == "cuda"
+        )
+        predictive_update_indices = (
+            candidates
+            if predictive_scope_ready and not predictive_scope_cuda_fallback
+            else None
+        )
+
+        use_dense_transition = (
+            self.model.device.type == "cuda"
+            and self.config.predictive_dense_transition_mode != "legacy"
+        )
+        if use_dense_transition:
+            dense_transition_mode = self.config.predictive_dense_transition_mode
+            if (
+                dense_transition_mode == "compiled"
+                and self._prev_routing_key is None
+            ):
+                dense_transition_mode = "fused_eager"
+            pred_error_mod = self.model.predictive.apply_dense_transition(
+                winners,
+                routing_key,
+                self._prev_routing_key,
+                learning_rate=0.005,
+                transition_mode=dense_transition_mode,
+            )
+        else:
+            pred_error_mod = self.model.predictive.compute_prediction_error(
+                winner_id_list,
+                routing_key,
+                candidate_indices=predictive_update_indices,
+            )
+        pred_boost = (
+            float(pred_error_mod[winner_id_list].mean().item())
+            if winner_id_list
+            else 1.0
+        )
+        pred_boost = min(2.0, max(0.5, pred_boost))
+
+        if not use_dense_transition:
+            self.model.predictive.update_location(
+                winner_id_list,
+                routing_key,
+                self._prev_routing_key,
+            )
+            self.model.predictive.update_predictions(
+                winner_id_list,
+                learning_rate=0.005,
+                candidate_indices=predictive_update_indices,
+            )
+            if predictive_scope_cuda_fallback:
+                self.model.predictive.last_prediction_update_fallback_reason = (
+                    "cuda_sparse_prediction_update_launch_bound_dense_retained"
+                )
+        self._prev_routing_key = routing_key.detach().clone()
+
+        effective_modulator = (
+            float(modulator)
+            * wake_plasticity_scale
+            * dopamine_ltp_gain
+            * pred_boost
+        )
+        homeostasis_update_indices = (
+            candidates if predictive_scope_ready else None
+        )
+        assembly = self.model.competitive.process(
+            routing_key,
+            winners,
+            effective_modulator,
+            winner_strengths=strengths,
+            eligibility_trace=local_trace,
+            assembly_projection=self.model.W_assembly_project,
+            compute_metrics=compute_metrics,
+            homeostasis_update_indices=homeostasis_update_indices,
+        )
+        if self.model.competitive.plasticity_mode == "local_stdp":
+            self.model._invalidate_projection_cache()
+        return (
+            assembly,
+            winner_id_list,
+            winner_id,
+            winner_consolidation,
+            effective_modulator,
+            dopamine_ltp_gain,
+            serotonin_patience,
+        )
+
     @torch.no_grad()
     def train_step(
         self,
@@ -1027,15 +1161,7 @@ class MarulhoTrainer:
             else:
                 context_gain = consensus_gain
 
-        candidate_ids, _ = self.model.hnsw_index.search(
-            routing_key.unsqueeze(0),
-            k=self.config.k_routing,
-        )
-        candidates = (
-            torch.tensor(candidate_ids[0], device=self.model.device)
-            if candidate_ids and candidate_ids[0]
-            else None
-        )
+        candidates = self._routing_candidates(routing_key)
 
         winners, strengths, _ = self.model.competitive.compete(
             routing_key,
@@ -1044,86 +1170,23 @@ class MarulhoTrainer:
             context_gain=context_gain,
         )
 
-        # Extract winner IDs once — avoid repeated .item() sync
-        winner_id_list = winners.tolist()
-        winner_id = int(winner_id_list[0])
-
-        winner_consolidation = 0.0
-        if self.memory_warm_started:
-            winner_levels = [
-                self.model.memory_store.bucket_consolidation_level(wid)
-                for wid in winner_id_list
-            ]
-            if winner_levels:
-                winner_consolidation = float(sum(winner_levels) / len(winner_levels))
-
-        # Neuromodulator-specific plasticity gates (§4.5, §4.7):
-        #   DA (dopamine): scales LTP gain — positive RPE amplifies learning
-        #   5-HT (serotonin): modulates consolidation patience — high 5-HT
-        #     suppresses plasticity on consolidated winners (patience gate)
-        #   NE: wired to exploration boost via should_boost_exploration()
-        #   ACh: already wired to context precision via _context_precision_weight()
-        da = self.model.surprise.dopamine
-        ht = self.model.surprise.serotonin
-        da_ltp_gain = 0.8 + 0.4 * da  # range [0.8, 1.2]: DA amplifies learning
-        ht_patience = max(0.2, 1.0 - 0.6 * ht)  # high 5-HT → reduced wake plasticity
-        wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation) * ht_patience
-
-        predictive_scope_ready = self.token_count >= int(self.config.dead_column_steps)
-        predictive_scope_cuda_fallback = (
-            predictive_scope_ready and self.model.device.type == "cuda"
-        )
-        predictive_update_indices = (
-            candidates
-            if predictive_scope_ready and not predictive_scope_cuda_fallback
-            else None
-        )
-
-        # Predictive columns: compute prediction error and update location
-        pred_error_mod = self.model.predictive.compute_prediction_error(
+        (
+            assembly,
             winner_id_list,
-            routing_key,
-            candidate_indices=predictive_update_indices,
-        )
-        # Prediction error boosts learning for surprised columns
-        pred_boost = float(pred_error_mod[winner_id_list].mean().item()) if winner_id_list else 1.0
-        pred_boost = min(2.0, max(0.5, pred_boost))  # clamp to [0.5, 2.0]
-
-        # Update predictive state
-        self.model.predictive.update_location(
-            winner_id_list, routing_key, self._prev_routing_key
-        )
-        self.model.predictive.update_predictions(
-            winner_id_list,
-            learning_rate=0.005,
-            candidate_indices=predictive_update_indices,
-        )
-        if predictive_scope_cuda_fallback:
-            self.model.predictive.last_prediction_update_fallback_reason = (
-                "cuda_sparse_prediction_update_launch_bound_dense_retained"
-            )
-        self._prev_routing_key = routing_key.detach().clone()
-
-        effective_modulator = float(modulator) * wake_plasticity_scale * da_ltp_gain * pred_boost
-
-        homeostasis_update_indices = (
-            candidates
-            if predictive_scope_ready
-            else None
-        )
-
-        assembly = self.model.competitive.process(
-            routing_key,
-            winners,
+            winner_id,
+            winner_consolidation,
             effective_modulator,
-            winner_strengths=strengths,
-            eligibility_trace=local_trace,
-            assembly_projection=self.model.W_assembly_project,
+            da_ltp_gain,
+            ht_patience,
+        ) = self._apply_awake_column_transition(
+            routing_key=routing_key,
+            candidates=candidates,
+            winners=winners,
+            strengths=strengths,
+            modulator=modulator,
+            local_trace=local_trace,
             compute_metrics=_telemetry_tick,
-            homeostasis_update_indices=homeostasis_update_indices,
         )
-        # Refresh transpose cache since process() modifies W_assembly_project in-place
-        self.model._invalidate_projection_cache()
         abstraction_input = assembly.clone()
         if self.model.abstraction_layer is not None:
             self.model.abstraction_layer.observe(
@@ -1206,8 +1269,29 @@ class MarulhoTrainer:
                 if accept_audio:
                     self.model.cross_modal.on_audio_spike(aus)
 
-            # Text spike LAST — now visual/audio traces contain current data
-            self.model.cross_modal.on_text_spike(text_spike)
+            text_has_sensory_evidence = bool(
+                (visual_spikes is not None and cross_modal_visual_accepted)
+                or (audio_spikes is not None and cross_modal_audio_accepted)
+            )
+            text_probe_interval = max(
+                1,
+                int(self.config.cross_modal_text_idle_probe_interval_tokens),
+            )
+            text_probe_due = (
+                text_has_sensory_evidence
+                or self.token_count % text_probe_interval == 0
+            )
+            if text_probe_due:
+                # Text spike LAST — now visual/audio traces contain current data
+                self.model.cross_modal.on_text_spike(text_spike)
+            else:
+                record_text_skip = getattr(
+                    self.model.cross_modal,
+                    "record_text_idle_skip",
+                    None,
+                )
+                if callable(record_text_skip):
+                    record_text_skip()
 
             # Cross-modal confidence — periodic (every 10 steps) for metrics only
             if _telemetry_tick:
@@ -1421,6 +1505,21 @@ class MarulhoTrainer:
         metrics["cross_modal_audio_confidence"] = cross_modal_audio_conf
         metrics["cross_modal_visual_accepted"] = cross_modal_visual_accepted
         metrics["cross_modal_audio_accepted"] = cross_modal_audio_accepted
+        cross_modal_layer = self.model.cross_modal
+        metrics["cross_modal_text_execution_mode"] = (
+            str(getattr(cross_modal_layer, "last_text_runtime_execution_mode", "disabled"))
+            if cross_modal_layer is not None
+            else "disabled"
+        )
+        metrics["cross_modal_text_update_count"] = int(
+            getattr(cross_modal_layer, "runtime_text_update_count", 0)
+        )
+        metrics["cross_modal_text_idle_skip_count"] = int(
+            getattr(cross_modal_layer, "runtime_text_idle_skip_count", 0)
+        )
+        metrics["cross_modal_text_idle_probe_interval_tokens"] = int(
+            self.config.cross_modal_text_idle_probe_interval_tokens
+        )
         metrics["developmental_stage"] = self.developmental_stage
         metrics["winner"] = winner_id
         if _telemetry_tick:
@@ -1464,15 +1563,9 @@ class MarulhoTrainer:
     ) -> torch.Tensor:
         x = pattern_vec.to(self.model.device)
         routing_key = self.model.routing_key_from_pattern(x)
-        candidate_ids, _ = self.model.hnsw_index.search(
-            routing_key.unsqueeze(0),
-            k=self.config.k_routing,
-        )
-        candidates = (
-            torch.tensor(candidate_ids[0], device=self.model.device)
-            if candidate_ids and candidate_ids[0]
-            else torch.arange(self.config.n_columns, device=self.model.device)
-        )
+        candidates = self._routing_candidates(routing_key)
+        if candidates is None:
+            candidates = torch.arange(self.config.n_columns, device=self.model.device)
 
         proto = self.model.competitive.prototypes[candidates]
         sim = torch.mv(proto, F.normalize(routing_key, dim=0))
@@ -1517,15 +1610,7 @@ class MarulhoTrainer:
     def _offline_competition(self, pattern_vec: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = pattern_vec.to(self.model.device)
         routing_key = self.model.routing_key_from_pattern(x)
-        candidate_ids, _ = self.model.hnsw_index.search(
-            routing_key.unsqueeze(0),
-            k=self.config.k_routing,
-        )
-        candidates = (
-            torch.tensor(candidate_ids[0], device=self.model.device)
-            if candidate_ids and candidate_ids[0]
-            else None
-        )
+        candidates = self._routing_candidates(routing_key)
         context_gain = None
         context_prediction, context_gain = self._context_prediction_and_gain()
         original_input_blend = float(self.model.competitive.input_weight_blend)

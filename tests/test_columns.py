@@ -195,6 +195,50 @@ class TestStateDict:
         assert candidates.numel() == layer.n_columns
         assert layer._cached_raw_drive is None
 
+    def test_zero_input_weight_blend_skips_dormant_lite_input_plasticity(self):
+        layer = _make_layer(input_weight_blend=0.0, plasticity_mode="lite")
+        layer.last_input_pattern = torch.full(
+            (layer.input_dim,),
+            1.0 / layer.input_dim,
+        )
+        routing_key = torch.rand(layer.column_dim)
+        input_weights_before = layer.input_weights.clone()
+        prototypes_before = layer.prototypes.clone()
+
+        layer.process(
+            routing_key,
+            torch.tensor([0]),
+            modulator=0.5,
+        )
+
+        assert torch.equal(layer.input_weights, input_weights_before)
+        assert not torch.equal(layer.prototypes, prototypes_before)
+        assert layer.last_input_plasticity_mode == "skipped_zero_blend"
+        assert layer.input_plasticity_update_count == 0
+        assert layer.input_plasticity_skip_count == 1
+        report = layer.execution_report()
+        assert report["dormant_input_plasticity_skipped"] is True
+        assert report["input_weight_blend"] == 0.0
+
+    def test_nonzero_input_weight_blend_keeps_lite_input_plasticity_active(self):
+        layer = _make_layer(input_weight_blend=0.25, plasticity_mode="lite")
+        layer.last_input_pattern = torch.full(
+            (layer.input_dim,),
+            1.0 / layer.input_dim,
+        )
+        input_weights_before = layer.input_weights.clone()
+
+        layer.process(
+            torch.rand(layer.column_dim),
+            torch.tensor([0]),
+            modulator=0.5,
+        )
+
+        assert not torch.equal(layer.input_weights, input_weights_before)
+        assert layer.last_input_plasticity_mode == "lite_active"
+        assert layer.input_plasticity_update_count == 1
+        assert layer.input_plasticity_skip_count == 0
+
     def test_full_input_weight_blend_uses_only_input_drive(self):
         layer = _make_layer(input_weight_blend=1.0)
         pattern = torch.rand(layer.input_dim)

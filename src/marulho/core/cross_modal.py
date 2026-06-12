@@ -76,6 +76,9 @@ class CrossModalGroundingLayer:
 
         # Precompute trace decay factor
         self._decay_factor = float(torch.exp(torch.tensor(-1.0 / max(self.tau_trace, 0.01))).item())
+        self.runtime_text_update_count = 0
+        self.runtime_text_idle_skip_count = 0
+        self.last_text_runtime_execution_mode = "not_run"
 
     # -- trace decay --------------------------------------------------------
 
@@ -114,6 +117,8 @@ class CrossModalGroundingLayer:
         Uses full-matrix outer products — zero rows in t self-mask, avoiding
         costly boolean index gather/scatter on small matrices.
         """
+        self.runtime_text_update_count += 1
+        self.last_text_runtime_execution_mode = "text_update"
         t = text_assembly.to(self.device).float()
         if t.dim() > 1:
             t = t.squeeze(0)
@@ -141,6 +146,18 @@ class CrossModalGroundingLayer:
 
         self._maybe_synaptic_scaling()
         self._decay_traces()
+
+    def record_text_idle_skip(self, *, decay_traces: bool = True) -> None:
+        """Record a skipped text-only cross-modal update.
+
+        The trainer owns the wake decision. Core keeps this operation cheap and
+        explicit so Runtime Truth can distinguish cached text-only ticks from
+        real cross-modal learning events.
+        """
+        self.runtime_text_idle_skip_count += 1
+        self.last_text_runtime_execution_mode = "text_idle_cached_state"
+        if decay_traces:
+            self._decay_traces()
 
     def on_visual_spike(self, visual_spikes: torch.Tensor) -> None:
         """Process a visual spike event — update traces and W_vt."""
@@ -355,6 +372,9 @@ class CrossModalGroundingLayer:
             "dim_text": int(self.dim_text),
             "dim_visual": int(self.dim_visual),
             "dim_audio": int(self.dim_audio),
+            "runtime_text_update_count": int(self.runtime_text_update_count),
+            "runtime_text_idle_skip_count": int(self.runtime_text_idle_skip_count),
+            "last_text_runtime_execution_mode": str(self.last_text_runtime_execution_mode),
         }
 
     # -- §7.4 self-criticism loop -------------------------------------------

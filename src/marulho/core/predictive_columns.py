@@ -18,10 +18,136 @@ References:
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
+
+
+def _ensure_windows_triton_compiler() -> str | None:
+    if os.environ.get("CC"):
+        return os.environ["CC"]
+    if os.name != "nt":
+        return None
+    try:
+        import triton  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    tcc = Path(triton.__file__).parent / "runtime" / "tcc" / "tcc.exe"
+    if tcc.exists():
+        os.environ["CC"] = str(tcc)
+        return str(tcc)
+    return None
+
+
+def dense_predictive_transition(
+    location: torch.Tensor,
+    velocity: torch.Tensor,
+    prediction_weights: torch.Tensor,
+    prediction_error: torch.Tensor,
+    prediction_failure_streak: torch.Tensor,
+    confidence: torch.Tensor,
+    routing_key: torch.Tensor,
+    previous_routing_key: torch.Tensor,
+    winners: torch.Tensor,
+    *,
+    has_previous_routing_key: bool,
+    error_ema_alpha: float,
+    failure_streak_threshold: float,
+    learning_rate: float,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Compute one dense predictive-column transition without side effects."""
+
+    winner_ids = winners.to(device=location.device, dtype=torch.long).flatten()
+    prediction = torch.sigmoid((location * prediction_weights).sum(dim=1))
+    actual_binary = torch.zeros_like(prediction).scatter(
+        0,
+        winner_ids,
+        torch.ones_like(winner_ids, dtype=prediction.dtype),
+    )
+    raw_error = (prediction - actual_binary).abs()
+    next_failure_streak = torch.where(
+        raw_error > float(failure_streak_threshold),
+        prediction_failure_streak + 1,
+        torch.zeros_like(prediction_failure_streak),
+    )
+    next_prediction_error = (
+        float(error_ema_alpha) * raw_error
+        + (1.0 - float(error_ema_alpha)) * prediction_error
+    )
+    next_confidence = torch.clamp(
+        0.95 * confidence + 0.05 * (1.0 - raw_error),
+        min=0.0,
+        max=1.0,
+    )
+
+    next_velocity = velocity
+    next_location = location
+    if has_previous_routing_key:
+        movement = routing_key - previous_routing_key
+        location_dim = int(location.shape[1])
+        if int(movement.shape[0]) >= location_dim:
+            movement = movement[:location_dim]
+        else:
+            movement = F.pad(movement, (0, location_dim - int(movement.shape[0])))
+        next_velocity = velocity * 0.9
+        winner_velocity = next_velocity.index_select(0, winner_ids) + 0.1 * movement
+        next_velocity = next_velocity.index_copy(0, winner_ids, winner_velocity)
+        next_location = location.index_copy(
+            0,
+            winner_ids,
+            location.index_select(0, winner_ids) + winner_velocity,
+        )
+
+    location_norm = next_location.norm(dim=1, keepdim=True).clamp(min=1e-8)
+    location_scale = torch.where(
+        location_norm > 5.0,
+        5.0 / location_norm,
+        torch.ones_like(location_norm),
+    )
+    next_location = next_location * location_scale
+
+    lr = float(learning_rate)
+    winner_weights = (
+        prediction_weights.index_select(0, winner_ids)
+        + lr * next_location.index_select(0, winner_ids)
+    )
+    next_prediction_weights = prediction_weights.index_copy(
+        0,
+        winner_ids,
+        winner_weights,
+    )
+    updated_prediction = torch.sigmoid(
+        (next_location * next_prediction_weights).sum(dim=1)
+    )
+    non_winner_mask = torch.ones(
+        prediction_weights.shape[0],
+        dtype=torch.bool,
+        device=prediction_weights.device,
+    ).scatter(0, winner_ids, False)
+    decay_mask = non_winner_mask & (updated_prediction > 0.5)
+    next_prediction_weights = torch.where(
+        decay_mask.unsqueeze(1),
+        next_prediction_weights * (1.0 - 0.5 * lr),
+        next_prediction_weights,
+    )
+    return (
+        next_location,
+        next_velocity,
+        next_prediction_weights,
+        next_prediction_error,
+        next_failure_streak,
+        next_confidence,
+    )
 
 
 class PredictiveColumnState:
@@ -77,6 +203,162 @@ class PredictiveColumnState:
         self.last_prediction_update_count = int(n_columns)
         self.last_prediction_update_fraction = 1.0
         self.last_prediction_update_fallback_reason: str | None = None
+        self.last_dense_transition_mode = "legacy"
+        self.last_dense_transition_fallback_reason: str | None = None
+        self.dense_transition_compile_count = 0
+        self._compiled_dense_transition_with_previous = None
+        self._compiled_dense_transition_without_previous = None
+
+    def _compiled_dense_transition(self, *, has_previous_routing_key: bool):
+        attribute = (
+            "_compiled_dense_transition_with_previous"
+            if has_previous_routing_key
+            else "_compiled_dense_transition_without_previous"
+        )
+        compiled = getattr(self, attribute)
+        if compiled is not None:
+            return compiled
+
+        error_ema_alpha = float(self._error_ema_alpha)
+        failure_streak_threshold = float(self._failure_streak_threshold)
+
+        def transition(
+            location: torch.Tensor,
+            velocity: torch.Tensor,
+            prediction_weights: torch.Tensor,
+            prediction_error: torch.Tensor,
+            prediction_failure_streak: torch.Tensor,
+            confidence: torch.Tensor,
+            routing_key: torch.Tensor,
+            previous_routing_key: torch.Tensor,
+            winners: torch.Tensor,
+        ):
+            return dense_predictive_transition(
+                location,
+                velocity,
+                prediction_weights,
+                prediction_error,
+                prediction_failure_streak,
+                confidence,
+                routing_key,
+                previous_routing_key,
+                winners,
+                has_previous_routing_key=has_previous_routing_key,
+                error_ema_alpha=error_ema_alpha,
+                failure_streak_threshold=failure_streak_threshold,
+                learning_rate=0.005,
+            )
+
+        _ensure_windows_triton_compiler()
+        compiled = torch.compile(transition, mode="reduce-overhead", fullgraph=True)
+        setattr(self, attribute, compiled)
+        self.dense_transition_compile_count += 1
+        return compiled
+
+    def apply_dense_transition(
+        self,
+        winners: torch.Tensor,
+        routing_key: torch.Tensor,
+        previous_routing_key: torch.Tensor | None,
+        *,
+        learning_rate: float = 0.005,
+        transition_mode: str = "fused_eager",
+    ) -> torch.Tensor:
+        """Apply one all-column predictive transition with explicit writeback."""
+
+        previous = (
+            torch.zeros_like(routing_key)
+            if previous_routing_key is None
+            else previous_routing_key
+        )
+        has_previous = previous_routing_key is not None
+        transition_fn = dense_predictive_transition
+        transition_kwargs = {
+            "has_previous_routing_key": has_previous,
+            "error_ema_alpha": self._error_ema_alpha,
+            "failure_streak_threshold": self._failure_streak_threshold,
+            "learning_rate": learning_rate,
+        }
+        self.last_dense_transition_fallback_reason = None
+        if transition_mode == "compiled":
+            if abs(float(learning_rate) - 0.005) > 1e-12:
+                self.last_dense_transition_mode = "fused_eager"
+                self.last_dense_transition_fallback_reason = (
+                    "compiled_learning_rate_requires_0.005"
+                )
+            else:
+                try:
+                    transition_fn = self._compiled_dense_transition(
+                        has_previous_routing_key=has_previous,
+                    )
+                    transition_kwargs = {}
+                    self.last_dense_transition_mode = "compiled"
+                except Exception as exc:  # pragma: no cover - backend dependent
+                    self.last_dense_transition_mode = "fused_eager"
+                    self.last_dense_transition_fallback_reason = (
+                        f"compile_failed:{type(exc).__name__}"
+                    )
+        elif transition_mode == "fused_eager":
+            self.last_dense_transition_mode = "fused_eager"
+        else:
+            raise ValueError("transition_mode must be fused_eager or compiled")
+
+        try:
+            if self.last_dense_transition_mode == "compiled":
+                torch.compiler.cudagraph_mark_step_begin()
+            outputs = transition_fn(
+                self.location,
+                self.velocity,
+                self._prediction_weights,
+                self.prediction_error,
+                self.prediction_failure_streak,
+                self.confidence,
+                routing_key,
+                previous,
+                winners,
+                **transition_kwargs,
+            )
+        except Exception as exc:  # pragma: no cover - backend dependent
+            if self.last_dense_transition_mode != "compiled":
+                raise
+            self.last_dense_transition_mode = "fused_eager"
+            self.last_dense_transition_fallback_reason = (
+                f"compiled_execution_failed:{type(exc).__name__}"
+            )
+            outputs = dense_predictive_transition(
+                self.location,
+                self.velocity,
+                self._prediction_weights,
+                self.prediction_error,
+                self.prediction_failure_streak,
+                self.confidence,
+                routing_key,
+                previous,
+                winners,
+                has_previous_routing_key=has_previous,
+                error_ema_alpha=self._error_ema_alpha,
+                failure_streak_threshold=self._failure_streak_threshold,
+                learning_rate=learning_rate,
+            )
+
+        if self.last_dense_transition_mode == "compiled":
+            self.location.copy_(outputs[0])
+            self.velocity.copy_(outputs[1])
+            self._prediction_weights.copy_(outputs[2])
+            self.prediction_error.copy_(outputs[3])
+            self.prediction_failure_streak.copy_(outputs[4])
+            self.confidence.copy_(outputs[5])
+        else:
+            (
+                self.location,
+                self.velocity,
+                self._prediction_weights,
+                self.prediction_error,
+                self.prediction_failure_streak,
+                self.confidence,
+            ) = outputs
+        self._record_prediction_update_scope(None)
+        return self.prediction_error
 
     def _candidate_update_indices(
         self,
@@ -316,6 +598,9 @@ class PredictiveColumnState:
             "last_prediction_update_count": int(self.last_prediction_update_count),
             "last_prediction_update_fraction": float(self.last_prediction_update_fraction),
             "last_prediction_update_fallback_reason": self.last_prediction_update_fallback_reason,
+            "last_dense_transition_mode": self.last_dense_transition_mode,
+            "last_dense_transition_fallback_reason": self.last_dense_transition_fallback_reason,
+            "dense_transition_compile_count": int(self.dense_transition_compile_count),
         }
 
     def state_dict(self) -> dict[str, torch.Tensor]:

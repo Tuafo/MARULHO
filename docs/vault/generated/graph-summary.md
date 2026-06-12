@@ -2,28 +2,28 @@
 type: generated
 source: graphify
 generated_by: "C:\Users\thiag\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\Scripts\graphify.exe update . --no-cluster"
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 ---
 
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 8724
-- Edges: 177903
+- Nodes: 8911
+- Edges: 538935
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3244 nodes
+- `tests`: 3292 nodes
 - `service`: 2572 nodes
-- `core`: 472 nodes
-- `training`: 394 nodes
+- `core`: 491 nodes
+- `evaluation`: 461 nodes
+- `training`: 396 nodes
 - `data`: 374 nodes
-- `evaluation`: 354 nodes
 - `semantics`: 330 nodes
 - `MARULHO_UI`: 212 nodes
-- `retrieval`: 106 nodes
-- `consolidation`: 54 nodes
+- `retrieval`: 111 nodes
+- `consolidation`: 59 nodes
 - `config`: 38 nodes
 - `interaction`: 35 nodes
 - `reporting`: 32 nodes
@@ -32,16 +32,16 @@ last_verified: 2026-06-11
 
 ## Common Relations
 
-- `calls`: 45120
-- `references`: 40333
-- `uses`: 31078
-- `method`: 28821
-- `contains`: 16908
-- `rationale_for`: 7757
-- `imports`: 3726
-- `imports_from`: 1964
-- `inherits`: 1875
-- `re_exports`: 314
+- `calls`: 138070
+- `references`: 122987
+- `uses`: 95389
+- `method`: 87136
+- `contains`: 52312
+- `rationale_for`: 22118
+- `imports`: 10406
+- `inherits`: 5697
+- `imports_from`: 3869
+- `re_exports`: 944
 - `extends`: 7
 
 ## Largest Source Files By Node Count
@@ -55,7 +55,7 @@ last_verified: 2026-06-11
 - `tests/test_service_manager.py`: 155 nodes
 - `tests/test_adr_service_manager_composition.py`: 120 nodes
 - `src/marulho/service/replay_runtime.py`: 103 nodes
-- `tests/test_hypercube.py`: 84 nodes
+- `tests/test_hypercube.py`: 86 nodes
 - `tests/test_living_loop_self_model.py`: 80 nodes
 - `tests/test_living_loop_replay.py`: 79 nodes
 - `src/marulho/semantics/language_surface.py`: 78 nodes

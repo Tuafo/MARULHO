@@ -53,6 +53,58 @@ class TestPredictiveColumnState:
         assert str(report["location_device"]).startswith("cuda")
         assert str(report["prediction_weights_device"]).startswith("cuda")
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_compiled_dense_transition_preserves_state_across_repeated_cuda_steps(self):
+        torch.manual_seed(23)
+        legacy = PredictiveColumnState(
+            n_columns=16,
+            location_dim=4,
+            device=torch.device("cuda"),
+        )
+        compiled = PredictiveColumnState(
+            n_columns=16,
+            location_dim=4,
+            device=torch.device("cuda"),
+        )
+        compiled.load_state_dict(legacy.state_dict())
+        previous = torch.randn(16, device="cuda")
+
+        for step in range(3):
+            routing_key = torch.randn(16, device="cuda")
+            winners = torch.tensor([step + 1], dtype=torch.long, device="cuda")
+            winner_list = winners.cpu().tolist()
+            legacy.compute_prediction_error(winner_list, routing_key)
+            legacy.update_location(winner_list, routing_key, previous)
+            legacy.update_predictions(winner_list, learning_rate=0.005)
+            compiled.apply_dense_transition(
+                winners,
+                routing_key,
+                previous,
+                transition_mode="compiled",
+            )
+            previous = routing_key
+
+        torch.cuda.synchronize()
+        assert compiled.last_dense_transition_mode == "compiled"
+        assert compiled.last_dense_transition_fallback_reason is None
+        assert torch.allclose(compiled.location, legacy.location, atol=1e-5)
+        assert torch.allclose(compiled.velocity, legacy.velocity, atol=1e-5)
+        assert torch.allclose(
+            compiled._prediction_weights,
+            legacy._prediction_weights,
+            atol=1e-5,
+        )
+        assert torch.allclose(
+            compiled.prediction_error,
+            legacy.prediction_error,
+            atol=1e-5,
+        )
+        assert torch.equal(
+            compiled.prediction_failure_streak,
+            legacy.prediction_failure_streak,
+        )
+        assert torch.allclose(compiled.confidence, legacy.confidence, atol=1e-5)
+
     def test_predict_returns_correct_shape(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)
         pred = state.predict(column_dim=16)
@@ -87,6 +139,42 @@ class TestPredictiveColumnState:
         assert error.shape == (16,)
         assert error.min() >= 0.0
         assert error.max() <= 1.0
+
+    @pytest.mark.parametrize("with_previous", [False, True])
+    def test_dense_transition_matches_legacy_predictive_sequence(self, with_previous):
+        torch.manual_seed(17)
+        legacy = PredictiveColumnState(n_columns=16, location_dim=4)
+        fused = PredictiveColumnState(n_columns=16, location_dim=4)
+        fused.load_state_dict(legacy.state_dict())
+        routing_key = torch.randn(16)
+        previous = torch.randn(16) if with_previous else None
+        winner_ids = [2]
+        winners = torch.tensor(winner_ids, dtype=torch.long)
+
+        legacy_error = legacy.compute_prediction_error(winner_ids, routing_key)
+        legacy.update_location(winner_ids, routing_key, previous)
+        legacy.update_predictions(winner_ids, learning_rate=0.005)
+        fused_error = fused.apply_dense_transition(
+            winners,
+            routing_key,
+            previous,
+            learning_rate=0.005,
+        )
+
+        assert torch.allclose(fused_error, legacy_error, atol=1e-6)
+        assert torch.allclose(fused.location, legacy.location, atol=1e-6)
+        assert torch.allclose(fused.velocity, legacy.velocity, atol=1e-6)
+        assert torch.allclose(
+            fused._prediction_weights,
+            legacy._prediction_weights,
+            atol=1e-6,
+        )
+        assert torch.allclose(fused.prediction_error, legacy.prediction_error, atol=1e-6)
+        assert torch.equal(
+            fused.prediction_failure_streak,
+            legacy.prediction_failure_streak,
+        )
+        assert torch.allclose(fused.confidence, legacy.confidence, atol=1e-6)
 
     def test_candidate_scoped_prediction_error_keeps_idle_state_cached(self):
         state = PredictiveColumnState(n_columns=6, location_dim=3)
@@ -324,11 +412,12 @@ class TestPredictiveColumnsInTrainer:
         trainer.memory_warm_started = True
         trainer.token_count = cfg.dead_column_steps
 
-        trainer.train_step(torch.randn(cfg.input_dim, device=model.device), raw_window="cuda")
+        trainer.train_step(torch.randn(cfg.input_dim, device=model.device), raw_window="cuda-first")
+        trainer.train_step(torch.randn(cfg.input_dim, device=model.device), raw_window="cuda-steady")
         report = model.predictive.device_report()
 
         assert report["last_prediction_update_mode"] == "all_columns"
         assert report["last_prediction_update_count"] == cfg.n_columns
-        assert report["last_prediction_update_fallback_reason"] == (
-            "cuda_sparse_prediction_update_launch_bound_dense_retained"
-        )
+        assert report["last_dense_transition_mode"] == "compiled"
+        assert report["dense_transition_compile_count"] == 1
+        assert report["last_dense_transition_fallback_reason"] is None

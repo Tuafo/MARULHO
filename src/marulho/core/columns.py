@@ -135,6 +135,9 @@ class CompetitiveColumnLayer:
         self.last_candidate_count = 0
         self.last_homeostasis_update_count = 0
         self.last_homeostasis_update_mode = "not_run"
+        self.last_input_plasticity_mode = "not_run"
+        self.input_plasticity_update_count = 0
+        self.input_plasticity_skip_count = 0
 
         self.thresholds = torch.full((self.n_columns,), 0.5, device=self.device)
         self.target_firing_rate = 1.0 / max(1, self.n_columns)
@@ -561,35 +564,52 @@ class CompetitiveColumnLayer:
         else:
             self.prototypes[winners] = winner_proto
 
-        if self.last_input_pattern is not None:
-            if self.plasticity_mode == "local_stdp" and self.local_plasticity is not None and assembly_projection is not None:
-                local_trace = self._normalized_eligibility_trace(eligibility_trace)
-                self.local_plasticity.apply(
-                    input_weights=self.input_weights,
-                    projection_weights=self.W_project,
-                    assembly_projection_weights=assembly_projection,
-                    input_pattern=self.last_input_pattern,
-                    pre_synaptic_trace=local_trace,
-                    projected_input=self.last_projected_input,
-                    assembly=assembly,
-                    routing_key=x,
-                    winner_indices=winners,
-                    winner_strengths=winner_strengths,
-                    modulator=modulator,
-                    lr=lr * max(0.0, float(input_lr_scale)),
-                    compute_metrics=compute_metrics,
-                )
-            else:
-                winner_weights = self.input_weights[winners]
-                input_pattern = self.last_input_pattern.unsqueeze(0)
-                input_lr = lr * max(0.0, float(input_lr_scale))
-                ltp = self.input_synapse_ltp * input_lr * input_pattern
-                ltd = self.input_synapse_ltd * input_lr * (1.0 - input_pattern) * winner_weights
-                winner_weights = torch.clamp(winner_weights + ltp - ltd, min=1e-6)
-                winner_weights = winner_weights * (
-                    self.input_weight_row_target / (winner_weights.sum(dim=1, keepdim=True) + 1e-8)
-                )
-                self.input_weights[winners] = winner_weights
+        if self.last_input_pattern is None:
+            self.last_input_plasticity_mode = "skipped_no_input"
+            self.input_plasticity_skip_count += 1
+        elif (
+            self.plasticity_mode == "local_stdp"
+            and self.local_plasticity is not None
+            and assembly_projection is not None
+        ):
+            self.last_input_plasticity_mode = "local_stdp"
+            self.input_plasticity_update_count += 1
+            local_trace = self._normalized_eligibility_trace(eligibility_trace)
+            self.local_plasticity.apply(
+                input_weights=self.input_weights,
+                projection_weights=self.W_project,
+                assembly_projection_weights=assembly_projection,
+                input_pattern=self.last_input_pattern,
+                pre_synaptic_trace=local_trace,
+                projected_input=self.last_projected_input,
+                assembly=assembly,
+                routing_key=x,
+                winner_indices=winners,
+                winner_strengths=winner_strengths,
+                modulator=modulator,
+                lr=lr * max(0.0, float(input_lr_scale)),
+                compute_metrics=compute_metrics,
+            )
+        elif self.plasticity_mode == "lite" and self.input_weight_blend == 0.0:
+            self.last_input_plasticity_mode = "skipped_zero_blend"
+            self.input_plasticity_skip_count += 1
+        else:
+            self.last_input_plasticity_mode = (
+                "local_stdp_fallback_lite"
+                if self.plasticity_mode == "local_stdp"
+                else "lite_active"
+            )
+            self.input_plasticity_update_count += 1
+            winner_weights = self.input_weights[winners]
+            input_pattern = self.last_input_pattern.unsqueeze(0)
+            input_lr = lr * max(0.0, float(input_lr_scale))
+            ltp = self.input_synapse_ltp * input_lr * input_pattern
+            ltd = self.input_synapse_ltd * input_lr * (1.0 - input_pattern) * winner_weights
+            winner_weights = torch.clamp(winner_weights + ltp - ltd, min=1e-6)
+            winner_weights = winner_weights * (
+                self.input_weight_row_target / (winner_weights.sum(dim=1, keepdim=True) + 1e-8)
+            )
+            self.input_weights[winners] = winner_weights
 
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
         if update_global_state:
@@ -712,6 +732,10 @@ class CompetitiveColumnLayer:
             "steps_since_win_device": str(self.steps_since_win.device),
             "last_revived_indices_device": str(self.last_revived_indices.device),
             "recent_spike_window_device": str(self.recent_spike_window.device),
+            "input_weight_blend": float(self.input_weight_blend),
+            "input_plasticity_mode": str(self.last_input_plasticity_mode),
+            "input_plasticity_update_count": int(self.input_plasticity_update_count),
+            "input_plasticity_skip_count": int(self.input_plasticity_skip_count),
             "last_input_pattern_device": (
                 None if self.last_input_pattern is None else str(self.last_input_pattern.device)
             ),
@@ -745,6 +769,13 @@ class CompetitiveColumnLayer:
                 float(max(0, min(int(self.last_homeostasis_update_count), self.n_columns)))
                 / float(max(1, self.n_columns)),
                 6,
+            ),
+            "input_weight_blend": float(self.input_weight_blend),
+            "input_plasticity_mode": str(self.last_input_plasticity_mode),
+            "input_plasticity_update_count": int(self.input_plasticity_update_count),
+            "input_plasticity_skip_count": int(self.input_plasticity_skip_count),
+            "dormant_input_plasticity_skipped": bool(
+                self.last_input_plasticity_mode == "skipped_zero_blend"
             ),
             "sparse_candidate_execution_observed": bool(
                 self.last_execution_mode == "candidate_subset"

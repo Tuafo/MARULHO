@@ -26,6 +26,7 @@ def _build_trainer() -> MarulhoTrainer:
         eta_competitive=0.05,
         eta_decay=0.0,
         input_weight_blend=0.0,
+        routing_index_mode="torch_topk",
         micro_sleep_interval_tokens=10**9,
         deep_sleep_interval_tokens=10**9,
         window_size=10,
@@ -116,6 +117,34 @@ class LearnedChunkingTests(unittest.TestCase):
         self.assertEqual(predictive_report["last_prediction_update_mode"], "candidate_subset")
         self.assertEqual(predictive_report["last_prediction_update_count"], trainer.config.k_routing)
         self.assertLess(predictive_report["last_prediction_update_fraction"], 1.0)
+
+    def test_train_step_uses_tensor_native_routing_candidates(self) -> None:
+        trainer = _build_trainer()
+        pattern = _pattern_for_term(trainer, "river")
+
+        def fail_legacy_list_search(*args, **kwargs):
+            del args, kwargs
+            raise AssertionError("live train_step must not use list-returning routing search")
+
+        trainer.model.hnsw_index.search = fail_legacy_list_search  # type: ignore[method-assign]
+        trainer.train_step(pattern, raw_window="river")
+
+    def test_lite_train_step_keeps_unchanged_projection_cache(self) -> None:
+        trainer = _build_trainer()
+        pattern = _pattern_for_term(trainer, "river")
+
+        def fail_if_invalidated() -> None:
+            raise AssertionError(
+                "lite plasticity does not mutate W_assembly_project"
+            )
+
+        trainer.model._invalidate_projection_cache = fail_if_invalidated
+        trainer.train_step(pattern, raw_window="river")
+        routing_stats = trainer.model.runtime_scope_report()["routing_index"]
+
+        self.assertEqual(routing_stats["last_search_mode"], "tensor")
+        self.assertGreaterEqual(routing_stats["tensor_search_count"], 1)
+        self.assertEqual(routing_stats["list_search_count"], 0)
 
     def test_non_chunking_routing_keeps_required_dense_assembly(self) -> None:
         cfg = MarulhoConfig(

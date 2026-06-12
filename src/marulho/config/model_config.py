@@ -77,6 +77,8 @@ class MarulhoConfig:
     routing_index_mode: Literal["auto", "faiss_hnsw", "torch_topk", "exact_cosine", "turboquant_plus"] = "auto"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
+    merge_torch_routing_shards: bool = True
+    predictive_dense_transition_mode: Literal["legacy", "fused_eager", "compiled"] = "compiled"
 
     eta_competitive: float = 0.01
     eta_decay: float = 1e-6
@@ -176,6 +178,7 @@ class MarulhoConfig:
     cross_modal_A_minus: float = 0.012
     cross_modal_tau_trace: float = 10.0
     cross_modal_confidence_alpha: float = 0.01
+    cross_modal_text_idle_probe_interval_tokens: int = 4
 
     acquisition_concept_novelty_weight: float = 0.08  # Reduced from 0.20 to prevent cold-start uncertainty inflation
     acquisition_concept_uncertainty_weight: float = 0.10  # Reduced from 0.25 to prevent cold-start uncertainty inflation
@@ -299,6 +302,8 @@ class MarulhoConfig:
             raise ValueError("binding_pv_gain must be non-negative")
         if self.binding_idle_probe_interval_tokens <= 0:
             raise ValueError("binding_idle_probe_interval_tokens must be positive")
+        if self.cross_modal_text_idle_probe_interval_tokens <= 0:
+            raise ValueError("cross_modal_text_idle_probe_interval_tokens must be positive")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:
@@ -355,6 +360,10 @@ class MarulhoConfig:
             raise ValueError("routing_index_mode must be one of auto, faiss_hnsw, torch_topk, exact_cosine, turboquant_plus")
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
+        if self.predictive_dense_transition_mode not in {"legacy", "fused_eager", "compiled"}:
+            raise ValueError(
+                "predictive_dense_transition_mode must be legacy, fused_eager, or compiled"
+            )
 
     def resolve_device(self) -> torch.device:
         if self.device == "auto":

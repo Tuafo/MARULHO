@@ -348,6 +348,13 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_fraction"], 0.0)
+        self.assertEqual(column_runtime["execution"]["input_weight_blend"], 0.0)
+        self.assertEqual(column_runtime["execution"]["input_plasticity_mode"], "not_run")
+        self.assertEqual(column_runtime["execution"]["input_plasticity_update_count"], 0)
+        self.assertEqual(column_runtime["execution"]["input_plasticity_skip_count"], 0)
+        self.assertFalse(
+            column_runtime["execution"]["dormant_input_plasticity_skipped"]
+        )
         self.assertFalse(
             column_runtime["execution"]["sparse_candidate_execution_observed"]
         )

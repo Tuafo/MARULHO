@@ -38,6 +38,22 @@ class TestCrossModalInit(unittest.TestCase):
         self.assertEqual(report["W_at_device"], str(layer.W_at.device))
         self.assertEqual(report["text_trace_device"], str(layer.text_trace.device))
         self.assertEqual(report["visual_confidence_device"], str(layer.visual_confidence.device))
+        self.assertEqual(report["runtime_text_update_count"], 0)
+        self.assertEqual(report["runtime_text_idle_skip_count"], 0)
+        self.assertEqual(report["last_text_runtime_execution_mode"], "not_run")
+
+    def test_text_idle_skip_reports_without_weight_update(self) -> None:
+        layer = CrossModalGroundingLayer(dim_text=10, dim_visual=20, dim_audio=8)
+        layer.W_tv.fill_(0.1)
+        before = layer.W_tv.clone()
+
+        layer.record_text_idle_skip()
+        report = layer.device_report()
+
+        self.assertTrue(torch.equal(layer.W_tv, before))
+        self.assertEqual(report["runtime_text_update_count"], 0)
+        self.assertEqual(report["runtime_text_idle_skip_count"], 1)
+        self.assertEqual(report["last_text_runtime_execution_mode"], "text_idle_cached_state")
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices_after_load(self) -> None:
@@ -116,6 +132,8 @@ class TestSTDPUpdates(unittest.TestCase):
             self.layer.W_tv[0].sum().item(),
             w_before[0].sum().item(),
         )
+        self.assertEqual(self.layer.runtime_text_update_count, 1)
+        self.assertEqual(self.layer.last_text_runtime_execution_mode, "text_update")
 
     def test_audio_text_cooccurrence(self) -> None:
         """When audio and text fire together, W_at should increase."""
@@ -193,6 +211,79 @@ class TestPredictions(unittest.TestCase):
         audio = torch.randn(8)
         pred = self.layer.predict_text_from_audio(audio)
         self.assertEqual(pred.shape, (10,))
+
+
+class TestTrainerCrossModalRuntimeWake(unittest.TestCase):
+    def _trainer(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            enable_cross_modal=True,
+            cross_modal_dim_visual=8,
+            cross_modal_dim_audio=4,
+            cross_modal_text_idle_probe_interval_tokens=4,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        return MarulhoTrainer(MarulhoModel(cfg), cfg), cfg
+
+    def test_text_only_cross_modal_updates_are_cadenced(self) -> None:
+        trainer, cfg = self._trainer()
+        pattern = torch.rand(cfg.input_dim)
+
+        metrics = {}
+        for _ in range(4):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="text only cross modal",
+                allow_sleep_maintenance=False,
+            )
+
+        report = trainer.model.cross_modal.device_report()
+        self.assertEqual(report["runtime_text_update_count"], 1)
+        self.assertEqual(report["runtime_text_idle_skip_count"], 3)
+        self.assertEqual(report["last_text_runtime_execution_mode"], "text_idle_cached_state")
+        self.assertEqual(metrics["cross_modal_text_update_count"], 1)
+        self.assertEqual(metrics["cross_modal_text_idle_skip_count"], 3)
+        self.assertEqual(
+            metrics["cross_modal_text_execution_mode"],
+            "text_idle_cached_state",
+        )
+
+    def test_sensory_cross_modal_text_update_runs_every_tick(self) -> None:
+        trainer, cfg = self._trainer()
+        pattern = torch.rand(cfg.input_dim)
+        visual = torch.rand(cfg.cross_modal_dim_visual)
+
+        metrics = {}
+        for _ in range(4):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="visual cross modal",
+                visual_spikes=visual,
+                allow_sleep_maintenance=False,
+            )
+
+        report = trainer.model.cross_modal.device_report()
+        self.assertEqual(report["runtime_text_update_count"], 4)
+        self.assertEqual(report["runtime_text_idle_skip_count"], 0)
+        self.assertEqual(report["last_text_runtime_execution_mode"], "text_update")
+        self.assertTrue(metrics["cross_modal_visual_accepted"])
+        self.assertEqual(metrics["cross_modal_text_execution_mode"], "text_update")
+
+    def test_config_rejects_nonpositive_cross_modal_text_probe_interval(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "cross_modal_text_idle_probe_interval_tokens",
+        ):
+            MarulhoConfig(cross_modal_text_idle_probe_interval_tokens=0)
 
 
 class TestAlignmentFilter(unittest.TestCase):

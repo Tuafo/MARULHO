@@ -1031,6 +1031,19 @@ class StatusReadModel:
                 "homeostasis_update_fraction": float(
                     execution.get("homeostasis_update_fraction", 0.0) or 0.0
                 ),
+                "input_weight_blend": float(
+                    execution.get("input_weight_blend", 0.0) or 0.0
+                ),
+                "input_plasticity_mode": execution.get("input_plasticity_mode"),
+                "input_plasticity_update_count": int(
+                    execution.get("input_plasticity_update_count", 0) or 0
+                ),
+                "input_plasticity_skip_count": int(
+                    execution.get("input_plasticity_skip_count", 0) or 0
+                ),
+                "dormant_input_plasticity_skipped": bool(
+                    execution.get("dormant_input_plasticity_skipped", False)
+                ),
                 "sparse_candidate_execution_observed": bool(
                     execution.get("sparse_candidate_execution_observed", False)
                 ),
