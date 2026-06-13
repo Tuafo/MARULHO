@@ -343,10 +343,12 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
         super().__init__()
         self.concept_observation_windows: list[str] = []
         self.train_step_return_metrics_requests: list[bool] = []
+        self.staged_input_quantum_sizes: list[int] = []
         self._trainer = SimpleNamespace(
             token_count=0,
             config=SimpleNamespace(window_size=32),
             train_step=self._train_step,
+            stage_text_input_quantum=self.stage_text_input_quantum,
             model=self._trainer.model,
         )
 
@@ -361,6 +363,10 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
             "winner": 0,
             "train_step_metrics_mode": "full",
         }
+
+    def stage_text_input_quantum(self, patterns: list[object]) -> bool:
+        self.staged_input_quantum_sizes.append(len(patterns))
+        return True
 
     def _observe_runtime_concepts_locked(
         self,
@@ -608,6 +614,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(trained, 12)
         self.assertEqual(metrics["memory_index"], 11)
         self.assertEqual(manager._runtime_state.mutated, 2)
+        self.assertEqual(manager.staged_input_quantum_sizes, [8, 4])
 
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()

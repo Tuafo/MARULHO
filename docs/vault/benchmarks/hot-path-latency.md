@@ -334,3 +334,39 @@ Runtime Control previously forced every background source token through a separa
 - Every arm observed the NVIDIA GeForce RTX 3060 on CUDA, requested/resolved `inplace_triton`, and executed 256 transitions with zero failures.
 
 The quantum path removes host scheduling waste; it does not parallelize or skip SNN token updates. A separate full-warm manual service tick with the default quantum, `reports/continuous_runtime_quantum_20260613/manual-warm-quantum8-rerun.json`, reached `692.507 tokens/sec` versus the prior one-token warm baseline at `586.775`, while lock wait and mutation-mark cost fell. The remaining production gap to sustained thousands per second is inside per-token trainer orchestration and graph preparation, not source starvation or forced scheduler sleep.
+
+## Persistent Quantum Input Ring, 2026-06-13
+
+The Persistent Text Tick Executor now owns a fixed 128-row CUDA input ring and
+the recent-spike-row cursor. Brain Runtime offers already encoded tensors in
+bounded sequential quanta; training stages each quantum with one or two
+contiguous device operations, verifies pointer order during consumption, and
+falls back before mutation on mismatch or sensory boundaries. This removes the
+per-token static-input copy and host cursor fill without batching or skipping
+SNN state transitions.
+
+Two same-checkpoint reversed-order, 256-sample continuous CUDA A/B runs at
+`reports/quantum_input_staging_20260613/ab-256-run1.json` and
+`ab-256-run2.json` measured:
+
+- Per-token-copy means `758.571` and `746.187 ticks/sec`.
+- Quantum-ring means `1026.381` and `877.533 ticks/sec`.
+- Speedups `1.353x` and `1.176x`.
+- Every arm replayed 288 persistent graph ticks with zero graph failures.
+- Quantum arms staged 288 tokens, reused all 288, and recorded zero fallback
+  copies, mismatches, or discards.
+
+The synchronized-per-token diagnostic at `profile-step-128.json` regressed to
+`0.926x` because the forced barrier removes the cross-token overlap that the
+ring is designed to preserve. It nevertheless reduced measured
+`cuda_graph_prepare_input_stage` from roughly `0.207-0.303 ms/tick` to
+`0.004-0.005 ms/tick`. Treat window synchronization as the continuous
+throughput gate and step synchronization as latency/profile evidence.
+
+Live Runtime Truth at `service-enabled.json` proved 128 graph replays, 16
+quantum stages, 128 staged reuses, CUDA `cuda:0`, and zero fallback copies,
+mismatches, or failures. Its source prewarm reached only one buffered item, so
+the resulting service throughput is not a warm service-speed claim. The next
+large target is broader persistent multi-tick ownership across routing
+preparation, graph replay/post-transition bookkeeping, compact metric packets,
+and event-driven memory admission.

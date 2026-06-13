@@ -345,6 +345,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         from marulho.config.model_config import MarulhoConfig
 
         cfg = MarulhoConfig()
+        assert cfg.cuda_graph_quantum_input_staging is True
         self.assertEqual(cfg.context_mode, "adaptive")
         self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 8)
 

@@ -95,8 +95,8 @@ class ColumnTransitionRuntime:
         self._last_effective_modulator = 0.0
         self.winner_consolidation_cpu_metric_count = 0
         self.winner_consolidation_cached_metric_count = 0
-        self._recent_spike_row = torch.zeros(
-            (),
+        self._recent_spike_row = torch.tensor(
+            int(comp.recent_spike_window_cursor),
             dtype=torch.int32,
             device=device,
         )
@@ -473,6 +473,14 @@ class ColumnTransitionRuntime:
             int(self._trainer.token_count) if prepared is not None else None
         )
         return prepared
+
+    def stage_text_input_quantum(
+        self,
+        patterns: list[torch.Tensor],
+    ) -> bool:
+        if self._cuda_graph_runtime is None:
+            return False
+        return self._cuda_graph_runtime.stage_input_quantum(patterns)
 
     def _retained_consensus_gain(
         self,

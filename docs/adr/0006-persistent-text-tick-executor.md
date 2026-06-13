@@ -25,6 +25,14 @@ reconstruction error, reconstruction-driven neuromodulator update on
 persistent CUDA state, sparse route/vote, and the in-place competitive and
 predictive transition.
 
+The executor also owns a bounded fixed-address CUDA input ring. Brain Runtime
+offers already encoded tensors in sequential execution quanta; training stages
+each quantum with one or two contiguous device operations, verifies tensor
+pointer order as tokens are consumed, and lets the captured graph advance the
+input slot and recent-spike-row cursor. A mismatch or sensory boundary discards
+unconsumed staged entries and falls back before mutation. Checkpoint restore
+seeds the device cursor from the restored competitive state.
+
 The same transition owns exact device routing-cache coherence for eligible
 graph ticks. It writes the normalized next winner prototype into the captured
 retrieval cache through a prevalidated column-id-to-cache-row tensor. The
@@ -55,6 +63,8 @@ grounded fallback gates.
   fallback evidence.
 - Runtime Truth also reports device-owned routing-cache updates, skipped
   per-token index buffering, host-mirror synchronization, and mirror freshness.
+- Runtime Truth reports quantum-input stage/reuse/fallback/mismatch/discard
+  counters and device-owned recent-spike-row updates.
 - Current evidence shows a fresh-process `1.506x` complete hot-window gain and
   a text quality-gate `1.202x` gain with exact winners.
 - Fresh-process graph memory increased by about `8.13 MB` allocated and `24 MB`
@@ -64,8 +74,14 @@ grounded fallback gates.
   ticks/sec` (`1.226x`) after folding competitive surprise into the result
   packet. Sixteen-tick parity preserved winners, surprise history, and
   precision within `1e-7`.
+- Two reversed 256-tick continuous CUDA A/B runs measured quantum-ring means
+  of `1026.38` and `877.53 ticks/sec` versus per-token-copy means of `758.57`
+  and `746.19`, for `1.353x` and `1.176x` gains. Both runs reused every staged
+  token with zero fallback copies, mismatches, or graph failures.
 
 ## Reversal
 
 Set `predictive_route_vote_mode` to `fused_triton_text` or `tensor`, or let
-eligibility fail closed. Checkpoints preserve the retained execution paths.
+eligibility fail closed. Set `cuda_graph_quantum_input_staging=false` to retain
+the persistent graph while restoring exact per-token input copies. Checkpoints
+preserve the retained execution paths.

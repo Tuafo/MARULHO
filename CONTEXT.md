@@ -1271,6 +1271,18 @@ _Avoid_: calling it a complete brain tick, hiding the host truth
 synchronization, graphing archival memory or source I/O, or treating CUDA Graph
 capture as proof of end-to-end production velocity
 
+**Persistent Quantum Input Ring** — the training-owned fixed-address CUDA
+input boundary used by the Persistent Text Tick Executor. Brain Runtime may
+offer one bounded sequential execution quantum, but training stages its already
+encoded tensors into the ring and the captured graph advances the device slot
+and recent-spike-row cursor. Pointer-order checks make staged reuse exact;
+mismatch, sensory, or unsupported paths discard the staged remainder and use
+the retained per-token copy before mutation. Runtime Truth exposes staged,
+reused, fallback, mismatch, discard, and device-owned cursor counts.
+_Avoid_: treating the quantum as parallel cognition, placing graph algorithms
+in `service`, staging more than the bounded ring capacity, or synchronizing CUDA
+per token to report ring progress
+
 ## Flagged Ambiguities
 
 - Persistent Text Tick Executor is the active meaning of

@@ -9,6 +9,9 @@ from marulho.evaluation.hot_window_benchmark import run_hot_window_benchmark
 from marulho.evaluation.persistent_tick_hot_window_benchmark import (
     run_persistent_tick_hot_window_ab,
 )
+from marulho.evaluation.quantum_input_staging_benchmark import (
+    run_quantum_input_staging_ab,
+)
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -226,3 +229,53 @@ def test_persistent_tick_ab_reports_stage_deltas_without_cuda() -> None:
     assert report["persistent_mean_stage_per_tick_ms"]["total"] > 0.0
     assert report["largest_stage_deltas"]
     assert report["largest_stage_deltas"][0]["stage"]
+
+
+def test_quantum_input_staging_ab_uses_reversed_arm_order() -> None:
+    calls: list[str] = []
+
+    def fake_hot_window(
+        _checkpoint: Path,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        setup = kwargs["_trainer_setup"]
+        setup_name = getattr(setup, "__name__")
+        calls.append(setup_name)
+        enabled = setup_name == "_enabled"
+        return {
+            "tokens_per_second": 900.0 if enabled else 600.0,
+            "step_latency_ms": {"median": 1.0},
+            "quantum_input_stage_elapsed_ms": 0.25 if enabled else 0.0,
+            "cuda_memory": {},
+            "runtime_counters": {
+                "column_transition_runtime": {
+                    "cuda_graph_route_transition": {
+                        "active": True,
+                        "quantum_input_staging_enabled": enabled,
+                    }
+                }
+            },
+        }
+
+    with TemporaryDirectory() as tmpdir:
+        output = Path(tmpdir) / "quantum-input-ab.json"
+        with patch(
+            "marulho.evaluation.quantum_input_staging_benchmark."
+            "run_hot_window_benchmark",
+            side_effect=fake_hot_window,
+        ):
+            report = run_quantum_input_staging_ab(
+                Path(tmpdir) / "runtime.pt",
+                output_path=output,
+                samples=8,
+                warmup_steps=2,
+                quantum_tokens=4,
+            )
+
+        assert output.exists()
+
+    assert calls == ["_disabled", "_enabled", "_enabled", "_disabled"]
+    assert report["per_token_mean_tokens_per_second"] == 600.0
+    assert report["quantum_mean_tokens_per_second"] == 900.0
+    assert report["speedup"] == 1.5
+    assert report["success"] is True

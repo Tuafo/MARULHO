@@ -14,6 +14,9 @@ from marulho.core.fused_route_vote_cuda import fused_route_vote_cuda
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
 
+MAX_QUANTUM_INPUT_TOKENS = 128
+
+
 class CudaGraphRouteTransition:
     """Capture the fixed-shape text tick as one persistent CUDA replay."""
 
@@ -49,6 +52,13 @@ class CudaGraphRouteTransition:
         self.learning_rate_host_resync_count = 0
         self.modulator_stage_copy_count = 0
         self.modulator_stage_skip_count = 0
+        self.quantum_input_stage_count = 0
+        self.quantum_input_staged_token_count = 0
+        self.quantum_input_reuse_count = 0
+        self.quantum_input_fallback_copy_count = 0
+        self.quantum_input_mismatch_count = 0
+        self.quantum_input_discard_count = 0
+        self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._route_vectors: torch.Tensor | None = None
@@ -67,7 +77,11 @@ class CudaGraphRouteTransition:
         self._cached_modulator_value = 0.0
         self._learning_rate_update_count: torch.Tensor | None = None
         self._learning_rate_update_count_mirror: int | None = None
-        self._input_pattern: torch.Tensor | None = None
+        self._input_patterns: torch.Tensor | None = None
+        self._input_slot: torch.Tensor | None = None
+        self._input_slot_mirror = 0
+        self._staged_pattern_pointers: list[int] = []
+        self._staged_pattern_offset = 0
         self._neuromodulator_state: torch.Tensor | None = None
         self._result: torch.Tensor | None = None
         self._last_graph_name: str | None = None
@@ -89,8 +103,13 @@ class CudaGraphRouteTransition:
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         trainer = self._trainer
         comp = trainer.model.competitive
-        assert self._input_pattern is not None
-        x = self._input_pattern
+        assert self._input_patterns is not None
+        assert self._input_slot is not None
+        x = torch.index_select(
+            self._input_patterns,
+            0,
+            self._input_slot.reshape(1),
+        ).squeeze(0)
         normalized_input = x.float().clamp(min=0.0)
         normalized_input = normalized_input / torch.clamp(
             normalized_input.sum(),
@@ -228,6 +247,9 @@ class CudaGraphRouteTransition:
                     - routing_key,
                 )
             )
+        assert self._input_slot is not None
+        self._input_slot.add_(1)
+        self._input_slot.remainder_(MAX_QUANTUM_INPUT_TOKENS)
         return {
             "normalized_input": normalized_input,
             "projected_input": projected,
@@ -287,10 +309,17 @@ class CudaGraphRouteTransition:
                 if callable(route_generation_fn)
                 else None
             )
-            self._input_pattern = torch.empty(
-                trainer.config.input_dim,
+            self._input_patterns = torch.empty(
+                (MAX_QUANTUM_INPUT_TOKENS, trainer.config.input_dim),
                 device=device,
             )
+            self._input_patterns.zero_()
+            self._input_slot = torch.zeros(
+                (),
+                dtype=torch.long,
+                device=device,
+            )
+            self._input_slot_mirror = 0
             self._previous_routing_key = torch.zeros(
                 comp.column_dim,
                 device=device,
@@ -380,6 +409,7 @@ class CudaGraphRouteTransition:
                 self._neuromodulator_state,
                 self._result,
                 self._route_vectors,
+                self._input_slot,
             )
             snapshots = tuple(tensor.clone() for tensor in mutable)
             stream = torch.cuda.Stream(device=device)
@@ -611,6 +641,7 @@ class CudaGraphRouteTransition:
             profile_last = now
 
         if sensory_tick:
+            self._discard_staged_inputs()
             self.pre_route_sensory_bypass_count += 1
             return None
         if self._trainer.token_count < self._trainer.config.bootstrap_tokens:
@@ -619,7 +650,8 @@ class CudaGraphRouteTransition:
         if not assume_eligible and not self.eligible():
             raise RuntimeError(self.fallback_reason or "cuda_graph_not_active")
         _profile_mark("cuda_graph_prepare_eligible")
-        assert self._input_pattern is not None
+        assert self._input_patterns is not None
+        assert self._input_slot is not None
         assert self._parameters is not None
         assert self._parameter_device_prefix is not None
         assert self._parameter_host_prefix is not None
@@ -662,11 +694,24 @@ class CudaGraphRouteTransition:
         self.previous_flag_device_owned_count += 1
         self.learning_rate_device_owned_count += 1
         _profile_mark("cuda_graph_prepare_parameter_stage")
-        self._runtime._recent_spike_row.fill_(
-            int(comp.recent_spike_window_cursor)
-        )
+        self.recent_spike_row_device_owned_count += 1
         _profile_mark("cuda_graph_prepare_recent_row_fill")
-        self._input_pattern.copy_(pattern, non_blocking=True)
+        pattern_pointer = int(pattern.data_ptr())
+        staged_pointer = self._next_staged_pattern_pointer()
+        if staged_pointer is not None and staged_pointer == pattern_pointer:
+            self._staged_pattern_offset += 1
+            self.quantum_input_reuse_count += 1
+            if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
+                self._discard_staged_inputs(count_discard=False)
+        else:
+            if staged_pointer is not None:
+                self.quantum_input_mismatch_count += 1
+                self._discard_staged_inputs()
+            self._input_patterns[self._input_slot_mirror].copy_(
+                pattern,
+                non_blocking=True,
+            )
+            self.quantum_input_fallback_copy_count += 1
         _profile_mark("cuda_graph_prepare_input_stage")
         _profile_mark("cuda_graph_prepare_input_copy")
         graph_name = (
@@ -682,6 +727,9 @@ class CudaGraphRouteTransition:
             raise
         _profile_mark("cuda_graph_prepare_replay")
         self._learning_rate_update_count_mirror += 1
+        self._input_slot_mirror = (
+            self._input_slot_mirror + 1
+        ) % MAX_QUANTUM_INPUT_TOKENS
         self.tick_replay_count += 1
         self.replay_count += 1
         self.route_cache_device_update_count += 1
@@ -764,6 +812,67 @@ class CudaGraphRouteTransition:
             outputs["routing_key"],
             reconstruction_error,
         )
+
+    @torch.no_grad()
+    def stage_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
+        if (
+            not self.active
+            or not bool(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_quantum_input_staging",
+                    True,
+                )
+            )
+            or not patterns
+            or len(patterns) > MAX_QUANTUM_INPUT_TOKENS
+        ):
+            return False
+        assert self._input_patterns is not None
+        expected_shape = (int(self._trainer.config.input_dim),)
+        device = self._input_patterns.device
+        for pattern in patterns:
+            if tuple(pattern.shape) != expected_shape or pattern.device != device:
+                self.quantum_input_mismatch_count += 1
+                self._discard_staged_inputs()
+                return False
+
+        self._discard_staged_inputs(count_discard=False)
+        start = int(self._input_slot_mirror)
+        first_count = min(
+            len(patterns),
+            MAX_QUANTUM_INPUT_TOKENS - start,
+        )
+        torch.stack(
+            patterns[:first_count],
+            out=self._input_patterns[start : start + first_count],
+        )
+        remaining = len(patterns) - first_count
+        if remaining > 0:
+            torch.stack(
+                patterns[first_count:],
+                out=self._input_patterns[:remaining],
+            )
+        self._staged_pattern_pointers = [
+            int(pattern.data_ptr()) for pattern in patterns
+        ]
+        self._staged_pattern_offset = 0
+        self.quantum_input_stage_count += 1
+        self.quantum_input_staged_token_count += len(patterns)
+        return True
+
+    def _next_staged_pattern_pointer(self) -> int | None:
+        if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
+            return None
+        return int(self._staged_pattern_pointers[self._staged_pattern_offset])
+
+    def _discard_staged_inputs(self, *, count_discard: bool = True) -> None:
+        if self._staged_pattern_pointers and count_discard:
+            self.quantum_input_discard_count += (
+                len(self._staged_pattern_pointers) - self._staged_pattern_offset
+            )
+        self._staged_pattern_pointers = []
+        self._staged_pattern_offset = 0
 
     def consume_result(self) -> tuple[float, ...]:
         if self._last_result is None:
@@ -870,13 +979,38 @@ class CudaGraphRouteTransition:
             ),
             "modulator_stage_copy_count": int(self.modulator_stage_copy_count),
             "modulator_stage_skip_count": int(self.modulator_stage_skip_count),
+            "quantum_input_staging_enabled": bool(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_quantum_input_staging",
+                    True,
+                )
+            ),
+            "quantum_input_capacity_tokens": MAX_QUANTUM_INPUT_TOKENS,
+            "quantum_input_stage_count": int(self.quantum_input_stage_count),
+            "quantum_input_staged_token_count": int(
+                self.quantum_input_staged_token_count
+            ),
+            "quantum_input_reuse_count": int(self.quantum_input_reuse_count),
+            "quantum_input_fallback_copy_count": int(
+                self.quantum_input_fallback_copy_count
+            ),
+            "quantum_input_mismatch_count": int(
+                self.quantum_input_mismatch_count
+            ),
+            "quantum_input_discard_count": int(
+                self.quantum_input_discard_count
+            ),
+            "recent_spike_row_device_owned_count": int(
+                self.recent_spike_row_device_owned_count
+            ),
             "graph_names": sorted(self._graphs),
             "pre_route_graph": False,
             "persistent_tick_graph": bool(self._graphs),
             "tensor_device": (
                 None
-                if self._input_pattern is None
-                else str(self._input_pattern.device)
+                if self._input_patterns is None
+                else str(self._input_patterns.device)
             ),
             "fixed_address_inputs": True,
             "mutates_runtime_state": bool(self.active),

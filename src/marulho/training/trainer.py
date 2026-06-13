@@ -178,6 +178,11 @@ class MarulhoTrainer:
         )
         return report
 
+    def stage_text_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
+        """Stage one bounded text quantum into persistent CUDA graph input state."""
+
+        return self._column_transition_runtime.stage_text_input_quantum(patterns)
+
     def _buffer_hnsw_update(
         self,
         indices: torch.Tensor,

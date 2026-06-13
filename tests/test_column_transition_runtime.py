@@ -460,6 +460,146 @@ def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_quantum_input_staging_preserves_sequential_trajectory() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    unstaged_config = replace(
+        config,
+        cuda_graph_quantum_input_staging=False,
+    )
+    torch.manual_seed(20260614)
+    retained = MarulhoTrainer(
+        MarulhoModel(unstaged_config),
+        unstaged_config,
+    )
+    torch.manual_seed(20260614)
+    staged = MarulhoTrainer(MarulhoModel(config), config)
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(12)
+    ]
+
+    for start in range(0, len(patterns), 8):
+        quantum = patterns[start : start + 8]
+        assert staged.stage_text_input_quantum(quantum) is True
+        for offset, pattern in enumerate(quantum, start=start):
+            retained_metrics = retained.train_step(
+                pattern,
+                raw_window=f"retained {offset}",
+                allow_sleep_maintenance=False,
+            )
+            staged_metrics = staged.train_step(
+                pattern,
+                raw_window=f"staged {offset}",
+                allow_sleep_maintenance=False,
+            )
+            assert staged_metrics["winner"] == retained_metrics["winner"]
+
+    for retained_tensor, staged_tensor in (
+        (retained.model.competitive.prototypes, staged.model.competitive.prototypes),
+        (
+            retained.model.competitive.prototype_velocity,
+            staged.model.competitive.prototype_velocity,
+        ),
+        (retained.model.competitive.thresholds, staged.model.competitive.thresholds),
+        (retained.model.competitive.win_rate_ema, staged.model.competitive.win_rate_ema),
+        (
+            retained.model.competitive.steps_since_win,
+            staged.model.competitive.steps_since_win,
+        ),
+        (retained.model.predictive.location, staged.model.predictive.location),
+        (retained.model.predictive.velocity, staged.model.predictive.velocity),
+        (
+            retained.model.predictive._prediction_weights,
+            staged.model.predictive._prediction_weights,
+        ),
+        (
+            retained.model.predictive.prediction_error,
+            staged.model.predictive.prediction_error,
+        ),
+        (retained.model.predictive.confidence, staged.model.predictive.confidence),
+        (
+            retained.model.competitive.recent_spike_window,
+            staged.model.competitive.recent_spike_window,
+        ),
+    ):
+        assert torch.allclose(
+            retained_tensor,
+            staged_tensor,
+            rtol=0.0,
+            atol=1e-7,
+        )
+    report = staged.column_transition_runtime_report()[
+        "cuda_graph_route_transition"
+    ]
+    assert report["quantum_input_stage_count"] == 2
+    assert report["quantum_input_staged_token_count"] == 12
+    assert report["quantum_input_reuse_count"] == 12
+    assert report["quantum_input_fallback_copy_count"] == 0
+    assert report["quantum_input_mismatch_count"] == 0
+    assert report["recent_spike_row_device_owned_count"] == 12
+    assert int(staged._column_transition_runtime._recent_spike_row.item()) == (
+        staged.model.competitive.recent_spike_window_cursor
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(3)
+    ]
+
+    assert trainer.stage_text_input_quantum(patterns[:2]) is True
+    trainer.train_step(
+        patterns[2],
+        raw_window="mismatched staged order",
+        allow_sleep_maintenance=False,
+    )
+
+    report = trainer.column_transition_runtime_report()[
+        "cuda_graph_route_transition"
+    ]
+    assert report["quantum_input_reuse_count"] == 0
+    assert report["quantum_input_fallback_copy_count"] == 1
+    assert report["quantum_input_mismatch_count"] == 1
+    assert report["quantum_input_discard_count"] == 2
+    assert report["failure_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_fails_closed_when_consolidation_cache_generation_changes() -> None:
     config = MarulhoConfig(
         n_columns=32,

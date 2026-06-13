@@ -423,6 +423,15 @@ class BrainRuntime:
                         "train_lock_wait", 0.0
                     ) + float((time.perf_counter() - lock_wait_started) * 1000.0)
                 train_started = time.perf_counter()
+                stage_text_input_quantum = getattr(
+                    self._trainer,
+                    "stage_text_input_quantum",
+                    None,
+                )
+                if callable(stage_text_input_quantum):
+                    stage_text_input_quantum(
+                        [pattern for _raw_window, pattern in sub]
+                    )
                 for offset, (raw_window, pattern) in enumerate(sub):
                     raw_text = str(raw_window)
                     token_ordinal = total_trained + offset + 1

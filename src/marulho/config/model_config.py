@@ -185,6 +185,7 @@ class MarulhoConfig:
     binding_pv_gain: float = 0.60
     binding_idle_probe_interval_tokens: int = 4
     cuda_graph_host_truth_sync_interval_tokens: int = 8
+    cuda_graph_quantum_input_staging: bool = True
 
     enable_cross_modal: bool = False
     cross_modal_dim_visual: int = 256

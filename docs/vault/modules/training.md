@@ -53,6 +53,16 @@ related_benchmarks: []
 
         The remaining host-staged competitive modulator now uses a `SurpriseMonitor.modulator_revision` cache. The graph copies the modulator scalar only when CPU-visible surprise state changes through error records, CPU neuromodulator updates, or graph host-truth mirror updates; intervening graph ticks reuse the already-staged device scalar. Runtime Truth reports `modulator_stage_copy_count` and `modulator_stage_skip_count`.
 
+        The graph input boundary is now the Persistent Quantum Input Ring.
+        Brain Runtime offers each bounded sequential execution quantum without
+        owning CUDA algorithms; `ColumnTransitionRuntime` stages the encoded
+        tensors into a fixed 128-row CUDA ring and the captured graph advances
+        the input slot and recent-spike-row cursor. Pointer-order validation
+        preserves exact token order, while mismatch and sensory boundaries
+        discard staged remainder and fall back before mutation. Runtime Truth
+        exposes stage, reuse, fallback-copy, mismatch, discard, and
+        device-owned cursor counters.
+
         The promoted graph specialization has live service evidence on an opt-in checkpoint: one 24-token source tick executed the graph-backed CUDA path 24 times with zero failures. Fresh-process hot-window evidence improved mean throughput from `176.24` to `264.46 ticks/sec`, but the source tick still took about `1.24 s`. The next training-owned optimization boundary is the remaining host orchestration and per-token stages outside the graph, without moving algorithms into service.
 
         Background semantic observation now uses the Sampled Batched Concept Observation boundary. `service.brain_runtime.BrainRuntime` schedules first/eighth/final samples, `service.operator_interaction.OperatorInteractionRuntime` adapts those samples into ConceptStore observations, and `semantics.concepts.ConceptStore` owns concept assignment plus structural maintenance. Structural growth/pruning maintenance runs once at the source-window boundary; service does not own concept algorithms.

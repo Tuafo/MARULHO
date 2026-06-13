@@ -39,6 +39,7 @@ def run_hot_window_benchmark(
     _trainer_setup: Callable[[object], None] | None = None,
     profile_trainer_stages: bool = False,
     sync_mode: str = "step",
+    input_quantum_tokens: int = 1,
 ) -> dict[str, object]:
     if samples <= 0:
         raise ValueError("samples must be positive")
@@ -58,6 +59,8 @@ def run_hot_window_benchmark(
         )
     if sync_mode not in {"step", "window"}:
         raise ValueError("sync_mode must be step or window")
+    if input_quantum_tokens <= 0:
+        raise ValueError("input_quantum_tokens must be positive")
     trainer, _metadata = load_trainer_checkpoint(checkpoint)
     trainer.config.micro_sleep_interval_tokens = 10**9
     trainer.config.deep_sleep_interval_tokens = 10**9
@@ -92,13 +95,51 @@ def run_hot_window_benchmark(
         for _ in range(samples + warmup_steps)
     ]
 
+    def _run_quantized(
+        selected_patterns: list[torch.Tensor],
+        *,
+        start_index: int,
+        measured: bool,
+        step_latencies_ms: list[float] | None = None,
+    ) -> float:
+        stage_elapsed_ms = 0.0
+        for quantum_start in range(0, len(selected_patterns), input_quantum_tokens):
+            quantum = selected_patterns[
+                quantum_start : quantum_start + input_quantum_tokens
+            ]
+            stage_started = time.perf_counter_ns()
+            trainer.stage_text_input_quantum(quantum)
+            stage_elapsed_ms += (
+                time.perf_counter_ns() - stage_started
+            ) / 1e6
+            for offset, pattern in enumerate(quantum):
+                index = start_index + quantum_start + offset
+                if measured and device.type == "cuda" and sync_mode == "step":
+                    torch.cuda.synchronize()
+                started_step = time.perf_counter_ns()
+                trainer.train_step(
+                    pattern,
+                    raw_window=(
+                        f"hot-window measure {index}"
+                        if measured
+                        else f"hot-window warmup {index}"
+                    ),
+                    allow_sleep_maintenance=False,
+                )
+                if measured and device.type == "cuda" and sync_mode == "step":
+                    torch.cuda.synchronize()
+                if step_latencies_ms is not None:
+                    step_latencies_ms.append(
+                        (time.perf_counter_ns() - started_step) / 1e6
+                    )
+        return stage_elapsed_ms
+
     warmup_started = time.perf_counter_ns()
-    for index in range(warmup_steps):
-        trainer.train_step(
-            patterns[index],
-            raw_window=f"hot-window warmup {index}",
-            allow_sleep_maintenance=False,
-        )
+    _run_quantized(
+        patterns[:warmup_steps],
+        start_index=0,
+        measured=False,
+    )
     if device.type == "cuda":
         torch.cuda.synchronize()
     warmup_elapsed_s = (time.perf_counter_ns() - warmup_started) / 1e9
@@ -109,18 +150,12 @@ def run_hot_window_benchmark(
     if device.type == "cuda" and sync_mode == "window":
         torch.cuda.synchronize()
     started_window = time.perf_counter_ns()
-    for index, pattern in enumerate(patterns[warmup_steps:], start=warmup_steps):
-        if device.type == "cuda" and sync_mode == "step":
-            torch.cuda.synchronize()
-        started_step = time.perf_counter_ns()
-        trainer.train_step(
-            pattern,
-            raw_window=f"hot-window measure {index}",
-            allow_sleep_maintenance=False,
-        )
-        if device.type == "cuda" and sync_mode == "step":
-            torch.cuda.synchronize()
-        step_latencies_ms.append((time.perf_counter_ns() - started_step) / 1e6)
+    quantum_input_stage_elapsed_ms = _run_quantized(
+        patterns[warmup_steps:],
+        start_index=warmup_steps,
+        measured=True,
+        step_latencies_ms=step_latencies_ms,
+    )
     if device.type == "cuda" and sync_mode == "window":
         torch.cuda.synchronize()
     total_elapsed_s = (time.perf_counter_ns() - started_window) / 1e9
@@ -161,6 +196,10 @@ def run_hot_window_benchmark(
         "routing_candidate_mode": routing_candidate_mode,
         "merge_torch_shards": bool(merge_torch_shards),
         "sync_mode": sync_mode,
+        "input_quantum_tokens": int(input_quantum_tokens),
+        "quantum_input_stage_elapsed_ms": float(
+            quantum_input_stage_elapsed_ms
+        ),
         "latency_sample_scope": (
             "cuda_synchronized_step_latency"
             if sync_mode == "step"
@@ -239,6 +278,7 @@ def main() -> int:
     )
     parser.add_argument("--seed", type=int, default=20260611)
     parser.add_argument("--profile-trainer-stages", action="store_true")
+    parser.add_argument("--input-quantum-tokens", type=int, default=1)
     parser.add_argument(
         "--sync-mode",
         choices=("step", "window"),
@@ -261,6 +301,7 @@ def main() -> int:
         seed=args.seed,
         profile_trainer_stages=args.profile_trainer_stages,
         sync_mode=args.sync_mode,
+        input_quantum_tokens=args.input_quantum_tokens,
     )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:

@@ -57,15 +57,15 @@ last_verified: 2026-06-13
 - `src/marulho/service/snn_language_plasticity_executor.py`: 54 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 65 nodes
+- `src/marulho/training/trainer.py`: 67 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
-- `src/marulho/training/column_transition_runtime.py`: 22 nodes
+- `src/marulho/training/column_transition_runtime.py`: 23 nodes
+- `src/marulho/training/cuda_graph_route_transition.py`: 23 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
-- `src/marulho/training/cuda_graph_route_transition.py`: 20 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
 ## marulho.evaluation
 

@@ -534,6 +534,37 @@ This file records research anchors for current architecture work. It is not a pr
 - `HuggingFaceFW/fineweb-edu` remains useful as a broad educational web stream, but its curation is classifier-filtered web data and therefore complements rather than replaces textbook-grounded instructional examples.
 - MARULHO therefore replaces raw `wikimedia/wikipedia` as the default Terminus source with `izumi-lab/open-text-books`, while keeping S2ORC ArXiv abstracts and FineWeb-Edu in the same explicit Source Bank. This is a source-bank decision only; it does not create a fact-promotion claim or change Subcortex cognition.
 
+### Persistent quantum input and control staging, June 2026
+
+- PyTorch CUDA Graph guidance requires long-lived input tensors with stable
+  addresses and updates those buffers before replay:
+  https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
+- PyTorch CUDA Graph Trees and NVIDIA dynamic-pattern guidance both reinforce
+  the same boundary: dynamic values may change inside persistent storage, while
+  pointer identity and memory ownership must remain stable across replays:
+  https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html
+  and
+  https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html
+- NVIDIA's CUDA Graph programming guide supports updating repeated workflows
+  without returning launch control to the host between every dependent
+  operation:
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html
+- MARULHO applies that direction as a bounded 128-row input ring owned by
+  training. Brain Runtime offers sequential sub-batches, training stages them
+  once per quantum, and the captured graph advances its input slot and
+  recent-spike-row cursor. This does not batch neural time or skip intermediate
+  SNN state.
+- Two reversed 256-tick continuous CUDA A/B runs improved complete encoded
+  sequential throughput by `1.353x` and `1.176x`. A synchronized-per-token
+  diagnostic regressed because each forced barrier removes the intended
+  cross-token overlap; it is retained as latency/profile evidence, not the
+  continuous-throughput promotion gate.
+- The result changes the next implementation direction. More isolated Triton
+  arithmetic is unlikely to remove the dominant host tax by itself; the next
+  slice should widen persistent ownership across routing preparation,
+  post-transition bookkeeping, metrics packets, and memory admission while
+  retaining event-driven specialist wake and slow-path archival boundaries.
+
 ### Archival memory transfer and decay boundaries, June 2026
 
 - PyTorch documents that `non_blocking=True` does not make a CUDA-to-CPU result immediately safe for host consumption; the host must synchronize before reading it. Its pinned-memory guidance also makes the destination-buffer ownership and synchronization contract explicit: https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html and https://docs.pytorch.org/docs/stable/notes/cuda.html
