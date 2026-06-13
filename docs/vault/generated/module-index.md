@@ -65,7 +65,7 @@ last_verified: 2026-06-12
 - `src/marulho/training/long_test_runner.py`: 30 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
-- `src/marulho/training/column_transition_runtime.py`: 17 nodes
+- `src/marulho/training/column_transition_runtime.py`: 18 nodes
 - `src/marulho/training/model.py`: 16 nodes
 ## marulho.evaluation
 

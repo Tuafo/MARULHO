@@ -87,6 +87,7 @@ class MarulhoConfig:
     predictive_route_vote_mode: Literal[
         "tensor",
         "fused_triton_text",
+        "cuda_graph_text",
     ] = "tensor"
 
     eta_competitive: float = 0.01
@@ -389,9 +390,10 @@ class MarulhoConfig:
         if self.predictive_route_vote_mode not in {
             "tensor",
             "fused_triton_text",
+            "cuda_graph_text",
         }:
             raise ValueError(
-                "predictive_route_vote_mode must be tensor or fused_triton_text"
+                "predictive_route_vote_mode must be tensor, fused_triton_text, or cuda_graph_text"
             )
 
     def resolve_device(self) -> torch.device:

@@ -207,6 +207,7 @@ if triton is not None:
         winners,
         candidates,
         consolidation,
+        transition_parameters,
         base_modulator,
         dopamine,
         serotonin,
@@ -214,6 +215,10 @@ if triton is not None:
         competition_had_positive,
         recent_spike_row,
         has_previous_routing_key,
+        use_transition_parameters: tl.constexpr,
+        persist_previous_routing_key: tl.constexpr,
+        advance_recent_spike_row: tl.constexpr,
+        spike_history_window: tl.constexpr,
         n_columns: tl.constexpr,
         column_dim: tl.constexpr,
         location_dim: tl.constexpr,
@@ -232,6 +237,13 @@ if triton is not None:
         block_location: tl.constexpr,
         block_candidates: tl.constexpr,
     ):
+        if use_transition_parameters:
+            base_modulator = tl.load(transition_parameters)
+            dopamine = tl.load(transition_parameters + 1)
+            serotonin = tl.load(transition_parameters + 2)
+            competitive_learning_rate = tl.load(transition_parameters + 3)
+            has_previous_routing_key = tl.load(transition_parameters + 4)
+
         column_offsets = tl.arange(0, block_n)
         column_mask = column_offsets < n_columns
         winner = tl.load(winners)
@@ -470,6 +482,11 @@ if triton is not None:
             is_winner.to(tl.float32),
             mask=column_mask,
         )
+        if advance_recent_spike_row:
+            tl.store(
+                recent_spike_row,
+                (spike_row + 1) % spike_history_window,
+            )
 
         candidate_offsets = tl.arange(0, block_candidates)
         candidate_mask = candidate_offsets < candidate_count
@@ -525,6 +542,20 @@ if triton is not None:
             ),
             mask=column_mask,
         )
+        if persist_previous_routing_key:
+            feature_offsets = tl.arange(0, block_d)
+            feature_mask = feature_offsets < column_dim
+            current_routing = tl.load(
+                routing_key + feature_offsets,
+                mask=feature_mask,
+                other=0.0,
+            )
+            tl.store(
+                previous_routing_key + feature_offsets,
+                current_routing,
+                mask=feature_mask,
+            )
+            tl.store(transition_parameters + 4, 1.0)
 
 
 def inplace_column_transition_cuda(
@@ -549,12 +580,16 @@ def inplace_column_transition_cuda(
     winners: torch.Tensor,
     candidates: torch.Tensor,
     consolidation: torch.Tensor,
+    transition_parameters: torch.Tensor | None = None,
     base_modulator: float,
     dopamine: float,
     serotonin: float,
     competitive_learning_rate: float,
     recent_spike_row: torch.Tensor,
     has_previous_routing_key: bool,
+    persist_previous_routing_key: bool = False,
+    advance_recent_spike_row: bool = False,
+    spike_history_window: int = 1,
     competition_had_positive: torch.Tensor,
     prototype_momentum: float,
     homeostasis_beta: float,
@@ -594,6 +629,9 @@ def inplace_column_transition_cuda(
         winners,
         candidates,
         consolidation,
+        effective_modulator_out
+        if transition_parameters is None
+        else transition_parameters,
         competition_had_positive,
     )
     if any(tensor.device != prototypes.device for tensor in tensors):
@@ -611,8 +649,17 @@ def inplace_column_transition_cuda(
         raise ValueError("consolidation must have one value per column")
     if int(assembly.numel()) != int(n_columns):
         raise ValueError("assembly must have one value per column")
+    if transition_parameters is not None and int(transition_parameters.numel()) < 5:
+        raise ValueError("transition_parameters must contain at least five values")
+    if advance_recent_spike_row and int(spike_history_window) <= 0:
+        raise ValueError("spike_history_window must be positive")
 
     ensure_windows_triton_compiler()
+    parameter_tensor = (
+        effective_modulator_out
+        if transition_parameters is None
+        else transition_parameters
+    )
     _inplace_column_transition_kernel[(1,)](
         prototypes,
         prototype_velocity,
@@ -634,6 +681,7 @@ def inplace_column_transition_cuda(
         winners,
         candidates,
         consolidation,
+        parameter_tensor,
         float(base_modulator),
         float(dopamine),
         float(serotonin),
@@ -641,6 +689,10 @@ def inplace_column_transition_cuda(
         competition_had_positive,
         recent_spike_row,
         has_previous_routing_key=int(bool(has_previous_routing_key)),
+        use_transition_parameters=int(transition_parameters is not None),
+        persist_previous_routing_key=int(bool(persist_previous_routing_key)),
+        advance_recent_spike_row=int(bool(advance_recent_spike_row)),
+        spike_history_window=int(spike_history_window),
         n_columns=int(n_columns),
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
@@ -919,6 +971,7 @@ def warmup_inplace_column_transition_cuda(
         winners,
         candidates,
         consolidation,
+        effective_modulator_out,
         0.0,
         0.0,
         0.0,
@@ -926,6 +979,10 @@ def warmup_inplace_column_transition_cuda(
         competition_had_positive,
         recent_spike_row,
         has_previous_routing_key=0,
+        use_transition_parameters=0,
+        persist_previous_routing_key=0,
+        advance_recent_spike_row=0,
+        spike_history_window=1,
         n_columns=int(n_columns),
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),

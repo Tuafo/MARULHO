@@ -217,6 +217,12 @@ def _run_grounded_arm(
         )
 
         install_fused_route_vote_for_benchmark(trainer)
+    elif executor == "cuda_graph_text_runtime":
+        from marulho.evaluation.fused_route_vote_hot_window_benchmark import (
+            install_cuda_graph_route_transition_for_benchmark,
+        )
+
+        install_cuda_graph_route_transition_for_benchmark(trainer)
     elif executor != "runtime":
         raise ValueError(f"unsupported executor: {executor}")
 

@@ -17,6 +17,9 @@ from marulho.core.inplace_column_cuda import (
     warmup_inplace_column_transition_cuda,
     warmup_single_winner_cuda,
 )
+from marulho.training.cuda_graph_route_transition import (
+    CudaGraphRouteTransition,
+)
 
 
 class ColumnTransitionRuntime:
@@ -59,6 +62,8 @@ class ColumnTransitionRuntime:
         self.route_vote_sensory_fallback_count = 0
         self.route_vote_cache_refresh_count = 0
         self._route_vote_ready = False
+        self._route_transition_graph_ready = False
+        self._cuda_graph_runtime: CudaGraphRouteTransition | None = None
         self._route_vectors: torch.Tensor | None = None
         self._route_ids: torch.Tensor | None = None
         self._route_scores: torch.Tensor | None = None
@@ -90,28 +95,40 @@ class ColumnTransitionRuntime:
 
         if self.requested_mode != "inplace_triton":
             self.fallback_reason = "inplace_triton_not_requested"
-            if self.route_vote_requested_mode == "fused_triton_text":
+            if self.route_vote_requested_mode in {
+                "fused_triton_text",
+                "cuda_graph_text",
+            }:
                 self.route_vote_fallback_reason = (
                     "fused_route_vote_requires_inplace_runtime"
                 )
             return
         if device.type != "cuda":
             self.fallback_reason = "inplace_triton_requires_cuda"
-            if self.route_vote_requested_mode == "fused_triton_text":
+            if self.route_vote_requested_mode in {
+                "fused_triton_text",
+                "cuda_graph_text",
+            }:
                 self.route_vote_fallback_reason = (
                     "fused_route_vote_requires_inplace_runtime"
                 )
             return
         if comp.plasticity_mode != "lite":
             self.fallback_reason = "inplace_triton_requires_lite_plasticity"
-            if self.route_vote_requested_mode == "fused_triton_text":
+            if self.route_vote_requested_mode in {
+                "fused_triton_text",
+                "cuda_graph_text",
+            }:
                 self.route_vote_fallback_reason = (
                     "fused_route_vote_requires_inplace_runtime"
                 )
             return
         if float(comp.input_weight_blend) != 0.0:
             self.fallback_reason = "inplace_triton_requires_zero_input_weight_blend"
-            if self.route_vote_requested_mode == "fused_triton_text":
+            if self.route_vote_requested_mode in {
+                "fused_triton_text",
+                "cuda_graph_text",
+            }:
                 self.route_vote_fallback_reason = (
                     "fused_route_vote_requires_inplace_runtime"
                 )
@@ -224,9 +241,25 @@ class ColumnTransitionRuntime:
                 time.perf_counter_ns() - started
             ) / 1e6
         self._warmup_route_vote()
+        if (
+            self.route_vote_requested_mode == "cuda_graph_text"
+            and self.route_vote_resolved_mode == "cuda_graph_text"
+        ):
+            self._cuda_graph_runtime = CudaGraphRouteTransition(
+                trainer,
+                self,
+            )
+            if not self._cuda_graph_runtime.active:
+                self.route_vote_resolved_mode = "fused_triton_text"
+                self.route_vote_fallback_reason = (
+                    self._cuda_graph_runtime.fallback_reason
+                )
 
     def _warmup_route_vote(self) -> None:
-        if self.route_vote_requested_mode != "fused_triton_text":
+        if self.route_vote_requested_mode not in {
+            "fused_triton_text",
+            "cuda_graph_text",
+        }:
             self.route_vote_fallback_reason = "fused_route_vote_not_requested"
             return
         if not self.active:
@@ -279,7 +312,7 @@ class ColumnTransitionRuntime:
                 competition_had_positive=self._competition_had_positive,
             )
             self.route_vote_warmup_succeeded = True
-            self.route_vote_resolved_mode = "fused_triton_text"
+            self.route_vote_resolved_mode = self.route_vote_requested_mode
         except Exception as exc:
             self.route_vote_fallback_reason = (
                 f"fused_route_vote_warmup_failed:{type(exc).__name__}:{exc}"
@@ -301,7 +334,8 @@ class ColumnTransitionRuntime:
     def handles_route_vote(self) -> bool:
         return bool(
             self.active
-            and self.route_vote_resolved_mode == "fused_triton_text"
+            and self.route_vote_resolved_mode
+            in {"fused_triton_text", "cuda_graph_text"}
         )
 
     def route_candidates(
@@ -313,6 +347,7 @@ class ColumnTransitionRuntime:
         """Route and select on text/idle ticks, or request retained fallback."""
 
         self._route_vote_ready = False
+        self._route_transition_graph_ready = False
         if not self.handles_route_vote:
             return None
         if sensory_tick:
@@ -346,6 +381,20 @@ class ColumnTransitionRuntime:
         assert route_ids is not None
         assert route_scores is not None
         assert route_candidates is not None
+        if (
+            self._cuda_graph_runtime is not None
+            and self._cuda_graph_runtime.active
+            and self._cuda_graph_runtime.eligible()
+        ):
+            comp = self._trainer.model.competitive
+            comp.last_candidate_count = int(route_candidates.numel())
+            comp.last_scored_column_count = int(route_candidates.numel())
+            comp.last_execution_mode = (
+                "candidate_subset_cuda_graph_route_transition"
+            )
+            self._route_vote_ready = True
+            self._route_transition_graph_ready = True
+            return route_candidates
         fused_route_vote_cuda(
             routing_key=routing_key,
             routing_vectors=route_vectors,
@@ -367,6 +416,22 @@ class ColumnTransitionRuntime:
         self.route_vote_execution_count += 1
         self._route_vote_ready = True
         return route_candidates
+
+    def prepare_routing(
+        self,
+        pattern: torch.Tensor,
+        *,
+        sensory_tick: bool,
+    ) -> tuple[torch.Tensor, float] | None:
+        if (
+            self._cuda_graph_runtime is None
+            or not self._cuda_graph_runtime.active
+        ):
+            return None
+        return self._cuda_graph_runtime.prepare_routing(
+            pattern,
+            sensory_tick=sensory_tick,
+        )
 
     def _retained_consensus_gain(
         self,
@@ -565,51 +630,69 @@ class ColumnTransitionRuntime:
             if trainer._prev_routing_key is None
             else trainer._prev_routing_key
         )
+        used_cuda_graph = bool(
+            self._route_transition_graph_ready
+            and self._cuda_graph_runtime is not None
+        )
         try:
-            inplace_column_transition_cuda(
-                prototypes=comp.prototypes,
-                prototype_velocity=comp.prototype_velocity,
-                thresholds=comp.thresholds,
-                win_rate_ema=comp.win_rate_ema,
-                steps_since_win=comp.steps_since_win,
-                location=trainer.model.predictive.location,
-                location_velocity=trainer.model.predictive.velocity,
-                prediction_weights=trainer.model.predictive._prediction_weights,
-                prediction_error=trainer.model.predictive.prediction_error,
-                prediction_failure_streak=(
-                    trainer.model.predictive.prediction_failure_streak
-                ),
-                confidence=trainer.model.predictive.confidence,
-                recent_spike_window=comp.recent_spike_window,
-                assembly=self._assembly,
-                prediction_boost_out=self._prediction_boost,
-                effective_modulator_out=self._effective_modulator,
-                routing_key=routing_key,
-                previous_routing_key=previous,
-                winners=winners,
-                candidates=homeostasis_candidates,
-                consolidation=consolidation,
-                base_modulator=float(modulator),
-                dopamine=float(trainer.model.surprise.dopamine),
-                serotonin=float(trainer.model.surprise.serotonin),
-                competitive_learning_rate=float(comp.get_lr()),
-                recent_spike_row=self._recent_spike_row,
-                has_previous_routing_key=trainer._prev_routing_key is not None,
-                competition_had_positive=self._competition_had_positive,
-                prototype_momentum=comp.prototype_momentum,
-                homeostasis_beta=comp.homeostasis_beta,
-                homeostasis_lr=comp.homeostasis_lr,
-                target_firing_rate=comp.target_firing_rate,
-                threshold_min=comp.threshold_min,
-                threshold_max=comp.threshold_max,
-                prediction_error_ema_alpha=(
-                    trainer.model.predictive._error_ema_alpha
-                ),
-                prediction_failure_streak_threshold=(
-                    trainer.model.predictive._failure_streak_threshold
-                ),
-                prediction_learning_rate=0.005,
-            )
+            if used_cuda_graph:
+                assert self._cuda_graph_runtime is not None
+                self._cuda_graph_runtime.replay(
+                    routing_key,
+                    base_modulator=float(modulator),
+                    dopamine=float(trainer.model.surprise.dopamine),
+                    serotonin=float(trainer.model.surprise.serotonin),
+                    learning_rate=float(comp.get_lr()),
+                    candidate_homeostasis=bool(homeostasis_scope_ready),
+                    recent_spike_row=int(comp.recent_spike_window_cursor),
+                )
+                self.route_vote_execution_count += 1
+                self._route_transition_graph_ready = False
+            else:
+                inplace_column_transition_cuda(
+                    prototypes=comp.prototypes,
+                    prototype_velocity=comp.prototype_velocity,
+                    thresholds=comp.thresholds,
+                    win_rate_ema=comp.win_rate_ema,
+                    steps_since_win=comp.steps_since_win,
+                    location=trainer.model.predictive.location,
+                    location_velocity=trainer.model.predictive.velocity,
+                    prediction_weights=trainer.model.predictive._prediction_weights,
+                    prediction_error=trainer.model.predictive.prediction_error,
+                    prediction_failure_streak=(
+                        trainer.model.predictive.prediction_failure_streak
+                    ),
+                    confidence=trainer.model.predictive.confidence,
+                    recent_spike_window=comp.recent_spike_window,
+                    assembly=self._assembly,
+                    prediction_boost_out=self._prediction_boost,
+                    effective_modulator_out=self._effective_modulator,
+                    routing_key=routing_key,
+                    previous_routing_key=previous,
+                    winners=winners,
+                    candidates=homeostasis_candidates,
+                    consolidation=consolidation,
+                    base_modulator=float(modulator),
+                    dopamine=float(trainer.model.surprise.dopamine),
+                    serotonin=float(trainer.model.surprise.serotonin),
+                    competitive_learning_rate=float(comp.get_lr()),
+                    recent_spike_row=self._recent_spike_row,
+                    has_previous_routing_key=trainer._prev_routing_key is not None,
+                    competition_had_positive=self._competition_had_positive,
+                    prototype_momentum=comp.prototype_momentum,
+                    homeostasis_beta=comp.homeostasis_beta,
+                    homeostasis_lr=comp.homeostasis_lr,
+                    target_firing_rate=comp.target_firing_rate,
+                    threshold_min=comp.threshold_min,
+                    threshold_max=comp.threshold_max,
+                    prediction_error_ema_alpha=(
+                        trainer.model.predictive._error_ema_alpha
+                    ),
+                    prediction_failure_streak_threshold=(
+                        trainer.model.predictive._failure_streak_threshold
+                    ),
+                    prediction_learning_rate=0.005,
+                )
         except Exception:
             self.failure_count += 1
             self.last_execution_mode = "inplace_triton_failed_closed"
@@ -628,7 +711,8 @@ class ColumnTransitionRuntime:
             1.0 - 0.6 * trainer.model.surprise.serotonin,
         )
 
-        trainer._prev_routing_key = routing_key.detach().clone()
+        if not used_cuda_graph:
+            trainer._prev_routing_key = routing_key.detach().clone()
         trainer.model.predictive.last_dense_transition_mode = "inplace_triton"
         trainer.model.predictive.last_dense_transition_fallback_reason = None
         trainer.model.predictive._record_prediction_update_scope(None)
@@ -650,7 +734,8 @@ class ColumnTransitionRuntime:
         comp.recent_spike_window_cursor = (
             comp.recent_spike_window_cursor + 1
         ) % comp.spike_history_window
-        self._recent_spike_row.fill_(comp.recent_spike_window_cursor)
+        if not used_cuda_graph:
+            self._recent_spike_row.fill_(comp.recent_spike_window_cursor)
         comp.recent_spike_window_count = min(
             comp.spike_history_window,
             comp.recent_spike_window_count + 1,
@@ -659,7 +744,11 @@ class ColumnTransitionRuntime:
         comp._cached_proto_sim = None
         comp._cached_raw_drive = None
         self.execution_count += 1
-        self.last_execution_mode = "inplace_triton"
+        self.last_execution_mode = (
+            "cuda_graph_route_transition"
+            if used_cuda_graph
+            else "inplace_triton"
+        )
         return (
             self._assembly,
             winner_id_list,
@@ -716,6 +805,11 @@ class ColumnTransitionRuntime:
             ),
             "route_vote_cache_refresh_count": (
                 self.route_vote_cache_refresh_count
+            ),
+            "cuda_graph_route_transition": (
+                None
+                if self._cuda_graph_runtime is None
+                else self._cuda_graph_runtime.report()
             ),
             "tensor_device": str(self._assembly.device),
             "mutates_runtime_state": bool(self.active),

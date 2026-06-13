@@ -132,8 +132,19 @@ class HierarchicalAssemblyIndex:
             return
 
         vectors = np.stack([self._vector_store[idx] for idx in valid_ids], axis=0)
-        self._torch_ids = torch.tensor(valid_ids, dtype=torch.long, device=self.device)
-        self._torch_vectors = torch.from_numpy(vectors).to(self.device)
+        next_ids = torch.tensor(valid_ids, dtype=torch.long, device=self.device)
+        next_vectors = torch.from_numpy(vectors).to(self.device)
+        if (
+            tuple(self._torch_ids.shape) == tuple(next_ids.shape)
+            and tuple(self._torch_vectors.shape) == tuple(next_vectors.shape)
+            and self._torch_ids.device == next_ids.device
+            and self._torch_vectors.device == next_vectors.device
+        ):
+            self._torch_ids.copy_(next_ids)
+            self._torch_vectors.copy_(next_vectors)
+        else:
+            self._torch_ids = next_ids
+            self._torch_vectors = next_vectors
         self._torch_cache_dirty = False
 
     def _rebuild_tq_cache(self) -> None:

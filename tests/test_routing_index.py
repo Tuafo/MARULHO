@@ -220,6 +220,43 @@ class RoutingIndexTests(unittest.TestCase):
         remaining_ids, _ = index.search_tensors(query, k=1)
         self.assertEqual(remaining_ids.tolist(), [[1]])
 
+    def test_torch_cache_rebuild_preserves_addresses_when_shape_is_stable(self) -> None:
+        index = HierarchicalAssemblyIndex(
+            dim=2,
+            rebuild_threshold=8,
+            device=torch.device("cpu"),
+            backend="torch_topk",
+        )
+        ids = np.array([0, 1], dtype=np.int64)
+        index.add(
+            torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
+            ids,
+        )
+        vectors_before, ids_before = index.routing_tensor_cache()
+        vector_pointer = vectors_before.data_ptr()
+        id_pointer = ids_before.data_ptr()
+
+        index.add(
+            torch.tensor([[0.8, 0.2], [0.2, 0.8]], dtype=torch.float32),
+            ids,
+        )
+        vectors_after, ids_after = index.routing_tensor_cache()
+
+        self.assertEqual(vectors_after.data_ptr(), vector_pointer)
+        self.assertEqual(ids_after.data_ptr(), id_pointer)
+        self.assertTrue(
+            torch.allclose(
+                vectors_after,
+                torch.tensor(
+                    [
+                        [0.9701425, 0.2425356],
+                        [0.2425356, 0.9701425],
+                    ]
+                ),
+                atol=1e-6,
+            )
+        )
+
     def test_model_runtime_scope_reports_requested_torch_topk_backend(self) -> None:
         cfg = MarulhoConfig(
             n_columns=4,

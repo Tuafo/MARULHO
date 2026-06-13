@@ -29,7 +29,9 @@ related_benchmarks: []
 
         Standalone compiled route/competition remains rejected, but the broader exact-cache route plus predictive-vote cluster is now checkpoint-opt-in as `predictive_route_vote_mode=fused_triton_text`. `ColumnTransitionRuntime` owns compile-only warmup, persistent score/candidate state, cache refresh counters, execution evidence, and sensory fallback. It runs only on text/idle ticks; visual/audio ticks retain ordinary tensor routing.
 
-        The promoted fused vote/competition specialization has live service evidence on an opt-in checkpoint: one 24-token source tick executed the fused CUDA path 24 times with zero failures or fallbacks. Its bounded hot-window and grounded gates pass, but the full service trace remains below the target and still performs all-column homeostasis. The next training-owned optimization boundary is a wider persistent tick cluster that includes exact tensor routing and candidate-scoped state maintenance without moving algorithms into service.
+        `predictive_route_vote_mode=cuda_graph_text` widens that production boundary into a fixed-address text-tick island. It captures input normalization/projection, exact fresh reconstruction distance, fused route/vote, and the in-place transition after checkpoint restoration. Visual/audio ticks bypass graph pre-routing and retain ordinary routing. Runtime Truth reports capture latency, graph names, replay/bypass/failure counters, fixed-address status, and device evidence.
+
+        The promoted graph specialization has live service evidence on an opt-in checkpoint: one 24-token source tick executed the graph-backed CUDA path 24 times with zero failures. Fresh-process hot-window evidence improved mean throughput from `176.24` to `264.46 ticks/sec`, but the source tick still took about `1.24 s`. The next training-owned optimization boundary is the remaining host orchestration and per-token stages outside the graph, without moving algorithms into service.
 
         ## Should Not Own
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torch
 import pytest
 
@@ -220,6 +222,154 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     assert runtime.route_vote_execution_count == 1
     assert runtime.route_candidates(routing_key, sensory_tick=True) is None
     assert runtime.route_vote_sensory_fallback_count == 1
+
+
+def test_cuda_graph_route_transition_reports_pre_mutation_fallback_on_cpu() -> None:
+    config = MarulhoConfig(
+        n_columns=8,
+        column_latent_dim=4,
+        bootstrap_tokens=0,
+        k_routing=2,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        device="cpu",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    report = trainer.column_transition_runtime_report()
+
+    assert report["active"] is False
+    assert report["route_vote_requested_mode"] == "cuda_graph_text"
+    assert report["route_vote_resolved_mode"] == "tensor"
+    assert report["route_vote_active"] is False
+    assert report["route_vote_fallback_reason"] == (
+        "fused_route_vote_requires_inplace_runtime"
+    )
+    assert report["cuda_graph_route_transition"] is None
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="fused_triton_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    torch.manual_seed(20260612)
+    retained = MarulhoTrainer(MarulhoModel(config), config)
+    graph_config = replace(
+        config,
+        predictive_route_vote_mode="cuda_graph_text",
+    )
+    torch.manual_seed(20260612)
+    graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
+    graph_report = graph.column_transition_runtime_report()
+    assert graph_report["cuda_graph_route_transition"]["active"] is True
+    assert graph_report["execution_count"] == 0
+
+    generator = torch.Generator(device="cuda").manual_seed(20260613)
+    patterns = [
+        torch.rand(config.input_dim, generator=generator, device="cuda")
+        for _ in range(16)
+    ]
+    for index, pattern in enumerate(patterns):
+        cpu_rng = torch.random.get_rng_state()
+        cuda_rng = torch.cuda.get_rng_state()
+        retained_metrics = retained.train_step(
+            pattern,
+            raw_window=f"graph parity {index}",
+            allow_sleep_maintenance=False,
+        )
+        torch.random.set_rng_state(cpu_rng)
+        torch.cuda.set_rng_state(cuda_rng)
+        graph_metrics = graph.train_step(
+            pattern,
+            raw_window=f"graph parity {index}",
+            allow_sleep_maintenance=False,
+        )
+        assert retained.last_winner == graph.last_winner
+        assert graph_metrics["recon_error"] == retained_metrics["recon_error"]
+
+    for retained_tensor, graph_tensor in (
+        (retained.model.competitive.prototypes, graph.model.competitive.prototypes),
+        (
+            retained.model.competitive.prototype_velocity,
+            graph.model.competitive.prototype_velocity,
+        ),
+        (retained.model.competitive.thresholds, graph.model.competitive.thresholds),
+        (retained.model.competitive.win_rate_ema, graph.model.competitive.win_rate_ema),
+        (
+            retained.model.competitive.steps_since_win,
+            graph.model.competitive.steps_since_win,
+        ),
+        (retained.model.predictive.location, graph.model.predictive.location),
+        (retained.model.predictive.velocity, graph.model.predictive.velocity),
+        (
+            retained.model.predictive._prediction_weights,
+            graph.model.predictive._prediction_weights,
+        ),
+        (
+            retained.model.predictive.prediction_error,
+            graph.model.predictive.prediction_error,
+        ),
+        (retained.model.predictive.confidence, graph.model.predictive.confidence),
+        (
+            retained.model.competitive.recent_spike_window,
+            graph.model.competitive.recent_spike_window,
+        ),
+    ):
+        assert torch.equal(retained_tensor, graph_tensor)
+    final_report = graph.column_transition_runtime_report()
+    graph_runtime = final_report["cuda_graph_route_transition"]
+    assert final_report["last_execution_mode"] == "cuda_graph_route_transition"
+    assert graph_runtime["pre_route_replay_count"] == 16
+    assert graph_runtime["replay_count"] == 16
+    assert graph_runtime["failure_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_pre_route_bypasses_sensory_ticks() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    runtime = trainer._column_transition_runtime
+
+    prepared = runtime.prepare_routing(
+        torch.rand(config.input_dim, device="cuda"),
+        sensory_tick=True,
+    )
+    report = runtime.report()["cuda_graph_route_transition"]
+
+    assert prepared is None
+    assert report["pre_route_sensory_bypass_count"] == 1
+    assert report["pre_route_replay_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

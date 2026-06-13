@@ -111,6 +111,8 @@ The specialization is deliberately modality-aware. A global sensory experiment p
 
 Skipping repeated routing normalization was also rejected because small floating-point changes diverged sequential winners and predictive locations. A narrower exact cleanup was promoted instead: the transition's already-materialized CPU winner ID now feeds HNSW buffering, avoiding one duplicate CUDA-to-CPU transfer and synchronization per tick without changing routing or learning state.
 
+The next checkpoint-opt-in slice is `cuda_graph_text`. It captures production input normalization/projection, exact reconstruction distance, fused route/vote, and the in-place transition with fixed tensor addresses. A controlled 128-tick comparison was bit-exact across the sequential competitive, predictive, spike, input, and projection state. Three fresh-process hot-window arms averaged `264.46 ticks/sec` versus `176.24` for the fused path (`1.501x`), with graph median latency between `2.806` and `3.105 ms`. Runtime Truth on a real source tick recorded 24 graph replays and zero failures, but the 24-token tick still took `1240.473 ms`; remaining trainer/source orchestration is therefore the next velocity gate.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

@@ -110,6 +110,62 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 )
             )
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_checkpoint_cuda_graph_capture_happens_after_state_restore(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=32,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                k_routing=5,
+                memory_capacity=16,
+                routing_index_mode="torch_topk",
+                predictive_dense_transition_mode="inplace_triton",
+                predictive_route_vote_mode="cuda_graph_text",
+                plasticity_mode="lite",
+                input_weight_blend=0.0,
+                enable_context_layer=False,
+                enable_binding_layer=False,
+                enable_abstraction_layer=False,
+                device="cuda",
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "cuda-graph.pt",
+                trainer,
+            )
+
+            restored, _metadata = load_trainer_checkpoint(checkpoint)
+            before = restored.column_transition_runtime_report()
+            restored.train_step(
+                torch.rand(cfg.input_dim, device="cuda"),
+                raw_window="checkpoint graph activation",
+                allow_sleep_maintenance=False,
+            )
+            after = restored.column_transition_runtime_report()
+
+            self.assertEqual(before["route_vote_resolved_mode"], "cuda_graph_text")
+            self.assertTrue(before["cuda_graph_route_transition"]["active"])
+            self.assertEqual(after["route_vote_execution_count"], 1)
+            self.assertEqual(
+                after["cuda_graph_route_transition"]["pre_route_replay_count"],
+                1,
+            )
+            self.assertEqual(
+                after["cuda_graph_route_transition"]["replay_count"],
+                1,
+            )
+            self.assertEqual(
+                after["cuda_graph_route_transition"]["failure_count"],
+                0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

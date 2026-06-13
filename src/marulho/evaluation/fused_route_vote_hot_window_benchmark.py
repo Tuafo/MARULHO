@@ -40,6 +40,28 @@ def install_fused_route_vote_for_benchmark(trainer_object: object) -> None:
     trainer._benchmark_transition_executor = "production_fused_triton_text_route_vote"
 
 
+def install_cuda_graph_route_transition_for_benchmark(
+    trainer_object: object,
+) -> None:
+    trainer = trainer_object
+    if not isinstance(trainer, MarulhoTrainer):
+        raise TypeError("CUDA graph setup requires MarulhoTrainer")
+    trainer.config.predictive_dense_transition_mode = "inplace_triton"
+    trainer.config.predictive_route_vote_mode = "cuda_graph_text"
+    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+    graph_report = trainer._column_transition_runtime.report().get(
+        "cuda_graph_route_transition"
+    )
+    if not isinstance(graph_report, dict) or not graph_report.get("active"):
+        raise RuntimeError(
+            "CUDA graph route/transition unavailable: "
+            f"{trainer._column_transition_runtime.route_vote_fallback_reason}"
+        )
+    trainer._benchmark_transition_executor = (
+        "production_cuda_graph_text_route_transition"
+    )
+
+
 def run_fused_route_vote_hot_window_ab(
     checkpoint: Path,
     *,

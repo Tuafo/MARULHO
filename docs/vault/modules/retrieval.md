@@ -27,6 +27,8 @@ related_benchmarks: []
 
         `routing_tensor_cache()` exposes the current exact torch cache by reference for the checkpoint-opt-in fused text route/vote lifecycle. Retrieval remains responsible for invalidation and rebuild; training may refresh pointers but must not duplicate cache mutation policy.
 
+        Same-shape, same-device torch-cache rebuilds copy into existing cache tensors instead of replacing them. This preserves exact rebuild semantics while keeping addresses stable for the checkpoint-opt-in CUDA Graph text-tick island. Shape or device changes may replace tensors and must disable the graph before mutation.
+
         ## Key Files
 
         - [src/marulho/retrieval](../../../src/marulho/retrieval)

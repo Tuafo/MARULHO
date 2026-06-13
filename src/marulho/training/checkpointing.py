@@ -188,6 +188,10 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
     checkpoint_path = Path(path)
     payload = torch.load(checkpoint_path, map_location=_checkpoint_load_device())
     cfg = MarulhoConfig(**payload["config"])
+    requested_route_vote_mode = cfg.predictive_route_vote_mode
+    defer_cuda_graph_capture = requested_route_vote_mode == "cuda_graph_text"
+    if defer_cuda_graph_capture:
+        cfg.predictive_route_vote_mode = "tensor"
     model = MarulhoModel(cfg)
     trainer = MarulhoTrainer(model, cfg)
     _restore_model(trainer, payload["model"])
@@ -233,4 +237,11 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
         for key, value in dict(trainer_snapshot.get("column_anchors", {})).items()
         if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
     }
+    if defer_cuda_graph_capture:
+        from marulho.training.column_transition_runtime import (
+            ColumnTransitionRuntime,
+        )
+
+        trainer.config.predictive_route_vote_mode = requested_route_vote_mode
+        trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
     return trainer, dict(payload.get("metadata", {}))

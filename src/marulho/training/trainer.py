@@ -1158,8 +1158,18 @@ class MarulhoTrainer:
             self.is_bootstrap = False
             modulator = self.model.surprise.get_modulator("competitive")
 
-        routing_key = self.model.routing_key_from_pattern(x)
-        recon_error = self.model.competitive.nearest_prototype_distance(routing_key)
+        sensory_tick = visual_spikes is not None or audio_spikes is not None
+        prepared_routing = self._column_transition_runtime.prepare_routing(
+            x,
+            sensory_tick=sensory_tick,
+        )
+        if prepared_routing is None:
+            routing_key = self.model.routing_key_from_pattern(x)
+            recon_error = self.model.competitive.nearest_prototype_distance(
+                routing_key
+            )
+        else:
+            routing_key, recon_error = prepared_routing
         metrics["recon_error"] = float(recon_error)
 
         # Post-bootstrap neuromodulator update using reconstruction error as the error signal.
@@ -1217,7 +1227,7 @@ class MarulhoTrainer:
 
         candidates = self._column_transition_runtime.route_candidates(
             routing_key,
-            sensory_tick=visual_spikes is not None or audio_spikes is not None,
+            sensory_tick=sensory_tick,
         )
         if candidates is None:
             candidates = self._routing_candidates(routing_key)
