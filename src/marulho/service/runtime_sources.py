@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from queue import Queue
+from threading import Lock, Thread
 from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 
 import torch
@@ -51,6 +53,13 @@ class _BrainSourceRuntime:
     last_utility_score: float = 0.0
     buffered_patterns: deque[tuple[str, torch.Tensor]] = field(default_factory=deque)
     bootstrap_attempted: bool = False
+    cache_material_hash: str | None = None
+    cache_write_count: int = 0
+    cache_schedule_count: int = 0
+    cache_skip_count: int = 0
+    cache_failure_count: int = 0
+    cache_pending: bool = False
+    last_cache_update_mode: str = "not_run"
 
     @property
     def name(self) -> str:
@@ -115,6 +124,11 @@ class RuntimeSourcesDependencies:
 class RuntimeSources:
     def __init__(self, dependencies: RuntimeSourcesDependencies) -> None:
         self._dependencies = dependencies
+        self._brain_cache_write_queue: Queue[
+            tuple[_BrainSourceRuntime, Path, dict[str, Any], str] | None
+        ] = Queue()
+        self._brain_cache_worker_lock = Lock()
+        self._brain_cache_worker: Thread | None = None
 
     @property
     def _brain_config(self) -> Mapping[str, Any]:
@@ -234,7 +248,7 @@ class RuntimeSources:
             loader.char_stream(),
             encoder,
             window_size,
-            learn_chunking=True,
+            learn_chunking=False,
         )
         return cast(Iterator[tuple[str, torch.Tensor]], RuntimeSources._wrap_remote_stream(spec, stream, is_sensory=False))
 
@@ -313,6 +327,15 @@ class RuntimeSources:
         return self._runtime_cache_root() / f"sensory_{self._runtime_cache_key(kind='sensory', spec=spec)}.pt"
 
     @staticmethod
+    def _brain_runtime_cache_material_hash(raw_windows: Sequence[str]) -> str:
+        payload = {
+            "raw_windows": [str(item) for item in raw_windows],
+            "token_count": int(len(raw_windows)),
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
     def _reconstruct_text_from_windows(raw_windows: Sequence[str]) -> str:
         windows = [str(item) for item in raw_windows if str(item)]
         if not windows:
@@ -346,15 +369,87 @@ class RuntimeSources:
         raw_windows = raw_windows[: max(1, target_tokens)]
         if not raw_windows:
             return
+        material_hash = self._brain_runtime_cache_material_hash(raw_windows)
+        if runtime.cache_material_hash == material_hash:
+            runtime.cache_skip_count += 1
+            runtime.last_cache_update_mode = "skipped_unchanged_material"
+            return
         payload = {
             "raw_windows": raw_windows,
             "token_count": int(len(raw_windows)),
+            "material_hash": material_hash,
             "saved_at": datetime.now(timezone.utc).isoformat(),
         }
-        try:
-            torch.save(payload, self._brain_runtime_cache_path(runtime.spec))
-        except Exception:
-            return
+        runtime.cache_material_hash = material_hash
+        runtime.cache_schedule_count += 1
+        runtime.cache_pending = True
+        runtime.last_cache_update_mode = "scheduled"
+        self._ensure_brain_cache_worker()
+        self._brain_cache_write_queue.put(
+            (
+                runtime,
+                self._brain_runtime_cache_path(runtime.spec),
+                payload,
+                material_hash,
+            )
+        )
+
+    def _ensure_brain_cache_worker(self) -> None:
+        with self._brain_cache_worker_lock:
+            if self._brain_cache_worker is not None and self._brain_cache_worker.is_alive():
+                return
+            self._brain_cache_worker = Thread(
+                target=self._brain_cache_write_loop,
+                name="marulho-source-cache-writer",
+                daemon=True,
+            )
+            self._brain_cache_worker.start()
+
+    def _brain_cache_write_loop(self) -> None:
+        while True:
+            task = self._brain_cache_write_queue.get()
+            try:
+                if task is None:
+                    return
+                runtime, path, payload, material_hash = task
+                temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(payload, temporary_path)
+                    temporary_path.replace(path)
+                    runtime.cache_write_count += 1
+                    runtime.last_cache_update_mode = "written"
+                except Exception:
+                    runtime.cache_failure_count += 1
+                    runtime.last_cache_update_mode = "write_failed"
+                    if runtime.cache_material_hash == material_hash:
+                        runtime.cache_material_hash = None
+                    try:
+                        temporary_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                finally:
+                    runtime.cache_pending = runtime.cache_material_hash not in (
+                        None,
+                        material_hash,
+                    )
+            finally:
+                self._brain_cache_write_queue.task_done()
+
+    def flush_brain_runtime_cache_writes(self) -> None:
+        self._brain_cache_write_queue.join()
+
+    def close(self) -> None:
+        self.flush_brain_runtime_cache_writes()
+        with self._brain_cache_worker_lock:
+            worker = self._brain_cache_worker
+            if worker is None:
+                return
+            self._brain_cache_write_queue.put(None)
+        self._brain_cache_write_queue.join()
+        worker.join(timeout=5.0)
+        with self._brain_cache_worker_lock:
+            self._brain_cache_worker = None
 
     def _restore_brain_runtime_cache_locked(self, runtime: _BrainSourceRuntime) -> int:
         if not self._brain_runtime_cache_enabled(runtime.spec):
@@ -370,6 +465,9 @@ class RuntimeSources:
         token_count = max(0, int((payload or {}).get("token_count", len(raw_windows)) or 0))
         if not raw_windows or token_count <= 0:
             return 0
+        material_hash = str((payload or {}).get("material_hash") or "").strip()
+        if not material_hash:
+            material_hash = self._brain_runtime_cache_material_hash(raw_windows[:token_count])
         text = self._reconstruct_text_from_windows(raw_windows)
         if not text:
             return 0
@@ -386,6 +484,8 @@ class RuntimeSources:
         if not examples:
             return 0
         runtime.buffered_patterns = deque(examples)
+        runtime.cache_material_hash = material_hash
+        runtime.last_cache_update_mode = "restored"
         return int(len(examples))
 
     def _serialize_sensory_episode(self, episode: SensoryEpisode) -> dict[str, Any]:

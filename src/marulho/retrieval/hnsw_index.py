@@ -40,6 +40,7 @@ class HierarchicalAssemblyIndex:
         self._torch_ids = torch.empty(0, dtype=torch.long, device=self.device)
         self._torch_vectors = torch.empty((0, self.dim), dtype=torch.float32, device=self.device)
         self._torch_cache_dirty = True
+        self._torch_cache_generation = 0
         self.list_search_count = 0
         self.tensor_search_count = 0
         self.last_search_mode: str | None = None
@@ -91,6 +92,7 @@ class HierarchicalAssemblyIndex:
         else:
             normalized = norm_t.detach().cpu().numpy().astype(np.float32)
         self._torch_cache_dirty = True
+        self._torch_cache_generation += 1
         self._tq_cache_dirty = True
 
         new_positions: List[int] = []
@@ -117,10 +119,30 @@ class HierarchicalAssemblyIndex:
         elif self.insertion_count >= self.rebuild_threshold:
             self.rebuild()
 
+    def synchronize_host_store(
+        self,
+        vectors: torch.Tensor,
+        ids: np.ndarray,
+    ) -> None:
+        """Refresh the slow host mirror without invalidating live device caches."""
+        if int(vectors.shape[0]) != int(len(ids)):
+            raise ValueError("vectors and ids must have matching rows")
+        normalized = F.normalize(vectors.detach().float(), dim=1)
+        normalized_cpu = normalized.to(device="cpu").numpy().astype(
+            np.float32,
+            copy=False,
+        )
+        self._vector_store = {
+            int(vec_id): normalized_cpu[position].copy()
+            for position, vec_id in enumerate(ids.tolist())
+        }
+        self.tombstones.clear()
+
     def remove(self, vec_id: int) -> None:
         self.tombstones.add(int(vec_id))
         self._vector_store.pop(int(vec_id), None)
         self._torch_cache_dirty = True
+        self._torch_cache_generation += 1
         self._tq_cache_dirty = True
 
     def _rebuild_torch_cache(self) -> None:
@@ -394,6 +416,20 @@ class HierarchicalAssemblyIndex:
             self._rebuild_torch_cache()
         return self._torch_vectors, self._torch_ids
 
+    def routing_tensor_cache_is_dirty(self) -> bool:
+        """Return whether the exact torch routing cache must be rebuilt."""
+
+        if self._backend != "torch_topk":
+            raise RuntimeError("routing tensor cache requires torch_topk")
+        return bool(self._torch_cache_dirty)
+
+    def routing_tensor_cache_generation(self) -> int:
+        """Return a monotonic stamp for cache-invalidating routing changes."""
+
+        if self._backend != "torch_topk":
+            raise RuntimeError("routing tensor cache requires torch_topk")
+        return int(self._torch_cache_generation)
+
     def stats(self) -> dict[str, Any]:
         info: dict[str, Any] = {
             "index_type": self._backend,
@@ -411,6 +447,7 @@ class HierarchicalAssemblyIndex:
         if self._backend == "torch_topk":
             info["torch_cache_dirty"] = bool(self._torch_cache_dirty)
             info["torch_cache_ready"] = not bool(self._torch_cache_dirty)
+            info["torch_cache_generation"] = int(self._torch_cache_generation)
             info["torch_vector_cache_device"] = str(self._torch_vectors.device)
             info["torch_id_cache_device"] = str(self._torch_ids.device)
             info["torch_vector_cache_count"] = int(self._torch_vectors.shape[0])
@@ -471,6 +508,7 @@ class ShardedHierarchicalAssemblyIndex:
             device=merged_device,
         )
         self._merged_torch_cache_dirty = True
+        self._merged_torch_cache_generation = 0
 
     @property
     def ntotal(self) -> int:
@@ -483,6 +521,7 @@ class ShardedHierarchicalAssemblyIndex:
         if len(ids) == 0:
             return
         self._merged_torch_cache_dirty = True
+        self._merged_torch_cache_generation += 1
 
         shard_positions: Dict[int, List[int]] = {}
         for position, vec_id in enumerate(ids.tolist()):
@@ -494,12 +533,35 @@ class ShardedHierarchicalAssemblyIndex:
             shard_ids = ids[np.asarray(positions, dtype=np.int64)]
             self.shards[shard_id].add(shard_vectors, shard_ids.astype(np.int64))
 
+    def synchronize_host_store(
+        self,
+        vectors: torch.Tensor,
+        ids: np.ndarray,
+    ) -> None:
+        """Refresh shard host mirrors while preserving the live merged cache."""
+        if int(vectors.shape[0]) != int(len(ids)):
+            raise ValueError("vectors and ids must have matching rows")
+        shard_positions: Dict[int, List[int]] = {
+            shard_id: [] for shard_id in range(self.n_shards)
+        }
+        for position, vec_id in enumerate(ids.tolist()):
+            shard_positions[self.shard_for_id(int(vec_id))].append(position)
+        for shard_id, positions in shard_positions.items():
+            shard_ids = ids[np.asarray(positions, dtype=np.int64)]
+            shard_vectors = vectors[positions]
+            self.shards[shard_id].synchronize_host_store(
+                shard_vectors,
+                shard_ids.astype(np.int64),
+            )
+
     def remove(self, vec_id: int) -> None:
         self._merged_torch_cache_dirty = True
+        self._merged_torch_cache_generation += 1
         self.shards[self.shard_for_id(vec_id)].remove(vec_id)
 
     def rebuild(self) -> None:
         self._merged_torch_cache_dirty = True
+        self._merged_torch_cache_generation += 1
         for shard in self.shards:
             shard.rebuild()
 
@@ -640,6 +702,24 @@ class ShardedHierarchicalAssemblyIndex:
             self._rebuild_merged_torch_cache()
         return self._merged_torch_vectors, self._merged_torch_ids
 
+    def routing_tensor_cache_is_dirty(self) -> bool:
+        """Return whether the merged exact torch routing cache must be rebuilt."""
+
+        if not self._uses_merged_torch_search():
+            raise RuntimeError(
+                "fused routing requires merged torch-backed routing shards"
+            )
+        return bool(self._merged_torch_cache_dirty)
+
+    def routing_tensor_cache_generation(self) -> int:
+        """Return a monotonic stamp for merged cache-invalidating changes."""
+
+        if not self._uses_merged_torch_search():
+            raise RuntimeError(
+                "fused routing requires merged torch-backed routing shards"
+            )
+        return int(self._merged_torch_cache_generation)
+
     def stats(self) -> dict[str, Any]:
         shard_stats = [shard.stats() for shard in self.shards]
         shard_sizes = [int(stat["unique_vectors"]) for stat in shard_stats]
@@ -676,6 +756,9 @@ class ShardedHierarchicalAssemblyIndex:
             "last_search_mode": self.last_search_mode,
             "merged_torch_search_enabled": self._uses_merged_torch_search(),
             "merged_torch_cache_dirty": bool(self._merged_torch_cache_dirty),
+            "merged_torch_cache_generation": int(
+                self._merged_torch_cache_generation
+            ),
             "merged_torch_cache_ready": bool(
                 self._uses_merged_torch_search() and not self._merged_torch_cache_dirty
             ),

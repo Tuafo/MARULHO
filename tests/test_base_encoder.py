@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -69,6 +70,34 @@ class BaseEncoderProtocolTests(unittest.TestCase):
         for text, vec in patterns:
             self.assertIsInstance(text, str)
             self.assertIsInstance(vec, torch.Tensor)
+
+    def test_empty_chunk_codebook_batch_matches_scalar_encoder(self) -> None:
+        text = "MARULHO learns predictive sparse cortical columns."
+        batched = RTFEncoder(window_size=10, enable_learned_chunking=True)
+        scalar = RTFEncoder(window_size=10, enable_learned_chunking=True)
+
+        batched_patterns = list(batched.iter_char_patterns(text, window_size=10, learn=False))
+        with patch.object(scalar, "_empty_chunk_codebook", return_value=False):
+            scalar_patterns = list(scalar.iter_char_patterns(text, window_size=10, learn=False))
+
+        self.assertEqual(
+            [raw_window for raw_window, _pattern in batched_patterns],
+            [raw_window for raw_window, _pattern in scalar_patterns],
+        )
+        self.assertEqual(len(batched_patterns), len(text))
+        for (_raw_batched, batched_pattern), (_raw_scalar, scalar_pattern) in zip(
+            batched_patterns,
+            scalar_patterns,
+        ):
+            torch.testing.assert_close(batched_pattern, scalar_pattern, rtol=1e-6, atol=1e-7)
+
+    def test_mutation_enabled_chunk_stream_retains_scalar_learning_path(self) -> None:
+        encoder = RTFEncoder(window_size=10, enable_learned_chunking=True)
+
+        list(encoder.iter_char_patterns("learned chunks stay explicit.", window_size=10, learn=True))
+
+        self.assertIsNotNone(encoder.learned_chunking)
+        self.assertGreater(float(encoder.learned_chunking.usage.sum().item()), 0.0)
 
     def test_iter_segment_patterns_yields_semantic_chunks(self) -> None:
         encoder = RTFEncoder()

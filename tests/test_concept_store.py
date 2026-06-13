@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -23,6 +24,45 @@ class _FlatMemoryStore:
 
 
 class ConceptStoreTests(unittest.TestCase):
+    def test_observe_can_defer_structural_maintenance_until_batch_boundary(self) -> None:
+        store = ConceptStore()
+        memory_store = _FakeMemoryStore()
+        matches = [
+            {
+                "memory_index": 0,
+                "raw_window": "river bank current water",
+                "similarity": 0.82,
+                "importance": 1.0,
+            }
+        ]
+
+        with patch.object(
+            store,
+            "refresh_structural_capacity",
+            wraps=store.refresh_structural_capacity,
+        ) as refresh:
+            store.observe(
+                query_text="",
+                memory_matches=matches,
+                memory_store=memory_store,
+                maintain_structure=False,
+            )
+            store.observe(
+                query_text="",
+                memory_matches=matches,
+                memory_store=memory_store,
+                maintain_structure=False,
+            )
+            store.observe(
+                query_text="",
+                memory_matches=matches,
+                memory_store=memory_store,
+                maintain_structure=True,
+            )
+
+        self.assertEqual(refresh.call_count, 1)
+        self.assertEqual(store.snapshot()["observations"], 3)
+
     def test_observe_learns_slow_feature_concepts_and_restores(self) -> None:
         store = ConceptStore()
         memory_store = _FakeMemoryStore()

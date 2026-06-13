@@ -14,6 +14,7 @@ related_benchmarks: []
 - [ADR 0003: Dissolve Service Manager God class into deep modules with real seams](../../adr/0003-service-manager-deep-module-split.md)
 - [ADR 0004: Runtime Facade owns the operator-facing runtime interface](../../adr/0004-runtime-facade-manager-max-removal.md)
 - [ADR 0005: Prefer CUDA for tensor-heavy subcortex runtime work](../../adr/0005-cuda-first-subcortex-runtime.md)
+- [ADR 0006: Persistent Text Tick Executor](../../adr/0006-persistent-text-tick-executor.md)
 
 ## Related Maps
 

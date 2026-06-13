@@ -1002,6 +1002,7 @@ class ConceptStore:
         memory_episodes: Sequence[dict[str, Any]] | None = None,
         memory_store: Any | None = None,
         limit: int = 6,
+        maintain_structure: bool = True,
     ) -> dict[str, Any]:
         query_terms = set(_tokenize(query_text))
         grouped: dict[str, dict[str, Any]] = {}
@@ -1120,7 +1121,11 @@ class ConceptStore:
             if raw_window not in current["example_windows"]:
                 current["example_windows"].append(raw_window)
 
-        structural_growth = self.refresh_structural_capacity(grouped=grouped)
+        structural_growth = (
+            self.refresh_structural_capacity(grouped=grouped)
+            if maintain_structure
+            else self._structural_growth_report()
+        )
         concepts = [
             self._concept_payload(
                 self._entries[concept_id],

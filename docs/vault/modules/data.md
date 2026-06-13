@@ -19,13 +19,17 @@ related_benchmarks: []
 
         Terminus Source Bank defaults are data-plane configuration, not service algorithms. The maintained text bank now starts with `open_textbooks` from `izumi-lab/open-text-books` because Hugging Face Dataset Viewer evidence showed direct `text` rows with worked educational prose, letting MARULHO replace raw Wikipedia without adding a parser or hot-path work.
 
+        Live RTF ingestion is inference-only. When the learned-chunk codebook is empty, Runtime Sources assembles at most 32 character windows and deterministic chunk signatures on the CPU control plane, constructs the emitted vectors as one device batch, and yields device-resident views. Mutation-enabled chunk learning remains in explicit training or remote-bootstrap work.
+
+        Live source-cache persistence is deferred. The tick hashes and schedules bounded raw-window material; a Runtime Sources worker performs atomic `torch.save` writes and service shutdown flushes pending work. Runtime Truth exposes schedule, write, skip, failure, and pending counts.
+
         ## Should Not Own
 
         Runtime Truth verdicts or promotion of observations into facts/actions.
 
         ## Hot-Path Relevance
 
-        Treat runtime-critical tensor/state work as hot path only when it is required for live service behavior. Reporting, vault generation, and research-memory work stay slow path.
+        Treat runtime-critical tensor/state work as hot path only when it is required for live service behavior. Do not issue one scalar CUDA workflow per character when a bounded batch preserves the representation. Reporting, vault generation, research-memory work, and chunk-codebook mutation stay slow path.
 
         ## Key Files
 

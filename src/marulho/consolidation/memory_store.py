@@ -58,6 +58,7 @@ class DualMemoryStore:
         self._bucket_consolidation_weighted_sum: Optional[torch.Tensor] = None
         self._bucket_consolidation_weight_sum: Optional[torch.Tensor] = None
         self._bucket_consolidation_devices: dict[str, torch.Tensor] = {}
+        self._bucket_consolidation_cache_generation = 0
 
         self.slow_buffer: List[torch.Tensor] = []
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
@@ -145,10 +146,17 @@ class DualMemoryStore:
         self._invalidate_bucket_consolidation_cache()
 
     def _invalidate_bucket_consolidation_cache(self) -> None:
+        self._bucket_consolidation_cache_generation += 1
         self._bucket_consolidation_cpu = None
         self._bucket_consolidation_weighted_sum = None
         self._bucket_consolidation_weight_sum = None
         self._bucket_consolidation_devices = {}
+
+    @property
+    def bucket_consolidation_cache_generation(self) -> int:
+        """Monotonic identity for graph-safe bucket-consolidation cache reuse."""
+
+        return int(self._bucket_consolidation_cache_generation)
 
     def _adjust_bucket_consolidation_cache(
         self,

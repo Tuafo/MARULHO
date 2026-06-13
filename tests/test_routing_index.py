@@ -37,10 +37,20 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertEqual(stats["index_type"], "torch_topk")
         self.assertTrue(stats["torch_cache_ready"])
         self.assertFalse(stats["torch_cache_dirty"])
+        self.assertFalse(index.routing_tensor_cache_is_dirty())
+        generation = index.routing_tensor_cache_generation()
+        self.assertEqual(stats["torch_cache_generation"], generation)
         self.assertEqual(stats["torch_vector_cache_device"], "cpu")
         self.assertEqual(stats["torch_id_cache_device"], "cpu")
         self.assertEqual(stats["torch_vector_cache_count"], 3)
         self.assertFalse(stats["torch_cache_cuda"])
+
+        index.add(
+            torch.tensor([[0.5, 0.5, 0.0]], dtype=torch.float32),
+            np.array([3], dtype=np.int64),
+        )
+        self.assertTrue(index.routing_tensor_cache_is_dirty())
+        self.assertGreater(index.routing_tensor_cache_generation(), generation)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_auto_cuda_index_reports_actual_cache_devices(self) -> None:
@@ -101,12 +111,23 @@ class RoutingIndexTests(unittest.TestCase):
         found_ids, _ = index.search(torch.tensor([[0.95, 0.05]], dtype=torch.float32), k=2)
 
         self.assertEqual(found_ids[0], [0, 1])
+        index.routing_tensor_cache()
         stats = index.stats()
         self.assertEqual(stats["index_type"], "sharded_torch_topk")
+        self.assertFalse(index.routing_tensor_cache_is_dirty())
+        generation = index.routing_tensor_cache_generation()
+        self.assertEqual(stats["merged_torch_cache_generation"], generation)
         self.assertEqual(stats["per_shard_search_device"], ["cpu", "cpu"])
         self.assertEqual(stats["per_shard_torch_vector_cache_device"], ["cpu", "cpu"])
         self.assertEqual(stats["per_shard_torch_id_cache_device"], ["cpu", "cpu"])
         self.assertEqual(stats["per_shard_torch_cache_ready"], [True, True])
+
+        index.add(
+            torch.tensor([[0.4, 0.6]], dtype=torch.float32),
+            np.array([4], dtype=np.int64),
+        )
+        self.assertTrue(index.routing_tensor_cache_is_dirty())
+        self.assertGreater(index.routing_tensor_cache_generation(), generation)
 
     def test_sharded_torch_topk_search_tensors_merges_global_topk_on_device(self) -> None:
         index = ShardedHierarchicalAssemblyIndex(
@@ -219,6 +240,47 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertTrue(index.stats()["merged_torch_cache_dirty"])
         remaining_ids, _ = index.search_tensors(query, k=1)
         self.assertEqual(remaining_ids.tolist(), [[1]])
+
+    def test_host_store_sync_preserves_live_merged_cache(self) -> None:
+        index = ShardedHierarchicalAssemblyIndex(
+            dim=2,
+            n_shards=2,
+            device=torch.device("cpu"),
+            backend="torch_topk",
+        )
+        ids = np.array([0, 1, 2, 3], dtype=np.int64)
+        initial = torch.tensor(
+            [[1.0, 0.0], [0.0, 1.0], [0.8, 0.2], [0.2, 0.8]],
+            dtype=torch.float32,
+        )
+        index.add(initial, ids)
+        cache_vectors, cache_ids = index.routing_tensor_cache()
+        cache_pointer = cache_vectors.data_ptr()
+        cache_snapshot = cache_vectors.clone()
+        generation = index.routing_tensor_cache_generation()
+
+        refreshed = torch.tensor(
+            [[0.9, 0.1], [0.1, 0.9], [0.7, 0.3], [0.3, 0.7]],
+            dtype=torch.float32,
+        )
+        index.synchronize_host_store(refreshed, ids)
+
+        next_vectors, next_ids = index.routing_tensor_cache()
+        self.assertEqual(next_vectors.data_ptr(), cache_pointer)
+        self.assertTrue(torch.equal(next_vectors, cache_snapshot))
+        self.assertTrue(torch.equal(next_ids, cache_ids))
+        self.assertEqual(index.routing_tensor_cache_generation(), generation)
+        self.assertFalse(index.routing_tensor_cache_is_dirty())
+        normalized = torch.nn.functional.normalize(refreshed, dim=1).numpy()
+        for position, vec_id in enumerate(ids.tolist()):
+            shard = index.shards[index.shard_for_id(vec_id)]
+            self.assertTrue(
+                np.allclose(
+                    shard._vector_store[vec_id],
+                    normalized[position],
+                    atol=1e-6,
+                )
+            )
 
     def test_torch_cache_rebuild_preserves_addresses_when_shape_is_stable(self) -> None:
         index = HierarchicalAssemblyIndex(

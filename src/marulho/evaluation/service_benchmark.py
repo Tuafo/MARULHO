@@ -806,11 +806,24 @@ def benchmark_service_app(
     top_chars: int = 6,
     export_limit: int = 3,
     include_living_loop_telemetry: bool = True,
+    profile_trainer_stages: bool = False,
 ) -> dict[str, Any]:
     """Measure the local service endpoints in-process and write JSON results."""
     started = time.perf_counter()
     endpoint_timings: list[dict[str, Any]] = []
     response_bodies: dict[str, Any] = {}
+    manager = getattr(getattr(app, "state", None), "marulho_manager", None)
+    trainer = getattr(manager, "_trainer", None)
+    captured_trainer_stage_profile: dict[str, Any] | None = None
+    profile_configured_tick_only = bool(
+        profile_trainer_stages
+        and configured_source_path is not None
+        and int(configured_source_tick_steps) > 0
+    )
+    if bool(profile_trainer_stages) and not profile_configured_tick_only and trainer is not None:
+        enable_profile = getattr(trainer, "enable_train_step_profile", None)
+        if callable(enable_profile):
+            enable_profile(reset=True)
 
     with TestClient(app) as client:
         if configured_source_path is not None:
@@ -841,6 +854,10 @@ def benchmark_service_app(
             endpoint_timings.append(configure_record)
             response_bodies["terminus_configure"] = configure_body
             if int(configured_source_tick_steps) > 0:
+                if profile_configured_tick_only and trainer is not None:
+                    enable_profile = getattr(trainer, "enable_train_step_profile", None)
+                    if callable(enable_profile):
+                        enable_profile(reset=True)
                 tick_record, tick_body = _measure_endpoint(
                     client,
                     name="terminus_tick",
@@ -848,6 +865,13 @@ def benchmark_service_app(
                     path="/terminus/tick",
                     json_body={"steps": int(configured_source_tick_steps)},
                 )
+                if profile_configured_tick_only and trainer is not None:
+                    report_profile = getattr(trainer, "train_step_profile_report", None)
+                    if callable(report_profile):
+                        captured_trainer_stage_profile = dict(report_profile())
+                    disable_profile = getattr(trainer, "disable_train_step_profile", None)
+                    if callable(disable_profile):
+                        disable_profile()
                 endpoint_timings.append(tick_record)
                 response_bodies["terminus_tick"] = tick_body
 
@@ -1166,6 +1190,49 @@ def benchmark_service_app(
             if isinstance(tick_body, dict) and isinstance(tick_body.get("terminus_runtime"), dict)
             else {}
         )
+        tick_summaries = (
+            list(tick_body.get("tick_summaries") or [])
+            if isinstance(tick_body, dict) and isinstance(tick_body.get("tick_summaries"), list)
+            else []
+        )
+        latest_tick_summary = (
+            tick_summaries[-1]
+            if tick_summaries and isinstance(tick_summaries[-1], dict)
+            else {}
+        )
+        tick_source = (
+            latest_tick_summary.get("source")
+            if isinstance(latest_tick_summary.get("source"), dict)
+            else {}
+        )
+        tick_concept_observation = (
+            tick_source.get("concept_observation")
+            if isinstance(tick_source.get("concept_observation"), dict)
+            else {}
+        )
+        tick_stage_timings = (
+            latest_tick_summary.get("stage_timings_ms")
+            if isinstance(latest_tick_summary.get("stage_timings_ms"), dict)
+            else {}
+        )
+        source_progress = (
+            list(tick_runtime.get("source_progress") or [])
+            if isinstance(tick_runtime.get("source_progress"), list)
+            else []
+        )
+        first_source_progress = (
+            source_progress[0]
+            if source_progress and isinstance(source_progress[0], dict)
+            else {}
+        )
+        source_cache_summary = {
+            "cache_write_count": int(first_source_progress.get("cache_write_count", 0) or 0),
+            "cache_schedule_count": int(first_source_progress.get("cache_schedule_count", 0) or 0),
+            "cache_skip_count": int(first_source_progress.get("cache_skip_count", 0) or 0),
+            "cache_failure_count": int(first_source_progress.get("cache_failure_count", 0) or 0),
+            "cache_pending": bool(first_source_progress.get("cache_pending", False)),
+            "last_cache_update_mode": str(first_source_progress.get("last_cache_update_mode", "not_run") or "not_run"),
+        }
         configured_source_summary = {
             "enabled": True,
             "source_name": str(configured_source_name),
@@ -1178,8 +1245,33 @@ def benchmark_service_app(
             "tick_tokens_processed": int(tick_runtime.get("last_tick_token_delta", 0) or 0),
             "background_tokens_processed": int(tick_runtime.get("background_tokens_processed", 0) or 0),
             "last_tick_duration_ms": tick_runtime.get("last_tick_duration_ms"),
+            "stage_timings_ms": dict(tick_stage_timings),
+            "concept_observation": dict(tick_concept_observation),
+            "source_cache": source_cache_summary,
             "not_hot_path": True,
         }
+
+    trainer_stage_profile: dict[str, Any] | None = None
+    if bool(profile_trainer_stages):
+        if captured_trainer_stage_profile is not None:
+            trainer_stage_profile = captured_trainer_stage_profile
+            trainer_stage_profile["scope"] = (
+                "configured_source_tick"
+                if profile_configured_tick_only
+                else "benchmark_app"
+            )
+        elif trainer is not None and callable(getattr(trainer, "train_step_profile_report", None)):
+            trainer_stage_profile = dict(trainer.train_step_profile_report())
+            trainer_stage_profile["scope"] = "benchmark_app"
+            disable_profile = getattr(trainer, "disable_train_step_profile", None)
+            if callable(disable_profile):
+                disable_profile()
+        else:
+            trainer_stage_profile = {
+                "enabled": False,
+                "count": 0,
+                "unavailable_reason": "app_state_marulho_manager_trainer_missing",
+            }
 
     total_latency_ms = (time.perf_counter() - started) * 1000.0
     endpoint_metabolism_summary = _endpoint_metabolism_summary(endpoint_timings)
@@ -1193,6 +1285,7 @@ def benchmark_service_app(
         "endpoint_timings": endpoint_timings,
         "endpoints_by_name": {str(item["name"]): item for item in endpoint_timings},
         "endpoint_metabolism_summary": endpoint_metabolism_summary,
+        "trainer_stage_profile": trainer_stage_profile,
         "configured_source_summary": configured_source_summary,
         "living_loop_benchmark_telemetry": living_loop_telemetry,
         "feed_summary": feed_summary,
@@ -1251,13 +1344,19 @@ def run_service_benchmark(
     top_chars: int = 6,
     export_limit: int = 3,
     include_living_loop_telemetry: bool = True,
+    profile_trainer_stages: bool = False,
 ) -> dict[str, Any]:
     configured_source_path = None
     if configure_local_source:
         source_root = Path(output_path).parent
         source_root.mkdir(parents=True, exist_ok=True)
         configured_source_path = source_root / "benchmark-local-source.txt"
-        configured_source_path.write_text(str(local_source_text), encoding="utf-8")
+        source_text = str(local_source_text)
+        if (
+            not configured_source_path.exists()
+            or configured_source_path.read_text(encoding="utf-8") != source_text
+        ):
+            configured_source_path.write_text(source_text, encoding="utf-8")
     app = create_app(
         checkpoint_path=checkpoint_path,
         trace_history_limit=trace_history_limit,
@@ -1278,6 +1377,7 @@ def run_service_benchmark(
         top_chars=top_chars,
         export_limit=export_limit,
         include_living_loop_telemetry=include_living_loop_telemetry,
+        profile_trainer_stages=profile_trainer_stages,
     )
 
 
@@ -1539,6 +1639,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Create a tiny deterministic checkpoint at --checkpoint when it does not already exist.",
     )
+    parser.add_argument(
+        "--profile-trainer-stages",
+        action="store_true",
+        help="Enable opt-in MarulhoTrainer train_step stage timing in the written benchmark report.",
+    )
     return parser
 
 
@@ -1655,6 +1760,7 @@ def main(argv: list[str] | None = None) -> None:
         feed_text=args.feed_text,
         query_text=args.query_text,
         export_limit=args.export_limit,
+        profile_trainer_stages=args.profile_trainer_stages,
     )
     print(json.dumps({"output_path": result["output_path"], "success": result["success"]}, sort_keys=True))
 

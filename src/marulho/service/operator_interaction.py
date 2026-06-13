@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import time
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
 import torch
@@ -286,75 +286,104 @@ class OperatorInteractionRuntime:
         raw_window: str | None,
         metrics: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        if not isinstance(metrics, dict):
-            return None
-        memory_index = metrics.get("memory_index")
-        try:
-            idx = int(memory_index)
-        except (TypeError, ValueError):
-            return None
+        observed = OperatorInteractionRuntime._observe_runtime_concept_batch_locked(
+            self,
+            observations=[(raw_window, metrics)],
+        )
+        return None if not observed else observed[0]
 
+    def _observe_runtime_concept_batch_locked(
+        self,
+        *,
+        observations: Sequence[tuple[str | None, dict[str, Any] | None]],
+    ) -> list[dict[str, Any] | None]:
         memory_store = self._trainer.model.memory_store
         routing_keys = getattr(memory_store, "slow_routing_keys", []) or []
-        if idx < 0 or idx >= len(routing_keys):
-            return None
-        if not isinstance(routing_keys[idx], torch.Tensor):
-            return None
-
         stored_texts = getattr(memory_store, "slow_texts", []) or []
         stored_windows = getattr(memory_store, "slow_raw_windows", []) or []
-        source_text = ""
-        if idx < len(stored_texts) and stored_texts[idx] is not None:
-            source_text = str(stored_texts[idx])
-        elif idx < len(stored_windows) and stored_windows[idx] is not None:
-            source_text = str(stored_windows[idx])
-        elif raw_window is not None:
-            source_text = str(raw_window)
-        source_text = " ".join(source_text.split()).strip()
-        if not source_text or not any(char.isalnum() for char in source_text):
-            return None
-
-        raw_match = (
-            str(stored_windows[idx])
-            if idx < len(stored_windows) and stored_windows[idx] is not None
-            else source_text
-        )
-        importance = 1.0
-        capture_tag = 0.0
-        consolidation_level = 0.0
         slow_importance = getattr(memory_store, "slow_importance", []) or []
         slow_capture_tag = getattr(memory_store, "slow_capture_tag", []) or []
         slow_consolidation = getattr(memory_store, "slow_consolidation_level", []) or []
-        if idx < len(slow_importance):
-            importance = float(memory_store.slow_importance[idx])
-        if idx < len(slow_capture_tag):
-            capture_tag = float(memory_store.slow_capture_tag[idx])
-        if idx < len(slow_consolidation):
-            consolidation_level = float(memory_store.slow_consolidation_level[idx])
+        matches: list[dict[str, Any]] = []
+        source_pairs: list[tuple[str, str]] = []
+        result_slots: list[int | None] = []
+        for raw_window, metrics in observations:
+            result_slots.append(None)
+            if not isinstance(metrics, dict):
+                continue
+            try:
+                idx = int(metrics.get("memory_index"))
+            except (TypeError, ValueError):
+                continue
+            if idx < 0 or idx >= len(routing_keys):
+                continue
+            if not isinstance(routing_keys[idx], torch.Tensor):
+                continue
 
-        observed = self._concept_store.observe(
-            query_text="",
-            memory_matches=[
+            source_text = ""
+            if idx < len(stored_texts) and stored_texts[idx] is not None:
+                source_text = str(stored_texts[idx])
+            elif idx < len(stored_windows) and stored_windows[idx] is not None:
+                source_text = str(stored_windows[idx])
+            elif raw_window is not None:
+                source_text = str(raw_window)
+            source_text = " ".join(source_text.split()).strip()
+            if not source_text or not any(char.isalnum() for char in source_text):
+                continue
+
+            raw_match = (
+                str(stored_windows[idx])
+                if idx < len(stored_windows) and stored_windows[idx] is not None
+                else source_text
+            )
+            matches.append(
                 {
                     "memory_index": idx,
                     "text": source_text,
                     "raw_window": raw_match,
                     "similarity": 1.0,
-                    "importance": importance,
-                    "capture_tag": capture_tag,
-                    "consolidation_level": consolidation_level,
+                    "importance": (
+                        float(slow_importance[idx])
+                        if idx < len(slow_importance)
+                        else 1.0
+                    ),
+                    "capture_tag": (
+                        float(slow_capture_tag[idx])
+                        if idx < len(slow_capture_tag)
+                        else 0.0
+                    ),
+                    "consolidation_level": (
+                        float(slow_consolidation[idx])
+                        if idx < len(slow_consolidation)
+                        else 0.0
+                    ),
                 }
-            ],
-            memory_store=memory_store,
-            limit=4,
-        )
+            )
+            source_pairs.append((source_text, raw_match))
+            result_slots[-1] = len(matches) - 1
+
+        results: list[dict[str, Any] | None] = [None] * len(observations)
+        for match_index, match in enumerate(matches):
+            observed = self._concept_store.observe(
+                query_text="",
+                memory_matches=[match],
+                memory_store=memory_store,
+                limit=4,
+                maintain_structure=match_index == len(matches) - 1,
+            )
+            for result_index, slot in enumerate(result_slots):
+                if slot == match_index:
+                    results[result_index] = observed
+                    break
+
         abstraction_layer = self._trainer.model.abstraction_layer
         if abstraction_layer is not None:
-            self._geometric_curiosity.update_lexicon(
-                abstraction_layer.last_activations,
-                [source_text, raw_match],
-            )
-        return observed
+            for source_text, raw_match in source_pairs:
+                self._geometric_curiosity.update_lexicon(
+                    abstraction_layer.last_activations,
+                    [source_text, raw_match],
+                )
+        return results
 
     def _plan_gaps_locked(
         self,

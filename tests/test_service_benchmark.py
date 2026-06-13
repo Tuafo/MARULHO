@@ -904,6 +904,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["benchmark"] == "marulho_service_endpoint_latency"
         assert result["schema_version"] == 1
         assert result["success"] is True
+        assert result["trainer_stage_profile"] is None
         assert result["total_latency_ms"] < 5000.0
         assert [item["name"] for item in result["endpoint_timings"]] == [
             "health",
@@ -1116,5 +1117,124 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_candidates_summary"]["count"] <= 2
         assert result["replay_dataset_history_summary"]["count"] >= 0
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_benchmark_service_app_reports_unavailable_trainer_profile_for_fake_app() -> None:
+    root = _scratch_root("fake-app-trainer-profile")
+    try:
+        result = benchmark_service_app(
+            _fake_service_app(),
+            output_path=root / "benchmark.json",
+            checkpoint_path=root / "fake.pt",
+            profile_trainer_stages=True,
+        )
+
+        profile = result["trainer_stage_profile"]
+        assert profile["enabled"] is False
+        assert profile["count"] == 0
+        assert profile["unavailable_reason"] == "app_state_marulho_manager_trainer_missing"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_run_service_benchmark_preserves_unchanged_local_source_mtime(monkeypatch) -> None:
+    root = _scratch_root("local-source-cache")
+    try:
+        output_path = root / "result.json"
+        source_path = root / "benchmark-local-source.txt"
+        source_path.write_text("stable local source", encoding="utf-8")
+        original_mtime = source_path.stat().st_mtime_ns
+
+        def fake_benchmark_service_app(_app: FastAPI, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["configured_source_path"] == source_path
+            return {"output_path": str(output_path), "success": True}
+
+        monkeypatch.setattr(service_benchmark_module, "create_app", lambda **_: _fake_service_app())
+        monkeypatch.setattr(service_benchmark_module, "benchmark_service_app", fake_benchmark_service_app)
+
+        result = run_service_benchmark(
+            checkpoint_path=root / "checkpoint.pt",
+            output_path=output_path,
+            configure_local_source=True,
+            local_source_text="stable local source",
+        )
+
+        assert result["success"] is True
+        assert source_path.stat().st_mtime_ns == original_mtime
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_benchmark_configured_source_summary_includes_tick_concept_observation() -> None:
+    app = _fake_service_app()
+
+    @app.post("/terminus/configure")
+    def terminus_configure() -> dict[str, Any]:
+        return {
+            "terminus_runtime": {
+                "configured": True,
+                "source_count": 1,
+            },
+        }
+
+    @app.post("/terminus/tick")
+    def terminus_tick() -> dict[str, Any]:
+        return {
+            "terminus_runtime": {
+                "last_tick_token_delta": 24,
+                "background_tokens_processed": 24,
+                "last_tick_duration_ms": 12.5,
+                "source_progress": [
+                    {
+                        "cache_write_count": 1,
+                        "cache_schedule_count": 3,
+                        "cache_skip_count": 2,
+                        "cache_failure_count": 0,
+                        "cache_pending": True,
+                        "last_cache_update_mode": "skipped_unchanged_material",
+                    }
+                ],
+            },
+            "tick_summaries": [
+                {
+                    "source": {
+                        "concept_observation": {
+                            "mode": "sampled_batched",
+                            "attempts": 3,
+                            "observations": 3,
+                            "batches": 1,
+                            "structural_maintenance_passes": 1,
+                        }
+                    }
+                }
+            ],
+        }
+
+    root = _scratch_root("configured-source-concept-summary")
+    try:
+        source_path = root / "source.txt"
+        source_path.write_text("source text", encoding="utf-8")
+        result = benchmark_service_app(
+            app,
+            output_path=root / "result.json",
+            configured_source_path=source_path,
+            configured_source_tick_steps=1,
+            feed_text="cats",
+            query_text="cats",
+        )
+
+        concept_observation = result["configured_source_summary"]["concept_observation"]
+        assert concept_observation["mode"] == "sampled_batched"
+        assert concept_observation["attempts"] == 3
+        assert concept_observation["structural_maintenance_passes"] == 1
+        source_cache = result["configured_source_summary"]["source_cache"]
+        assert source_cache["cache_write_count"] == 1
+        assert source_cache["cache_schedule_count"] == 3
+        assert source_cache["cache_skip_count"] == 2
+        assert source_cache["cache_failure_count"] == 0
+        assert source_cache["cache_pending"] is True
+        assert source_cache["last_cache_update_mode"] == "skipped_unchanged_material"
     finally:
         shutil.rmtree(root, ignore_errors=True)

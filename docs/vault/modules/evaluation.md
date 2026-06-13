@@ -16,6 +16,7 @@ related_benchmarks: []
         ## Owns
 
         Evidence standards for speed, readiness, CUDA placement, liveness, and promotion.
+        Hot-window benchmark reports may now opt into measured-step trainer-stage profiling, and the persistent text-tick A/B runner summarizes reversed same-process stage deltas so route/index/graph-prep work can be judged by complete encoded ticks instead of noisy service endpoints.
 
         ## Should Not Own
 

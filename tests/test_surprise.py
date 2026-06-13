@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+import torch
+
 from marulho.core.surprise import SurpriseMonitor
 
 
@@ -48,6 +50,40 @@ class SurpriseMonitorTests(unittest.TestCase):
 
         self.assertGreater(positive_modulator, 0.0)
         self.assertLess(negative_modulator, 0.0)
+
+    def test_record_error_matches_tensor_update_statistics(self) -> None:
+        direct = SurpriseMonitor(layer_names=["competitive"])
+        tensor = SurpriseMonitor(layer_names=["competitive"])
+        for index in range(12):
+            error = torch.tensor([0.1 + index * 0.01])
+            direct.record_error("competitive", error.item())
+            tensor.update(
+                "competitive",
+                error,
+                torch.tensor([0.0]),
+            )
+
+        self.assertEqual(
+            list(direct.layers["competitive"]["errors"]),
+            list(tensor.layers["competitive"]["errors"]),
+        )
+        self.assertEqual(
+            direct.layers["competitive"]["precision"],
+            tensor.layers["competitive"]["precision"],
+        )
+
+    def test_modulator_revision_tracks_error_and_neuromodulator_changes(self) -> None:
+        monitor = SurpriseMonitor(layer_names=["competitive"])
+        initial = monitor.modulator_revision
+
+        monitor.record_error("competitive", 0.2)
+        self.assertEqual(monitor.modulator_revision, initial + 1)
+
+        monitor.update_neuromodulators(current_error=0.3, novelty=0.1)
+        self.assertEqual(monitor.modulator_revision, initial + 2)
+
+        monitor.mark_modulator_state_changed()
+        self.assertEqual(monitor.modulator_revision, initial + 3)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 import re
+import time
 from typing import Any, Dict, Iterable, Mapping, Optional
 import numpy as np
 import torch
@@ -97,15 +98,81 @@ class MarulhoTrainer:
         self._stage2_bootstrap_budget: int = 50
         self._stage2_bootstrap_used_visual: int = 0
         self._stage2_bootstrap_used_audio: int = 0
+        self._cross_modal_sensory_trace_until_token: int = -1
+        self._cross_modal_fast_idle_skip_count: int = 0
 
         # HNSW update buffer — flush every N steps to amortize add() overhead
-        self._hnsw_buffer_ids: list[int] = []
+        self._hnsw_buffer_ids: list[int | torch.Tensor] = []
         self._hnsw_buffer_vecs: list[torch.Tensor] = []
         self._hnsw_flush_interval = 16
+        self._routing_index_device_update_count = 0
+        self._routing_index_buffer_skip_count = 0
+        self._routing_index_host_mirror_sync_count = 0
+        self._routing_index_cpu_mirror_stale = False
         self._column_transition_runtime = ColumnTransitionRuntime(self)
+        self._slow_memory_archive_count = 0
+        self._slow_memory_archive_skip_count = 0
+        self._slow_memory_last_archive_reason = "not_run"
+        self._awake_ripple_tag_count = 0
+        self._awake_ripple_tag_skip_count = 0
+        self._awake_ripple_last_reason = "not_run"
+        self._awake_ripple_last_tagged = 0
+        self._winner_host_mirror_sync_count = 0
+        self._winner_host_mirror_skip_count = 0
+        self._winner_host_mirror_fresh = False
+        self._train_step_profile_enabled = False
+        self._train_step_profile_totals_ms: dict[str, float] = {}
+        self._train_step_profile_count = 0
+
+    def enable_train_step_profile(self, *, reset: bool = True) -> None:
+        """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
+        if reset:
+            self.reset_train_step_profile()
+        self._train_step_profile_enabled = True
+
+    def disable_train_step_profile(self) -> None:
+        self._train_step_profile_enabled = False
+
+    def reset_train_step_profile(self) -> None:
+        self._train_step_profile_totals_ms = {}
+        self._train_step_profile_count = 0
+
+    def train_step_profile_report(self) -> dict[str, Any]:
+        totals = {
+            str(name): round(float(value), 6)
+            for name, value in sorted(self._train_step_profile_totals_ms.items())
+        }
+        count = max(0, int(self._train_step_profile_count))
+        per_tick = {
+            name: round(float(value) / float(count), 6)
+            for name, value in totals.items()
+            if count > 0
+        }
+        total_ms = float(totals.get("total", 0.0))
+        return {
+            "enabled": bool(self._train_step_profile_enabled),
+            "count": count,
+            "totals_ms": totals,
+            "per_tick_ms": per_tick,
+            "tokens_per_second_observed": (
+                round(float(count) * 1000.0 / total_ms, 6)
+                if count > 0 and total_ms > 0.0
+                else 0.0
+            ),
+        }
 
     def column_transition_runtime_report(self) -> dict[str, Any]:
-        return self._column_transition_runtime.report()
+        report = self._column_transition_runtime.report()
+        report["winner_host_mirror_sync_count"] = int(
+            self._winner_host_mirror_sync_count
+        )
+        report["winner_host_mirror_skip_count"] = int(
+            self._winner_host_mirror_skip_count
+        )
+        report["winner_host_mirror_fresh"] = bool(
+            self._winner_host_mirror_fresh
+        )
+        return report
 
     def _buffer_hnsw_update(
         self,
@@ -116,16 +183,18 @@ class MarulhoTrainer:
     ) -> None:
         """Buffer HNSW updates; flush when buffer reaches interval size."""
         if known_ids is not None:
-            ids = [int(value) for value in known_ids]
-        elif indices.is_cuda:
-            ids = indices.detach().cpu().tolist()
+            ids: list[int | torch.Tensor] = [int(value) for value in known_ids]
         else:
-            ids = indices.detach().tolist()
+            id_tensor = indices.detach().reshape(-1)
+            if id_tensor.device.type == "cpu":
+                ids = [int(value) for value in id_tensor.tolist()]
+            else:
+                ids = [id_tensor[i] for i in range(int(id_tensor.numel()))]
         if len(ids) != int(vectors.shape[0]):
             raise ValueError("known_ids must align with buffered HNSW vectors")
         vecs = vectors.detach()
         for i, vid in enumerate(ids):
-            self._hnsw_buffer_ids.append(int(vid))
+            self._hnsw_buffer_ids.append(vid)
             self._hnsw_buffer_vecs.append(vecs[i])
         if len(self._hnsw_buffer_ids) >= self._hnsw_flush_interval:
             self._flush_hnsw_buffer()
@@ -134,10 +203,51 @@ class MarulhoTrainer:
         """Flush buffered HNSW updates in a single batch."""
         if not self._hnsw_buffer_ids:
             return
-        # Deduplicate: keep latest vector per id
+        if self._routing_index_cpu_mirror_stale:
+            sync_host_store = getattr(
+                self.model.hnsw_index,
+                "synchronize_host_store",
+                None,
+            )
+            if not callable(sync_host_store):
+                raise RuntimeError(
+                    "routing index cannot synchronize a stale host mirror"
+                )
+            all_ids = np.arange(
+                self.model.competitive.n_columns,
+                dtype=np.int64,
+            )
+            sync_host_store(
+                self.model.competitive.prototypes.detach(),
+                all_ids,
+            )
+            self._routing_index_cpu_mirror_stale = False
+            self._routing_index_host_mirror_sync_count += 1
+        # Deduplicate: keep latest vector per id. CUDA ids are materialized in
+        # one transfer to avoid one scalar sync per buffered entry.
+        materialized_ids: list[int] = [0] * len(self._hnsw_buffer_ids)
+        tensor_positions: list[int] = []
+        tensor_ids: list[torch.Tensor] = []
+        for position, vid in enumerate(self._hnsw_buffer_ids):
+            if isinstance(vid, torch.Tensor):
+                tensor_positions.append(position)
+                tensor_ids.append(vid.reshape(()))
+            else:
+                materialized_ids[position] = int(vid)
+        if tensor_ids:
+            tensor_values = (
+                torch.stack(tensor_ids)
+                .detach()
+                .to(device="cpu", dtype=torch.long)
+                .numpy()
+                .astype(np.int64, copy=False)
+            )
+            for position, value in zip(tensor_positions, tensor_values):
+                materialized_ids[position] = int(value)
+
         seen: dict[int, torch.Tensor] = {}
-        for vid, vec in zip(self._hnsw_buffer_ids, self._hnsw_buffer_vecs):
-            seen[vid] = vec
+        for vid_int, vec in zip(materialized_ids, self._hnsw_buffer_vecs):
+            seen[int(vid_int)] = vec
         ids_arr = np.array(list(seen.keys()), dtype=np.int64)
         vecs_batch = torch.stack(list(seen.values()))
         self.model.hnsw_index.add(vecs_batch, ids_arr)
@@ -921,8 +1031,8 @@ class MarulhoTrainer:
         compute_metrics: bool,
     ) -> tuple[
         torch.Tensor,
-        list[int],
-        int,
+        list[int] | None,
+        int | None,
         float,
         float,
         float,
@@ -930,11 +1040,12 @@ class MarulhoTrainer:
     ]:
         if self._column_transition_runtime.active:
             return self._column_transition_runtime.apply(
-                routing_key=routing_key,
-                candidates=candidates,
-                winners=winners,
-                modulator=modulator,
-            )
+            routing_key=routing_key,
+            candidates=candidates,
+            winners=winners,
+            modulator=modulator,
+            compute_metrics=compute_metrics,
+        )
 
         winner_id_list = winners.tolist()
         winner_id = int(winner_id_list[0])
@@ -1073,6 +1184,10 @@ class MarulhoTrainer:
         memory_metadata: Mapping[str, Any] | None = None,
         allow_sleep_maintenance: bool = True,
     ) -> Dict[str, Any]:
+        profile_enabled = bool(self._train_step_profile_enabled)
+        profile_last = time.perf_counter() if profile_enabled else 0.0
+        profile_started = profile_last
+        profile_totals = self._train_step_profile_totals_ms
         metrics: Dict[str, Any] = {}
         x = pattern_vec.to(self.model.device)
         context_gain = None
@@ -1083,6 +1198,12 @@ class MarulhoTrainer:
             int(self.config.trainer_telemetry_interval_tokens),
         )
         _telemetry_tick = (self.token_count % telemetry_interval == 0)
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["input_prepare"] = profile_totals.get("input_prepare", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         # Drift computation is expensive; only recompute every N steps
         if self.token_count % 50 == 0 or self._cached_drift is None:
@@ -1148,6 +1269,12 @@ class MarulhoTrainer:
         metrics["drift_floor_rising"] = int(floor_rising)
         if self._dead_column_census:
             metrics["dead_column_census"] = self._dead_column_census
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["drift_sleep"] = profile_totals.get("drift_sleep", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         if self.token_count < self.config.bootstrap_tokens:
             pred_error = self.bootstrap.update(x)
@@ -1171,11 +1298,24 @@ class MarulhoTrainer:
         else:
             routing_key, recon_error = prepared_routing
         metrics["recon_error"] = float(recon_error)
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["routing_prepare"] = profile_totals.get("routing_prepare", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
+
+        graph_owns_surprise = bool(
+            prepared_routing is not None
+            and self._column_transition_runtime.consume_graph_surprise_update()
+        )
 
         # Post-bootstrap neuromodulator update using reconstruction error as the error signal.
-        # During bootstrap the update is driven by the linear predictor; post-bootstrap we use
-        # the prototype reconstruction error (same biological role: discrepancy → norepinephrine).
-        if self.token_count >= self.config.bootstrap_tokens:
+        # The persistent CUDA tick performs this before its transition and mirrors the result.
+        if (
+            self.token_count >= self.config.bootstrap_tokens
+            and not graph_owns_surprise
+        ):
             self.model.surprise.update_neuromodulators(current_error=recon_error, novelty=min(1.0, recon_error))
 
         # If sustained norepinephrine exceeds the exploration threshold and the cooldown
@@ -1224,6 +1364,12 @@ class MarulhoTrainer:
                 context_gain = torch.clamp(context_gain * consensus_gain, min=0.5, max=1.5)
             else:
                 context_gain = consensus_gain
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["control_gain"] = profile_totals.get("control_gain", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         candidates = self._column_transition_runtime.route_candidates(
             routing_key,
@@ -1246,6 +1392,12 @@ class MarulhoTrainer:
                 fallback_allowed=self.is_bootstrap,
                 context_gain=context_gain,
             )
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["candidate_winner"] = profile_totals.get("candidate_winner", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         (
             assembly,
@@ -1264,7 +1416,37 @@ class MarulhoTrainer:
             local_trace=local_trace,
             compute_metrics=_telemetry_tick,
         )
+        def _materialize_winner_ids() -> tuple[list[int], int]:
+            nonlocal winner_id_list, winner_id, profile_last
+            if winner_id_list is not None and winner_id is not None:
+                return winner_id_list, int(winner_id)
+            ids = winners.tolist()
+            wid = int(ids[0])
+            winner_id_list = ids
+            winner_id = wid
+            if profile_enabled:
+                profile_now = time.perf_counter()
+                profile_totals["winner_host_materialize"] = (
+                    profile_totals.get("winner_host_materialize", 0.0)
+                    + (profile_now - profile_last) * 1000.0
+                )
+                profile_last = profile_now
+            return ids, wid
+
+        graph_winner_host_mirror_can_skip = bool(
+            winner_id_list is None
+            and winner_id is None
+            and self._column_transition_runtime.last_execution_mode
+            == "cuda_graph_route_transition"
+        )
+
         abstraction_input = assembly.clone()
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["column_transition"] = profile_totals.get("column_transition", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
         if self.model.abstraction_layer is not None:
             self.model.abstraction_layer.observe(
                 abstraction_input,
@@ -1276,12 +1458,20 @@ class MarulhoTrainer:
                 max_gap = self.model.abstraction_layer.max_curiosity_gap_score()
                 mean_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())
                 self.encoder.learned_chunking.set_abstraction_bias(mean_cert, max_gap)
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["abstraction"] = profile_totals.get("abstraction", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
         assembly, binding_strength = self._apply_binding(
             assembly,
             context_prediction,
             update_weights=True,
         )
-        self._apply_column_anchors(wid for wid in winner_id_list)
+        if self.column_anchors:
+            anchor_winner_ids, _ = _materialize_winner_ids()
+            self._apply_column_anchors(wid for wid in anchor_winner_ids)
         if self.model.context_layer is not None:
             context_plasticity_interval = max(
                 1,
@@ -1299,6 +1489,12 @@ class MarulhoTrainer:
         else:
             context_plasticity_interval = 0
             context_plasticity_due = False
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["binding_context"] = profile_totals.get("binding_context", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         # Cross-modal grounding updates (§5): sensory spikes fire BEFORE
         # text so that on_text_spike() sees the current visual/audio traces
@@ -1309,18 +1505,46 @@ class MarulhoTrainer:
         cross_modal_audio_conf = 0.0
         cross_modal_visual_accepted = None
         cross_modal_audio_accepted = None
+        cross_modal_text_spike_prepared = False
         if self.model.cross_modal is not None:
-            # Use L2-normalized raw pattern as text representation for
-            # cross-modal Hebbian learning.  With hashed_ngram encoding
-            # different words are nearly orthogonal, giving each word its
-            # own cross-modal association without column contamination.
-            text_spike = F.normalize(
-                x.detach().unsqueeze(0),
-                dim=1,
-            ).squeeze(0)
+            text_spike = None
+            fast_text_idle_skip = bool(
+                visual_spikes is None
+                and audio_spikes is None
+                and self.token_count > self._cross_modal_sensory_trace_until_token
+                and not (
+                    self.token_count - self._last_self_criticism_token
+                    >= self._self_criticism_interval
+                    and (
+                        len(self._recent_visual_frames) >= 3
+                        or len(self._recent_audio_frames) >= 3
+                    )
+                )
+            )
+
+            if fast_text_idle_skip:
+                record_text_skip = getattr(
+                    self.model.cross_modal,
+                    "record_text_idle_skip",
+                    None,
+                )
+                if callable(record_text_skip):
+                    record_text_skip()
+                self._cross_modal_fast_idle_skip_count += 1
+                if hasattr(self, "_cached_cross_modal_conf"):
+                    cross_modal_visual_conf, cross_modal_audio_conf = (
+                        self._cached_cross_modal_conf
+                    )
 
             # Visual path — fire BEFORE text
-            if visual_spikes is not None:
+            elif visual_spikes is not None:
+                # Use L2-normalized raw pattern as text representation for
+                # cross-modal Hebbian learning and alignment gates.
+                text_spike = F.normalize(
+                    x.detach().unsqueeze(0),
+                    dim=1,
+                ).squeeze(0)
+                cross_modal_text_spike_prepared = True
                 vs = visual_spikes.to(self.model.device)
                 accept_visual = True
                 if self.developmental_stage >= 2:
@@ -1335,7 +1559,13 @@ class MarulhoTrainer:
                     self.model.cross_modal.on_visual_spike(vs)
 
             # Audio path — fire BEFORE text
-            if audio_spikes is not None:
+            if not fast_text_idle_skip and audio_spikes is not None:
+                if text_spike is None:
+                    text_spike = F.normalize(
+                        x.detach().unsqueeze(0),
+                        dim=1,
+                    ).squeeze(0)
+                    cross_modal_text_spike_prepared = True
                 aus = audio_spikes.to(self.model.device)
                 accept_audio = True
                 if self.developmental_stage >= 2:
@@ -1357,14 +1587,38 @@ class MarulhoTrainer:
                 1,
                 int(self.config.cross_modal_text_idle_probe_interval_tokens),
             )
+            if not fast_text_idle_skip and text_has_sensory_evidence:
+                trace_window = max(
+                    1,
+                    int(round(float(self.config.cross_modal_tau_trace))),
+                )
+                self._cross_modal_sensory_trace_until_token = max(
+                    self._cross_modal_sensory_trace_until_token,
+                    self.token_count + trace_window,
+                )
+            has_cross_modal_trace = (
+                self.token_count <= self._cross_modal_sensory_trace_until_token
+            )
             text_probe_due = (
-                text_has_sensory_evidence
-                or self.token_count % text_probe_interval == 0
+                not fast_text_idle_skip
+                and (
+                    text_has_sensory_evidence
+                    or (
+                        has_cross_modal_trace
+                        and self.token_count % text_probe_interval == 0
+                    )
+                )
             )
             if text_probe_due:
+                if text_spike is None:
+                    text_spike = F.normalize(
+                        x.detach().unsqueeze(0),
+                        dim=1,
+                    ).squeeze(0)
+                    cross_modal_text_spike_prepared = True
                 # Text spike LAST — now visual/audio traces contain current data
                 self.model.cross_modal.on_text_spike(text_spike)
-            else:
+            elif not fast_text_idle_skip:
                 record_text_skip = getattr(
                     self.model.cross_modal,
                     "record_text_idle_skip",
@@ -1374,7 +1628,7 @@ class MarulhoTrainer:
                     record_text_skip()
 
             # Cross-modal confidence — periodic (every 10 steps) for metrics only
-            if _telemetry_tick:
+            if not fast_text_idle_skip and _telemetry_tick:
                 cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
                 cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
                 self._cached_cross_modal_conf = (cross_modal_visual_conf, cross_modal_audio_conf)
@@ -1382,13 +1636,13 @@ class MarulhoTrainer:
                 cross_modal_visual_conf, cross_modal_audio_conf = self._cached_cross_modal_conf
 
             # Buffer visual frames for self-criticism (§7.4)
-            if visual_spikes is not None and cross_modal_visual_accepted:
+            if not fast_text_idle_skip and visual_spikes is not None and cross_modal_visual_accepted:
                 self._recent_visual_frames.append(vs.detach().clone())
                 if len(self._recent_visual_frames) > self._visual_frame_limit:
                     self._recent_visual_frames = self._recent_visual_frames[-self._visual_frame_limit:]
 
             # Buffer audio frames for audio self-criticism (§7.4)
-            if audio_spikes is not None and cross_modal_audio_accepted:
+            if not fast_text_idle_skip and audio_spikes is not None and cross_modal_audio_accepted:
                 self._recent_audio_frames.append(aus.detach().clone())
                 if len(self._recent_audio_frames) > self._audio_frame_limit:
                     self._recent_audio_frames = self._recent_audio_frames[-self._audio_frame_limit:]
@@ -1396,7 +1650,8 @@ class MarulhoTrainer:
             # Periodic self-criticism loop (§7.4) — visual AND audio
             n_visual = len(self._recent_visual_frames)
             n_audio = len(self._recent_audio_frames)
-            if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
+            if (not fast_text_idle_skip
+                    and self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
                     and (n_visual >= 3 or n_audio >= 3)):
                 early_stage = n_visual < 10
                 sc_checked = 0
@@ -1426,33 +1681,93 @@ class MarulhoTrainer:
                         "token": self.token_count,
                     })
                 self._last_self_criticism_token = self.token_count
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["cross_modal"] = profile_totals.get("cross_modal", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         updated_indices = winners
-        updated_id_list = winner_id_list
+        updated_id_list: list[int] | None = winner_id_list
         if int(self.model.competitive.last_revived_indices.numel()) > 0:
             updated_indices = torch.unique(
                 torch.cat([winners, self.model.competitive.last_revived_indices.to(self.model.device)]),
                 sorted=True,
             )
             updated_id_list = updated_indices.detach().cpu().tolist()
-        winner_vectors = self.model.competitive.prototypes[updated_indices].detach()
-        self._buffer_hnsw_update(
-            updated_indices,
-            winner_vectors,
-            known_ids=updated_id_list,
-        )
+        if (
+            int(self.model.competitive.last_revived_indices.numel()) == 0
+            and self._column_transition_runtime.last_tick_used_device_owned_routing_cache()
+        ):
+            self._routing_index_device_update_count += int(
+                updated_indices.numel()
+            )
+            self._routing_index_buffer_skip_count += int(
+                updated_indices.numel()
+            )
+            self._routing_index_cpu_mirror_stale = True
+        else:
+            winner_vectors = self.model.competitive.prototypes[
+                updated_indices
+            ].detach()
+            self._buffer_hnsw_update(
+                updated_indices,
+                winner_vectors,
+                known_ids=updated_id_list,
+            )
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["routing_index_buffer"] = profile_totals.get("routing_index_buffer", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
         next_token = self.token_count + 1
         warm_started = self._maybe_warm_start_memory(next_token)
-        capture_tag = max(0.0, float(recon_error))
-        text_context = self._update_stream_text(raw_window)
+        capture_tag = max(0.0, float(metrics["recon_error"]))
         memory_index = None
+        slow_memory_archive_interval = max(
+            1,
+            int(self.config.slow_memory_archive_interval_tokens),
+        )
+        strong_capture_threshold = float(
+            self.config.slow_memory_archive_strong_capture_threshold
+        )
+        slow_memory_archive_reason = "memory_not_warm"
+        slow_memory_archive_due = False
         if self.memory_warm_started:
+            if next_token == 1:
+                slow_memory_archive_due = True
+                slow_memory_archive_reason = "first_token"
+            elif next_token % slow_memory_archive_interval == 0:
+                slow_memory_archive_due = True
+                slow_memory_archive_reason = "cadence"
+            elif capture_tag >= strong_capture_threshold:
+                slow_memory_archive_due = True
+                slow_memory_archive_reason = "strong_capture"
+            else:
+                slow_memory_archive_reason = "cadence_skip"
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["memory_gate"] = profile_totals.get("memory_gate", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
+        text_context = str(raw_window) if slow_memory_archive_due and raw_window is not None else None
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["stream_text_context"] = profile_totals.get(
+                "stream_text_context", 0.0
+            ) + (profile_now - profile_last) * 1000.0
+            profile_last = profile_now
+        if self.memory_warm_started and slow_memory_archive_due:
+            _, archive_winner_id = _materialize_winner_ids()
             memory_index = self.model.memory_store.update(
                 assembly,
                 importance=max(1e-3, abs(effective_modulator)),
                 token_count=next_token,
-                bucket_id=winner_id,
+                bucket_id=archive_winner_id,
                 input_pattern=x,
                 routing_key=routing_key,
                 raw_window=raw_window,
@@ -1460,21 +1775,78 @@ class MarulhoTrainer:
                 metadata=memory_metadata,
                 capture_tag=capture_tag,
             )
-        self.last_winner = winner_id
+            self._slow_memory_archive_count += 1
+        elif self.memory_warm_started:
+            self._slow_memory_archive_skip_count += 1
+        self._slow_memory_last_archive_reason = slow_memory_archive_reason
+        if winner_id is not None:
+            self.last_winner = int(winner_id)
+            self._winner_host_mirror_sync_count += 1
+            self._winner_host_mirror_fresh = True
+        elif graph_winner_host_mirror_can_skip:
+            self._winner_host_mirror_skip_count += 1
+            self._winner_host_mirror_fresh = False
+        else:
+            _, current_winner_id = _materialize_winner_ids()
+            self.last_winner = current_winner_id
+            self._winner_host_mirror_sync_count += 1
+            self._winner_host_mirror_fresh = True
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["memory_archive"] = profile_totals.get("memory_archive", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_last = profile_now
 
-        # Surprise update from reconstruction mismatch proxy.
-        winner_proto = self.model.competitive.prototypes[winners[0]]
-        self.model.surprise.update("competitive", winner_proto, routing_key)
+        graph_competitive_surprise = (
+            self._column_transition_runtime.consume_graph_competitive_surprise()
+        )
+        if (
+            graph_competitive_surprise is None
+            and not (
+                prepared_routing is not None
+                and self._column_transition_runtime.graph_owns_competitive_surprise()
+            )
+        ):
+            winner_proto = self.model.competitive.prototypes[winners[0]]
+            self.model.surprise.update("competitive", winner_proto, routing_key)
+        elif graph_competitive_surprise is not None:
+            self.model.surprise.record_error(
+                "competitive",
+                graph_competitive_surprise,
+            )
 
-        # Awake ripple tagging: when DA is high, tag recent memories for
-        # priority replay during sleep (Yang & Buzsaki 2024)
+        # Awake ripple tagging supports replay priority, so it follows the
+        # slow-memory archive cadence instead of scanning memory every hot tick.
         da_level = self.model.surprise.dopamine
-        if da_level > 0.7 and self.memory_warm_started:
-            self.model.memory_store.ripple_tag_awake(
+        awake_ripple_due = bool(
+            self.memory_warm_started
+            and slow_memory_archive_due
+            and da_level > 0.7
+        )
+        if awake_ripple_due:
+            tagged = self.model.memory_store.ripple_tag_awake(
                 current_token=next_token,
                 window_tokens=max(1, self.config.functional_minute // 2),
                 da_level=da_level,
             )
+            self._awake_ripple_tag_count += 1
+            self._awake_ripple_last_tagged = int(tagged)
+            self._awake_ripple_last_reason = str(slow_memory_archive_reason)
+        elif da_level > 0.7 and self.memory_warm_started:
+            self._awake_ripple_tag_skip_count += 1
+            self._awake_ripple_last_tagged = 0
+            self._awake_ripple_last_reason = "cadence_skip"
+        elif not self.memory_warm_started:
+            self._awake_ripple_last_reason = "memory_not_warm"
+        else:
+            self._awake_ripple_last_reason = "dopamine_below_threshold"
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["post_surprise_replay_tag"] = profile_totals.get(
+                "post_surprise_replay_tag", 0.0
+            ) + (profile_now - profile_last) * 1000.0
+            profile_last = profile_now
 
         self.token_count = next_token
         if warm_started:
@@ -1612,11 +1984,42 @@ class MarulhoTrainer:
         metrics["cross_modal_text_idle_skip_count"] = int(
             getattr(cross_modal_layer, "runtime_text_idle_skip_count", 0)
         )
+        metrics["cross_modal_fast_idle_skip_count"] = int(
+            self._cross_modal_fast_idle_skip_count
+        )
         metrics["cross_modal_text_idle_probe_interval_tokens"] = int(
             self.config.cross_modal_text_idle_probe_interval_tokens
         )
+        metrics["cross_modal_text_spike_prepared"] = int(
+            cross_modal_text_spike_prepared
+        )
         metrics["developmental_stage"] = self.developmental_stage
-        metrics["winner"] = winner_id
+        metrics["winner"] = (
+            int(winner_id)
+            if winner_id is not None
+            else None
+            if self.last_winner is None
+            else int(self.last_winner)
+        )
+        metrics["winner_host_mirror_fresh"] = int(self._winner_host_mirror_fresh)
+        metrics["winner_host_mirror_sync_count"] = int(
+            self._winner_host_mirror_sync_count
+        )
+        metrics["winner_host_mirror_skip_count"] = int(
+            self._winner_host_mirror_skip_count
+        )
+        metrics["routing_index_device_update_count"] = int(
+            self._routing_index_device_update_count
+        )
+        metrics["routing_index_buffer_skip_count"] = int(
+            self._routing_index_buffer_skip_count
+        )
+        metrics["routing_index_host_mirror_sync_count"] = int(
+            self._routing_index_host_mirror_sync_count
+        )
+        metrics["routing_index_cpu_mirror_stale"] = int(
+            self._routing_index_cpu_mirror_stale
+        )
         if _telemetry_tick:
             _active = int((assembly > 0).sum().item())
             _sparsity = float((assembly > 0).float().mean().item())
@@ -1625,6 +2028,30 @@ class MarulhoTrainer:
             self._cached_active_sparsity = (0, 0.0)
         metrics["active_columns"], metrics["sparsity"] = self._cached_active_sparsity
         metrics["memory_index"] = None if memory_index is None else int(memory_index)
+        metrics["slow_memory_archive_interval_tokens"] = int(
+            slow_memory_archive_interval
+        )
+        metrics["slow_memory_archive_due"] = int(slow_memory_archive_due)
+        metrics["slow_memory_archive_reason"] = str(slow_memory_archive_reason)
+        metrics["slow_memory_archive_count"] = int(self._slow_memory_archive_count)
+        metrics["slow_memory_archive_skip_count"] = int(
+            self._slow_memory_archive_skip_count
+        )
+        metrics["awake_ripple_tag_count"] = int(self._awake_ripple_tag_count)
+        metrics["awake_ripple_tag_skip_count"] = int(
+            self._awake_ripple_tag_skip_count
+        )
+        metrics["awake_ripple_last_reason"] = str(self._awake_ripple_last_reason)
+        metrics["awake_ripple_last_tagged"] = int(self._awake_ripple_last_tagged)
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            profile_totals["metrics_build"] = profile_totals.get("metrics_build", 0.0) + (
+                profile_now - profile_last
+            ) * 1000.0
+            profile_totals["total"] = profile_totals.get("total", 0.0) + (
+                profile_now - profile_started
+            ) * 1000.0
+            self._train_step_profile_count += 1
         return metrics
 
     def reconstruction_error(self, pattern_vec: torch.Tensor) -> float:

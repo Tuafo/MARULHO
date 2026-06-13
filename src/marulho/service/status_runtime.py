@@ -192,6 +192,82 @@ class RuntimeStatusCore:
             "last_ripple_scan_mode": str(
                 memory_store.get("last_ripple_scan_mode") or "not_run"
             ),
+            "slow_memory_archive_interval_tokens": int(
+                getattr(
+                    self._trainer.config,
+                    "slow_memory_archive_interval_tokens",
+                    1,
+                )
+            ),
+            "slow_memory_archive_count": int(
+                getattr(self._trainer, "_slow_memory_archive_count", 0)
+            ),
+            "slow_memory_archive_skip_count": int(
+                getattr(self._trainer, "_slow_memory_archive_skip_count", 0)
+            ),
+            "slow_memory_last_archive_reason": str(
+                getattr(self._trainer, "_slow_memory_last_archive_reason", "not_run")
+            ),
+            "awake_ripple_tag_count": int(
+                getattr(self._trainer, "_awake_ripple_tag_count", 0)
+            ),
+            "awake_ripple_tag_skip_count": int(
+                getattr(self._trainer, "_awake_ripple_tag_skip_count", 0)
+            ),
+            "awake_ripple_last_reason": str(
+                getattr(self._trainer, "_awake_ripple_last_reason", "not_run")
+            ),
+            "awake_ripple_last_tagged": int(
+                getattr(self._trainer, "_awake_ripple_last_tagged", 0)
+            ),
+        }
+        cross_modal_hot_path = {
+            "fast_idle_skip_count": int(
+                getattr(self._trainer, "_cross_modal_fast_idle_skip_count", 0)
+            ),
+            "text_idle_skip_count": int(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "runtime_text_idle_skip_count",
+                    0,
+                )
+            ),
+            "text_update_count": int(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "runtime_text_update_count",
+                    0,
+                )
+            ),
+            "last_text_execution_mode": str(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "last_text_runtime_execution_mode",
+                    "disabled",
+                )
+            ),
+        }
+        routing_index_hot_path = {
+            "device_update_count": int(
+                getattr(self._trainer, "_routing_index_device_update_count", 0)
+            ),
+            "buffer_skip_count": int(
+                getattr(self._trainer, "_routing_index_buffer_skip_count", 0)
+            ),
+            "host_mirror_sync_count": int(
+                getattr(
+                    self._trainer,
+                    "_routing_index_host_mirror_sync_count",
+                    0,
+                )
+            ),
+            "cpu_mirror_stale": bool(
+                getattr(
+                    self._trainer,
+                    "_routing_index_cpu_mirror_stale",
+                    False,
+                )
+            ),
         }
 
         return {
@@ -226,6 +302,8 @@ class RuntimeStatusCore:
                 "column_runtime": column_runtime,
                 "column_transition_runtime": column_transition_runtime,
                 "memory_hot_path": memory_hot_path,
+                "cross_modal_hot_path": cross_modal_hot_path,
+                "routing_index_hot_path": routing_index_hot_path,
             },
         }
 
@@ -631,6 +709,9 @@ class RuntimeStatusCore:
         )
         return {
             "enabled": bool(ingestion.get("enabled", True)),
+            "encoder_execution_mode": "bounded_batched_inference",
+            "hot_path_chunk_plasticity": False,
+            "chunk_plasticity_path": "explicit_training_or_remote_bootstrap",
             "queue_target_tokens": int(queue_target_tokens),
             "prewarm_on_startup": bool(ingestion.get("prewarm_on_startup", False)),
             "prewarm_max_seconds": float(ingestion.get("prewarm_max_seconds", 5.0)),
@@ -656,6 +737,11 @@ class RuntimeStatusCore:
             "prefetch_events": int(sum(runtime.prefetch_events for runtime in self._brain_source_runtimes)),
             "prefetched_tokens": int(sum(runtime.prefetched_tokens for runtime in self._brain_source_runtimes)),
             "queue_hits": int(sum(runtime.queue_hits for runtime in self._brain_source_runtimes)),
+            "cache_write_count": int(sum(runtime.cache_write_count for runtime in self._brain_source_runtimes)),
+            "cache_schedule_count": int(sum(runtime.cache_schedule_count for runtime in self._brain_source_runtimes)),
+            "cache_skip_count": int(sum(runtime.cache_skip_count for runtime in self._brain_source_runtimes)),
+            "cache_failure_count": int(sum(runtime.cache_failure_count for runtime in self._brain_source_runtimes)),
+            "cache_pending_count": int(sum(bool(runtime.cache_pending) for runtime in self._brain_source_runtimes)),
             "last_prefetch_at": latest_prefetch_at,
         }
 

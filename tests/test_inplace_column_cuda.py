@@ -171,6 +171,22 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         prediction_failure_streak.clone(),
         confidence.clone(),
     ]
+    route_ids = torch.randperm(
+        n_columns,
+        generator=generator,
+        device=device,
+    )
+    routing_vectors = actual_state[0].index_select(0, route_ids).clone()
+    routing_position_by_column = torch.empty(
+        n_columns,
+        dtype=torch.long,
+        device=device,
+    )
+    routing_position_by_column[route_ids] = torch.arange(
+        n_columns,
+        dtype=torch.long,
+        device=device,
+    )
     recent_spike_window = torch.zeros(4, n_columns, device=device)
     recent_spike_row = torch.tensor(2, dtype=torch.int32, device=device)
     assembly = torch.empty(n_columns, device=device)
@@ -179,6 +195,8 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
 
     inplace_column_transition_cuda(
         prototypes=actual_state[0],
+        routing_vectors=routing_vectors,
+        routing_position_by_column=routing_position_by_column,
         prototype_velocity=actual_state[1],
         thresholds=actual_state[2],
         win_rate_ema=actual_state[3],
@@ -244,4 +262,10 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
     assert effective_modulator_out.item() == pytest.approx(
         expected[16].item(),
         abs=2e-5,
+    )
+    assert torch.allclose(
+        routing_vectors.index_select(0, routing_position_by_column),
+        actual_state[0],
+        atol=2e-5,
+        rtol=2e-5,
     )

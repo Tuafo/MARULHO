@@ -413,6 +413,111 @@ class TestPredictiveColumnsInTrainer:
         assert terms == {"alpha", "beta", "memory"}
         assert trainer._cached_episode_terms is terms
 
+    def test_train_step_archives_raw_window_without_stream_episode_rebuild(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            slow_memory_archive_interval_tokens=1,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="alpha")
+        metrics = trainer.train_step(torch.randn(cfg.input_dim), raw_window="alpha beta")
+
+        assert metrics["slow_memory_archive_due"] == 1
+        assert trainer.model.memory_store.slow_texts[-1] == "alpha beta"
+        assert trainer._cached_episode_text is None
+        assert trainer._recent_stream_text == ""
+
+    def test_trainer_train_step_profile_is_opt_in(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(n_columns=8, column_latent_dim=4, bootstrap_tokens=0, memory_capacity=16)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="alpha beta")
+        disabled_report = trainer.train_step_profile_report()
+        assert disabled_report["enabled"] is False
+        assert disabled_report["count"] == 0
+
+        trainer.enable_train_step_profile()
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="gamma delta")
+        report = trainer.train_step_profile_report()
+
+        assert report["enabled"] is True
+        assert report["count"] == 1
+        assert report["totals_ms"]["total"] > 0.0
+        assert "routing_prepare" in report["per_tick_ms"]
+        assert "metrics_build" in report["per_tick_ms"]
+
+    def test_trainer_cadences_slow_memory_archival(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            slow_memory_archive_interval_tokens=3,
+            slow_memory_archive_strong_capture_threshold=999.0,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+
+        metrics = {}
+        for step in range(5):
+            metrics = trainer.train_step(
+                torch.randn(cfg.input_dim),
+                raw_window=f"memory cadence {step}",
+            )
+
+        assert model.memory_store.update_calls == 2
+        assert metrics["slow_memory_archive_interval_tokens"] == 3
+        assert metrics["slow_memory_archive_count"] == 2
+        assert metrics["slow_memory_archive_skip_count"] == 3
+        assert metrics["slow_memory_archive_reason"] == "cadence_skip"
+
+    def test_trainer_cadences_awake_ripple_tagging_with_archive(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            slow_memory_archive_interval_tokens=3,
+            slow_memory_archive_strong_capture_threshold=999.0,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.model.surprise.dopamine = 0.95
+        trainer.model.surprise.update_neuromodulators = lambda *args, **kwargs: None
+
+        metrics = {}
+        for step in range(5):
+            metrics = trainer.train_step(
+                torch.randn(cfg.input_dim),
+                raw_window=f"ripple cadence {step}",
+            )
+
+        assert model.memory_store.ripple_scalar_scan_count == 2
+        assert metrics["awake_ripple_tag_count"] == 2
+        assert metrics["awake_ripple_tag_skip_count"] == 3
+        assert metrics["awake_ripple_last_reason"] == "cadence_skip"
+
     def test_trainer_delays_candidate_scoped_predictive_updates(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel

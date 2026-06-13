@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import torch
 import pytest
 
@@ -10,6 +11,7 @@ from marulho.core.inplace_column_cuda import (
     select_fused_vote_competition_cuda,
     select_single_winner_cuda,
 )
+from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -201,6 +203,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
         enable_context_layer=False,
         enable_binding_layer=False,
         enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
         device="cuda",
     )
     trainer = MarulhoTrainer(MarulhoModel(config), config)
@@ -220,6 +223,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     assert torch.equal(candidates, expected[0])
     assert runtime.handles_route_vote is True
     assert runtime.route_vote_execution_count == 1
+    assert runtime.route_vote_clean_cache_reuse_count == 1
     assert runtime.route_candidates(routing_key, sensory_tick=True) is None
     assert runtime.route_vote_sensory_fallback_count == 1
 
@@ -273,6 +277,7 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     graph_config = replace(
         config,
         predictive_route_vote_mode="cuda_graph_text",
+        cuda_graph_host_truth_sync_interval_tokens=1,
     )
     torch.manual_seed(20260612)
     graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
@@ -331,13 +336,162 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
             graph.model.competitive.recent_spike_window,
         ),
     ):
-        assert torch.equal(retained_tensor, graph_tensor)
+        assert torch.allclose(
+            retained_tensor,
+            graph_tensor,
+            rtol=0.0,
+            atol=1e-7,
+        )
+    retained_errors = list(
+        retained.model.surprise.layers["competitive"]["errors"]
+    )
+    graph_errors = list(graph.model.surprise.layers["competitive"]["errors"])
+    assert graph_errors == pytest.approx(retained_errors, abs=1e-7)
+    assert (
+        graph.model.surprise.layers["competitive"]["precision"]
+        == pytest.approx(
+            retained.model.surprise.layers["competitive"]["precision"],
+            rel=1e-6,
+        )
+    )
     final_report = graph.column_transition_runtime_report()
     graph_runtime = final_report["cuda_graph_route_transition"]
+    route_vectors, route_ids = graph.model.hnsw_index.routing_tensor_cache()
+    route_positions = torch.empty(
+        config.n_columns,
+        dtype=torch.long,
+        device="cuda",
+    )
+    route_positions[route_ids] = torch.arange(
+        config.n_columns,
+        dtype=torch.long,
+        device="cuda",
+    )
+    assert torch.allclose(
+        route_vectors.index_select(0, route_positions),
+        graph.model.competitive.prototypes,
+        rtol=0.0,
+        atol=1e-7,
+    )
     assert final_report["last_execution_mode"] == "cuda_graph_route_transition"
     assert graph_runtime["pre_route_replay_count"] == 16
+    assert graph_runtime["tick_replay_count"] == 16
     assert graph_runtime["replay_count"] == 16
+    assert graph_runtime["host_truth_sync_count"] == 16
+    assert graph_runtime["host_truth_skip_count"] == 0
+    assert graph_runtime["surprise_update_count"] == 16
+    assert graph_runtime["host_truth_mirror_update_count"] == 16
+    assert graph_runtime["competitive_surprise_update_count"] == 16
+    assert graph_runtime["route_cache_generation_fastpath_count"] == 16
+    assert graph_runtime["route_cache_clean_fastpath_count"] == 0
+    assert graph_runtime["route_cache_generation_mismatch_count"] == 0
+    assert graph_runtime["route_cache_device_owned"] is True
+    assert graph_runtime["route_cache_device_update_count"] == 16
+    assert graph_runtime["persistent_tick_graph"] is True
+    assert graph_runtime["owns_competitive_surprise"] is True
+    assert graph_runtime["owns_neuromodulator_update"] is True
     assert graph_runtime["failure_count"] == 0
+    assert graph_runtime["previous_flag_device_owned_count"] == 16
+    assert graph_runtime["learning_rate_device_owned_count"] == 16
+    assert graph_runtime["learning_rate_host_resync_count"] == 0
+    assert graph_runtime["modulator_stage_copy_count"] == 16
+    assert graph_runtime["modulator_stage_skip_count"] == 0
+    assert final_report["route_vote_prepared_graph_reuse_count"] == 16
+    assert graph_metrics["routing_index_device_update_count"] == 16
+    assert graph_metrics["routing_index_buffer_skip_count"] == 16
+    assert graph_metrics["routing_index_host_mirror_sync_count"] == 0
+    assert graph_metrics["routing_index_cpu_mirror_stale"] == 1
+    assert graph._hnsw_buffer_ids == []
+    assert graph._hnsw_buffer_vecs == []
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=4,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.enable_train_step_profile()
+    for index in range(8):
+        trainer.train_step(
+            torch.rand(config.input_dim, device="cuda"),
+            raw_window=f"cadenced graph truth {index}",
+            allow_sleep_maintenance=False,
+        )
+
+    report = trainer.column_transition_runtime_report()["cuda_graph_route_transition"]
+    assert report["tick_replay_count"] == 8
+    assert report["surprise_update_count"] == 8
+    assert report["host_truth_sync_interval_tokens"] == 4
+    assert report["host_truth_sync_count"] == 3
+    assert report["host_truth_skip_count"] == 5
+    assert report["host_truth_mirror_update_count"] == 3
+    assert report["last_result_from_host_sync"] is True
+    assert report["competitive_surprise_update_count"] == 3
+    assert report["failure_count"] == 0
+    runtime_report = trainer.column_transition_runtime_report()
+    assert runtime_report["graph_host_winner_reuse_count"] == 3
+    assert runtime_report["winner_host_mirror_sync_count"] == 3
+    assert runtime_report["winner_host_mirror_skip_count"] == 5
+    assert runtime_report["winner_host_mirror_fresh"] is True
+    assert len(trainer.model.surprise.layers["competitive"]["errors"]) == 3
+    profile = trainer.train_step_profile_report()["per_tick_ms"]
+    assert profile["cuda_graph_prepare_parameter_stage"] >= 0.0
+    assert profile["cuda_graph_prepare_recent_row_fill"] >= 0.0
+    assert profile["cuda_graph_prepare_input_stage"] >= 0.0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_fails_closed_when_consolidation_cache_generation_changes() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.memory_warm_started = True
+    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+    graph = trainer._column_transition_runtime._cuda_graph_runtime
+    assert graph is not None
+    assert graph.active is True
+
+    assert graph.eligible(assume_route_cache_current=True) is True
+    trainer.model.memory_store._invalidate_bucket_consolidation_cache()
+
+    assert graph.eligible(assume_route_cache_current=True) is False
+    report = graph.report()
+    assert report["active"] is False
+    assert report["fallback_reason"] == (
+        "cuda_graph_consolidation_cache_generation_changed"
+    )
+    assert report["consolidation_cache_generation_fastpath_count"] == 1
+    assert report["consolidation_cache_generation_mismatch_count"] == 1
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -370,6 +524,176 @@ def test_cuda_graph_pre_route_bypasses_sensory_ticks() -> None:
     assert prepared is None
     assert report["pre_route_sensory_bypass_count"] == 1
     assert report["pre_route_replay_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_learning_rate_counter_resyncs_after_sensory_fallback() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    for index, sensory_tick in enumerate((False, True, False)):
+        trainer.train_step(
+            torch.rand(config.input_dim, device="cuda"),
+            raw_window=f"lr counter resync {index}",
+            visual_spikes=(
+                torch.rand(config.input_dim, device="cuda")
+                if sensory_tick
+                else None
+            ),
+            allow_sleep_maintenance=False,
+        )
+
+    report = trainer.column_transition_runtime_report()[
+        "cuda_graph_route_transition"
+    ]
+    assert report["tick_replay_count"] == 2
+    assert report["pre_route_sensory_bypass_count"] == 1
+    assert report["learning_rate_device_owned_count"] == 2
+    assert report["learning_rate_host_resync_count"] == 1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_device_owned_route_cache_syncs_host_mirror_before_retained_flush() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="device route cache owner",
+        allow_sleep_maintenance=False,
+    )
+    assert trainer._routing_index_cpu_mirror_stale is True
+    assert trainer._routing_index_host_mirror_sync_count == 0
+
+    trainer._hnsw_flush_interval = 1
+    retained_id = torch.tensor([0], dtype=torch.long, device="cuda")
+    trainer._buffer_hnsw_update(
+        retained_id,
+        trainer.model.competitive.prototypes.index_select(
+            0,
+            retained_id,
+        ),
+        known_ids=[0],
+    )
+
+    assert trainer._routing_index_cpu_mirror_stale is False
+    assert trainer._routing_index_host_mirror_sync_count == 1
+    assert trainer._hnsw_buffer_ids == []
+    assert trainer._hnsw_buffer_vecs == []
+    normalized = torch.nn.functional.normalize(
+        trainer.model.competitive.prototypes.detach(),
+        dim=1,
+    ).cpu()
+    for column_id in range(config.n_columns):
+        index = trainer.model.hnsw_index
+        store_owner = (
+            index.shards[index.shard_for_id(column_id)]
+            if hasattr(index, "shards")
+            else index
+        )
+        assert np.allclose(
+            store_owner._vector_store[column_id],
+            normalized[column_id].numpy(),
+            atol=1e-6,
+        )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_modulator_stage_is_revision_cached_between_host_syncs() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=4,
+        device="cuda",
+    )
+    torch.manual_seed(20260615)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    for index in range(8):
+        trainer.train_step(
+            torch.rand(config.input_dim, device="cuda"),
+            raw_window=f"modulator cache {index}",
+            allow_sleep_maintenance=False,
+        )
+
+    report = trainer.column_transition_runtime_report()[
+        "cuda_graph_route_transition"
+    ]
+    assert report["tick_replay_count"] == 8
+    assert report["host_truth_sync_count"] == 3
+    assert report["modulator_stage_copy_count"] == 3
+    assert report["modulator_stage_skip_count"] == 5
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_pre_route_bypasses_bootstrap_ticks() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=4,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    runtime = trainer._column_transition_runtime
+
+    prepared = runtime.prepare_routing(
+        torch.rand(config.input_dim, device="cuda"),
+        sensory_tick=False,
+    )
+    report = runtime.report()["cuda_graph_route_transition"]
+
+    assert prepared is None
+    assert report["pre_route_bootstrap_bypass_count"] == 1
+    assert report["tick_replay_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

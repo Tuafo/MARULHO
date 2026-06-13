@@ -78,6 +78,16 @@ def _run_arm(
     trainer.config.deep_sleep_interval_tokens = 10**9
     if executor == "inplace_triton_runtime":
         install_inplace_transition_for_benchmark(trainer)
+    elif executor in {"fused_triton_text_runtime", "cuda_graph_text_runtime"}:
+        from marulho.evaluation.fused_route_vote_hot_window_benchmark import (
+            install_cuda_graph_route_transition_for_benchmark,
+            install_fused_route_vote_for_benchmark,
+        )
+
+        if executor == "fused_triton_text_runtime":
+            install_fused_route_vote_for_benchmark(trainer)
+        else:
+            install_cuda_graph_route_transition_for_benchmark(trainer)
     elif executor != "runtime":
         raise ValueError(f"unsupported transition executor: {executor}")
 
@@ -162,6 +172,7 @@ def _run_arm(
         "spike_health": trainer.model.competitive.spike_health_report(),
         "memory": memory,
         "state_finite": _state_is_finite(trainer),
+        "column_transition_runtime": trainer.column_transition_runtime_report(),
         "grounding": {
             "cross_modal_layer_configured": trainer.model.cross_modal is not None,
             "quality_evidence_available": False,
@@ -289,6 +300,8 @@ def run_inplace_transition_quality_benchmark(
     warmup_steps: int = 8,
     seed: int = 20260620,
     output_path: str | Path | None = None,
+    baseline_executor: str = "runtime",
+    variant_executor: str = "inplace_triton_runtime",
 ) -> dict[str, Any]:
     if samples <= 0:
         raise ValueError("samples must be positive")
@@ -311,14 +324,14 @@ def run_inplace_transition_quality_benchmark(
 
     baseline = _run_arm(
         checkpoint,
-        executor="runtime",
+        executor=baseline_executor,
         patterns=patterns,
         warmup_steps=warmup_steps,
     )
     torch.cuda.empty_cache()
     variant = _run_arm(
         checkpoint,
-        executor="inplace_triton_runtime",
+        executor=variant_executor,
         patterns=patterns,
         warmup_steps=warmup_steps,
     )
@@ -343,6 +356,8 @@ def run_inplace_transition_quality_benchmark(
         "seed": int(seed),
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
+        "baseline_executor": baseline_executor,
+        "variant_executor": variant_executor,
         "baseline": baseline,
         "variant": variant,
         "comparison": comparison,
@@ -380,6 +395,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--samples", type=int, default=128)
     parser.add_argument("--warmup-steps", type=int, default=8)
     parser.add_argument("--seed", type=int, default=20260620)
+    parser.add_argument(
+        "--baseline-executor",
+        choices=(
+            "runtime",
+            "inplace_triton_runtime",
+            "fused_triton_text_runtime",
+            "cuda_graph_text_runtime",
+        ),
+        default="runtime",
+    )
+    parser.add_argument(
+        "--variant-executor",
+        choices=(
+            "runtime",
+            "inplace_triton_runtime",
+            "fused_triton_text_runtime",
+            "cuda_graph_text_runtime",
+        ),
+        default="inplace_triton_runtime",
+    )
     args = parser.parse_args(argv)
     report = run_inplace_transition_quality_benchmark(
         checkpoint_path=args.checkpoint,
@@ -387,6 +422,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         warmup_steps=args.warmup_steps,
         seed=args.seed,
         output_path=args.output,
+        baseline_executor=args.baseline_executor,
+        variant_executor=args.variant_executor,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["status"] != "blocked_quality_regression" else 1

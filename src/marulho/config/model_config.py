@@ -126,6 +126,8 @@ class MarulhoConfig:
     stc_prp_consumption: float = 0.50
     stc_strong_event_threshold: float = 0.60
     slow_memory_start_tokens: int = 0
+    slow_memory_archive_interval_tokens: int = 8
+    slow_memory_archive_strong_capture_threshold: float = 0.95
     use_winner_local_drift: bool = True
 
     drift_threshold: float = 0.02
@@ -182,6 +184,7 @@ class MarulhoConfig:
     binding_pv_threshold: float = 0.12
     binding_pv_gain: float = 0.60
     binding_idle_probe_interval_tokens: int = 4
+    cuda_graph_host_truth_sync_interval_tokens: int = 8
 
     enable_cross_modal: bool = False
     cross_modal_dim_visual: int = 256
@@ -316,6 +319,8 @@ class MarulhoConfig:
             raise ValueError("binding_pv_gain must be non-negative")
         if self.binding_idle_probe_interval_tokens <= 0:
             raise ValueError("binding_idle_probe_interval_tokens must be positive")
+        if self.cuda_graph_host_truth_sync_interval_tokens <= 0:
+            raise ValueError("cuda_graph_host_truth_sync_interval_tokens must be positive")
         if self.cross_modal_text_idle_probe_interval_tokens <= 0:
             raise ValueError("cross_modal_text_idle_probe_interval_tokens must be positive")
         if self.dead_column_steps <= 0:
@@ -336,6 +341,10 @@ class MarulhoConfig:
             raise ValueError("stc_consolidation_rate must be positive")
         if self.functional_minute <= 0:
             raise ValueError("functional_minute must be positive")
+        if self.slow_memory_archive_interval_tokens <= 0:
+            raise ValueError("slow_memory_archive_interval_tokens must be positive")
+        if self.slow_memory_archive_strong_capture_threshold < 0.0:
+            raise ValueError("slow_memory_archive_strong_capture_threshold must be non-negative")
         if self.stc_tag_duration_weak <= 0.0:
             raise ValueError("stc_tag_duration_weak must be positive")
         if self.stc_tag_duration_strong <= 0.0:

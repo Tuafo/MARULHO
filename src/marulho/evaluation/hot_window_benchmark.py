@@ -37,6 +37,7 @@ def run_hot_window_benchmark(
     predictive_transition_mode: str | None = None,
     seed: int = 20260611,
     _trainer_setup: Callable[[object], None] | None = None,
+    profile_trainer_stages: bool = False,
 ) -> dict[str, object]:
     if samples <= 0:
         raise ValueError("samples must be positive")
@@ -99,6 +100,8 @@ def run_hot_window_benchmark(
         torch.cuda.synchronize()
     warmup_elapsed_s = (time.perf_counter_ns() - warmup_started) / 1e9
 
+    if profile_trainer_stages:
+        trainer.enable_train_step_profile(reset=True)
     step_latencies_ms: list[float] = []
     started_window = time.perf_counter_ns()
     for index, pattern in enumerate(patterns[warmup_steps:], start=warmup_steps):
@@ -114,6 +117,13 @@ def run_hot_window_benchmark(
             torch.cuda.synchronize()
         step_latencies_ms.append((time.perf_counter_ns() - started_step) / 1e6)
     total_elapsed_s = (time.perf_counter_ns() - started_window) / 1e9
+    trainer_stage_profile: dict[str, object] | None = None
+    if profile_trainer_stages:
+        trainer_stage_profile = dict(trainer.train_step_profile_report())
+        trainer_stage_profile["scope"] = (
+            "measured_hot_window_steps_only_no_service_no_source_no_sleep"
+        )
+        trainer.disable_train_step_profile()
 
     tokens_per_second = samples / max(total_elapsed_s, 1e-9)
     step_latencies_ms_sorted = sorted(step_latencies_ms)
@@ -150,6 +160,7 @@ def run_hot_window_benchmark(
             getattr(trainer, "_benchmark_transition_executor", "runtime")
         ),
         "warmup_elapsed_s": warmup_elapsed_s,
+        "trainer_stage_profile": trainer_stage_profile,
         "n_columns": int(trainer.config.n_columns),
         "input_dim": int(trainer.config.input_dim),
         "k_routing": int(trainer.config.k_routing),
@@ -214,6 +225,7 @@ def main() -> int:
         choices=("legacy", "fused_eager", "compiled", "inplace_triton"),
     )
     parser.add_argument("--seed", type=int, default=20260611)
+    parser.add_argument("--profile-trainer-stages", action="store_true")
     args = parser.parse_args()
 
     report = run_hot_window_benchmark(
@@ -224,6 +236,7 @@ def main() -> int:
         merge_torch_shards=not args.disable_merged_torch_shards,
         predictive_transition_mode=args.predictive_transition_mode,
         seed=args.seed,
+        profile_trainer_stages=args.profile_trainer_stages,
     )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:

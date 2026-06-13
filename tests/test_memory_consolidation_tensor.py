@@ -14,6 +14,7 @@ def test_bucket_consolidation_tensor_matches_scalar_lookup_and_invalidates() -> 
     store.slow_consolidation_level = [0.2, 0.6, 0.8]
 
     first = store.bucket_consolidation_tensor(5, device=torch.device("cpu"))
+    first_generation = store.bucket_consolidation_cache_generation
 
     assert torch.allclose(first, torch.tensor([0.0, 0.65, 0.0, 0.6, 0.0]))
     assert first[1].item() == pytest.approx(store.bucket_consolidation_level(1))
@@ -21,10 +22,12 @@ def test_bucket_consolidation_tensor_matches_scalar_lookup_and_invalidates() -> 
 
     store.slow_consolidation_level[1] = 0.9
     store._invalidate_bucket_consolidation_cache()
+    assert store.bucket_consolidation_cache_generation == first_generation + 1
     second = store.bucket_consolidation_tensor(5, device=torch.device("cpu"))
 
     assert second[3].item() == pytest.approx(0.9)
     assert second.data_ptr() != first.data_ptr()
+    assert store.bucket_consolidation_cache_generation == first_generation + 1
 
 
 def test_bucket_consolidation_tensor_updates_one_cached_bucket_on_append() -> None:
@@ -34,6 +37,7 @@ def test_bucket_consolidation_tensor_updates_one_cached_bucket_on_append() -> No
     store.slow_importance = [1.0]
     store.slow_consolidation_level = [0.8]
     cached = store.bucket_consolidation_tensor(4, device=torch.device("cpu"))
+    generation = store.bucket_consolidation_cache_generation
 
     store.slow_buffer.append(torch.zeros(1))
     store.slow_bucket_ids.append(2)
@@ -47,6 +51,7 @@ def test_bucket_consolidation_tensor_updates_one_cached_bucket_on_append() -> No
     )
 
     assert cached[2].item() == pytest.approx(0.2)
+    assert store.bucket_consolidation_cache_generation == generation
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

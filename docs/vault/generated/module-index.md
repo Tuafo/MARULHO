@@ -2,7 +2,7 @@
 type: generated
 source: graphify
 generated_by: "python scripts/build_vault.py"
-last_verified: 2026-06-12
+last_verified: 2026-06-13
 ---
 
 # Generated Module Index
@@ -57,16 +57,16 @@ last_verified: 2026-06-12
 - `src/marulho/service/action_loop.py`: 53 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 60 nodes
+- `src/marulho/training/trainer.py`: 65 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
+- `src/marulho/training/column_transition_runtime.py`: 22 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
+- `src/marulho/training/cuda_graph_route_transition.py`: 20 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
-- `src/marulho/training/column_transition_runtime.py`: 18 nodes
-- `src/marulho/training/model.py`: 16 nodes
 ## marulho.evaluation
 
 - `src/marulho/evaluation/arc_agi.py`: 65 nodes
@@ -81,11 +81,11 @@ last_verified: 2026-06-12
 - `src/marulho/evaluation/compiled_column_kernel_benchmark.py`: 14 nodes
 ## marulho.consolidation
 
-- `src/marulho/consolidation/memory_store.py`: 58 nodes
+- `src/marulho/consolidation/memory_store.py`: 60 nodes
 - `src/marulho/consolidation/__init__.py`: 1 nodes
 ## marulho.retrieval
 
-- `src/marulho/retrieval/hnsw_index.py`: 41 nodes
+- `src/marulho/retrieval/hnsw_index.py`: 53 nodes
 - `src/marulho/retrieval/turboquant_store.py`: 36 nodes
 - `src/marulho/retrieval/ivf_router.py`: 20 nodes
 - `src/marulho/retrieval/decoder.py`: 17 nodes

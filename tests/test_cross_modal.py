@@ -232,7 +232,7 @@ class TestTrainerCrossModalRuntimeWake(unittest.TestCase):
         )
         return MarulhoTrainer(MarulhoModel(cfg), cfg), cfg
 
-    def test_text_only_cross_modal_updates_are_cadenced(self) -> None:
+    def test_text_only_cross_modal_stays_asleep_without_sensory_trace(self) -> None:
         trainer, cfg = self._trainer()
         pattern = torch.rand(cfg.input_dim)
 
@@ -245,11 +245,68 @@ class TestTrainerCrossModalRuntimeWake(unittest.TestCase):
             )
 
         report = trainer.model.cross_modal.device_report()
+        self.assertEqual(report["runtime_text_update_count"], 0)
+        self.assertEqual(report["runtime_text_idle_skip_count"], 4)
+        self.assertEqual(report["last_text_runtime_execution_mode"], "text_idle_cached_state")
+        self.assertEqual(metrics["cross_modal_text_update_count"], 0)
+        self.assertEqual(metrics["cross_modal_text_idle_skip_count"], 4)
+        self.assertEqual(metrics["cross_modal_fast_idle_skip_count"], 4)
+        self.assertEqual(metrics["cross_modal_text_spike_prepared"], 0)
+        self.assertEqual(
+            metrics["cross_modal_text_execution_mode"],
+            "text_idle_cached_state",
+        )
+
+    def test_cross_modal_text_probe_runs_with_residual_sensory_trace(self) -> None:
+        trainer, cfg = self._trainer()
+        pattern = torch.rand(cfg.input_dim)
+        visual = torch.rand(cfg.cross_modal_dim_visual)
+
+        trainer.train_step(
+            pattern,
+            raw_window="visual cross modal",
+            visual_spikes=visual,
+            allow_sleep_maintenance=False,
+        )
+        metrics = {}
+        for _ in range(3):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="residual trace cross modal",
+                allow_sleep_maintenance=False,
+            )
+
+        report = trainer.model.cross_modal.device_report()
         self.assertEqual(report["runtime_text_update_count"], 1)
         self.assertEqual(report["runtime_text_idle_skip_count"], 3)
-        self.assertEqual(report["last_text_runtime_execution_mode"], "text_idle_cached_state")
         self.assertEqual(metrics["cross_modal_text_update_count"], 1)
         self.assertEqual(metrics["cross_modal_text_idle_skip_count"], 3)
+        self.assertEqual(metrics["cross_modal_fast_idle_skip_count"], 0)
+        self.assertEqual(
+            metrics["cross_modal_text_execution_mode"],
+            "text_idle_cached_state",
+        )
+
+    def test_text_only_idle_skip_does_not_normalize_text_spike(self) -> None:
+        trainer, cfg = self._trainer()
+        trainer.config.cross_modal_text_idle_probe_interval_tokens = 100
+        pattern = torch.rand(cfg.input_dim)
+
+        trainer.train_step(
+            pattern,
+            raw_window="first due cross modal",
+            allow_sleep_maintenance=False,
+        )
+        metrics = trainer.train_step(
+            pattern,
+            raw_window="idle skipped cross modal",
+            allow_sleep_maintenance=False,
+        )
+
+        self.assertEqual(metrics["cross_modal_text_update_count"], 0)
+        self.assertEqual(metrics["cross_modal_text_idle_skip_count"], 2)
+        self.assertEqual(metrics["cross_modal_fast_idle_skip_count"], 2)
+        self.assertEqual(metrics["cross_modal_text_spike_prepared"], 0)
         self.assertEqual(
             metrics["cross_modal_text_execution_mode"],
             "text_idle_cached_state",
@@ -274,6 +331,7 @@ class TestTrainerCrossModalRuntimeWake(unittest.TestCase):
         self.assertEqual(report["runtime_text_idle_skip_count"], 0)
         self.assertEqual(report["last_text_runtime_execution_mode"], "text_update")
         self.assertTrue(metrics["cross_modal_visual_accepted"])
+        self.assertEqual(metrics["cross_modal_fast_idle_skip_count"], 0)
         self.assertEqual(metrics["cross_modal_text_execution_mode"], "text_update")
 
     def test_config_rejects_nonpositive_cross_modal_text_probe_interval(self) -> None:

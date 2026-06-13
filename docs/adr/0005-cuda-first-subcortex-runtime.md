@@ -26,6 +26,7 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Cross-modal grounding and sparse binding variants, including spatial and hypercube binding, must expose live tensor and topology device reports when enabled.
 - Context and abstraction layers must expose live tensor device reports because they control routing gain, curiosity pressure, and top-down feedback.
 - Text encoders must keep tensor-heavy state on the runtime device, including learned chunking codebooks, semantic bucket embeddings, adapter tensors, emitted feature vectors, and spike traces. Python string parsing, segmentation lists, and hash-loop control flow remain CPU/control-plane work.
+- CUDA-first text encoding does not permit per-character scalar launch/synchronization overhead to dominate a live tick. When the learned-chunk codebook is empty, Runtime Sources uses bounded CPU window/signature assembly plus batched device tensor construction with scalar-representation parity. Live ingestion is inference-only; mutation-enabled chunk learning remains an explicit training or remote-bootstrap path.
 - The Memory Store must report its device boundary explicitly: archival replay records remain CPU storage, while trainer replay computation moves sampled tensors to the model device before use.
 - Archival capture-tag, local-PRP, and strong-tag state remains CPU-resident and uses contiguous numeric buffers with zero-copy in-place decay. Small CUDA observation kernels and bulk asynchronous archival staging are not part of the CUDA-first claim unless complete-tick evidence beats the CPU control-plane implementation and preserves synchronization-safe checkpoint ownership.
 - Sensory encoders must expose device reports, and real sensory episodes must carry encoder/device/spike-device metadata into grounded observations and preview metadata.
@@ -106,6 +107,8 @@ The first acceleration targets are routing/index search, predictive column state
 - A fresh-process three-seed hot-window comparison improved mean throughput from `176.24` to `264.46 ticks/sec` (`1.501x`), while a real 24-token service source tick still took about `1.24 s`. This ADR therefore accepts the bounded graph island, not a claim that full service cognition is production-speed or near the maximum-throughput objective.
 - Approximate routing backends need recall/latency evidence before they can replace exact search in evidence claims.
 - CUDA-first does not mean moving small host-visible archival bookkeeping to the GPU. Measured launch, transfer, and synchronization cost can make CPU numeric buffers the faster production boundary.
+- CUDA-first also does not mean issuing many tiny scalar encoder kernels. The bounded ingestion batch keeps emitted vectors on CUDA while amortizing construction and keeping plasticity outside source collection.
+- CUDA-first does not make source-cache persistence part of the cognitive tick. Live ticks schedule bounded, content-addressed cache payloads; one Runtime Sources worker performs `torch.save` and atomic replacement, and service shutdown flushes that queue. Runtime Truth reports scheduling, completion, failure, and pending state without synchronizing CUDA.
 
 ### Neutral
 

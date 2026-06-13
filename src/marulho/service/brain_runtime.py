@@ -119,6 +119,7 @@ class BrainRuntimeDependencies:
     maybe_mark_ingestion_warm_locked: Callable[..., None]
     maybe_mark_sensory_warm_locked: Callable[..., None]
     observe_runtime_concepts_locked: Callable[..., dict[str, Any] | None]
+    observe_runtime_concept_batch_locked: Callable[..., list[dict[str, Any] | None]]
     runtime_concept_callback_locked: Callable[..., Any]
     run_real_sensory_episode_locked: Callable[[], dict[str, Any] | None]
     record_brain_event_locked: Callable[[dict[str, Any]], None]
@@ -154,6 +155,7 @@ class BrainRuntime:
         self._maybe_mark_ingestion_warm_locked = dependencies.maybe_mark_ingestion_warm_locked
         self._maybe_mark_sensory_warm_locked = dependencies.maybe_mark_sensory_warm_locked
         self._observe_runtime_concepts_locked = dependencies.observe_runtime_concepts_locked
+        self._observe_runtime_concept_batch_locked = dependencies.observe_runtime_concept_batch_locked
         self._runtime_concept_callback_locked = dependencies.runtime_concept_callback_locked
         self._run_real_sensory_episode_locked = dependencies.run_real_sensory_episode_locked
         self._record_brain_event_locked = dependencies.record_brain_event_locked
@@ -382,8 +384,10 @@ class BrainRuntime:
             runtime.last_prefetch_duration_ms = collect_meta.get("prefetch_duration_ms")
         prefetch_error = collect_meta.get("prefetch_error")
         runtime.last_prefetch_error = None if prefetch_error in (None, "") else str(prefetch_error)
-        self._update_brain_runtime_cache_locked(runtime)
-        self._maybe_mark_ingestion_warm_locked(trigger=str(collect_meta.get("warm_trigger", "tick") or "tick"))
+        warm_trigger = str(collect_meta.get("warm_trigger", "tick") or "tick")
+        if warm_trigger != "tick":
+            self._update_brain_runtime_cache_locked(runtime)
+        self._maybe_mark_ingestion_warm_locked(trigger=warm_trigger)
 
     def _train_chunk_in_sub_batches(
         self,
@@ -401,8 +405,7 @@ class BrainRuntime:
         pause_seconds = max(0.0, float(yield_seconds))
         evidence_windows: deque[str] = deque(maxlen=128)
         observation_interval = DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL
-        concept_observation_attempts = 0
-        concept_observations = 0
+        sampled_concept_observations: list[tuple[str, dict[str, Any]]] = []
         pending_concept_observation: tuple[str, dict[str, Any]] | None = None
         for i in range(0, len(chunk), batch_size):
             if stop_event is not None and stop_event.is_set():
@@ -435,21 +438,8 @@ class BrainRuntime:
                     pending_concept_observation = (raw_text, metrics)
                     token_ordinal = total_trained + offset + 1
                     if token_ordinal == 1 or token_ordinal % observation_interval == 0:
-                        concept_observation_started = time.perf_counter()
-                        observed = self._observe_runtime_concepts_locked(
-                            raw_window=raw_text,
-                            metrics=metrics,
-                        )
-                        concept_observation_attempts += 1
-                        concept_observations += int(observed is not None)
+                        sampled_concept_observations.append((raw_text, metrics))
                         pending_concept_observation = None
-                        if stage_timings_ms is not None:
-                            stage_timings_ms["concept_observation"] = stage_timings_ms.get(
-                                "concept_observation", 0.0
-                            ) + float(
-                                (time.perf_counter() - concept_observation_started)
-                                * 1000.0
-                            )
                 total_trained += len(sub)
                 mutation_mark_started = time.perf_counter()
                 self._runtime_state.mark_mutated()
@@ -471,24 +461,22 @@ class BrainRuntime:
                         "train_yield", 0.0
                     ) + float((time.perf_counter() - yield_started) * 1000.0)
         if pending_concept_observation is not None:
+            sampled_concept_observations.append(pending_concept_observation)
+
+        observed_batch: list[dict[str, Any] | None] = []
+        if sampled_concept_observations:
             concept_lock_started = time.perf_counter()
             with self._lock:
                 if stage_timings_ms is not None:
                     stage_timings_ms["concept_lock_wait"] = float(
                         (time.perf_counter() - concept_lock_started) * 1000.0
                     )
-                raw_window, metrics = pending_concept_observation
                 concept_observation_started = time.perf_counter()
-                observed = self._observe_runtime_concepts_locked(
-                    raw_window=raw_window,
-                    metrics=metrics,
+                observed_batch = self._observe_runtime_concept_batch_locked(
+                    observations=sampled_concept_observations,
                 )
-                concept_observation_attempts += 1
-                concept_observations += int(observed is not None)
                 if stage_timings_ms is not None:
-                    stage_timings_ms["concept_observation"] = stage_timings_ms.get(
-                        "concept_observation", 0.0
-                    ) + float(
+                    stage_timings_ms["concept_observation"] = float(
                         (time.perf_counter() - concept_observation_started) * 1000.0
                     )
         return (
@@ -496,10 +484,14 @@ class BrainRuntime:
             last_metrics,
             list(evidence_windows),
             {
-                "mode": "sampled",
+                "mode": "sampled_batched",
                 "interval_tokens": int(observation_interval),
-                "attempts": int(concept_observation_attempts),
-                "observations": int(concept_observations),
+                "attempts": int(len(sampled_concept_observations)),
+                "observations": int(sum(item is not None for item in observed_batch)),
+                "batches": int(bool(sampled_concept_observations)),
+                "structural_maintenance_passes": int(
+                    any(item is not None for item in observed_batch)
+                ),
             },
         )
 
@@ -1472,6 +1464,12 @@ class BrainRuntime:
                     "last_prefetch_error": runtime.last_prefetch_error,
                     "queue_hits": int(runtime.queue_hits),
                     "last_buffer_tokens_served": int(runtime.last_buffer_tokens_served),
+                    "cache_write_count": int(runtime.cache_write_count),
+                    "cache_schedule_count": int(runtime.cache_schedule_count),
+                    "cache_skip_count": int(runtime.cache_skip_count),
+                    "cache_failure_count": int(runtime.cache_failure_count),
+                    "cache_pending": bool(runtime.cache_pending),
+                    "last_cache_update_mode": str(runtime.last_cache_update_mode),
                     "last_semantic_match": float(runtime.last_semantic_match),
                     "last_selection_score": float(runtime.last_selection_score),
                     "last_fairness_score": float(runtime.last_fairness_score),

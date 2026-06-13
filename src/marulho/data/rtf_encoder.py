@@ -602,6 +602,112 @@ class RTFEncoder:
         return _normalize(context + current)
 
     @staticmethod
+    def _normalize_rows(vectors: torch.Tensor) -> torch.Tensor:
+        norms = torch.linalg.vector_norm(vectors.float(), dim=1, keepdim=True)
+        return torch.where(
+            norms > 0.0,
+            vectors.float() / (norms + 1e-8),
+            torch.zeros_like(vectors, dtype=torch.float32),
+        )
+
+    def _empty_chunk_codebook(self) -> bool:
+        if self.learned_chunking is None:
+            return True
+        return not bool(torch.any(self.learned_chunking.usage > 0.0).item())
+
+    def _batched_order_weighted_patterns(
+        self,
+        chars: Iterable[str],
+        window_size: int,
+        *,
+        batch_size: int = 32,
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        maxlen = max(1, int(window_size))
+        window_codes: list[int] = []
+        window_chars: list[str] = []
+        chunk_codes: list[int] = []
+        pending_windows: list[str] = []
+        pending_codes: list[list[int]] = []
+        pending_chunks: list[list[int]] = []
+
+        def flush() -> Iterator[tuple[str, torch.Tensor]]:
+            if not pending_codes:
+                return
+            codes = torch.tensor(pending_codes, dtype=torch.int64, device=self.device)
+            positions = torch.arange(self.window_size, dtype=torch.float32, device=self.device)
+            weights = torch.clamp(
+                (self.t_max - (positions * self.t_spacing)) / max(1e-8, self.t_max),
+                min=0.0,
+            ).expand(codes.shape[0], -1)
+            base = torch.zeros(codes.shape[0], 128, dtype=torch.float32, device=self.device)
+            base.scatter_add_(1, codes, weights)
+            base = self._normalize_rows(base)
+
+            features = base
+            if self.learned_chunking is not None:
+                signatures = torch.zeros(
+                    len(pending_chunks),
+                    self.chunk_projection_work_dim,
+                    dtype=torch.float32,
+                )
+                for row, codes_for_chunk in enumerate(pending_chunks):
+                    rolling = 2166136261
+                    for code in codes_for_chunk:
+                        rolling ^= int(code) + 1
+                        rolling = (rolling * 16777619) & 0xFFFFFFFF
+                        signatures[row, int(rolling % max(1, self.chunk_projection_work_dim))] += 1.0
+                    for left, right in zip(codes_for_chunk, codes_for_chunk[1:]):
+                        pair_hash = ((int(left) + 17) * 1315423911) ^ ((int(right) + 31) * 2654435761)
+                        signatures[row, int(pair_hash % max(1, self.chunk_projection_work_dim))] += 0.75
+                    if codes_for_chunk:
+                        signatures[row, int(len(codes_for_chunk) % max(1, self.chunk_projection_work_dim))] += 0.5
+                chunk_projection = self._normalize_rows(signatures.to(self.device))
+                if self.uses_concat_chunk_channel:
+                    chunk_projection = chunk_projection[:, : self.chunk_output_dim]
+                    features = self._normalize_rows(torch.cat([base, chunk_projection], dim=1))
+                elif self.learned_chunk_blend > 0.0:
+                    blended = (
+                        ((1.0 - self.learned_chunk_blend) * base)
+                        + (self.learned_chunk_blend * chunk_projection)
+                    )
+                    blended = self._normalize_rows(blended)
+                    has_chunk = torch.any(chunk_projection != 0.0, dim=1, keepdim=True)
+                    features = torch.where(has_chunk, blended, base)
+
+            for raw_window, feature in zip(pending_windows, features):
+                yield raw_window, self._remember_feature_vector(feature)
+            pending_windows.clear()
+            pending_codes.clear()
+            pending_chunks.clear()
+
+        for ch in chars:
+            code = _ascii_code(ch)
+            display = ch if ord(ch) < 128 else "?"
+            window_codes.append(code)
+            window_chars.append(display)
+            if len(window_codes) > maxlen:
+                window_codes.pop(0)
+                window_chars.pop(0)
+
+            if self.learned_chunking is not None:
+                if self.learned_chunking.is_separator(code):
+                    chunk_codes = []
+                else:
+                    if len(chunk_codes) >= self.learned_chunking.max_chunk_len:
+                        chunk_codes = [code]
+                    else:
+                        chunk_codes.append(code)
+
+            feature_codes = window_codes[-self.window_size :]
+            pending_codes.append(([0] * (self.window_size - len(feature_codes))) + list(feature_codes))
+            pending_windows.append("".join(window_chars))
+            pending_chunks.append(list(chunk_codes))
+            if len(pending_codes) >= max(1, int(batch_size)):
+                yield from flush()
+
+        yield from flush()
+
+    @staticmethod
     def _lexical_segments(text: str) -> list[str]:
         segments: list[str] = []
         chunk: list[str] = []
@@ -630,6 +736,14 @@ class RTFEncoder:
         *,
         learn: bool = False,
     ) -> Iterator[tuple[str, torch.Tensor]]:
+        if (
+            not learn
+            and self.representation == "order_weighted_ascii"
+            and self._empty_chunk_codebook()
+        ):
+            yield from self._batched_order_weighted_patterns(chars, window_size)
+            return
+
         maxlen = max(1, int(window_size))
         window_codes: list[int] = []
         window_chars: list[str] = []

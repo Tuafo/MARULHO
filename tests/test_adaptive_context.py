@@ -323,11 +323,30 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trainer_telemetry_interval_tokens"):
             MarulhoConfig(trainer_telemetry_interval_tokens=0)
 
+    def test_cuda_graph_host_truth_sync_interval_must_be_positive(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "cuda_graph_host_truth_sync_interval_tokens"):
+            MarulhoConfig(cuda_graph_host_truth_sync_interval_tokens=0)
+
+    def test_slow_memory_archive_interval_must_be_positive(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "slow_memory_archive_interval_tokens"):
+            MarulhoConfig(slow_memory_archive_interval_tokens=0)
+
+    def test_slow_memory_archive_strong_capture_threshold_must_be_non_negative(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "slow_memory_archive_strong_capture_threshold"):
+            MarulhoConfig(slow_memory_archive_strong_capture_threshold=-0.1)
+
     def test_config_default_is_fixed(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
         cfg = MarulhoConfig()
         self.assertEqual(cfg.context_mode, "adaptive")
+        self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 8)
 
     def test_model_subcortex_device_report_includes_adaptive_context(self) -> None:
         from marulho.config.model_config import MarulhoConfig

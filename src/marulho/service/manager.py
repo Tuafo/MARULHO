@@ -482,6 +482,9 @@ class MarulhoServiceManager:
             observe_runtime_concepts_locked=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concepts_locked(
                 self, **kwargs
             ),
+            observe_runtime_concept_batch_locked=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concept_batch_locked(
+                self, **kwargs
+            ),
             runtime_concept_callback_locked=lambda: OperatorInteractionRuntime._runtime_concept_callback_locked(self),
             run_real_sensory_episode_locked=self._run_real_sensory_episode_locked,
             record_brain_event_locked=self._record_brain_event_locked,
@@ -796,6 +799,7 @@ class MarulhoServiceManager:
         with self._lock:
             self._close_brain_sources_locked()
             self._close_sensory_sources_locked()
+        self._runtime_sources.close()
 
 
     # --- Internal dependency callbacks (ADR 0003) ---

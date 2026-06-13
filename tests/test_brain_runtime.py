@@ -227,8 +227,13 @@ class _BrainRuntimeFixtureBase:
     def _huggingface_runtime_summary_locked(self) -> dict[str, int]:
         return {"source_count": 0}
 
-    def _ingestion_runtime_summary_locked(self) -> dict[str, bool]:
-        return {"configured": False}
+    def _ingestion_runtime_summary_locked(self) -> dict[str, object]:
+        return {
+            "configured": False,
+            "encoder_execution_mode": "bounded_batched_inference",
+            "hot_path_chunk_plasticity": False,
+            "chunk_plasticity_path": "explicit_training_or_remote_bootstrap",
+        }
 
     def _delayed_consequence_summary_locked(self, limit: int = 4) -> dict[str, int]:
         return {"record_count": 0, "limit": int(limit)}
@@ -308,6 +313,11 @@ def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRunti
             "_observe_runtime_concepts_locked",
             lambda **kwargs: None,
         ),
+        observe_runtime_concept_batch_locked=getattr(
+            fixture,
+            "_observe_runtime_concept_batch_locked",
+            lambda **kwargs: [],
+        ),
         runtime_concept_callback_locked=lambda **kwargs: None,
         run_real_sensory_episode_locked=fixture._run_real_sensory_episode_locked,
         record_brain_event_locked=fixture._record_brain_event_locked,
@@ -355,6 +365,19 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
         self.concept_observation_windows.append(str(raw_window))
         return {"observed": True}
 
+    def _observe_runtime_concept_batch_locked(
+        self,
+        *,
+        observations: list[tuple[str | None, dict[str, Any] | None]],
+    ) -> list[dict[str, object]]:
+        return [
+            self._observe_runtime_concepts_locked(
+                raw_window=raw_window,
+                metrics=metrics,
+            )
+            for raw_window, metrics in observations
+        ]
+
 
 class _SnapshotManager(_BrainRuntimeFixtureBase):
     def __init__(self) -> None:
@@ -370,6 +393,12 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
             tick_visits=1,
             last_tokens_trained=8,
             last_activity_at=_SNAPSHOT_TIMESTAMP,
+            cache_write_count=1,
+            cache_schedule_count=3,
+            cache_skip_count=2,
+            cache_failure_count=0,
+            cache_pending=True,
+            last_cache_update_mode="skipped_unchanged_material",
         )
         self._brain_source_runtimes = [runtime]
         self._brain_background_tokens = 8
@@ -528,10 +557,12 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(
             observation,
             {
-                "mode": "sampled",
+                "mode": "sampled_batched",
                 "interval_tokens": 8,
                 "attempts": 3,
                 "observations": 3,
+                "batches": 1,
+                "structural_maintenance_passes": 1,
             },
         )
         self.assertIn("trainer_step", stage_timings)
@@ -563,6 +594,18 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(snapshot["source_progress"][0]["tick_visits"], 1)
         self.assertEqual(snapshot["source_progress"][0]["last_tokens_trained"], 8)
         self.assertEqual(snapshot["source_progress"][0]["share_of_background_tokens"], 1.0)
+        self.assertEqual(snapshot["source_progress"][0]["cache_write_count"], 1)
+        self.assertEqual(snapshot["source_progress"][0]["cache_schedule_count"], 3)
+        self.assertEqual(snapshot["source_progress"][0]["cache_skip_count"], 2)
+        self.assertEqual(snapshot["source_progress"][0]["cache_failure_count"], 0)
+        self.assertTrue(snapshot["source_progress"][0]["cache_pending"])
+        self.assertEqual(snapshot["source_progress"][0]["last_cache_update_mode"], "skipped_unchanged_material")
+        self.assertEqual(snapshot["ingestion"]["encoder_execution_mode"], "bounded_batched_inference")
+        self.assertFalse(snapshot["ingestion"]["hot_path_chunk_plasticity"])
+        self.assertEqual(
+            snapshot["ingestion"]["chunk_plasticity_path"],
+            "explicit_training_or_remote_bootstrap",
+        )
         self.assertEqual(snapshot["background_source_routing"]["selection_order"], ["source_a"])
         self.assertEqual(snapshot["background_source_routing"]["delayed_consequence_tracking"]["record_count"], 0)
         self.assertEqual(snapshot["text_learning_balance"]["background_tokens_processed"], 8)

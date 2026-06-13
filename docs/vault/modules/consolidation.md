@@ -31,6 +31,8 @@ related_benchmarks: []
 
         Awake-ripple tagging keeps the scalar loop for small ledgers and switches to zero-copy NumPy scans only at the measured large-ledger crossover. Runtime Truth reports scalar/vector scan counts and the last scan mode under memory hot-path evidence.
 
+        Bucket-consolidation tensor caches expose a monotonic `bucket_consolidation_cache_generation` for graph-safe pointer reuse. Explicit cache invalidation increments the generation; ordinary in-place cache adjustments preserve it. The Persistent Text Tick Executor uses this identity to fail closed before replay when the captured consolidation tensor is no longer valid, avoiding a per-tick cache lookup on graph-eligible warm-memory ticks.
+
         The archival boundary remains CPU-owned. A tested CUDA observation variant was slower (`75.69` versus `97.18 ticks/sec`), and bulk asynchronous staging was neutral in complete runs. Sampled replay tensors move to the model device only when replay computation consumes them.
 
         ## Key Files

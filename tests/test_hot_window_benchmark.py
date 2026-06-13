@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from marulho.config.model_config import MarulhoConfig
 from marulho.evaluation.hot_window_benchmark import run_hot_window_benchmark
+from marulho.evaluation.persistent_tick_hot_window_benchmark import (
+    run_persistent_tick_hot_window_ab,
+)
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -98,3 +101,90 @@ def test_hot_window_benchmark_supports_evaluation_only_trainer_setup() -> None:
             )
 
     assert report["transition_executor"] == "test"
+
+
+def test_hot_window_benchmark_can_profile_measured_steps_only() -> None:
+    with TemporaryDirectory() as tmpdir:
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            enable_context_layer=False,
+            enable_binding_layer=False,
+            enable_cross_modal=False,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        checkpoint = save_trainer_checkpoint(
+            Path(tmpdir) / "hot-window-profile.pt",
+            trainer,
+        )
+
+        with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+            report = run_hot_window_benchmark(
+                checkpoint,
+                samples=3,
+                warmup_steps=2,
+                profile_trainer_stages=True,
+                seed=321,
+            )
+
+    profile = report["trainer_stage_profile"]
+    assert isinstance(profile, dict)
+    assert profile["enabled"] is True
+    assert profile["count"] == 3
+    assert profile["scope"] == "measured_hot_window_steps_only_no_service_no_source_no_sleep"
+    assert profile["tokens_per_second_observed"] > 0.0
+    assert profile["per_tick_ms"]["total"] > 0.0
+
+
+def test_persistent_tick_ab_reports_stage_deltas_without_cuda() -> None:
+    with TemporaryDirectory() as tmpdir:
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            enable_context_layer=False,
+            enable_binding_layer=False,
+            enable_cross_modal=False,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        checkpoint = save_trainer_checkpoint(
+            Path(tmpdir) / "persistent-ab-profile.pt",
+            trainer,
+        )
+
+        def fused_setup(loaded_trainer: object) -> None:
+            setattr(loaded_trainer, "_benchmark_transition_executor", "fused-test")
+
+        def persistent_setup(loaded_trainer: object) -> None:
+            setattr(
+                loaded_trainer,
+                "_benchmark_transition_executor",
+                "persistent-test",
+            )
+
+        with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+            report = run_persistent_tick_hot_window_ab(
+                checkpoint,
+                samples=2,
+                warmup_steps=1,
+                profile_trainer_stages=True,
+                _arm_setups=(
+                    ("fused_a", fused_setup),
+                    ("persistent_a", persistent_setup),
+                    ("persistent_b", persistent_setup),
+                    ("fused_b", fused_setup),
+                ),
+            )
+
+    assert report["surface"] == "persistent_tick_hot_window_ab.v1"
+    assert report["profile_trainer_stages"] is True
+    assert len(report["arms"]) == 4
+    assert report["fused_mean_stage_per_tick_ms"]["total"] > 0.0
+    assert report["persistent_mean_stage_per_tick_ms"]["total"] > 0.0
+    assert report["largest_stage_deltas"]
+    assert report["largest_stage_deltas"][0]["stage"]

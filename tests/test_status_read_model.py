@@ -2737,6 +2737,21 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertIn("configuration_payload", source_config)
         self.assertIn("source_count", source_config)
         self.assertEqual(source_config["source_count"], 1)
+        self.assertEqual(
+            truth["evidence"]["ingestion_hot_path"]["encoder_execution_mode"],
+            "scalar",
+        )
+        self.assertFalse(
+            truth["evidence"]["ingestion_hot_path"]["hot_path_chunk_plasticity"]
+        )
+        self.assertEqual(
+            truth["evidence"]["ingestion_hot_path"]["persistence_execution_mode"],
+            "deferred_coalescing_worker",
+        )
+        self.assertEqual(
+            truth["evidence"]["ingestion_hot_path"]["cache_failure_count"],
+            0,
+        )
 
     def test_verdict_downgraded_to_degraded_on_high_memory_pressure(self) -> None:
         """When memory fill_fraction >= 0.85, an otherwise 'alive' verdict becomes 'degraded'."""
@@ -3117,6 +3132,64 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             truth["evidence"]["memory_hot_path"]["last_ripple_scan_mode"],
             result["memory_store"]["last_ripple_scan_mode"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["slow_memory_archive_interval_tokens"],
+            model._trainer.config.slow_memory_archive_interval_tokens,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["slow_memory_archive_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["slow_memory_archive_skip_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["slow_memory_last_archive_reason"],
+            "not_run",
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["awake_ripple_tag_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["awake_ripple_tag_skip_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["awake_ripple_last_reason"],
+            "not_run",
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["awake_ripple_last_tagged"],
+            0,
+        )
+        self.assertIn("cross_modal_hot_path", truth["evidence"])
+        self.assertEqual(
+            truth["evidence"]["cross_modal_hot_path"]["fast_idle_skip_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["cross_modal_hot_path"]["text_idle_skip_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["cross_modal_hot_path"]["text_update_count"],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["cross_modal_hot_path"]["last_text_execution_mode"],
+            "disabled",
+        )
+        self.assertEqual(
+            truth["evidence"]["routing_index_hot_path"],
+            {
+                "device_update_count": 0,
+                "buffer_skip_count": 0,
+                "host_mirror_sync_count": 0,
+                "cpu_mirror_stale": False,
+            },
         )
         self.assertIn("subcortex_spike_health", truth["evidence"])
         self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])

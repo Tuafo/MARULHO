@@ -188,6 +188,8 @@ if triton is not None:
     )
     def _inplace_column_transition_kernel(
         prototypes,
+        routing_vectors,
+        routing_position_by_column,
         prototype_velocity,
         thresholds,
         win_rate_ema,
@@ -218,6 +220,7 @@ if triton is not None:
         use_transition_parameters: tl.constexpr,
         persist_previous_routing_key: tl.constexpr,
         advance_recent_spike_row: tl.constexpr,
+        update_routing_vectors: tl.constexpr,
         spike_history_window: tl.constexpr,
         n_columns: tl.constexpr,
         column_dim: tl.constexpr,
@@ -459,6 +462,18 @@ if triton is not None:
             next_winner_prototype,
             mask=feature_mask,
         )
+        if update_routing_vectors:
+            routing_cache_row = tl.load(
+                routing_position_by_column + winner,
+            )
+            routing_cache_offsets = (
+                routing_cache_row * column_dim + feature_offsets
+            )
+            tl.store(
+                routing_vectors + routing_cache_offsets,
+                next_winner_prototype,
+                mask=feature_mask & (routing_cache_row >= 0),
+            )
 
         tl.store(
             assembly + column_offsets,
@@ -561,6 +576,8 @@ if triton is not None:
 def inplace_column_transition_cuda(
     *,
     prototypes: torch.Tensor,
+    routing_vectors: torch.Tensor | None = None,
+    routing_position_by_column: torch.Tensor | None = None,
     prototype_velocity: torch.Tensor,
     thresholds: torch.Tensor,
     win_rate_ema: torch.Tensor,
@@ -653,6 +670,25 @@ def inplace_column_transition_cuda(
         raise ValueError("transition_parameters must contain at least five values")
     if advance_recent_spike_row and int(spike_history_window) <= 0:
         raise ValueError("spike_history_window must be positive")
+    update_routing_vectors = (
+        routing_vectors is not None
+        or routing_position_by_column is not None
+    )
+    if update_routing_vectors:
+        if routing_vectors is None or routing_position_by_column is None:
+            raise ValueError(
+                "routing_vectors and routing_position_by_column must be provided together"
+            )
+        if routing_vectors.device != prototypes.device:
+            raise ValueError("routing vectors must share the prototype device")
+        if routing_vectors.shape[1:] != prototypes.shape[1:]:
+            raise ValueError("routing vectors must match prototype width")
+        if routing_position_by_column.device != prototypes.device:
+            raise ValueError("routing positions must share the prototype device")
+        if routing_position_by_column.dtype != torch.long:
+            raise ValueError("routing positions must use torch.long")
+        if int(routing_position_by_column.numel()) != int(n_columns):
+            raise ValueError("routing positions must contain one row per column")
 
     ensure_windows_triton_compiler()
     parameter_tensor = (
@@ -662,6 +698,8 @@ def inplace_column_transition_cuda(
     )
     _inplace_column_transition_kernel[(1,)](
         prototypes,
+        prototypes if routing_vectors is None else routing_vectors,
+        winners if routing_position_by_column is None else routing_position_by_column,
         prototype_velocity,
         thresholds,
         win_rate_ema,
@@ -692,6 +730,7 @@ def inplace_column_transition_cuda(
         use_transition_parameters=int(transition_parameters is not None),
         persist_previous_routing_key=int(bool(persist_previous_routing_key)),
         advance_recent_spike_row=int(bool(advance_recent_spike_row)),
+        update_routing_vectors=int(bool(update_routing_vectors)),
         spike_history_window=int(spike_history_window),
         n_columns=int(n_columns),
         column_dim=int(column_dim),
@@ -952,6 +991,8 @@ def warmup_inplace_column_transition_cuda(
     ensure_windows_triton_compiler()
     _inplace_column_transition_kernel.warmup(
         prototypes,
+        prototypes,
+        winners,
         prototype_velocity,
         thresholds,
         win_rate_ema,
@@ -982,6 +1023,7 @@ def warmup_inplace_column_transition_cuda(
         use_transition_parameters=0,
         persist_previous_routing_key=0,
         advance_recent_spike_row=0,
+        update_routing_vectors=0,
         spike_history_window=1,
         n_columns=int(n_columns),
         column_dim=int(column_dim),

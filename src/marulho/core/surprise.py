@@ -23,9 +23,16 @@ class SurpriseMonitor:
         self.acetylcholine = 0.5
         self.norepinephrine = 0.5
         self.serotonin = 0.5
+        self.modulator_revision = 0
+
+    def mark_modulator_state_changed(self) -> None:
+        self.modulator_revision += 1
 
     def update(self, layer_name: str, prediction: torch.Tensor, actual: torch.Tensor) -> None:
-        err = torch.norm(prediction - actual).item()
+        self.record_error(layer_name, torch.norm(prediction - actual).item())
+
+    def record_error(self, layer_name: str, error: float) -> None:
+        err = float(error)
         buf = self.layers[layer_name]["errors"]
         buf.append(err)
         if len(buf) >= 10:
@@ -33,9 +40,11 @@ class SurpriseMonitor:
             mean = sum(errors) / len(errors)
             var = sum((e - mean) ** 2 for e in errors) / (len(errors) - 1)
             self.layers[layer_name]["precision"] = 1.0 / (var + 1e-6)
+        self.mark_modulator_state_changed()
 
     def update_predicted_error(self, actual_error: float, alpha: float = 0.01) -> None:
         self.predicted_error = alpha * actual_error + (1.0 - alpha) * self.predicted_error
+        self.mark_modulator_state_changed()
 
     def compute_dopamine_rpe(self, current_error: float) -> float:
         baseline = self.predicted_error + 1e-6

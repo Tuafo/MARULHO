@@ -2,28 +2,28 @@
 type: generated
 source: graphify
 generated_by: "C:\Users\thiag\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\Scripts\graphify.exe update . --no-cluster"
-last_verified: 2026-06-12
+last_verified: 2026-06-13
 ---
 
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9054
-- Edges: 907178
+- Nodes: 9138
+- Edges: 986686
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3327 nodes
-- `service`: 2574 nodes
-- `core`: 514 nodes
-- `evaluation`: 501 nodes
-- `training`: 429 nodes
+- `tests`: 3353 nodes
+- `service`: 2576 nodes
+- `evaluation`: 518 nodes
+- `core`: 516 nodes
+- `training`: 445 nodes
 - `data`: 374 nodes
 - `semantics`: 334 nodes
 - `MARULHO_UI`: 212 nodes
-- `retrieval`: 115 nodes
-- `consolidation`: 59 nodes
+- `retrieval`: 127 nodes
+- `consolidation`: 61 nodes
 - `config`: 38 nodes
 - `interaction`: 35 nodes
 - `reporting`: 32 nodes
@@ -32,16 +32,16 @@ last_verified: 2026-06-12
 
 ## Common Relations
 
-- `calls`: 232830
-- `references`: 208682
-- `uses`: 160159
-- `method`: 145884
-- `contains`: 88773
-- `rationale_for`: 36992
-- `imports`: 17037
-- `inherits`: 9532
-- `imports_from`: 5708
-- `re_exports`: 1574
+- `calls`: 253362
+- `references`: 227433
+- `uses`: 174173
+- `method`: 158578
+- `contains`: 96724
+- `rationale_for`: 39778
+- `imports`: 18461
+- `inherits`: 10354
+- `imports_from`: 6107
+- `re_exports`: 1709
 - `extends`: 7
 
 ## Largest Source Files By Node Count

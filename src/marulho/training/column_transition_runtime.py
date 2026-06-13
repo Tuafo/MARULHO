@@ -61,8 +61,12 @@ class ColumnTransitionRuntime:
         self.route_vote_execution_count = 0
         self.route_vote_sensory_fallback_count = 0
         self.route_vote_cache_refresh_count = 0
+        self.route_vote_clean_cache_reuse_count = 0
+        self.route_vote_prepared_graph_reuse_count = 0
+        self.graph_host_winner_reuse_count = 0
         self._route_vote_ready = False
         self._route_transition_graph_ready = False
+        self._prepared_graph_token: int | None = None
         self._cuda_graph_runtime: CudaGraphRouteTransition | None = None
         self._route_vectors: torch.Tensor | None = None
         self._route_ids: torch.Tensor | None = None
@@ -87,6 +91,8 @@ class ColumnTransitionRuntime:
             dtype=torch.long,
             device=device,
         )
+        self._last_winner_consolidation = 0.0
+        self._last_effective_modulator = 0.0
         self._recent_spike_row = torch.zeros(
             (),
             dtype=torch.int32,
@@ -353,12 +359,37 @@ class ColumnTransitionRuntime:
         if sensory_tick:
             self.route_vote_sensory_fallback_count += 1
             return None
+        if (
+            self._prepared_graph_token == self._trainer.token_count
+            and self._cuda_graph_runtime is not None
+            and self._cuda_graph_runtime.active
+            and self._route_candidates is not None
+        ):
+            comp = self._trainer.model.competitive
+            comp.last_candidate_count = int(self._route_candidates.numel())
+            comp.last_scored_column_count = int(self._route_candidates.numel())
+            comp.last_execution_mode = (
+                "candidate_subset_cuda_graph_route_transition"
+            )
+            self.route_vote_prepared_graph_reuse_count += 1
+            self._route_vote_ready = True
+            self._route_transition_graph_ready = True
+            return self._route_candidates
         index = self._trainer.model.hnsw_index
-        vectors, ids = index.routing_tensor_cache()
         assert self._route_vectors is not None
         assert self._route_ids is not None
         assert self._route_scores is not None
         assert self._route_candidates is not None
+        cache_dirty = True
+        cache_dirty_fn = getattr(index, "routing_tensor_cache_is_dirty", None)
+        if callable(cache_dirty_fn):
+            cache_dirty = bool(cache_dirty_fn())
+        if cache_dirty:
+            vectors, ids = index.routing_tensor_cache()
+        else:
+            vectors = self._route_vectors
+            ids = self._route_ids
+            self.route_vote_clean_cache_reuse_count += 1
         if (
             tuple(vectors.shape) != tuple(self._route_vectors.shape)
             or tuple(ids.shape) != tuple(self._route_ids.shape)
@@ -384,7 +415,9 @@ class ColumnTransitionRuntime:
         if (
             self._cuda_graph_runtime is not None
             and self._cuda_graph_runtime.active
-            and self._cuda_graph_runtime.eligible()
+            and self._cuda_graph_runtime.eligible(
+                assume_route_cache_current=True
+            )
         ):
             comp = self._trainer.model.competitive
             comp.last_candidate_count = int(route_candidates.numel())
@@ -427,11 +460,17 @@ class ColumnTransitionRuntime:
             self._cuda_graph_runtime is None
             or not self._cuda_graph_runtime.active
         ):
+            self._prepared_graph_token = None
             return None
-        return self._cuda_graph_runtime.prepare_routing(
+        prepared = self._cuda_graph_runtime.prepare_routing(
             pattern,
             sensory_tick=sensory_tick,
+            assume_eligible=bool(self._route_transition_graph_ready),
         )
+        self._prepared_graph_token = (
+            int(self._trainer.token_count) if prepared is not None else None
+        )
+        return prepared
 
     def _retained_consensus_gain(
         self,
@@ -596,10 +635,11 @@ class ColumnTransitionRuntime:
         candidates: torch.Tensor | None,
         winners: torch.Tensor,
         modulator: float,
+        compute_metrics: bool = False,
     ) -> tuple[
         torch.Tensor,
-        list[int],
-        int,
+        list[int] | None,
+        int | None,
         float,
         float,
         float,
@@ -634,18 +674,30 @@ class ColumnTransitionRuntime:
             self._route_transition_graph_ready
             and self._cuda_graph_runtime is not None
         )
+        profile_enabled = bool(
+            getattr(trainer, "_train_step_profile_enabled", False)
+        )
+        profile_totals = (
+            getattr(trainer, "_train_step_profile_totals_ms", {})
+            if profile_enabled
+            else {}
+        )
+        profile_last = time.perf_counter() if profile_enabled else 0.0
+
+        def _profile_mark(name: str) -> None:
+            nonlocal profile_last
+            if not profile_enabled:
+                return
+            now = time.perf_counter()
+            profile_totals[name] = profile_totals.get(name, 0.0) + (
+                now - profile_last
+            ) * 1000.0
+            profile_last = now
+
         try:
             if used_cuda_graph:
                 assert self._cuda_graph_runtime is not None
-                self._cuda_graph_runtime.replay(
-                    routing_key,
-                    base_modulator=float(modulator),
-                    dopamine=float(trainer.model.surprise.dopamine),
-                    serotonin=float(trainer.model.surprise.serotonin),
-                    learning_rate=float(comp.get_lr()),
-                    candidate_homeostasis=bool(homeostasis_scope_ready),
-                    recent_spike_row=int(comp.recent_spike_window_cursor),
-                )
+                graph_result = self._cuda_graph_runtime.consume_result()
                 self.route_vote_execution_count += 1
                 self._route_transition_graph_ready = False
             else:
@@ -693,18 +745,39 @@ class ColumnTransitionRuntime:
                     ),
                     prediction_learning_rate=0.005,
                 )
+            _profile_mark("column_transition_kernel_or_graph")
         except Exception:
             self.failure_count += 1
             self.last_execution_mode = "inplace_triton_failed_closed"
             raise
 
-        winner_id_list = winners.tolist()
-        winner_id = int(winner_id_list[0])
-        winner_consolidation = (
-            float(consolidation.index_select(0, winners).mean().item())
-            if trainer.memory_warm_started
-            else 0.0
-        )
+        if used_cuda_graph:
+            if (
+                self._cuda_graph_runtime is not None
+                and self._cuda_graph_runtime.last_result_from_host_sync
+                and len(graph_result) > 6
+            ):
+                winner_id = int(graph_result[6])
+                winner_id_list = [winner_id]
+                self.graph_host_winner_reuse_count += 1
+            else:
+                winner_id_list = None
+                winner_id = None
+        else:
+            winner_id_list = winners.tolist()
+            winner_id = int(winner_id_list[0])
+        _profile_mark("column_transition_winner_readback")
+        if trainer.memory_warm_started and compute_metrics:
+            winner_consolidation = float(
+                consolidation.index_select(0, winners).mean().item()
+            )
+            self._last_winner_consolidation = winner_consolidation
+        elif trainer.memory_warm_started:
+            winner_consolidation = float(self._last_winner_consolidation)
+        else:
+            winner_consolidation = 0.0
+            self._last_winner_consolidation = 0.0
+        _profile_mark("column_transition_consolidation_readback")
         dopamine_ltp_gain = 0.8 + 0.4 * trainer.model.surprise.dopamine
         serotonin_patience = max(
             0.2,
@@ -749,14 +822,43 @@ class ColumnTransitionRuntime:
             if used_cuda_graph
             else "inplace_triton"
         )
+        _profile_mark("column_transition_python_bookkeeping")
         return (
             self._assembly,
             winner_id_list,
             winner_id,
             winner_consolidation,
-            float(self._effective_modulator.item()),
+            (
+                float(graph_result[7])
+                if used_cuda_graph
+                else float(self._effective_modulator.item())
+            ),
             float(dopamine_ltp_gain),
             float(serotonin_patience),
+        )
+
+    def consume_graph_surprise_update(self) -> bool:
+        if self._cuda_graph_runtime is None:
+            return False
+        return self._cuda_graph_runtime.consume_surprise_update()
+
+    def consume_graph_competitive_surprise(self) -> float | None:
+        if self._cuda_graph_runtime is None:
+            return None
+        return self._cuda_graph_runtime.consume_competitive_surprise()
+
+    def graph_owns_competitive_surprise(self) -> bool:
+        return bool(
+            self._cuda_graph_runtime is not None
+            and self._cuda_graph_runtime.active
+            and self._cuda_graph_runtime.owns_competitive_surprise
+        )
+
+    def last_tick_used_device_owned_routing_cache(self) -> bool:
+        return bool(
+            self.last_execution_mode == "cuda_graph_route_transition"
+            and self._cuda_graph_runtime is not None
+            and self._cuda_graph_runtime.owns_routing_cache_updates
         )
 
     def report(self) -> dict[str, Any]:
@@ -805,6 +907,15 @@ class ColumnTransitionRuntime:
             ),
             "route_vote_cache_refresh_count": (
                 self.route_vote_cache_refresh_count
+            ),
+            "route_vote_clean_cache_reuse_count": (
+                self.route_vote_clean_cache_reuse_count
+            ),
+            "route_vote_prepared_graph_reuse_count": (
+                self.route_vote_prepared_graph_reuse_count
+            ),
+            "graph_host_winner_reuse_count": int(
+                self.graph_host_winner_reuse_count
             ),
             "cuda_graph_route_transition": (
                 None

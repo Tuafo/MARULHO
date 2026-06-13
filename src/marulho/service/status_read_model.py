@@ -291,6 +291,15 @@ class StatusReadModel:
             "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
             "ingestion": {
                 "enabled": bool(ingestion.get("enabled", True)),
+                "encoder_execution_mode": str(
+                    ingestion.get("encoder_execution_mode", "scalar")
+                ),
+                "hot_path_chunk_plasticity": bool(
+                    ingestion.get("hot_path_chunk_plasticity", False)
+                ),
+                "chunk_plasticity_path": str(
+                    ingestion.get("chunk_plasticity_path", "unknown")
+                ),
                 "queue_target_tokens": int(ingestion.get("queue_target_tokens", 0) or 0),
                 "prewarm_on_startup": bool(ingestion.get("prewarm_on_startup", False)),
                 "prewarm_max_seconds": float(ingestion.get("prewarm_max_seconds", 0.0) or 0.0),
@@ -898,6 +907,118 @@ class StatusReadModel:
             "last_ripple_scan_mode": str(
                 memory_store.get("last_ripple_scan_mode") or "not_run"
             ),
+            "slow_memory_archive_interval_tokens": int(
+                getattr(
+                    self._trainer.config,
+                    "slow_memory_archive_interval_tokens",
+                    1,
+                )
+            ),
+            "slow_memory_archive_count": int(
+                getattr(self._trainer, "_slow_memory_archive_count", 0)
+            ),
+            "slow_memory_archive_skip_count": int(
+                getattr(self._trainer, "_slow_memory_archive_skip_count", 0)
+            ),
+            "slow_memory_last_archive_reason": str(
+                getattr(self._trainer, "_slow_memory_last_archive_reason", "not_run")
+            ),
+            "awake_ripple_tag_count": int(
+                getattr(self._trainer, "_awake_ripple_tag_count", 0)
+            ),
+            "awake_ripple_tag_skip_count": int(
+                getattr(self._trainer, "_awake_ripple_tag_skip_count", 0)
+            ),
+            "awake_ripple_last_reason": str(
+                getattr(self._trainer, "_awake_ripple_last_reason", "not_run")
+            ),
+            "awake_ripple_last_tagged": int(
+                getattr(self._trainer, "_awake_ripple_last_tagged", 0)
+            ),
+        }
+        cross_modal_hot_path = {
+            "fast_idle_skip_count": int(
+                getattr(self._trainer, "_cross_modal_fast_idle_skip_count", 0)
+            ),
+            "text_idle_skip_count": int(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "runtime_text_idle_skip_count",
+                    0,
+                )
+            ),
+            "text_update_count": int(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "runtime_text_update_count",
+                    0,
+                )
+            ),
+            "last_text_execution_mode": str(
+                getattr(
+                    getattr(self._trainer.model, "cross_modal", None),
+                    "last_text_runtime_execution_mode",
+                    "disabled",
+                )
+            ),
+        }
+        routing_index_hot_path = {
+            "device_update_count": int(
+                getattr(self._trainer, "_routing_index_device_update_count", 0)
+            ),
+            "buffer_skip_count": int(
+                getattr(self._trainer, "_routing_index_buffer_skip_count", 0)
+            ),
+            "host_mirror_sync_count": int(
+                getattr(
+                    self._trainer,
+                    "_routing_index_host_mirror_sync_count",
+                    0,
+                )
+            ),
+            "cpu_mirror_stale": bool(
+                getattr(
+                    self._trainer,
+                    "_routing_index_cpu_mirror_stale",
+                    False,
+                )
+            ),
+        }
+        ingestion_hot_path = {
+            "encoder_execution_mode": str(
+                source_configuration["ingestion"].get(
+                    "encoder_execution_mode",
+                    "scalar",
+                )
+            ),
+            "hot_path_chunk_plasticity": bool(
+                source_configuration["ingestion"].get(
+                    "hot_path_chunk_plasticity",
+                    False,
+                )
+            ),
+            "chunk_plasticity_path": str(
+                source_configuration["ingestion"].get(
+                    "chunk_plasticity_path",
+                    "unknown",
+                )
+            ),
+            "cache_write_count": int(
+                terminus_runtime.get("ingestion", {}).get("cache_write_count", 0) or 0
+            ),
+            "cache_schedule_count": int(
+                terminus_runtime.get("ingestion", {}).get("cache_schedule_count", 0) or 0
+            ),
+            "cache_skip_count": int(
+                terminus_runtime.get("ingestion", {}).get("cache_skip_count", 0) or 0
+            ),
+            "cache_failure_count": int(
+                terminus_runtime.get("ingestion", {}).get("cache_failure_count", 0) or 0
+            ),
+            "cache_pending_count": int(
+                terminus_runtime.get("ingestion", {}).get("cache_pending_count", 0) or 0
+            ),
+            "persistence_execution_mode": "deferred_coalescing_worker",
         }
         return {
             "schema_version": 1,
@@ -931,6 +1052,9 @@ class StatusReadModel:
                 "column_runtime": column_runtime,
                 "column_transition_runtime": column_transition_runtime,
                 "memory_hot_path": memory_hot_path,
+                "cross_modal_hot_path": cross_modal_hot_path,
+                "routing_index_hot_path": routing_index_hot_path,
+                "ingestion_hot_path": ingestion_hot_path,
                 "subcortex_spike_health": subcortex_spike_health,
                 "self_repair_gate": self_repair_gate,
                 "self_repair_evaluation_gate": self_repair_evaluation_gate,
