@@ -7,7 +7,7 @@ import tempfile
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 import marulho.evaluation.service_benchmark as service_benchmark_module
 from marulho.evaluation.service_benchmark import (
@@ -90,7 +90,20 @@ def _fake_service_app() -> FastAPI:
     @app.get("/terminus")
     def terminus() -> dict[str, Any]:
         return {
-            "terminus_runtime": {"configured": True, "running": True},
+            "terminus_runtime": {
+                "configured": True,
+                "running": True,
+                "ingestion": {
+                    "warm_ready": True,
+                    "full_warm_ready": True,
+                    "ready_source_count": 1,
+                    "full_queue_source_count": 1,
+                    "total_buffered_tokens": 256,
+                    "queue_target_tokens": 256,
+                    "prewarm_last_duration_ms": 4.0,
+                    "startup_warm_latency_ms": 6.0,
+                },
+            },
             "runtime_truth": runtime_truth(),
             "runtime_scope": runtime_scope(),
         }
@@ -866,6 +879,10 @@ def test_service_benchmark_cli_runs_fresh_bundle_against_baseline(capsys: Any, m
                 "--configure-local-source",
                 "--local-source-tick-steps",
                 "1",
+                "--local-source-tick-tokens",
+                "128",
+                "--local-source-queue-target-tokens",
+                "256",
             ]
         )
         stdout = json.loads(capsys.readouterr().out)
@@ -883,6 +900,10 @@ def test_service_benchmark_cli_runs_fresh_bundle_against_baseline(capsys: Any, m
     assert comparison["accepted_baseline"]["baseline_id"] == baseline["baseline_id"]
     assert captured["configure_local_source"] is True
     assert captured["local_source_tick_steps"] == 1
+    assert captured["local_source_tick_tokens"] == 128
+    assert captured["local_source_queue_target_tokens"] == 256
+    assert captured["local_source_prewarm_on_startup"] is True
+    assert captured["local_source_prewarm_wait_seconds"] == 5.0
     assert summary["claim_boundary"] == "fresh_benchmark_plus_baseline_compare_slow_path_no_runtime_mutation_no_cuda_speedup_claim"
 
 
@@ -1236,5 +1257,59 @@ def test_benchmark_configured_source_summary_includes_tick_concept_observation()
         assert source_cache["cache_failure_count"] == 0
         assert source_cache["cache_pending"] is True
         assert source_cache["last_cache_update_mode"] == "skipped_unchanged_material"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_benchmark_service_app_configures_explicit_source_tick_window() -> None:
+    app = _fake_service_app()
+    captured: dict[str, Any] = {}
+
+    @app.post("/terminus/configure")
+    async def terminus_configure(request: Request) -> dict[str, Any]:
+        captured.update(await request.json())
+        return {
+            "terminus_runtime": {
+                "configured": True,
+                "source_count": 1,
+            },
+        }
+
+    @app.post("/terminus/tick")
+    def terminus_tick() -> dict[str, Any]:
+        return {
+            "terminus_runtime": {
+                "last_tick_token_delta": 128,
+                "background_tokens_processed": 128,
+                "last_tick_duration_ms": 24.0,
+                "source_progress": [],
+            }
+        }
+
+    root = _scratch_root("configured-source-tick-window")
+    try:
+        source_path = root / "source.txt"
+        source_path.write_text("source text", encoding="utf-8")
+        result = benchmark_service_app(
+            app,
+            output_path=root / "result.json",
+            configured_source_path=source_path,
+            configured_source_tick_steps=1,
+            configured_source_tick_tokens=128,
+            configured_source_queue_target_tokens=256,
+            feed_text="cats",
+            query_text="cats",
+        )
+
+        assert captured["tick_tokens"] == 128
+        assert captured["ingestion"]["queue_target_tokens"] == 256
+        assert captured["ingestion"]["prewarm_on_startup"] is True
+        assert result["configured_source_summary"]["tick_tokens_processed"] == 128
+        warmup = result["configured_source_summary"]["warmup"]
+        assert warmup["enabled"] is True
+        assert warmup["mode"] == "prewarm_before_measured_tick"
+        assert warmup["not_hot_path"] is True
+        assert warmup["full_warm_ready"] is True
+        assert warmup["total_buffered_tokens"] == 256
     finally:
         shutil.rmtree(root, ignore_errors=True)

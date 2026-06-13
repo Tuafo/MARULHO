@@ -139,6 +139,41 @@ def test_hot_window_benchmark_can_profile_measured_steps_only() -> None:
     assert profile["per_tick_ms"]["total"] > 0.0
 
 
+def test_hot_window_benchmark_supports_window_sync_throughput_mode() -> None:
+    with TemporaryDirectory() as tmpdir:
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            enable_context_layer=False,
+            enable_binding_layer=False,
+            enable_cross_modal=False,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        checkpoint = save_trainer_checkpoint(
+            Path(tmpdir) / "hot-window-window-sync.pt",
+            trainer,
+        )
+
+        with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+            report = run_hot_window_benchmark(
+                checkpoint,
+                samples=2,
+                warmup_steps=1,
+                sync_mode="window",
+                seed=456,
+            )
+
+    assert report["sync_mode"] == "window"
+    assert (
+        report["latency_sample_scope"]
+        == "host_dispatch_latency_with_single_window_cuda_sync"
+    )
+    assert report["tokens_per_second"] > 0.0
+
+
 def test_persistent_tick_ab_reports_stage_deltas_without_cuda() -> None:
     with TemporaryDirectory() as tmpdir:
         cfg = MarulhoConfig(
@@ -173,6 +208,7 @@ def test_persistent_tick_ab_reports_stage_deltas_without_cuda() -> None:
                 samples=2,
                 warmup_steps=1,
                 profile_trainer_stages=True,
+                sync_mode="window",
                 _arm_setups=(
                     ("fused_a", fused_setup),
                     ("persistent_a", persistent_setup),
@@ -183,6 +219,8 @@ def test_persistent_tick_ab_reports_stage_deltas_without_cuda() -> None:
 
     assert report["surface"] == "persistent_tick_hot_window_ab.v1"
     assert report["profile_trainer_stages"] is True
+    assert report["sync_mode"] == "window"
+    assert "continuous sequential throughput" in report["sync_mode_semantics"]
     assert len(report["arms"]) == 4
     assert report["fused_mean_stage_per_tick_ms"]["total"] > 0.0
     assert report["persistent_mean_stage_per_tick_ms"]["total"] > 0.0

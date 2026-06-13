@@ -21,7 +21,7 @@ last_verified: 2026-06-13
 - `src/marulho/core/abstraction.py`: 25 nodes
 ## marulho.data
 
-- `src/marulho/data/rtf_encoder.py`: 64 nodes
+- `src/marulho/data/rtf_encoder.py`: 67 nodes
 - `src/marulho/data/source_catalog.py`: 52 nodes
 - `src/marulho/data/dataset_adapters.py`: 48 nodes
 - `src/marulho/data/corpus_loader.py`: 47 nodes
@@ -53,8 +53,8 @@ last_verified: 2026-06-13
 - `src/marulho/service/replay_runtime.py`: 103 nodes
 - `src/marulho/service/delayed_consequence.py`: 70 nodes
 - `src/marulho/service/interaction_pipeline.py`: 63 nodes
+- `src/marulho/service/runtime_sources.py`: 55 nodes
 - `src/marulho/service/snn_language_plasticity_executor.py`: 54 nodes
-- `src/marulho/service/action_loop.py`: 53 nodes
 ## marulho.training
 
 - `src/marulho/training/trainer.py`: 65 nodes

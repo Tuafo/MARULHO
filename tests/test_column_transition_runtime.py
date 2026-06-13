@@ -422,6 +422,7 @@ def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
         enable_binding_layer=False,
         enable_abstraction_layer=False,
         cuda_graph_host_truth_sync_interval_tokens=4,
+        trainer_telemetry_interval_tokens=2,
         device="cuda",
     )
     torch.manual_seed(20260614)
@@ -446,6 +447,8 @@ def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
     assert report["failure_count"] == 0
     runtime_report = trainer.column_transition_runtime_report()
     assert runtime_report["graph_host_winner_reuse_count"] == 3
+    assert runtime_report["winner_consolidation_cpu_metric_count"] == 1
+    assert runtime_report["winner_consolidation_cached_metric_count"] == 3
     assert runtime_report["winner_host_mirror_sync_count"] == 3
     assert runtime_report["winner_host_mirror_skip_count"] == 5
     assert runtime_report["winner_host_mirror_fresh"] is True

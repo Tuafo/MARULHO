@@ -26,6 +26,14 @@ def _runtime_config() -> RuntimeConfig:
 
 
 class RuntimeConfigSeamTests(unittest.TestCase):
+    def test_normalize_brain_config_defaults_to_measured_source_tick_window(self) -> None:
+        module = _runtime_config()
+
+        normalized = module._normalize_brain_config(None)
+
+        self.assertEqual(normalized["tick_tokens"], 128)
+        self.assertEqual(normalized["ingestion"]["queue_target_tokens"], 256)
+
     def test_normalize_brain_config_preserves_operator_shape(self) -> None:
         module = _runtime_config()
 

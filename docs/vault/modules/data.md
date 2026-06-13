@@ -23,6 +23,14 @@ related_benchmarks: []
 
         Live source-cache persistence is deferred. The tick hashes and schedules bounded raw-window material; a Runtime Sources worker performs atomic `torch.save` writes and service shutdown flushes pending work. Runtime Truth exposes schedule, write, skip, failure, and pending counts.
 
+        Source concept observation is bounded per service tick. Runtime Sources and Brain Runtime may train larger sequential source windows for throughput, but ConceptStore observation and structural maintenance are capped telemetry/knowledge-layer work with explicit max-per-tick and skipped-attempt evidence.
+
+        Source tick width is evidence-tuned. The maintained default is `128` source tokens per tick after same-checkpoint CUDA service benchmarks rejected `256` and `512` as slower complete service windows.
+
+        Slow-memory archival is cadenced for hot-path metabolism. The maintained default records first-token, strong-capture, and then every-64-token archival events, with archive/skip evidence surfaced through Runtime Truth instead of forcing replay-memory writes every eight source tokens.
+
+        Cross-modal text-only background ticks use specialist sleep semantics. Once the sensory trace window expires, traces are cleared once and the idle specialist no longer decays tensors every token until sensory evidence wakes it again.
+
         ## Should Not Own
 
         Runtime Truth verdicts or promotion of observations into facts/actions.

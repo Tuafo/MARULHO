@@ -50,7 +50,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "source_bank": current_runtime_source_bank(),
         "autonomy": current_runtime_autonomy_config(),
         "sensory": current_runtime_sensory_config(),
-        "tick_tokens": 64,
+        "tick_tokens": 128,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
         "model_overrides": {
@@ -61,6 +61,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             "binding_mode": "hypercube",
             "routing_shards": 4,
             "plasticity_spike_backend": "adex",
+            "slow_memory_archive_interval_tokens": 64,
             "enable_cross_modal": True,
             "cross_modal_dim_visual": 64,
             "cross_modal_dim_audio": 64,

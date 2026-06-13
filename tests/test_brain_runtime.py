@@ -342,6 +342,7 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
     def __init__(self) -> None:
         super().__init__()
         self.concept_observation_windows: list[str] = []
+        self.train_step_return_metrics_requests: list[bool] = []
         self._trainer = SimpleNamespace(
             token_count=0,
             config=SimpleNamespace(window_size=32),
@@ -351,9 +352,14 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
 
     def _train_step(self, pattern: object, **kwargs: object) -> dict[str, object]:
         self._trainer.token_count += 1
+        return_metrics = bool(kwargs.get("return_metrics", True))
+        self.train_step_return_metrics_requests.append(return_metrics)
+        if not return_metrics:
+            return {}
         return {
             "memory_index": self._trainer.token_count - 1,
             "winner": 0,
+            "train_step_metrics_mode": "full",
         }
 
     def _observe_runtime_concepts_locked(
@@ -555,11 +561,30 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             ["window-1", "window-8", "window-12"],
         )
         self.assertEqual(
+            manager.train_step_return_metrics_requests,
+            [
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+                False,
+                True,
+            ],
+        )
+        self.assertEqual(
             observation,
             {
                 "mode": "sampled_batched",
                 "interval_tokens": 8,
+                "max_per_tick": 4,
                 "attempts": 3,
+                "skipped_attempts": 0,
                 "observations": 3,
                 "batches": 1,
                 "structural_maintenance_passes": 1,
@@ -567,6 +592,33 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         )
         self.assertIn("trainer_step", stage_timings)
         self.assertIn("concept_observation", stage_timings)
+
+    def test_background_training_caps_concept_observation_per_tick(self) -> None:
+        manager = _ConceptSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        stage_timings: dict[str, float] = {}
+        chunk = [(f"window-{index}", object()) for index in range(1, 129)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=1,
+            yield_seconds=0.0,
+            stage_timings_ms=stage_timings,
+        )
+
+        self.assertEqual(trained, 128)
+        self.assertEqual(metrics["memory_index"], 127)
+        self.assertEqual(len(windows), 128)
+        self.assertEqual(
+            manager.concept_observation_windows,
+            ["window-1", "window-8", "window-16", "window-24"],
+        )
+        self.assertEqual(observation["max_per_tick"], 4)
+        self.assertEqual(observation["attempts"], 4)
+        self.assertEqual(observation["skipped_attempts"], 13)
+        self.assertEqual(observation["observations"], 4)
+        self.assertEqual(observation["structural_maintenance_passes"], 1)
 
     def test_brain_runtime_snapshot_exposes_source_progress_and_status_state(self) -> None:
         manager = _SnapshotManager()

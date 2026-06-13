@@ -248,3 +248,75 @@ The service validation report endpoint now also summarizes accepted baseline art
 Runtime Sources now schedules changed source-cache material to one coalescing worker instead of calling `torch.save` from `prepare_training`. Focused concurrency tests prove the scheduling call returns while a blocked save remains pending, duplicate material produces one write, failed writes are visible and retryable, and close flushes the queue.
 
 `reports/deferred_source_cache_20260613/steady-state-5-ticks.json` used the 1024-column CUDA graph checkpoint for five sequential source ticks. The final complete 24-token tick took `40.9787 ms` (`585.6701 tokens/sec`): collection `0.2144 ms`, preparation `3.1371 ms`, and train compute `36.5514 ms`. Runtime evidence recorded three scheduled/completed cache writes and zero pending writes at report time. This removes durability I/O from the cognitive tick; it does not raise the warm neural ceiling. The next large target is the remaining host-controlled trainer cluster.
+
+## Bounded Source Concept Observation, 2026-06-13
+
+The service benchmark now exposes the configured source tick width through `--local-source-tick-tokens` and `--local-source-queue-target-tokens` instead of hard-coding a 24-token source tick. The maintained quick-start preset uses a 128-token source tick so fixed service/source overhead can be amortized while Runtime Truth still reports the configured budget.
+
+`reports/source_tick_window_20260613/tick-128-solo.json` measured an uncapped 128-token CUDA source tick at `281.7705 ms` (`454.270 tokens/sec` by wall time). Training took `211.4241 ms`, trainer-step time was `209.0310 ms`, and ConceptStore observation still cost `66.8507 ms` because the larger tick attempted 17 sampled source observations.
+
+`reports/source_tick_window_20260613/tick-128-capped-concepts.json` capped source ConceptStore observation to four sampled windows per service tick. The same checkpoint processed 128 tokens in `179.0320 ms` (`714.957 tokens/sec` by wall time), with `train_compute=163.8751 ms`, `trainer_step=161.9080 ms`, `concept_observation=10.2716 ms`, CUDA observed execution, and `cuda:0` tensor evidence. The trainer-stage profile reported `823.5605 tokens/sec` over 128 train steps with active persistent graph replay and zero CUDA graph failures in Runtime Truth. This is a knowledge-layer metabolism cut, not skipped neural training; the next bottleneck is still per-token trainer orchestration around the persistent graph executor.
+
+Larger capped source windows were rejected for the maintained default on the same checkpoint. `reports/source_tick_window_20260613/tick-256-capped-concepts.json` processed 256 tokens in `680.164 ms` (`376.380 tokens/sec`) with `256` graph replays and zero failures. `reports/source_tick_window_20260613/tick-512-capped-concepts.json` processed 512 tokens in `1110.996 ms` (`460.848 tokens/sec`) with `512` graph replays and zero failures. The default service/runtime source tick window is therefore aligned to `128` tokens; larger windows remain explicit benchmark/operator choices.
+
+## Cross-Modal Trace Sleep, 2026-06-13
+
+Text-only background ticks already kept Cross-Modal Grounding asleep when no visual/audio evidence or residual sensory trace was alive, but the cached-idle path still decayed cross-modal traces every token. The promoted path clears expired traces once, records `cross_modal_idle_trace_reset_count`, and then records cached-idle skips without per-token trace decay until sensory evidence wakes the specialist again.
+
+`reports/cross_modal_idle_trace_sleep_20260613/tick-128-profile-repeat.json` processed 128 CUDA source tokens in `154.115 ms` (`830.548 tokens/sec`), with trainer-stage throughput `900.9459 tokens/sec`, `cross_modal=0.0127 ms/token`, `routing_prepare=0.5422`, `memory_archive=0.1137`, and active persistent graph replay. The retained comparison at `reports/source_tick_window_20260613/tick-128-capped-concepts.json` measured `714.957 tokens/sec`, trainer-stage throughput `823.5605`, and `cross_modal=0.2153 ms/token`. A first post-change profiled run was noisy (`343.823 tokens/sec`) because source collection took `131.243 ms`, so the claim is the repeated complete-tick win plus the direct cross-modal stage deletion, not universal endpoint stability.
+
+`reports/cross_modal_idle_trace_sleep_20260613/tick-128-no-profile.json` provided an unprofiled sanity check: 128 tokens in `168.6541 ms` (`758.9498 tokens/sec`), `train_compute=148.0481 ms`, `trainer_step=145.5344 ms`, CUDA graph active, and zero graph failures.
+
+## CPU Mirror Winner Consolidation Metric, 2026-06-13
+
+Graph-backed text ticks were still synchronizing CUDA on telemetry refreshes to compute `winner_consolidation_level` from the device consolidation tensor. The metric does not drive transition math, slow-memory archive admission, or mutation. The promoted path refreshes it from `DualMemoryStore.bucket_consolidation_level()` when the cadenced graph truth packet already synchronized a host winner id; otherwise it reuses the cached metric and reports `winner_consolidation_cpu_metric_count` / `winner_consolidation_cached_metric_count`.
+
+The immediate pre-change profile, `reports/current_speed_probe_20260613/tick-128-profile.json`, processed 128 tokens at `217.463 tokens/sec` with trainer-stage throughput `459.5667 tokens/sec`. Its profiler isolated `column_transition_consolidation_readback=0.7027 ms/token`, `column_transition=1.0251`, and noisy source collection at `264.8843 ms`.
+
+Post-change profiles kept CUDA graph replay active with `128` replays, zero failures, `cuda:0`, host truth sync/skip `17/111`, and `route_vote_prepared_graph_reuse_count=128`. `reports/consolidation_metric_cpu_mirror_20260613/tick-128-profile.json` reduced `column_transition_consolidation_readback` to `0.0026 ms/token`, reached `252.184 tokens/sec` complete service throughput, and recorded one CPU metric refresh plus one cached telemetry refresh. The repeat at `reports/consolidation_metric_cpu_mirror_20260613/tick-128-profile-repeat.json` held `column_transition_consolidation_readback=0.0032 ms/token`, reached `484.245 tokens/sec` service and `569.0105 tokens/sec` trainer-stage throughput, with source collection back down to `0.0497 ms`.
+
+This is a scalar Runtime Truth sync deletion, not a new best complete-tick claim: the older retained `reports/cross_modal_idle_trace_sleep_20260613/tick-128-profile-repeat.json` still measured `830.548 tokens/sec` service and `900.9459` trainer-stage throughput. The next bottleneck is therefore broader host-controlled route/source orchestration, especially routing preparation and fixed graph input/recent-row staging under stable source conditions.
+
+## Continuous Hot-Window Sync Gate, 2026-06-13
+
+The hot-window benchmark previously synchronized CUDA before and after every measured token. That is the right mode for p50/p95 per-token latency, but it adds an artificial host barrier when the question is continuous sequential tick throughput. The benchmark now exposes `sync_mode`: `step` keeps the old per-token synchronization behavior, while `window` synchronizes once around the measured arm and labels per-step samples as host-dispatch latency rather than exact CUDA latency.
+
+Same-checkpoint 128-token no-profile A/B evidence:
+
+- `reports/persistent_window_sync_gate_20260613/step-sync-no-profile-128-ab.json`: persistent CUDA graph mean `696.524 ticks/sec`, fused Triton route/vote mean `146.526`, speedup `4.754x`. Persistent arms replayed `144` graph ticks each with zero failures, `cuda:0`, host truth sync/skip `19/125`.
+- `reports/persistent_window_sync_gate_20260613/window-sync-no-profile-128-ab.json`: persistent CUDA graph mean `1062.896 ticks/sec`, fused Triton route/vote mean `155.823`, speedup `6.821x`. Persistent arms replayed `144` graph ticks each with zero failures, `cuda:0`, host truth sync/skip `19/125`.
+
+The profiled step-sync run `reports/persistent_window_sync_gate_20260613/step-sync-profiled-ab.json` gives stage attribution without service/source noise: persistent mean `954.967 ticks/sec`, trainer-stage `total=0.7804 ms/tick`, `routing_prepare=0.3968`, `cuda_graph_prepare_replay=0.0972`, `cuda_graph_prepare_recent_row_fill=0.0893`, `cuda_graph_prepare_host_truth_sync=0.0758`, and `cuda_graph_prepare_input_stage=0.0611`. The profiled window-sync run was slower (`857.013`) and should be treated as profiler perturbation evidence, not a promotion target.
+
+This gate proves the current encoded text-tick CUDA graph path can exceed a low 1000-ticks/sec floor under continuous window timing, but it does not prove live service throughput. The next production speed target is to move source/service execution toward the same boundary: prefilled device-ready source windows, fewer per-token Python metric dictionaries, and a broader persistent tick executor that reduces `routing_prepare`, recent-row staging, input staging, and scalar truth sync together.
+
+## Source-Window Prewarm Gate, 2026-06-13
+
+The service benchmark now makes configured-source prewarm the default evidence path. It configures the local source with `ingestion.prewarm_on_startup=true`, polls `/terminus` until Runtime Truth reports `ingestion.full_warm_ready`, records that wait as `configured_source_summary.warmup.not_hot_path=true`, and then measures `/terminus/tick`. The CLI keeps `--disable-local-source-prewarm` for cold-source regressions.
+
+Same-checkpoint CUDA evidence used `reports/host_truth_interval_16_20260613/runtime.pt`, `MARULHO_DEVICE=cuda`, one configured source tick, `--local-source-tick-tokens 128`, and `--local-source-queue-target-tokens 128`:
+
+- `reports/source_prewarm_live_tick_20260613/cold-no-prewarm.json`: 128 tokens in `497.4618 ms` (`257.306 tokens/sec`), `collect_source_queue=147.5918 ms`, `prepare_training=28.5999 ms`, `train_compute=315.7685 ms`, observed CUDA execution.
+- `reports/source_prewarm_live_tick_20260613/warm-prewarm.json`: Runtime Truth warmup reached `full_warm_ready=true`, `ready_source_count=1`, `full_queue_source_count=1`, and `total_buffered_tokens=128` before the tick. The measured tick processed 128 tokens in `218.1416 ms` (`586.775 tokens/sec`), with `collect_source_queue=0.0559 ms`, `prepare_training=1.2179 ms`, `train_compute=212.9062 ms`, and observed CUDA execution.
+
+This is a large live-service metabolism win because it removes source-window construction from the cognitive tick. It is not the final thousands/sec path: the warm tick is still slower than the encoded hot-window upper bound because per-token trainer orchestration, graph prep, metrics construction, and live service finalization still run on the host.
+
+Stale report tensor artifacts were pruned after this evidence: 129 old `.pt` files under `reports/` were removed, freeing about `223.4 MB`. The retained checkpoint is `reports/host_truth_interval_16_20260613/runtime.pt`, because it is the current comparable evidence path.
+
+## Cadenced Slow Memory Archival, 2026-06-13
+
+The production model default and Terminus curriculum preset now set `slow_memory_archive_interval_tokens=64` instead of `8`. This retires the every-eight-token slow-memory write cadence from the hot path while preserving first-token, strong-capture, and cadenced archival evidence through Runtime Truth.
+
+Same-checkpoint CUDA evidence cloned `reports/host_truth_interval_16_20260613/runtime.pt` to a temporary benchmark checkpoint and changed only `slow_memory_archive_interval_tokens` to `64`. The valid warm rerun reached Runtime Truth `full_warm_ready=true`, processed 128 source tokens in `223.755 ms` (`572.055 tokens/sec`), and observed CUDA execution on `cuda`. The full service tick did not beat the prior warm baseline at `586.775 tokens/sec`, so this is not an endpoint-throughput claim.
+
+The trainer hot path did improve: trainer-stage throughput moved from `638.6378` to `663.6743 tokens/sec`, trainer-step time fell from `209.6825` to `201.745 ms`, and `memory_archive` fell from `0.188347` to `0.018416 ms/token`. The next speed slice must therefore collapse the remaining route/graph-prep cluster rather than adding more memory/reporting micro-changes.
+
+## Rejected Route-Prep Defaults, 2026-06-13
+
+Two plausible route-prep default changes were tested after Cross-Modal Trace Sleep and rejected because the complete 128-token CUDA service tick regressed.
+
+`reports/candidate_homeostasis_128_20260613/tick-128-profile.json` lowered `candidate_homeostasis_start_tokens` to `128`, causing the first source tick to use the `candidate_subset` graph. CUDA graph replay stayed active with `128` replays and zero failures, but wall throughput fell to `406.525 tokens/sec` and trainer-stage throughput to `621.0137 tokens/sec`; the retained `reports/cross_modal_idle_trace_sleep_20260613/tick-128-profile-repeat.json` measured `830.548` and `900.9459` respectively. The default stays `512`.
+
+`reports/host_truth_interval_16_20260613/tick-128-profile-repeat.json` raised `cuda_graph_host_truth_sync_interval_tokens` to `16`. Host truth sync count fell from `17` to `9` and `cuda_graph_prepare_host_truth_sync` fell from `0.0875` to `0.0456 ms/token`, but complete throughput fell to `702.015 tokens/sec` and trainer-stage throughput to `778.0866`. The production default stays `8`; larger intervals remain benchmark-only.
+
+An attempted Brain Runtime metrics-copy pruning after the bounded source-observation cap was also rejected and reverted. It did not change neural training, but repeated complete service evidence failed to beat the retained profile: `reports/source_metrics_copy_prune_20260613/tick-128-profile-repeat.json` measured `577.810 tokens/sec` and trainer-stage throughput `723.9786`, below the retained `830.548` / `900.9459`.

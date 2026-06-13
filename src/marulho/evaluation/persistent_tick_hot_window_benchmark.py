@@ -79,6 +79,7 @@ def run_persistent_tick_hot_window_ab(
     warmup_steps: int = 64,
     seed: int = 20260612,
     profile_trainer_stages: bool = False,
+    sync_mode: str = "step",
     _arm_setups: tuple[tuple[str, Callable[[object], None]], ...] | None = None,
 ) -> dict[str, object]:
     arms: list[dict[str, Any]] = []
@@ -96,6 +97,7 @@ def run_persistent_tick_hot_window_ab(
             seed=seed,
             _trainer_setup=setup,
             profile_trainer_stages=profile_trainer_stages,
+            sync_mode=sync_mode,
         )
         arm = {
             "name": name,
@@ -137,6 +139,12 @@ def run_persistent_tick_hot_window_ab(
         "warmup_steps_per_arm": warmup_steps,
         "seed": seed,
         "profile_trainer_stages": bool(profile_trainer_stages),
+        "sync_mode": sync_mode,
+        "sync_mode_semantics": (
+            "step mode synchronizes around every measured token; "
+            "window mode synchronizes once around each measured arm to expose "
+            "continuous sequential throughput without artificial per-token host barriers"
+        ),
         "arms": arms,
         "fused_mean_tokens_per_second": fused_mean,
         "persistent_mean_tokens_per_second": persistent_mean,
@@ -163,6 +171,11 @@ def main() -> int:
     parser.add_argument("--warmup-steps", type=int, default=64)
     parser.add_argument("--seed", type=int, default=20260612)
     parser.add_argument("--profile-trainer-stages", action="store_true")
+    parser.add_argument(
+        "--sync-mode",
+        choices=("step", "window"),
+        default="step",
+    )
     args = parser.parse_args()
     report = run_persistent_tick_hot_window_ab(
         args.checkpoint,
@@ -170,6 +183,7 @@ def main() -> int:
         warmup_steps=args.warmup_steps,
         seed=args.seed,
         profile_trainer_stages=args.profile_trainer_stages,
+        sync_mode=args.sync_mode,
     )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:

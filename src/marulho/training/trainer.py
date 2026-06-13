@@ -100,6 +100,8 @@ class MarulhoTrainer:
         self._stage2_bootstrap_used_audio: int = 0
         self._cross_modal_sensory_trace_until_token: int = -1
         self._cross_modal_fast_idle_skip_count: int = 0
+        self._cross_modal_idle_trace_reset_count: int = 0
+        self._cross_modal_traces_cleared_for_idle: bool = True
 
         # HNSW update buffer — flush every N steps to amortize add() overhead
         self._hnsw_buffer_ids: list[int | torch.Tensor] = []
@@ -120,6 +122,8 @@ class MarulhoTrainer:
         self._winner_host_mirror_sync_count = 0
         self._winner_host_mirror_skip_count = 0
         self._winner_host_mirror_fresh = False
+        self._train_step_metrics_full_count = 0
+        self._train_step_metrics_skip_count = 0
         self._train_step_profile_enabled = False
         self._train_step_profile_totals_ms: dict[str, float] = {}
         self._train_step_profile_count = 0
@@ -1183,6 +1187,7 @@ class MarulhoTrainer:
         audio_spikes: Optional[torch.Tensor] = None,
         memory_metadata: Mapping[str, Any] | None = None,
         allow_sleep_maintenance: bool = True,
+        return_metrics: bool = True,
     ) -> Dict[str, Any]:
         profile_enabled = bool(self._train_step_profile_enabled)
         profile_last = time.perf_counter() if profile_enabled else 0.0
@@ -1523,13 +1528,17 @@ class MarulhoTrainer:
             )
 
             if fast_text_idle_skip:
+                if not self._cross_modal_traces_cleared_for_idle:
+                    self.model.cross_modal.reset()
+                    self._cross_modal_idle_trace_reset_count += 1
+                    self._cross_modal_traces_cleared_for_idle = True
                 record_text_skip = getattr(
                     self.model.cross_modal,
                     "record_text_idle_skip",
                     None,
                 )
                 if callable(record_text_skip):
-                    record_text_skip()
+                    record_text_skip(decay_traces=False)
                 self._cross_modal_fast_idle_skip_count += 1
                 if hasattr(self, "_cached_cross_modal_conf"):
                     cross_modal_visual_conf, cross_modal_audio_conf = (
@@ -1588,6 +1597,7 @@ class MarulhoTrainer:
                 int(self.config.cross_modal_text_idle_probe_interval_tokens),
             )
             if not fast_text_idle_skip and text_has_sensory_evidence:
+                self._cross_modal_traces_cleared_for_idle = False
                 trace_window = max(
                     1,
                     int(round(float(self.config.cross_modal_tau_trace))),
@@ -1858,6 +1868,20 @@ class MarulhoTrainer:
         if self.token_count % self.config.drift_floor_window_tokens == 0:
             self._close_drift_floor_window()
 
+        if not bool(return_metrics):
+            self._train_step_metrics_skip_count += 1
+            if profile_enabled:
+                profile_now = time.perf_counter()
+                profile_totals["metrics_build_skipped"] = profile_totals.get(
+                    "metrics_build_skipped",
+                    0.0,
+                ) + (profile_now - profile_last) * 1000.0
+                profile_totals["total"] = profile_totals.get("total", 0.0) + (
+                    profile_now - profile_started
+                ) * 1000.0
+                self._train_step_profile_count += 1
+            return {}
+
         memory_stats = (
             self.model.memory_store.summary_stats()
             if self.memory_warm_started and _telemetry_tick
@@ -1865,8 +1889,16 @@ class MarulhoTrainer:
         )
         if _telemetry_tick:
             self._cached_memory_stats = memory_stats
+        self._train_step_metrics_full_count += 1
 
         metrics["token"] = self.token_count
+        metrics["train_step_metrics_mode"] = "full"
+        metrics["train_step_metrics_full_count"] = int(
+            self._train_step_metrics_full_count
+        )
+        metrics["train_step_metrics_skip_count"] = int(
+            self._train_step_metrics_skip_count
+        )
         metrics["surprise"] = float(modulator)
         metrics["dopamine"] = float(self.model.surprise.dopamine)
         metrics["serotonin"] = float(self.model.surprise.serotonin)
@@ -1986,6 +2018,9 @@ class MarulhoTrainer:
         )
         metrics["cross_modal_fast_idle_skip_count"] = int(
             self._cross_modal_fast_idle_skip_count
+        )
+        metrics["cross_modal_idle_trace_reset_count"] = int(
+            self._cross_modal_idle_trace_reset_count
         )
         metrics["cross_modal_text_idle_probe_interval_tokens"] = int(
             self.config.cross_modal_text_idle_probe_interval_tokens

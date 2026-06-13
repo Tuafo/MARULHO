@@ -23,12 +23,13 @@ from marulho.semantics.grounding_text import salient_query_terms
 from marulho.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from marulho.training.autonomy_acquisition_runner import run_live_acquisition
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
 DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL = 8
+DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_MAX_PER_TICK = 4
 _BACKGROUND_SOURCE_UTILITY_INT_FIELDS = (
     "attempts",
     "selections",
@@ -405,7 +406,9 @@ class BrainRuntime:
         pause_seconds = max(0.0, float(yield_seconds))
         evidence_windows: deque[str] = deque(maxlen=128)
         observation_interval = DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL
+        max_observations_per_tick = DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_MAX_PER_TICK
         sampled_concept_observations: list[tuple[str, dict[str, Any]]] = []
+        skipped_concept_observations = 0
         pending_concept_observation: tuple[str, dict[str, Any]] | None = None
         for i in range(0, len(chunk), batch_size):
             if stop_event is not None and stop_event.is_set():
@@ -419,11 +422,25 @@ class BrainRuntime:
                     ) + float((time.perf_counter() - lock_wait_started) * 1000.0)
                 train_started = time.perf_counter()
                 for offset, (raw_window, pattern) in enumerate(sub):
+                    raw_text = str(raw_window)
+                    token_ordinal = total_trained + offset + 1
+                    observation_candidate = (
+                        token_ordinal == 1
+                        or token_ordinal % observation_interval == 0
+                    )
+                    observation_slot_available = (
+                        observation_candidate
+                        and len(sampled_concept_observations)
+                        < max_observations_per_tick
+                    )
+                    final_token = token_ordinal >= len(chunk)
+                    return_metrics = bool(observation_slot_available or final_token)
                     trainer_step_started = time.perf_counter()
                     last_metrics = self._trainer.train_step(
                         pattern,
                         raw_window=raw_window,
                         memory_metadata=memory_metadata,
+                        return_metrics=return_metrics,
                     )
                     if stage_timings_ms is not None:
                         stage_timings_ms["trainer_step"] = stage_timings_ms.get(
@@ -431,14 +448,16 @@ class BrainRuntime:
                         ) + float(
                             (time.perf_counter() - trainer_step_started) * 1000.0
                         )
-                    raw_text = str(raw_window)
                     if raw_text:
                         evidence_windows.append(raw_text)
                     metrics = dict(last_metrics or {})
-                    pending_concept_observation = (raw_text, metrics)
-                    token_ordinal = total_trained + offset + 1
-                    if token_ordinal == 1 or token_ordinal % observation_interval == 0:
-                        sampled_concept_observations.append((raw_text, metrics))
+                    if return_metrics:
+                        pending_concept_observation = (raw_text, metrics)
+                    if observation_candidate:
+                        if observation_slot_available:
+                            sampled_concept_observations.append((raw_text, metrics))
+                        else:
+                            skipped_concept_observations += 1
                         pending_concept_observation = None
                 total_trained += len(sub)
                 mutation_mark_started = time.perf_counter()
@@ -460,8 +479,10 @@ class BrainRuntime:
                     stage_timings_ms["train_yield"] = stage_timings_ms.get(
                         "train_yield", 0.0
                     ) + float((time.perf_counter() - yield_started) * 1000.0)
-        if pending_concept_observation is not None:
+        if pending_concept_observation is not None and len(sampled_concept_observations) < max_observations_per_tick:
             sampled_concept_observations.append(pending_concept_observation)
+        elif pending_concept_observation is not None:
+            skipped_concept_observations += 1
 
         observed_batch: list[dict[str, Any] | None] = []
         if sampled_concept_observations:
@@ -486,7 +507,9 @@ class BrainRuntime:
             {
                 "mode": "sampled_batched",
                 "interval_tokens": int(observation_interval),
+                "max_per_tick": int(max_observations_per_tick),
                 "attempts": int(len(sampled_concept_observations)),
+                "skipped_attempts": int(skipped_concept_observations),
                 "observations": int(sum(item is not None for item in observed_batch)),
                 "batches": int(bool(sampled_concept_observations)),
                 "structural_maintenance_passes": int(

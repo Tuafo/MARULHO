@@ -12,7 +12,7 @@ import torch
 
 from marulho.data.corpus_loader import huggingface_token_from_env
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = 20
 
 

@@ -41,3 +41,4 @@ class TestRuntimeAutonomyCurriculum:
         assert preset["autonomy"]["enabled"] is True
         assert preset["autonomy"]["candidate_bank"][0]["catalog_mode"] == "semantic_registry"
         assert preset["model_overrides"]["memory_capacity"] == 1000
+        assert preset["model_overrides"]["slow_memory_archive_interval_tokens"] == 64

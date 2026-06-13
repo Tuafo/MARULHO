@@ -24,7 +24,7 @@ from marulho.data.corpus_loader import BackgroundPrefetchIterator, SourceType, S
 from marulho.data.pattern_loader import labeled_pattern_stream
 from marulho.service.terminus_sensory import SensoryEpisode, build_sensory_stream
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_REMOTE_STREAM_PREFETCH_ITEMS = 4
 
 

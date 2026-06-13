@@ -20,7 +20,7 @@ from marulho.semantics.grounding_text import salient_query_terms
 from marulho.service.runtime_sources import _BrainSourceRuntime
 from marulho.service.terminus_autonomy import _canonical_provider_term
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 DEFAULT_DELAYED_CONSEQUENCE_MATCH_THRESHOLD = 0.34
 DEFAULT_DELAYED_CONSEQUENCE_DELTA_THRESHOLD = 0.08

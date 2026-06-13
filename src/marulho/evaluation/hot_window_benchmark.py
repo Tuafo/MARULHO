@@ -38,6 +38,7 @@ def run_hot_window_benchmark(
     seed: int = 20260611,
     _trainer_setup: Callable[[object], None] | None = None,
     profile_trainer_stages: bool = False,
+    sync_mode: str = "step",
 ) -> dict[str, object]:
     if samples <= 0:
         raise ValueError("samples must be positive")
@@ -55,6 +56,8 @@ def run_hot_window_benchmark(
         raise ValueError(
             "predictive_transition_mode must be legacy, fused_eager, compiled, inplace_triton, or None"
         )
+    if sync_mode not in {"step", "window"}:
+        raise ValueError("sync_mode must be step or window")
     trainer, _metadata = load_trainer_checkpoint(checkpoint)
     trainer.config.micro_sleep_interval_tokens = 10**9
     trainer.config.deep_sleep_interval_tokens = 10**9
@@ -103,9 +106,11 @@ def run_hot_window_benchmark(
     if profile_trainer_stages:
         trainer.enable_train_step_profile(reset=True)
     step_latencies_ms: list[float] = []
+    if device.type == "cuda" and sync_mode == "window":
+        torch.cuda.synchronize()
     started_window = time.perf_counter_ns()
     for index, pattern in enumerate(patterns[warmup_steps:], start=warmup_steps):
-        if device.type == "cuda":
+        if device.type == "cuda" and sync_mode == "step":
             torch.cuda.synchronize()
         started_step = time.perf_counter_ns()
         trainer.train_step(
@@ -113,9 +118,11 @@ def run_hot_window_benchmark(
             raw_window=f"hot-window measure {index}",
             allow_sleep_maintenance=False,
         )
-        if device.type == "cuda":
+        if device.type == "cuda" and sync_mode == "step":
             torch.cuda.synchronize()
         step_latencies_ms.append((time.perf_counter_ns() - started_step) / 1e6)
+    if device.type == "cuda" and sync_mode == "window":
+        torch.cuda.synchronize()
     total_elapsed_s = (time.perf_counter_ns() - started_window) / 1e9
     trainer_stage_profile: dict[str, object] | None = None
     if profile_trainer_stages:
@@ -153,6 +160,12 @@ def run_hot_window_benchmark(
         "warmup_steps": int(warmup_steps),
         "routing_candidate_mode": routing_candidate_mode,
         "merge_torch_shards": bool(merge_torch_shards),
+        "sync_mode": sync_mode,
+        "latency_sample_scope": (
+            "cuda_synchronized_step_latency"
+            if sync_mode == "step"
+            else "host_dispatch_latency_with_single_window_cuda_sync"
+        ),
         "predictive_transition_mode": str(
             trainer.config.predictive_dense_transition_mode
         ),
@@ -226,6 +239,16 @@ def main() -> int:
     )
     parser.add_argument("--seed", type=int, default=20260611)
     parser.add_argument("--profile-trainer-stages", action="store_true")
+    parser.add_argument(
+        "--sync-mode",
+        choices=("step", "window"),
+        default="step",
+        help=(
+            "step synchronizes CUDA before/after every measured token; "
+            "window synchronizes once around the measured window to estimate "
+            "continuous stream throughput without per-token host barriers"
+        ),
+    )
     args = parser.parse_args()
 
     report = run_hot_window_benchmark(
@@ -237,6 +260,7 @@ def main() -> int:
         predictive_transition_mode=args.predictive_transition_mode,
         seed=args.seed,
         profile_trainer_stages=args.profile_trainer_stages,
+        sync_mode=args.sync_mode,
     )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:

@@ -251,11 +251,41 @@ class TestTrainerCrossModalRuntimeWake(unittest.TestCase):
         self.assertEqual(metrics["cross_modal_text_update_count"], 0)
         self.assertEqual(metrics["cross_modal_text_idle_skip_count"], 4)
         self.assertEqual(metrics["cross_modal_fast_idle_skip_count"], 4)
+        self.assertEqual(metrics["cross_modal_idle_trace_reset_count"], 0)
         self.assertEqual(metrics["cross_modal_text_spike_prepared"], 0)
         self.assertEqual(
             metrics["cross_modal_text_execution_mode"],
             "text_idle_cached_state",
         )
+
+    def test_cross_modal_text_idle_clears_expired_trace_once(self) -> None:
+        trainer, cfg = self._trainer()
+        pattern = torch.rand(cfg.input_dim)
+        visual = torch.rand(cfg.cross_modal_dim_visual)
+
+        trainer.train_step(
+            pattern,
+            raw_window="visual cross modal",
+            visual_spikes=visual,
+            allow_sleep_maintenance=False,
+        )
+        assert trainer.model.cross_modal is not None
+        self.assertGreater(float(trainer.model.cross_modal.visual_trace.abs().sum().item()), 0.0)
+
+        metrics = {}
+        for _ in range(int(round(cfg.cross_modal_tau_trace)) + 2):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="expired trace cross modal",
+                allow_sleep_maintenance=False,
+            )
+
+        self.assertEqual(metrics["cross_modal_idle_trace_reset_count"], 1)
+        self.assertEqual(metrics["cross_modal_text_spike_prepared"], 0)
+        self.assertEqual(metrics["cross_modal_text_execution_mode"], "text_idle_cached_state")
+        self.assertEqual(float(trainer.model.cross_modal.text_trace.abs().sum().item()), 0.0)
+        self.assertEqual(float(trainer.model.cross_modal.visual_trace.abs().sum().item()), 0.0)
+        self.assertEqual(float(trainer.model.cross_modal.audio_trace.abs().sum().item()), 0.0)
 
     def test_cross_modal_text_probe_runs_with_residual_sensory_trace(self) -> None:
         trainer, cfg = self._trainer()

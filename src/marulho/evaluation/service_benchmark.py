@@ -799,6 +799,10 @@ def benchmark_service_app(
     configured_source_path: str | Path | None = None,
     configured_source_name: str = "benchmark_local_source",
     configured_source_tick_steps: int = 0,
+    configured_source_tick_tokens: int = 128,
+    configured_source_queue_target_tokens: int | None = None,
+    configured_source_prewarm_on_startup: bool = True,
+    configured_source_prewarm_wait_seconds: float = 5.0,
     feed_text: str = DEFAULT_FEED_TEXT,
     query_text: str = DEFAULT_QUERY_TEXT,
     top_k_candidates: int = 5,
@@ -812,6 +816,7 @@ def benchmark_service_app(
     started = time.perf_counter()
     endpoint_timings: list[dict[str, Any]] = []
     response_bodies: dict[str, Any] = {}
+    configured_source_warmup_evidence: dict[str, Any] | None = None
     manager = getattr(getattr(app, "state", None), "marulho_manager", None)
     trainer = getattr(manager, "_trainer", None)
     captured_trainer_stage_profile: dict[str, Any] | None = None
@@ -827,6 +832,15 @@ def benchmark_service_app(
 
     with TestClient(app) as client:
         if configured_source_path is not None:
+            tick_tokens = max(1, int(configured_source_tick_tokens))
+            queue_target_tokens = max(
+                tick_tokens,
+                int(
+                    configured_source_queue_target_tokens
+                    if configured_source_queue_target_tokens is not None
+                    else tick_tokens
+                ),
+            )
             configure_record, configure_body = _measure_endpoint(
                 client,
                 name="terminus_configure",
@@ -840,19 +854,72 @@ def benchmark_service_app(
                             "source_type": "file",
                         }
                     ],
-                    "tick_tokens": 24,
+                    "tick_tokens": tick_tokens,
                     "sleep_interval_seconds": 0.01,
                     "repeat_sources": True,
                     "ingestion": {
                         "enabled": True,
-                        "queue_target_tokens": 24,
-                        "prewarm_on_startup": False,
+                        "queue_target_tokens": queue_target_tokens,
+                        "prewarm_on_startup": bool(configured_source_prewarm_on_startup),
                         "prewarm_max_seconds": 0.05,
                     },
                 },
             )
             endpoint_timings.append(configure_record)
             response_bodies["terminus_configure"] = configure_body
+            if bool(configured_source_prewarm_on_startup):
+                warmup_started = time.perf_counter()
+                deadline = warmup_started + max(0.0, float(configured_source_prewarm_wait_seconds))
+                attempts = 0
+                last_runtime: Mapping[str, Any] = {}
+                while True:
+                    attempts += 1
+                    poll_record, poll_body = _measure_endpoint(
+                        client,
+                        name="terminus_prewarm_poll",
+                        method="GET",
+                        path="/terminus",
+                    )
+                    endpoint_timings.append(poll_record)
+                    if isinstance(poll_body, Mapping):
+                        runtime_body = poll_body.get("terminus_runtime")
+                        if isinstance(runtime_body, Mapping):
+                            last_runtime = runtime_body
+                    ingestion = (
+                        last_runtime.get("ingestion")
+                        if isinstance(last_runtime.get("ingestion"), Mapping)
+                        else {}
+                    )
+                    if bool(ingestion.get("full_warm_ready", False)):
+                        break
+                    if time.perf_counter() >= deadline:
+                        break
+                    time.sleep(0.01)
+                ingestion = (
+                    last_runtime.get("ingestion")
+                    if isinstance(last_runtime.get("ingestion"), Mapping)
+                    else {}
+                )
+                configured_source_warmup_evidence = {
+                    "enabled": True,
+                    "mode": "prewarm_before_measured_tick",
+                    "not_hot_path": True,
+                    "attempts": int(attempts),
+                    "wait_duration_ms": float((time.perf_counter() - warmup_started) * 1000.0),
+                    "wait_budget_seconds": float(configured_source_prewarm_wait_seconds),
+                    "warm_ready": bool(ingestion.get("warm_ready", False)),
+                    "full_warm_ready": bool(ingestion.get("full_warm_ready", False)),
+                    "ready_source_count": int(ingestion.get("ready_source_count", 0) or 0),
+                    "full_queue_source_count": int(ingestion.get("full_queue_source_count", 0) or 0),
+                    "total_buffered_tokens": int(ingestion.get("total_buffered_tokens", 0) or 0),
+                    "queue_target_tokens": int(ingestion.get("queue_target_tokens", queue_target_tokens) or queue_target_tokens),
+                    "prewarm_last_duration_ms": ingestion.get("prewarm_last_duration_ms"),
+                    "startup_warm_latency_ms": ingestion.get("startup_warm_latency_ms"),
+                }
+                response_bodies["terminus_prewarm_poll"] = {
+                    "terminus_runtime": dict(last_runtime),
+                    "warmup_evidence": dict(configured_source_warmup_evidence),
+                }
             if int(configured_source_tick_steps) > 0:
                 if profile_configured_tick_only and trainer is not None:
                     enable_profile = getattr(trainer, "enable_train_step_profile", None)
@@ -1248,6 +1315,7 @@ def benchmark_service_app(
             "stage_timings_ms": dict(tick_stage_timings),
             "concept_observation": dict(tick_concept_observation),
             "source_cache": source_cache_summary,
+            "warmup": dict(configured_source_warmup_evidence or {"enabled": False}),
             "not_hot_path": True,
         }
 
@@ -1333,6 +1401,10 @@ def run_service_benchmark(
     configure_local_source: bool = False,
     local_source_text: str = DEFAULT_LOCAL_SOURCE_TEXT,
     local_source_tick_steps: int = 0,
+    local_source_tick_tokens: int = 128,
+    local_source_queue_target_tokens: int | None = None,
+    local_source_prewarm_on_startup: bool = True,
+    local_source_prewarm_wait_seconds: float = 5.0,
     trace_history_limit: int = 32,
     trace_dir: str | Path | None = None,
     web_dist_dir: str | Path | None = None,
@@ -1370,6 +1442,10 @@ def run_service_benchmark(
         checkpoint_path=checkpoint_path,
         configured_source_path=configured_source_path,
         configured_source_tick_steps=local_source_tick_steps,
+        configured_source_tick_tokens=local_source_tick_tokens,
+        configured_source_queue_target_tokens=local_source_queue_target_tokens,
+        configured_source_prewarm_on_startup=local_source_prewarm_on_startup,
+        configured_source_prewarm_wait_seconds=local_source_prewarm_wait_seconds,
         feed_text=feed_text,
         query_text=query_text,
         top_k_candidates=top_k_candidates,
@@ -1389,6 +1465,10 @@ def run_service_benchmark_against_accepted_baseline(
     configure_local_source: bool = True,
     local_source_text: str = DEFAULT_LOCAL_SOURCE_TEXT,
     local_source_tick_steps: int = 1,
+    local_source_tick_tokens: int = 128,
+    local_source_queue_target_tokens: int | None = None,
+    local_source_prewarm_on_startup: bool = True,
+    local_source_prewarm_wait_seconds: float = 5.0,
     trace_history_limit: int = 32,
     trace_dir: str | Path | None = None,
     web_dist_dir: str | Path | None = None,
@@ -1409,6 +1489,10 @@ def run_service_benchmark_against_accepted_baseline(
         configure_local_source=configure_local_source,
         local_source_text=local_source_text,
         local_source_tick_steps=local_source_tick_steps,
+        local_source_tick_tokens=local_source_tick_tokens,
+        local_source_queue_target_tokens=local_source_queue_target_tokens,
+        local_source_prewarm_on_startup=local_source_prewarm_on_startup,
+        local_source_prewarm_wait_seconds=local_source_prewarm_wait_seconds,
         trace_history_limit=trace_history_limit,
         trace_dir=trace_dir if trace_dir is not None else bundle_dir / "traces",
         web_dist_dir=web_dist_dir,
@@ -1532,6 +1616,10 @@ def run_service_benchmark_device_comparison(
     configure_local_source: bool = True,
     local_source_text: str = DEFAULT_LOCAL_SOURCE_TEXT,
     local_source_tick_steps: int = 1,
+    local_source_tick_tokens: int = 128,
+    local_source_queue_target_tokens: int | None = None,
+    local_source_prewarm_on_startup: bool = True,
+    local_source_prewarm_wait_seconds: float = 5.0,
     trace_history_limit: int = 32,
     web_dist_dir: str | Path | None = None,
     feed_text: str = DEFAULT_FEED_TEXT,
@@ -1555,6 +1643,10 @@ def run_service_benchmark_device_comparison(
             configure_local_source=configure_local_source,
             local_source_text=local_source_text,
             local_source_tick_steps=local_source_tick_steps,
+            local_source_tick_tokens=local_source_tick_tokens,
+            local_source_queue_target_tokens=local_source_queue_target_tokens,
+            local_source_prewarm_on_startup=local_source_prewarm_on_startup,
+            local_source_prewarm_wait_seconds=local_source_prewarm_wait_seconds,
             trace_history_limit=trace_history_limit,
             trace_dir=cpu_dir / "traces",
             web_dist_dir=web_dist_dir,
@@ -1570,6 +1662,10 @@ def run_service_benchmark_device_comparison(
             configure_local_source=configure_local_source,
             local_source_text=local_source_text,
             local_source_tick_steps=local_source_tick_steps,
+            local_source_tick_tokens=local_source_tick_tokens,
+            local_source_queue_target_tokens=local_source_queue_target_tokens,
+            local_source_prewarm_on_startup=local_source_prewarm_on_startup,
+            local_source_prewarm_wait_seconds=local_source_prewarm_wait_seconds,
             trace_history_limit=trace_history_limit,
             trace_dir=cuda_dir / "traces",
             web_dist_dir=web_dist_dir,
@@ -1635,6 +1731,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Manual Terminus tick steps to run after local source configuration.",
     )
     parser.add_argument(
+        "--local-source-tick-tokens",
+        type=int,
+        default=128,
+        help="Configured source tokens per Terminus tick when --configure-local-source is used.",
+    )
+    parser.add_argument(
+        "--local-source-queue-target-tokens",
+        type=int,
+        default=None,
+        help="Configured ingestion queue target tokens; defaults to --local-source-tick-tokens.",
+    )
+    parser.add_argument(
+        "--disable-local-source-prewarm",
+        action="store_true",
+        help="Keep configured source queue prewarm out of the service benchmark tick setup.",
+    )
+    parser.add_argument(
+        "--local-source-prewarm-wait-seconds",
+        type=float,
+        default=5.0,
+        help="Maximum seconds to wait for configured local source full-queue readiness before measuring a tick.",
+    )
+    parser.add_argument(
         "--create-synthetic-checkpoint",
         action="store_true",
         help="Create a tiny deterministic checkpoint at --checkpoint when it does not already exist.",
@@ -1687,6 +1806,10 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=args.output,
             configure_local_source=args.configure_local_source,
             local_source_tick_steps=args.local_source_tick_steps,
+            local_source_tick_tokens=args.local_source_tick_tokens,
+            local_source_queue_target_tokens=args.local_source_queue_target_tokens,
+            local_source_prewarm_on_startup=not bool(args.disable_local_source_prewarm),
+            local_source_prewarm_wait_seconds=args.local_source_prewarm_wait_seconds,
             trace_dir=args.trace_dir,
             web_dist_dir=args.web_dist_dir,
             env_root=args.env_root,
@@ -1717,6 +1840,10 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=args.output,
             configure_local_source=args.configure_local_source,
             local_source_tick_steps=args.local_source_tick_steps,
+            local_source_tick_tokens=args.local_source_tick_tokens,
+            local_source_queue_target_tokens=args.local_source_queue_target_tokens,
+            local_source_prewarm_on_startup=not bool(args.disable_local_source_prewarm),
+            local_source_prewarm_wait_seconds=args.local_source_prewarm_wait_seconds,
             web_dist_dir=args.web_dist_dir,
             feed_text=args.feed_text,
             query_text=args.query_text,
@@ -1754,6 +1881,10 @@ def main(argv: list[str] | None = None) -> None:
         output_path=args.output,
         configure_local_source=args.configure_local_source,
         local_source_tick_steps=args.local_source_tick_steps,
+        local_source_tick_tokens=args.local_source_tick_tokens,
+        local_source_queue_target_tokens=args.local_source_queue_target_tokens,
+        local_source_prewarm_on_startup=not bool(args.disable_local_source_prewarm),
+        local_source_prewarm_wait_seconds=args.local_source_prewarm_wait_seconds,
         trace_dir=args.trace_dir,
         web_dist_dir=args.web_dist_dir,
         env_root=args.env_root,

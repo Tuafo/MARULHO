@@ -12,7 +12,7 @@ from marulho.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 

@@ -93,6 +93,8 @@ class ColumnTransitionRuntime:
         )
         self._last_winner_consolidation = 0.0
         self._last_effective_modulator = 0.0
+        self.winner_consolidation_cpu_metric_count = 0
+        self.winner_consolidation_cached_metric_count = 0
         self._recent_spike_row = torch.zeros(
             (),
             dtype=torch.int32,
@@ -767,7 +769,25 @@ class ColumnTransitionRuntime:
             winner_id_list = winners.tolist()
             winner_id = int(winner_id_list[0])
         _profile_mark("column_transition_winner_readback")
-        if trainer.memory_warm_started and compute_metrics:
+        if (
+            used_cuda_graph
+            and trainer.memory_warm_started
+            and compute_metrics
+            and winner_id_list is not None
+        ):
+            levels = [
+                float(trainer.model.memory_store.bucket_consolidation_level(wid))
+                for wid in winner_id_list
+            ]
+            winner_consolidation = (
+                float(sum(levels) / len(levels)) if levels else 0.0
+            )
+            self._last_winner_consolidation = winner_consolidation
+            self.winner_consolidation_cpu_metric_count += 1
+        elif used_cuda_graph and trainer.memory_warm_started:
+            winner_consolidation = float(self._last_winner_consolidation)
+            self.winner_consolidation_cached_metric_count += int(compute_metrics)
+        elif trainer.memory_warm_started and compute_metrics:
             winner_consolidation = float(
                 consolidation.index_select(0, winners).mean().item()
             )
@@ -916,6 +936,12 @@ class ColumnTransitionRuntime:
             ),
             "graph_host_winner_reuse_count": int(
                 self.graph_host_winner_reuse_count
+            ),
+            "winner_consolidation_cpu_metric_count": int(
+                self.winner_consolidation_cpu_metric_count
+            ),
+            "winner_consolidation_cached_metric_count": int(
+                self.winner_consolidation_cached_metric_count
             ),
             "cuda_graph_route_transition": (
                 None

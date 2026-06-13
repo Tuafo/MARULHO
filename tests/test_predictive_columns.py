@@ -459,6 +459,34 @@ class TestPredictiveColumnsInTrainer:
         assert "routing_prepare" in report["per_tick_ms"]
         assert "metrics_build" in report["per_tick_ms"]
 
+    def test_train_step_can_skip_metrics_packet_without_skipping_cognition(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(n_columns=8, column_latent_dim=4, bootstrap_tokens=0, memory_capacity=16)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.enable_train_step_profile()
+
+        skipped = trainer.train_step(
+            torch.randn(cfg.input_dim),
+            raw_window="fast source window",
+            return_metrics=False,
+        )
+        full = trainer.train_step(
+            torch.randn(cfg.input_dim),
+            raw_window="runtime truth window",
+        )
+        report = trainer.train_step_profile_report()
+
+        assert skipped == {}
+        assert trainer.token_count == 2
+        assert full["train_step_metrics_full_count"] == 1
+        assert full["train_step_metrics_skip_count"] == 1
+        assert report["count"] == 2
+        assert "metrics_build_skipped" in report["per_tick_ms"]
+        assert "metrics_build" in report["per_tick_ms"]
+
     def test_trainer_cadences_slow_memory_archival(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
