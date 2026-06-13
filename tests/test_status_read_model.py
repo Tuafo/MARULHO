@@ -2473,6 +2473,12 @@ def _build_alive_brain_snapshot() -> dict[str, Any]:
         "living_loop": {},
         "sleep_interval_seconds": 0.01,
         "tick_tokens": 64,
+        "execution_schedule": {
+            "quantum_tokens": 8,
+            "yield_seconds": 0.0,
+            "stop_check_boundary": "between_quanta",
+            "sequential_token_training": True,
+        },
         "repeat_sources": True,
         "last_tick_duration_ms": 12.5,
         "tokens_per_second": 80.0,
@@ -2737,6 +2743,14 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertIn("configuration_payload", source_config)
         self.assertIn("source_count", source_config)
         self.assertEqual(source_config["source_count"], 1)
+        self.assertEqual(
+            source_config["execution_schedule"]["quantum_tokens"],
+            8,
+        )
+        self.assertEqual(
+            source_config["execution_schedule"]["yield_seconds"],
+            0.0,
+        )
         self.assertEqual(
             truth["evidence"]["ingestion_hot_path"]["encoder_execution_mode"],
             "scalar",

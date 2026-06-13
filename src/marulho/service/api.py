@@ -3526,6 +3526,8 @@ def create_app(
                     source_bank=[_model_to_dict(item) for item in request.source_bank],
                     tick_tokens=request.tick_tokens,
                     sleep_interval_seconds=request.sleep_interval_seconds,
+                    execution_quantum_tokens=request.execution_quantum_tokens,
+                    execution_yield_seconds=request.execution_yield_seconds,
                     repeat_sources=request.repeat_sources,
                     autonomy=None if request.autonomy is None else _model_to_dict(request.autonomy),
                     sensory=None if request.sensory is None else _model_to_dict(request.sensory),

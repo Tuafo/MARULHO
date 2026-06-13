@@ -320,3 +320,17 @@ Two plausible route-prep default changes were tested after Cross-Modal Trace Sle
 `reports/host_truth_interval_16_20260613/tick-128-profile-repeat.json` raised `cuda_graph_host_truth_sync_interval_tokens` to `16`. Host truth sync count fell from `17` to `9` and `cuda_graph_prepare_host_truth_sync` fell from `0.0875` to `0.0456 ms/token`, but complete throughput fell to `702.015 tokens/sec` and trainer-stage throughput to `778.0866`. The production default stays `8`; larger intervals remain benchmark-only.
 
 An attempted Brain Runtime metrics-copy pruning after the bounded source-observation cap was also rejected and reverted. It did not change neural training, but repeated complete service evidence failed to beat the retained profile: `reports/source_metrics_copy_prune_20260613/tick-128-profile-repeat.json` measured `577.810 tokens/sec` and trainer-stage throughput `723.9786`, below the retained `830.548` / `900.9459`.
+
+## Continuous Execution Quantum, 2026-06-13
+
+Runtime Control previously forced every background source token through a separate execution-lock/mutation cycle followed by a `5 ms` sleep. The neural updates were sequential, but the host scheduler imposed a throughput ceiling before GPU work. The production default now runs up to eight sequential token updates per bounded execution quantum with no artificial yield, checks stop requests between quanta, and exposes the policy through Runtime Truth. API and persisted configuration cap the quantum at `128` tokens.
+
+`reports/continuous_runtime_quantum_20260613/quantum-ab-stop-evidence.json` used the same 1024-column checkpoint, a fully prewarmed 128-token local source queue, and reversed arm order:
+
+- Legacy `1 token + 5 ms`: `131.995` and `138.484 tokens/sec`, mean `135.240`.
+- Quantum `8 tokens + 0 ms`: `572.055` and `753.546 tokens/sec`, mean `662.800`.
+- Mean speedup: `4.901x`.
+- Quantum stop latency: `13.896` and `11.883 ms`; neither shutdown timed out.
+- Every arm observed the NVIDIA GeForce RTX 3060 on CUDA, requested/resolved `inplace_triton`, and executed 256 transitions with zero failures.
+
+The quantum path removes host scheduling waste; it does not parallelize or skip SNN token updates. A separate full-warm manual service tick with the default quantum, `reports/continuous_runtime_quantum_20260613/manual-warm-quantum8-rerun.json`, reached `692.507 tokens/sec` versus the prior one-token warm baseline at `586.775`, while lock wait and mutation-mark cost fell. The remaining production gap to sustained thousands per second is inside per-token trainer orchestration and graph preparation, not source starvation or forced scheduler sleep.

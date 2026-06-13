@@ -288,6 +288,9 @@ class StatusReadModel:
             "sleep_interval_seconds": float(
                 terminus_runtime.get("sleep_interval_seconds", 0.0) or 0.0
             ),
+            "execution_schedule": deepcopy(
+                dict(terminus_runtime.get("execution_schedule") or {})
+            ),
             "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
             "ingestion": {
                 "enabled": bool(ingestion.get("enabled", True)),
@@ -315,6 +318,7 @@ class StatusReadModel:
             "sensory_source_names": [str(item.get("name", "")) for item in sensory_source_bank],
             "tick_tokens": payload["tick_tokens"],
             "sleep_interval_seconds": payload["sleep_interval_seconds"],
+            "execution_schedule": payload["execution_schedule"],
             "repeat_sources": payload["repeat_sources"],
             "ingestion": payload["ingestion"],
             "configuration_hash": hashlib.sha256(encoded).hexdigest(),

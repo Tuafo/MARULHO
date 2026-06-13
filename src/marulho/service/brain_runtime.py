@@ -25,6 +25,8 @@ from marulho.training.autonomy_acquisition_runner import run_live_acquisition
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
+DEFAULT_EXECUTION_QUANTUM_TOKENS = 8
+DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
@@ -1423,6 +1425,22 @@ class BrainRuntime:
             "sleep_interval_seconds": float(
                 self._brain_config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS)
             ),
+            "execution_schedule": {
+                "quantum_tokens": int(
+                    self._brain_config.get(
+                        "execution_quantum_tokens",
+                        DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                    )
+                ),
+                "yield_seconds": float(
+                    self._brain_config.get(
+                        "execution_yield_seconds",
+                        DEFAULT_EXECUTION_YIELD_SECONDS,
+                    )
+                ),
+                "stop_check_boundary": "between_quanta",
+                "sequential_token_training": True,
+            },
             "repeat_sources": bool(self._brain_config.get("repeat_sources", True)),
             "source_count": int(len(self._brain_source_runtimes)),
             "exhausted_source_count": int(exhausted_source_count),
@@ -1552,6 +1570,18 @@ class BrainRuntime:
             "tick_tokens": int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)),
             "sleep_interval_seconds": float(
                 self._brain_config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS)
+            ),
+            "execution_quantum_tokens": int(
+                self._brain_config.get(
+                    "execution_quantum_tokens",
+                    DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                )
+            ),
+            "execution_yield_seconds": float(
+                self._brain_config.get(
+                    "execution_yield_seconds",
+                    DEFAULT_EXECUTION_YIELD_SECONDS,
+                )
             ),
             "repeat_sources": bool(self._brain_config.get("repeat_sources", True)),
             "autonomy": deepcopy(self._brain_config.get("autonomy")),

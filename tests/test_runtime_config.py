@@ -32,6 +32,8 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         normalized = module._normalize_brain_config(None)
 
         self.assertEqual(normalized["tick_tokens"], 128)
+        self.assertEqual(normalized["execution_quantum_tokens"], 8)
+        self.assertEqual(normalized["execution_yield_seconds"], 0.0)
         self.assertEqual(normalized["ingestion"]["queue_target_tokens"], 256)
 
     def test_normalize_brain_config_preserves_operator_shape(self) -> None:
@@ -48,6 +50,8 @@ class RuntimeConfigSeamTests(unittest.TestCase):
                 ],
                 "tick_tokens": 128,
                 "sleep_interval_seconds": 0.02,
+                "execution_quantum_tokens": 16,
+                "execution_yield_seconds": 0.001,
                 "repeat_sources": False,
                 "autonomy": {
                     "enabled": True,
@@ -79,12 +83,42 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         self.assertEqual(normalized["source_bank"][0]["source"], "notes.txt")
         self.assertEqual(normalized["source_bank"][0]["name"], "source_1")
         self.assertEqual(normalized["tick_tokens"], 128)
+        self.assertEqual(normalized["execution_quantum_tokens"], 16)
+        self.assertEqual(normalized["execution_yield_seconds"], 0.001)
         self.assertFalse(normalized["repeat_sources"])
         self.assertEqual(normalized["autonomy"]["enabled"], True)
         self.assertEqual(normalized["autonomy"]["candidate_bank"][0]["catalog_mode"], "live_remote_search")
         self.assertEqual(normalized["autonomy"]["provider_curriculum"]["wikipedia"]["topic_terms"]["cat"], 1.0)
         self.assertGreaterEqual(normalized["ingestion"]["queue_target_tokens"], 128)
         self.assertTrue(normalized["ingestion"]["prewarm_on_startup"])
+
+    def test_execution_quantum_is_bounded_by_tick_width(self) -> None:
+        module = _runtime_config()
+
+        normalized = module._normalize_brain_config(
+            {
+                "source_bank": [{"source": "notes.txt"}],
+                "tick_tokens": 4,
+                "execution_quantum_tokens": 64,
+                "execution_yield_seconds": -1.0,
+            }
+        )
+
+        self.assertEqual(normalized["execution_quantum_tokens"], 4)
+        self.assertEqual(normalized["execution_yield_seconds"], 0.0)
+
+    def test_execution_quantum_has_a_bounded_responsiveness_ceiling(self) -> None:
+        module = _runtime_config()
+
+        normalized = module._normalize_brain_config(
+            {
+                "source_bank": [{"source": "notes.txt"}],
+                "tick_tokens": 512,
+                "execution_quantum_tokens": 256,
+            }
+        )
+
+        self.assertEqual(normalized["execution_quantum_tokens"], 128)
 
     def test_normalize_brain_config_rejects_non_object(self) -> None:
         module = _runtime_config()

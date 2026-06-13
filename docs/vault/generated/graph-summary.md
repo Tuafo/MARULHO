@@ -8,15 +8,15 @@ last_verified: 2026-06-13
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9154
-- Edges: 1012987
+- Nodes: 9184
+- Edges: 1039493
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3360 nodes
+- `tests`: 3372 nodes
 - `service`: 2580 nodes
-- `evaluation`: 518 nodes
+- `evaluation`: 527 nodes
 - `core`: 516 nodes
 - `training`: 445 nodes
 - `data`: 377 nodes
@@ -32,16 +32,16 @@ last_verified: 2026-06-13
 
 ## Common Relations
 
-- `calls`: 260263
-- `references`: 233696
-- `uses`: 178877
-- `method`: 162856
-- `contains`: 99387
-- `rationale_for`: 40344
-- `imports`: 18935
-- `inherits`: 10628
-- `imports_from`: 6240
-- `re_exports`: 1754
+- `calls`: 267183
+- `references`: 239969
+- `uses`: 183590
+- `method`: 167141
+- `contains`: 102066
+- `rationale_for`: 41050
+- `imports`: 19411
+- `inherits`: 10902
+- `imports_from`: 6375
+- `re_exports`: 1799
 - `extends`: 7
 
 ## Largest Source Files By Node Count

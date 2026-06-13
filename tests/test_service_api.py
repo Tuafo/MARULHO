@@ -14506,6 +14506,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         ],
                         "tick_tokens": 20,
                         "sleep_interval_seconds": 0.01,
+                        "execution_quantum_tokens": 5,
+                        "execution_yield_seconds": 0.0,
                         "repeat_sources": False,
                         "ingestion": {"queue_target_tokens": 40, "prewarm_on_startup": False, "prewarm_max_seconds": 0.2},
                     },
@@ -14519,6 +14521,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertTrue(configure_response.json()["terminus_runtime"]["configured"])
             self.assertGreater(tick_response.json()["token_count"], configure_response.json()["token_count"])
             self.assertEqual(status_response.json()["terminus_runtime"]["source_bank"][0]["name"], "api_terminus_source")
+            self.assertEqual(
+                status_response.json()["terminus_runtime"]["execution_schedule"],
+                {
+                    "quantum_tokens": 5,
+                    "yield_seconds": 0.0,
+                    "stop_check_boundary": "between_quanta",
+                    "sequential_token_training": True,
+                },
+            )
             self.assertEqual(status_response.json()["terminus_runtime"]["ingestion"]["queue_target_tokens"], 40)
             self.assertFalse(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_on_startup"])
             self.assertAlmostEqual(float(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_max_seconds"]), 0.2, places=6)

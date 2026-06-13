@@ -556,6 +556,13 @@ This file records research anchors for current architecture work. It is not a pr
 - PyTorch CUDA Graph guidance requires static addresses and warns that CPU-side scalar work and dynamic behavior break capture. MARULHO therefore keeps persistent score/candidate/winner buffers under `ColumnTransitionRuntime`, refreshes only retrieval-cache pointers after invalidation, and does not claim the whole tick is graph-safe yet. Sources: https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html and https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
 - Exact recurrent evaluation on the 1024-column RTX 3060 checkpoint produced zero candidate, winner, or positive-branch mismatches across 128 keys. The isolated cluster improved from `415.16` to `1716.56 ticks/sec`; production-owned complete text/idle A/B improved from `66.80` to `92.00 ticks/sec`. A global sensory variant was rejected, so the promoted checkpoint mode falls back on every visual/audio tick.
 
+### Continuous execution quantum, June 2026
+
+- NVIDIA's CUDA Graph guidance identifies repeated host setup and launch work as significant overhead for short GPU kernels, while its GPU-resident execution guidance explicitly targets CPU scheduling, synchronization, and orchestration costs. Sources: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html and https://docs.nvidia.com/holoscan/sdk-user-guide/using-the-sdk/gpu-resident-execution
+- Event-driven SNN work supports computation tied to sparse events rather than mandatory clock-like host work around every update: https://arxiv.org/abs/2403.00270
+- MARULHO does not yet have a fully GPU-resident cognitive loop, and this change does not batch or reorder neural learning. It removes a host-only `5 ms` sleep and per-token execution-lock/mutation cycle, then groups up to eight still-sequential token updates under one bounded Runtime Control quantum. Stop checks remain between quanta, with a hard 128-token configuration ceiling.
+- Reversed production-loop A/B on the 1024-column RTX 3060 checkpoint measured `662.800` versus `135.240 tokens/sec` (`4.901x`). Both quantum arms retained full warm source queues, observed CUDA on the RTX 3060, executed the in-place Triton transition `256` times with zero failures, and stopped in `13.896` and `11.883 ms`. The next direction is broader persistent device ownership of route/index/graph-preparation state, not increasing the host quantum without bound.
+
 ## Engineering Implications
 
 - Keep **Subcortex** tensor state on the configured `torch.device`.

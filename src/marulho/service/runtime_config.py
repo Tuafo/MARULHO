@@ -24,6 +24,9 @@ from marulho.service.terminus_autonomy import (
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
+DEFAULT_EXECUTION_QUANTUM_TOKENS = 8
+MAX_EXECUTION_QUANTUM_TOKENS = 128
+DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
 
@@ -450,6 +453,11 @@ class RuntimeConfig:
                 "source_bank": [],
                 "tick_tokens": tick_tokens,
                 "sleep_interval_seconds": DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
+                "execution_quantum_tokens": min(
+                    tick_tokens,
+                    DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                ),
+                "execution_yield_seconds": DEFAULT_EXECUTION_YIELD_SECONDS,
                 "repeat_sources": True,
                 "autonomy": None,
                 "sensory": None,
@@ -462,12 +470,38 @@ class RuntimeConfig:
             for index, item in enumerate(list(config.get("source_bank") or []))
         ]
         tick_tokens = max(1, int(config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)))
+        execution_quantum_tokens = min(
+            tick_tokens,
+            MAX_EXECUTION_QUANTUM_TOKENS,
+            max(
+                1,
+                int(
+                    config.get(
+                        "execution_quantum_tokens",
+                        DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                    )
+                ),
+            ),
+        )
         normalized = {
             "source_bank": source_bank,
             "tick_tokens": tick_tokens,
             "sleep_interval_seconds": max(
                 0.01,
                 float(config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS)),
+            ),
+            "execution_quantum_tokens": execution_quantum_tokens,
+            "execution_yield_seconds": max(
+                0.0,
+                min(
+                    1.0,
+                    float(
+                        config.get(
+                            "execution_yield_seconds",
+                            DEFAULT_EXECUTION_YIELD_SECONDS,
+                        )
+                    ),
+                ),
             ),
             "repeat_sources": bool(config.get("repeat_sources", True)),
             "autonomy": self._normalize_autonomy_config(config.get("autonomy")),

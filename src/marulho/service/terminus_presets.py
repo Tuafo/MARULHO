@@ -52,6 +52,8 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "sensory": current_runtime_sensory_config(),
         "tick_tokens": 128,
         "sleep_interval_seconds": 0.05,
+        "execution_quantum_tokens": 8,
+        "execution_yield_seconds": 0.0,
         "repeat_sources": True,
         "model_overrides": {
             "n_columns": 1024,

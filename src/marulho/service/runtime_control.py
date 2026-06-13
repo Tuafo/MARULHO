@@ -14,6 +14,8 @@ from marulho.training.trainer import MarulhoTrainer
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
+DEFAULT_EXECUTION_QUANTUM_TOKENS = 8
+DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 
 _terminus_runtime_logger = _logging.getLogger(__name__ + ".terminus_runtime")
@@ -86,6 +88,8 @@ class RuntimeControl(RuntimePrewarmer):
         source_bank: list[dict[str, Any]],
         tick_tokens: int = DEFAULT_BRAIN_TICK_TOKENS,
         sleep_interval_seconds: float = DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
+        execution_quantum_tokens: int = DEFAULT_EXECUTION_QUANTUM_TOKENS,
+        execution_yield_seconds: float = DEFAULT_EXECUTION_YIELD_SECONDS,
         repeat_sources: bool = True,
         autonomy: dict[str, Any] | None = None,
         sensory: dict[str, Any] | None = None,
@@ -103,6 +107,8 @@ class RuntimeControl(RuntimePrewarmer):
                     "source_bank": source_bank,
                     "tick_tokens": tick_tokens,
                     "sleep_interval_seconds": sleep_interval_seconds,
+                    "execution_quantum_tokens": execution_quantum_tokens,
+                    "execution_yield_seconds": execution_yield_seconds,
                     "repeat_sources": repeat_sources,
                     "autonomy": autonomy,
                     "sensory": sensory,
@@ -229,6 +235,14 @@ class RuntimeControl(RuntimePrewarmer):
             source_bank=config["source_bank"],
             tick_tokens=config["tick_tokens"],
             sleep_interval_seconds=config["sleep_interval_seconds"],
+            execution_quantum_tokens=config.get(
+                "execution_quantum_tokens",
+                DEFAULT_EXECUTION_QUANTUM_TOKENS,
+            ),
+            execution_yield_seconds=config.get(
+                "execution_yield_seconds",
+                DEFAULT_EXECUTION_YIELD_SECONDS,
+            ),
             repeat_sources=config["repeat_sources"],
             autonomy=config.get("autonomy"),
             sensory=config.get("sensory"),
@@ -271,12 +285,24 @@ class RuntimeControl(RuntimePrewarmer):
             with self._brain_execution_lock:
                 with self._lock:
                     self._assert_manual_tick_allowed_locked()
+                    execution_quantum_tokens = int(
+                        self._brain_config.get(
+                            "execution_quantum_tokens",
+                            DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                        )
+                    )
+                    execution_yield_seconds = float(
+                        self._brain_config.get(
+                            "execution_yield_seconds",
+                            DEFAULT_EXECUTION_YIELD_SECONDS,
+                        )
+                    )
 
                 for _ in range(step_count):
                     summary = self._run_brain_tick_once(
                         stop_event=None,
-                        sub_batch_size=1,
-                        yield_seconds=0.0,
+                        sub_batch_size=execution_quantum_tokens,
+                        yield_seconds=execution_yield_seconds,
                     )
                     if summary is None:
                         break
@@ -433,12 +459,22 @@ class RuntimeControl(RuntimePrewarmer):
         return thread
 
     def _brain_loop(self) -> None:
-        _SUB_BATCH = 1  # max tokens trained per lock acquisition
-        _YIELD_SECONDS = 0.005  # yield between token steps for SSE/API/stop responsiveness
         while True:
             with self._lock:
                 stop_event = self._brain_stop_event
                 sleep_interval = float(self._brain_config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS))
+                execution_quantum_tokens = int(
+                    self._brain_config.get(
+                        "execution_quantum_tokens",
+                        DEFAULT_EXECUTION_QUANTUM_TOKENS,
+                    )
+                )
+                execution_yield_seconds = float(
+                    self._brain_config.get(
+                        "execution_yield_seconds",
+                        DEFAULT_EXECUTION_YIELD_SECONDS,
+                    )
+                )
             if stop_event is None or stop_event.is_set():
                 break
             try:
@@ -447,8 +483,8 @@ class RuntimeControl(RuntimePrewarmer):
                     with self._brain_execution_lock:
                         result = self._run_brain_tick_once(
                             stop_event=stop_event,
-                            sub_batch_size=_SUB_BATCH,
-                            yield_seconds=_YIELD_SECONDS,
+                            sub_batch_size=execution_quantum_tokens,
+                            yield_seconds=execution_yield_seconds,
                         )
                 finally:
                     self._release_active_execution()

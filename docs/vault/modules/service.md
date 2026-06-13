@@ -43,6 +43,8 @@ related_benchmarks: []
 
         RuntimeControl may record bounded wall-clock stage timings and schedule the existing remote refill worker after consuming a source chunk so provider I/O overlaps trainer execution. It must not synchronize CUDA for telemetry, implement semantic assignment, or move source algorithms into service.
 
+        RuntimeControl owns the Continuous Execution Quantum as host scheduling policy. It may group a bounded number of still-sequential trainer calls under one execution-lock acquisition, omit artificial yields, and check stop requests between quanta. Runtime Truth must expose the active quantum and yield. RuntimeControl must not batch neural learning, reorder tokens, or absorb trainer algorithms.
+
         Runtime sources may cache bounded encoded windows for deterministic local/file text sources using a file fingerprint in the cache key. Restored file-source queues reduce first-tick source collection without changing Subcortex state, replay, memory admission, or trainer semantics. Stale source files naturally miss the cache because size and modification timestamp are part of the key.
 
         Structural Mutation Application orchestrates the explicit binding-hub topology transaction. Service binds operator reason, target, method, edge budget, revision, and checkpoint path into reviewed hashes; verifies the full binding snapshot before and after mutation; publishes only a verified committed checkpoint; and restores binding state plus Runtime State revision on no-op, over-budget, tampered, or failed commits. The topology algorithm remains in `core`.
