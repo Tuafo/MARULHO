@@ -373,6 +373,10 @@ That first long run exposed dead metabolism in source-cache persistence: while `
 
 The remaining large bottleneck is still the trainer/graph-prep cluster, not source collection or disk persistence. In the post-change run, top complete-runtime stage costs were `train_compute=1.0669 ms/token`, `trainer_step=0.9952 ms/token`, `train_lock_wait=0.1757 ms/token`, and concept/finalize work below that. The next broad speed slice should collapse more per-token trainer orchestration into the persistent tick executor while preserving sequential spike updates, Runtime Truth sampling cadence, and fail-closed CUDA fallback.
 
+## Burst Metadata Cleanup Rejection, 2026-06-14
+
+The promoted thirty-two-token truth/event cadence still keeps a small CPU-side pending metadata window so rare strong events can attach raw text, input patterns, and metadata to device-captured assembly/routing payloads. A compact pending-window rewrite preserved focused strong-event tests but did not win complete runtime: clean 32768-token CUDA stress runs measured `3551.811` and `3334.081 tokens/sec`. A narrower shared-metadata-only version kept the proven tuple shape and removed per-token dict copies, but still measured `3543.149 tokens/sec`. These are below the retained same-surface interval-32 evidence (`4237.534 tokens/sec` at 32768 tokens and `4577.595` at 131072 tokens), so the runtime code was reverted and the cleanup was retired. The next speed work should target broader device-owned execution and routing/graph replay boundaries, not Python metadata shape churn.
+
 ## Sustained Host-Truth Recheck and Abstraction Clone Retirement, 2026-06-14
 
 Host-truth synchronization and slow-memory archival use separate cadences. The retained checkpoint carries `cuda_graph_host_truth_sync_interval_tokens=16`, while the promoted slow-memory archival cadence is `256`. A wider host-truth interval therefore cannot be inferred from the memory result.
