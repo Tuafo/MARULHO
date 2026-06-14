@@ -974,6 +974,26 @@ class CudaGraphRouteTransition:
     ) -> dict[str, Any]:
         """Burst-replay eight ticks without interleaved host bookkeeping."""
 
+        profile_enabled = bool(
+            getattr(self._trainer, "_train_step_profile_enabled", False)
+        )
+        profile_totals = (
+            getattr(self._trainer, "_train_step_profile_totals_ms", {})
+            if profile_enabled
+            else {}
+        )
+        profile_last = time.perf_counter() if profile_enabled else 0.0
+
+        def _profile_mark(name: str) -> None:
+            nonlocal profile_last
+            if not profile_enabled:
+                return
+            now = time.perf_counter()
+            profile_totals[name] = profile_totals.get(name, 0.0) + (
+                now - profile_last
+            ) * 1000.0
+            profile_last = now
+
         if len(patterns) != PERSISTENT_EXECUTOR_BURST_TOKENS:
             raise ValueError(
                 "persistent executor burst requires exactly "
@@ -987,8 +1007,10 @@ class CudaGraphRouteTransition:
         graph_name = "candidate_subset" if start_token >= threshold else "all_columns"
         if start_token < threshold < start_token + len(patterns):
             raise RuntimeError("persistent executor burst crosses routing-mode boundary")
+        _profile_mark("text_burst_runtime_eligibility")
         if not self.stage_input_quantum(patterns):
             raise RuntimeError("persistent executor burst input staging failed")
+        _profile_mark("text_burst_runtime_input_stage")
         sync_interval = max(
             1,
             int(trainer.config.cuda_graph_host_truth_sync_interval_tokens),
@@ -1007,6 +1029,7 @@ class CudaGraphRouteTransition:
             > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS
         ):
             raise RuntimeError("persistent executor event queue capacity exceeded")
+        _profile_mark("text_burst_runtime_host_truth_gate")
 
         assert self._parameters is not None
         assert self._parameter_device_prefix is not None
@@ -1041,6 +1064,7 @@ class CudaGraphRouteTransition:
             self.modulator_stage_copy_count += 1
         else:
             self.modulator_stage_skip_count += 1
+        _profile_mark("text_burst_runtime_control_state")
 
         token_count = len(patterns)
         try:
@@ -1049,6 +1073,7 @@ class CudaGraphRouteTransition:
         except Exception:
             self.burst_replay_failure_count += 1
             raise
+        _profile_mark("text_burst_runtime_replay_loop")
 
         self._discard_staged_inputs(count_discard=False)
         self._learning_rate_update_count_mirror += token_count
@@ -1084,17 +1109,20 @@ class CudaGraphRouteTransition:
         )
         comp.update_count += token_count
         trainer.token_count += token_count
+        _profile_mark("text_burst_runtime_python_mirrors")
         if sync_offsets or (
             self._burst_pending_event_count
             >= PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS
         ):
-            return {
+            result = {
                 **outputs,
                 **self._drain_burst_events(forced=False),
             }
+            _profile_mark("text_burst_runtime_event_drain")
+            return result
         self.burst_event_deferred_count += 1
         self._last_result_from_host_sync = False
-        return {
+        result = {
             **outputs,
             "truth_synced": False,
             "result_rows": [],
@@ -1102,6 +1130,8 @@ class CudaGraphRouteTransition:
             "strong_assemblies": [],
             "strong_routing_keys": [],
         }
+        _profile_mark("text_burst_runtime_event_defer")
+        return result
 
     @torch.no_grad()
     def _drain_burst_events(self, *, forced: bool) -> dict[str, Any]:

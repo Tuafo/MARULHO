@@ -1153,6 +1153,8 @@ def test_text_burst_profile_keeps_burst_executor_active() -> None:
     assert runtime_report["text_burst_fallback_reasons"] == {}
     assert profile["count"] == 8
     assert profile["totals_ms"]["text_burst_graph_replay"] > 0.0
+    assert profile["totals_ms"]["text_burst_runtime_replay_loop"] > 0.0
+    assert profile["totals_ms"]["text_burst_runtime_python_mirrors"] > 0.0
     assert profile["totals_ms"]["text_burst_total"] > 0.0
 
 
