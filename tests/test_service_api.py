@@ -17175,14 +17175,25 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertFalse(data.get("already_running", False))
                     self.assertEqual(data.get("preset_applied"), "curriculum")
                     self.assertEqual(data["terminus_runtime"]["source_count"], 3)
-                    self.assertLessEqual(data["terminus_runtime"]["tick_tokens"], 64)
+                    self.assertEqual(data["terminus_runtime"]["tick_tokens"], 128)
+                    self.assertEqual(
+                        data["terminus_runtime"]["execution_schedule"]["quantum_tokens"],
+                        16,
+                    )
+                    self.assertEqual(
+                        data["terminus_runtime"]["ingestion"]["queue_target_tokens"],
+                        4096,
+                    )
+                    self.assertTrue(
+                        data["terminus_runtime"]["ingestion"]["prewarm_on_startup"]
+                    )
                     self.assertTrue(data["terminus_runtime"]["autonomy"]["enabled"])
                     self.assertEqual(data["terminus_runtime"]["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
                     manager = app.state.marulho_manager
                     self.assertEqual(manager._trainer.config.memory_capacity, 1000)
                     self.assertEqual(manager._trainer.model.memory_store.capacity, 1000)
-                    self.assertTrue(manager._trainer.config.enable_context_layer)
-                    self.assertTrue(manager._trainer.config.enable_binding_layer)
+                    self.assertFalse(manager._trainer.config.enable_context_layer)
+                    self.assertFalse(manager._trainer.config.enable_binding_layer)
                     self.assertNotIn("curriculum", data["terminus_runtime"])
                     stop_resp = client.post("/terminus/stop")
                     self.assertEqual(stop_resp.status_code, 200)

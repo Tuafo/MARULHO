@@ -1171,13 +1171,18 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 with (
                     patch("marulho.service.runtime_control.MarulhoModel", return_value=object()),
                     patch("marulho.service.runtime_control.MarulhoTrainer", _RebuiltTrainer),
-                    patch.object(manager._runtime_control, "configure_terminus", return_value={}),
+                    patch.object(manager._runtime_control, "configure_terminus", return_value={}) as configure,
                     patch.object(manager._runtime_control, "start_terminus", return_value={}),
                     patch.object(manager, "_refresh_root_captures_locked", wraps=manager._refresh_root_captures_locked) as refresh,
                 ):
                     result = manager._runtime_control.quick_start_terminus(preset="curriculum")
 
                 self.assertEqual(refresh.call_count, 1)
+                self.assertEqual(
+                    configure.call_args.kwargs["ingestion"]["queue_target_tokens"],
+                    4096,
+                )
+                self.assertTrue(configure.call_args.kwargs["ingestion"]["prewarm_on_startup"])
                 self.assertEqual(result["preset_applied"], "curriculum")
                 self.assertIs(manager._brain_runtime._trainer, manager._trainer)
                 self.assertIs(manager._brain_runtime._encoder, rebuilt_encoder)

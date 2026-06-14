@@ -101,6 +101,17 @@ the old wider-quantum path that fell through to retained per-token
 - CUDA: RTX 3060, all `131072` transitions, `131056` burst-owned tokens, `16382` eight-token burst replays, zero graph/burst failures.
 - Runtime Truth: `quantum_tokens=16`, `8192` training-owned sequence quanta, `8192` event drains at the configured sixteen-token truth boundary, host-truth syncs `8193`, and forced burst-event drains `0`.
 - Short-run guardrail: the first 32768-token q16 run was noisy/slower (`2741.238 tokens/sec`), but the repeat recovered to `3225.467`, slightly above the same-code q8 run at `3180.473`. The long run is the promotion evidence.
+- Wider-quantum rejection: clean follow-up runs did not promote q32 or q64. q16/q32/q64 32768-token clean runs measured `3179.769`, `3295.352`, and `3178.163 tokens/sec`; the longer q32 131072-token run reached `3735.329 tokens/sec`, below the retained q16 long evidence at `4247.306`. The maintained default therefore stays q16 until a wider scheduler wins a long, uncontended complete-runtime run.
+
+## Hot-Path-Safe Control Room
+
+The control-room quick-start path now mirrors the promoted service runtime
+instead of enabling old always-on higher layers. The curriculum preset uses a
+128-token tick, 16-token execution quantum, explicit ingestion prewarm, and
+keeps context and binding layers disabled until a conditional scheduler can
+wake them without forcing `train_text_burst` into the retained per-token path.
+This fixes the operator-facing path so dashboard runs are comparable to the
+true sustained speed evidence rather than a slow compatibility shape.
 
 ## Remaining Cost
 

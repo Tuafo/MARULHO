@@ -251,6 +251,7 @@ class RuntimeControl(RuntimePrewarmer):
             repeat_sources=config["repeat_sources"],
             autonomy=config.get("autonomy"),
             sensory=config.get("sensory"),
+            ingestion=config.get("ingestion"),
         )
         result = self.start_terminus()
         result["already_running"] = False

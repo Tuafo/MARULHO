@@ -31,10 +31,10 @@ from marulho.service.terminus_hf_sources import (
 
 TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
     "curriculum": {
-        "label": "Curriculum (HF background + adaptive autonomy guidance)",
+        "label": "Curriculum (fast HF background + adaptive autonomy guidance)",
         "default": True,
         "description": (
-            "Uses a Hugging Face source mixture for steady background training "
+            "Uses a Hugging Face source mixture for fast steady background training "
             "(OpenStax open textbooks, S2ORC ArXiv abstracts, FineWeb-Edu) with focus-aware background "
             "source allocation, real Hugging Face multimodal grounding episodes "
             "(S1-MMAlign + AudioCaps) on a balanced, confidence-aware, semantically "
@@ -44,12 +44,18 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             "utility calibration, response-evidence provenance credit, delayed multi-turn "
             "consequence tracking, contradiction/decay-aware long-horizon utility penalties, "
             "explicit recovery/forgiveness scheduling for mixed long-horizon evidence, and "
-            "age-sensitive retirement/cooling, compaction/aggregation of repeated long-horizon consequence records, trajectory-sensitive summaries for aggregated long-horizon consequence families, divergence-sensitive splitting of mixed long-horizon consequence families, lineage-aware remerge of split long-horizon consequence families, and grounded family-summary calibration of long-horizon consequence utility. Real multimodal grounding "
+            "age-sensitive retirement/cooling, compaction/aggregation of repeated long-horizon consequence records, trajectory-sensitive summaries for aggregated long-horizon consequence families, divergence-sensitive splitting of mixed long-horizon consequence families, lineage-aware remerge of split long-horizon consequence families, and grounded family-summary calibration of long-horizon consequence utility. Default runtime cognition keeps always-on context and binding layers off the hot path until a conditional device scheduler promotes them. Real multimodal grounding "
             "is carried by the maintained Hugging Face sensory path."
         ),
         "source_bank": current_runtime_source_bank(),
         "autonomy": current_runtime_autonomy_config(),
         "sensory": current_runtime_sensory_config(),
+        "ingestion": {
+            "enabled": True,
+            "queue_target_tokens": 4096,
+            "prewarm_on_startup": True,
+            "prewarm_max_seconds": 60.0,
+        },
         "tick_tokens": 128,
         "source_concept_observation_tick_interval": 4,
         "sleep_interval_seconds": 0.05,
@@ -59,9 +65,8 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "model_overrides": {
             "n_columns": 1024,
             "memory_capacity": 1000,
-            "enable_context_layer": True,
-            "enable_binding_layer": True,
-            "binding_mode": "hypercube",
+            "enable_context_layer": False,
+            "enable_binding_layer": False,
             "routing_shards": 4,
             "plasticity_spike_backend": "adex",
             "slow_memory_archive_interval_tokens": 256,

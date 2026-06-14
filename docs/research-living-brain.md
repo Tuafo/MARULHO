@@ -684,6 +684,18 @@ This file records research anchors for current architecture work. It is not a pr
   bottleneck is device transition work at `0.259876 ms/token`; source prewarm
   remains a separate `84.725 s` startup cost. Source:
   https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html.
+- Nemotron 3 Ultra source-bank note, June 2026: NVIDIA's Nemotron 3 Ultra
+  release is useful to MARULHO as a candidate source/replay data direction, not
+  as a runtime cognition dependency. NVIDIA reports released checkpoints and
+  datasets, including 173B tokens of fresh GitHub code through September 30,
+  2025, synthetic legal/specialized datasets, and posttraining data for
+  agentic/reasoning/general capabilities. The implementation direction is to
+  review those Hugging Face datasets as explicit source-bank candidates with
+  license, field, sampling, and memory-pressure checks before any promotion.
+  They must not become hidden LLM cognition, a default hot-path dependency, or
+  a replacement for Runtime Truth evidence. Sources:
+  https://research.nvidia.com/labs/nemotron/Nemotron-3-Ultra/ and
+  https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v3.
 
 ## Engineering Implications
 

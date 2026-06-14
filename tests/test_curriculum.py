@@ -43,5 +43,10 @@ class TestRuntimeAutonomyCurriculum:
         assert preset["execution_quantum_tokens"] == 16
         assert preset["execution_yield_seconds"] == 0.0
         assert preset["source_concept_observation_tick_interval"] == 4
+        assert preset["ingestion"]["queue_target_tokens"] == 4096
+        assert preset["ingestion"]["prewarm_on_startup"] is True
         assert preset["model_overrides"]["memory_capacity"] == 1000
+        assert preset["model_overrides"]["enable_context_layer"] is False
+        assert preset["model_overrides"]["enable_binding_layer"] is False
+        assert "binding_mode" not in preset["model_overrides"]
         assert preset["model_overrides"]["slow_memory_archive_interval_tokens"] == 256
