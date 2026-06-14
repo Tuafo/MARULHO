@@ -227,6 +227,7 @@ def run_continuous_runtime_stress(
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
+    profile_trainer_stages: bool = False,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -319,6 +320,8 @@ def run_continuous_runtime_stress(
 
         with manager._lock:
             start_token = int(manager._trainer.token_count)
+            if bool(profile_trainer_stages):
+                manager._trainer.enable_train_step_profile(reset=True)
         runtime.start_terminus()
         started = time.perf_counter()
         deadline = started + max(0.1, float(timeout_seconds))
@@ -365,6 +368,13 @@ def run_continuous_runtime_stress(
             )
             transition_report = manager._trainer.column_transition_runtime_report()
             device_report = manager._trainer.config.device_report()
+            trainer_stage_profile = (
+                manager._trainer.train_step_profile_report()
+                if bool(profile_trainer_stages)
+                else None
+            )
+            if bool(profile_trainer_stages):
+                manager._trainer.disable_train_step_profile()
         cache_flush = _flush_source_cache_writes(manager)
         token_delta = max(0, final_token - start_token)
         event_summary = _summarize_tick_events(tick_events)
@@ -421,6 +431,7 @@ def run_continuous_runtime_stress(
                 "poll_snapshots_during_measurement": bool(poll_snapshots),
                 "poll_snapshot_count": int(poll_snapshot_count),
             },
+            "trainer_stage_profile": trainer_stage_profile,
             "token_delta": int(token_delta),
             "elapsed_seconds": float(elapsed_seconds),
             "tokens_per_second": float(token_delta / max(elapsed_seconds, 1e-9)),
@@ -454,6 +465,15 @@ def main() -> int:
     parser.add_argument("--source-concept-observation-tick-interval", type=int, default=4)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--sample-interval-seconds", type=float, default=0.02)
+    parser.add_argument(
+        "--profile-trainer-stages",
+        action="store_true",
+        help=(
+            "Enable MarulhoTrainer train_step stage profiling during the "
+            "measured stress window. This is profiling evidence and may "
+            "perturb throughput."
+        ),
+    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -464,6 +484,7 @@ def main() -> int:
         source_concept_observation_tick_interval=args.source_concept_observation_tick_interval,
         timeout_seconds=args.timeout_seconds,
         sample_interval_seconds=args.sample_interval_seconds,
+        profile_trainer_stages=args.profile_trainer_stages,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

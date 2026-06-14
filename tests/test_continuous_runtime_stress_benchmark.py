@@ -4,6 +4,7 @@ from marulho.evaluation.continuous_runtime_stress_benchmark import (
     _runtime_event_history_limit,
     _source_text_for_target,
     _summarize_tick_events,
+    main,
     run_continuous_runtime_stress,
 )
 
@@ -140,3 +141,32 @@ def test_stress_runner_extends_runtime_event_history_for_long_runs() -> None:
     history = _Manager._runtime_state._brain_event_history
     assert history.maxlen == 5
     assert list(history) == [{"type": "existing"}]
+
+
+def test_main_forwards_trainer_stage_profile_flag(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def _run(checkpoint, **kwargs):
+        captured["checkpoint"] = checkpoint
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        "marulho.evaluation.continuous_runtime_stress_benchmark."
+        "run_continuous_runtime_stress",
+        _run,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "continuous-runtime-stress",
+            "--checkpoint",
+            str(tmp_path / "runtime.pt"),
+            "--output",
+            str(tmp_path / "report.json"),
+            "--profile-trainer-stages",
+        ],
+    )
+
+    assert main() == 0
+    assert captured["profile_trainer_stages"] is True

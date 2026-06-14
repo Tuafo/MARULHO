@@ -1450,7 +1450,6 @@ class MarulhoTrainer:
             == "cuda_graph_route_transition"
         )
 
-        abstraction_input = assembly.clone()
         if profile_enabled:
             profile_now = time.perf_counter()
             profile_totals["column_transition"] = profile_totals.get("column_transition", 0.0) + (
@@ -1459,7 +1458,7 @@ class MarulhoTrainer:
             profile_last = profile_now
         if self.model.abstraction_layer is not None:
             self.model.abstraction_layer.observe(
-                abstraction_input,
+                assembly.clone(),
                 update_weights=True,
                 precision_weight=self._context_precision_weight(),
             )
