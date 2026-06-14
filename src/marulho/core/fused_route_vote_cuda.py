@@ -59,6 +59,7 @@ if triton is not None:
         winner_out,
         strength_out,
         competition_had_positive,
+        reconstruction_error_out,
         vector_count: tl.constexpr,
         column_dim: tl.constexpr,
         location_dim: tl.constexpr,
@@ -74,6 +75,7 @@ if triton is not None:
             mask=score_mask,
             other=-float("inf"),
         )
+        best_route_score = tl.max(remaining_scores, axis=0)
 
         dimension_offsets = tl.arange(0, block_d)
         dimension_mask = dimension_offsets < column_dim
@@ -185,6 +187,10 @@ if triton is not None:
         tl.store(previous_winner, winner)
         tl.store(strength_out, 1.0)
         tl.store(competition_had_positive, had_positive)
+        tl.store(
+            reconstruction_error_out,
+            tl.maximum(1.0 - best_route_score, 0.0),
+        )
 
 
 def fused_route_vote_available() -> bool:
@@ -205,6 +211,7 @@ def warmup_fused_route_vote_cuda(
     winner_out: torch.Tensor,
     strength_out: torch.Tensor,
     competition_had_positive: torch.Tensor,
+    reconstruction_error_out: torch.Tensor,
 ) -> None:
     """Compile the bounded route/vote shape without launching or mutating it."""
 
@@ -235,6 +242,7 @@ def warmup_fused_route_vote_cuda(
         winner_out,
         strength_out,
         competition_had_positive,
+        reconstruction_error_out,
         vector_count=vector_count,
         column_dim=column_dim,
         location_dim=int(prediction_location.shape[1]),
@@ -261,6 +269,7 @@ def fused_route_vote_cuda(
     winner_out: torch.Tensor,
     strength_out: torch.Tensor,
     competition_had_positive: torch.Tensor,
+    reconstruction_error_out: torch.Tensor,
 ) -> None:
     """Run the production-owned two-launch exact text route/vote kernel."""
 
@@ -281,6 +290,7 @@ def fused_route_vote_cuda(
         winner_out,
         strength_out,
         competition_had_positive,
+        reconstruction_error_out,
     )
     if any(tensor.device != routing_key.device for tensor in tensors):
         raise ValueError("all fused route/vote tensors must share one CUDA device")
@@ -308,6 +318,8 @@ def fused_route_vote_cuda(
         raise ValueError("previous_winner must be one int64 value")
     if candidates_out.dtype != torch.long:
         raise ValueError("candidates_out must use int64")
+    if int(reconstruction_error_out.numel()) != 1:
+        raise ValueError("reconstruction_error_out must be one scalar value")
 
     ensure_windows_triton_compiler()
     _routing_scores_kernel[(vector_count,)](
@@ -331,6 +343,7 @@ def fused_route_vote_cuda(
         winner_out,
         strength_out,
         competition_had_positive,
+        reconstruction_error_out,
         vector_count=vector_count,
         column_dim=column_dim,
         location_dim=int(prediction_location.shape[1]),

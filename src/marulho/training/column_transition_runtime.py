@@ -72,6 +72,7 @@ class ColumnTransitionRuntime:
         self._route_ids: torch.Tensor | None = None
         self._route_scores: torch.Tensor | None = None
         self._route_candidates: torch.Tensor | None = None
+        self._route_reconstruction_error = torch.empty(1, device=trainer.model.device)
         comp = trainer.model.competitive
         device = trainer.model.device
         self._assembly = torch.empty(comp.n_columns, device=device)
@@ -318,6 +319,7 @@ class ColumnTransitionRuntime:
                 winner_out=self._winner,
                 strength_out=self._strength,
                 competition_had_positive=self._competition_had_positive,
+                reconstruction_error_out=self._route_reconstruction_error,
             )
             self.route_vote_warmup_succeeded = True
             self.route_vote_resolved_mode = self.route_vote_requested_mode
@@ -443,6 +445,7 @@ class ColumnTransitionRuntime:
             winner_out=self._winner,
             strength_out=self._strength,
             competition_had_positive=self._competition_had_positive,
+            reconstruction_error_out=self._route_reconstruction_error,
         )
         comp = self._trainer.model.competitive
         comp.last_candidate_count = int(route_candidates.numel())

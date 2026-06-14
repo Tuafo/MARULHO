@@ -15,7 +15,7 @@ related_benchmarks: []
 
         The column-transition evidence names the requested and resolved executor, CUDA/tensor device, compile-only warmup result and candidate shapes, execution and failure counts, fallback reason, and the fail-closed post-launch policy. This proves which path executed; it does not convert hot-window throughput into full service throughput.
 
-        When `cuda_graph_text` is active, the same evidence includes graph capture success and latency, graph names, fixed-address status, pre-route replay and sensory-bypass counts, transition replay/failure counts, and tensor device. Pointer changes disable the graph before mutation. These fields prove graph execution, not whole-service graph capture.
+        When `cuda_graph_text` is active, the same evidence includes graph capture success and latency, graph names, fixed-address status, pre-route replay and sensory-bypass counts, transition replay/failure counts, tensor device, reconstruction source, fused reconstruction activity, and fused reconstruction update count. Pointer changes disable the graph before mutation. These fields prove graph execution and scalar ownership, not whole-service graph capture.
 
         Runtime Truth also exposes the last live tick's bounded stage timings for source selection/collection, training, concept observation, finalization, lock waits, and cooperative yields. These are CPU wall-clock orchestration measurements without per-token CUDA synchronization; CUDA kernel attribution still requires an explicit profiler slow path.
 

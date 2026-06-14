@@ -7,7 +7,6 @@ import torch
 import torch.nn.functional as F
 
 from marulho.core.columns import (
-    _normalize_positive_vector,
     _normalize_routing_key,
 )
 from marulho.core.fused_route_vote_cuda import fused_route_vote_cuda
@@ -100,7 +99,7 @@ class CudaGraphRouteTransition:
 
     def _pre_route_ops(
         self,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         trainer = self._trainer
         comp = trainer.model.competitive
         assert self._input_patterns is not None
@@ -124,22 +123,10 @@ class CudaGraphRouteTransition:
             trainer.model.device,
         )
         routing_key = F.normalize(projected, dim=0)
-        reconstruction_key = _normalize_positive_vector(
-            routing_key.unsqueeze(0),
-            dim=1,
-        ).squeeze(0)
-        reconstruction_error = torch.clamp(
-            1.0 - torch.mv(
-                comp.prototypes,
-                reconstruction_key,
-            ).max(),
-            min=0.0,
-        )
         return (
             normalized_input,
             projected,
             routing_key,
-            reconstruction_error,
         )
 
     def _update_neuromodulators(
@@ -217,9 +204,14 @@ class CudaGraphRouteTransition:
         candidates: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         trainer = self._trainer
-        normalized_input, projected, routing_key, reconstruction_error = (
-            self._pre_route_ops()
+        normalized_input, projected, routing_key = self._pre_route_ops()
+        assert self._result is not None
+        self._launch_route_vote(
+            candidates,
+            routing_key=routing_key,
+            reconstruction_error_out=self._result.narrow(0, 0, 1),
         )
+        reconstruction_error = self._result[0]
         self._update_neuromodulators(reconstruction_error)
         assert self._parameters is not None
         assert self._learning_rate_update_count is not None
@@ -228,12 +220,11 @@ class CudaGraphRouteTransition:
             comp.lr_initial
             / (1.0 + comp.lr_decay * self._learning_rate_update_count)
         )
-        self._launch(candidates, routing_key=routing_key)
+        self._launch_transition(candidates, routing_key=routing_key)
         self._learning_rate_update_count.add_(1.0)
         runtime = self._runtime
         assert self._neuromodulator_state is not None
         assert self._result is not None
-        self._result[0].copy_(reconstruction_error)
         self._result[1:6].copy_(self._neuromodulator_state)
         self._result[6].copy_(runtime._winner[0])
         self._result[7].copy_(runtime._effective_modulator)
@@ -448,11 +439,12 @@ class CudaGraphRouteTransition:
                 time.perf_counter_ns() - started
             ) / 1e6
 
-    def _launch(
+    def _launch_route_vote(
         self,
         candidates: torch.Tensor,
         *,
         routing_key: torch.Tensor,
+        reconstruction_error_out: torch.Tensor,
     ) -> None:
         trainer = self._trainer
         runtime = self._runtime
@@ -479,7 +471,24 @@ class CudaGraphRouteTransition:
             winner_out=runtime._winner,
             strength_out=runtime._strength,
             competition_had_positive=runtime._competition_had_positive,
+            reconstruction_error_out=reconstruction_error_out,
         )
+
+    def _launch_transition(
+        self,
+        candidates: torch.Tensor,
+        *,
+        routing_key: torch.Tensor,
+    ) -> None:
+        trainer = self._trainer
+        runtime = self._runtime
+        comp = trainer.model.competitive
+        pred = trainer.model.predictive
+        assert self._previous_routing_key is not None
+        assert self._parameters is not None
+        assert self._route_vectors is not None
+        assert self._route_position_by_column is not None
+        assert self._consolidation is not None
         inplace_column_transition_cuda(
             prototypes=comp.prototypes,
             routing_vectors=self._route_vectors,
@@ -1004,6 +1013,11 @@ class CudaGraphRouteTransition:
             "recent_spike_row_device_owned_count": int(
                 self.recent_spike_row_device_owned_count
             ),
+            "reconstruction_error_source": (
+                "fused_route_score_max" if self.active else "retained_dense_scan"
+            ),
+            "fused_reconstruction_error_active": bool(self.active),
+            "fused_reconstruction_error_update_count": int(self.tick_replay_count),
             "graph_names": sorted(self._graphs),
             "pre_route_graph": False,
             "persistent_tick_graph": bool(self._graphs),

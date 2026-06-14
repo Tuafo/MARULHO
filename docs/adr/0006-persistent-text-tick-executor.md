@@ -23,7 +23,9 @@ For checkpoint-opted-in eligible text ticks, `ColumnTransitionRuntime` owns one
 persistent CUDA Graph replay spanning input normalization and projection,
 reconstruction error, reconstruction-driven neuromodulator update on
 persistent CUDA state, sparse route/vote, and the in-place competitive and
-predictive transition.
+predictive transition. Reconstruction error is derived from the fused exact
+route-score maximum inside the captured route/vote phase, removing the earlier
+separate dense prototype scan for this graph-owned path.
 
 The executor also owns a bounded fixed-address CUDA input ring. Brain Runtime
 offers already encoded tensors in sequential execution quanta; training stages
@@ -49,10 +51,10 @@ CUDA norm and scalar synchronization. Sensory ticks and graph-ineligible states
 use the retained path. Pointer changes and graph failures fail before further
 mutation.
 
-Device float neuromodulation may differ from Python double scalar arithmetic by
-floating-point noise. Promotion requires exact winners and reconstruction plus
-a bounded sequential tensor tolerance, cognitive-quality evidence, and
-grounded fallback gates.
+Device float neuromodulation and Triton reductions may differ from Python
+double scalar arithmetic by floating-point noise. Promotion requires exact
+winners, bounded reconstruction tolerance, bounded sequential tensor tolerance,
+cognitive-quality evidence, and grounded fallback gates.
 
 ## Consequences
 
@@ -61,6 +63,9 @@ grounded fallback gates.
 - Runtime Truth reports persistent replay, host truth synchronization,
   neuromodulator and competitive-surprise update, capture, failure, and
   fallback evidence.
+- Runtime Truth reports the reconstruction source as `fused_route_score_max`,
+  whether fused reconstruction is active, and the update count; these are
+  scalar ownership fields, not additional per-token readbacks.
 - Runtime Truth also reports device-owned routing-cache updates, skipped
   per-token index buffering, host-mirror synchronization, and mirror freshness.
 - Runtime Truth reports quantum-input stage/reuse/fallback/mismatch/discard
@@ -78,6 +83,11 @@ grounded fallback gates.
   of `1026.38` and `877.53 ticks/sec` versus per-token-copy means of `758.57`
   and `746.19`, for `1.353x` and `1.176x` gains. Both runs reused every staged
   token with zero fallback copies, mismatches, or graph failures.
+- A 1024-sample current-over-clean-HEAD comparison with `PYTHONPATH` pinned to
+  the baseline worktree measured fused reconstruction plus quantum staging at
+  `796.22 tokens/sec` versus `630.17 tokens/sec` (`1.264x`) for the quantum
+  arms, with `1088` graph replays, `1088` fused reconstruction updates, zero
+  graph failures, and zero staged-input mismatches.
 
 ## Reversal
 

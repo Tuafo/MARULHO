@@ -113,6 +113,7 @@ def run_fused_route_vote_benchmark(
     fused_winner = torch.empty(1, dtype=torch.long, device=device)
     fused_strength = torch.empty(1, device=device)
     fused_positive = torch.empty((), dtype=torch.bool, device=device)
+    fused_reconstruction_error = torch.empty(1, device=device)
 
     def production_step(key: torch.Tensor) -> torch.Tensor:
         candidates, _ = trainer.model.hnsw_index.search_tensors(
@@ -147,6 +148,7 @@ def run_fused_route_vote_benchmark(
             winner_out=fused_winner,
             strength_out=fused_strength,
             competition_had_positive=fused_positive,
+            reconstruction_error_out=fused_reconstruction_error,
         )
         return fused_candidates
 

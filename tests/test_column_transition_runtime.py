@@ -306,7 +306,11 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
             allow_sleep_maintenance=False,
         )
         assert retained.last_winner == graph.last_winner
-        assert graph_metrics["recon_error"] == retained_metrics["recon_error"]
+        assert graph_metrics["recon_error"] == pytest.approx(
+            retained_metrics["recon_error"],
+            rel=0.0,
+            abs=1e-6,
+        )
 
     for retained_tensor, graph_tensor in (
         (retained.model.competitive.prototypes, graph.model.competitive.prototypes),
@@ -387,6 +391,9 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_runtime["route_cache_generation_mismatch_count"] == 0
     assert graph_runtime["route_cache_device_owned"] is True
     assert graph_runtime["route_cache_device_update_count"] == 16
+    assert graph_runtime["reconstruction_error_source"] == "fused_route_score_max"
+    assert graph_runtime["fused_reconstruction_error_active"] is True
+    assert graph_runtime["fused_reconstruction_error_update_count"] == 16
     assert graph_runtime["persistent_tick_graph"] is True
     assert graph_runtime["owns_competitive_surprise"] is True
     assert graph_runtime["owns_neuromodulator_update"] is True

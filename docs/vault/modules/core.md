@@ -35,7 +35,7 @@ related_benchmarks: []
 
         Predictive voting derives consensus gain directly from winner confidence and reference-frame location. It does not persist a separate full-column `hypothesis` tensor because that state had no runtime consumer and added checkpoint plus per-tick CUDA writes.
 
-        `core.fused_route_vote_cuda` owns the exact two-launch Triton scoring and vote kernels used by the checkpoint-opt-in text/idle route. Core owns tensor semantics only; `ColumnTransitionRuntime` in training owns warmup, persistent buffers, eligibility, fallback, counters, and checkpoint lifecycle.
+        `core.fused_route_vote_cuda` owns the exact two-launch Triton scoring and vote kernels used by the checkpoint-opt-in text/idle route. It also writes the fused route-score reconstruction scalar for graph-owned text ticks. Core owns tensor semantics only; `ColumnTransitionRuntime` in training owns warmup, persistent buffers, eligibility, fallback, counters, and checkpoint lifecycle.
 
         `plan_candidate_hub_topology(...)` is the non-mutating precursor for repeated-failure growth evidence. It snapshots sparse adjacency, distributes a fixed edge budget across evidence-selected sources, hashes the baseline topology and exact proposal, and reports CPU-control/CUDA-transfer metabolism. It is never called by `bind()` or the trainer tick.
 

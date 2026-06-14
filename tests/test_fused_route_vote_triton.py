@@ -64,6 +64,7 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(silent: bool) -> None:
     winner_out = torch.empty(1, dtype=torch.long, device=device)
     strength_out = torch.empty(1, device=device)
     had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
     fused_route_vote_cuda(
         routing_key=routing_key,
         routing_vectors=routing_vectors,
@@ -77,6 +78,7 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(silent: bool) -> None:
         winner_out=winner_out,
         strength_out=strength_out,
         competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
     )
     torch.cuda.synchronize()
 
@@ -85,3 +87,10 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(silent: bool) -> None:
     assert int(previous_winner.item()) == int(expected_winner.item())
     assert float(strength_out.item()) == 1.0
     assert bool(had_positive.item()) is bool((activation.max() > 0.0).item())
+    expected_reconstruction_error = torch.clamp(1.0 - scores.max(), min=0.0)
+    assert torch.allclose(
+        reconstruction_error_out.squeeze(0),
+        expected_reconstruction_error.squeeze(0),
+        rtol=0.0,
+        atol=1e-6,
+    )
