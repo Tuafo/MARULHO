@@ -456,6 +456,69 @@ The profiled retained interval-32 run at `reports/slim_burst_event_packet_202606
 
 The clean 131072-token run at `reports/slim_burst_event_packet_20260614/stress-131072-clean-interval32.json` reached `3656.459 tokens/sec`, below the retained best interval-32 evidence at `4577.595`, so this is a packet/metabolism cleanup and profiling-stage improvement rather than an endpoint-throughput promotion. It still removes dead host materialization from the maintained path and strengthens Runtime Truth with explicit packet counters. A wider 128-token truth/event candidate at `reports/event_queue_128_20260614/stress-131072-clean-interval128.json` reached only `3973.773 tokens/sec`; the next large speed slice should remove or make asynchronous the synchronization boundary itself, not merely widen or shrink host packets.
 
+## Sparse Burst Event Payload Loads, 2026-06-14
+
+The Slim Burst Event Packet removed ordinary no-strong result-row materialization
+on the host, but code inspection found a remaining device-side mismatch: the
+Triton snapshot still loaded routing-key and assembly payload tensors for every
+burst event before masking stores for no-strong rows. Those payloads are replay
+archive data, not ordinary Runtime Truth. MARULHO now predicates both the loads
+and stores on the strong-event condition. Result rows and strong flags still
+write on every snapshot; exact routing/assembly payloads remain available for
+real strong captures.
+
+Focused CUDA tests prove both sides of the boundary:
+`test_burst_event_snapshot_skips_payload_when_not_strong` leaves sentinel
+routing/assembly rows untouched under a high threshold, while
+`test_burst_event_snapshot_preserves_payload_when_strong` copies exact
+routing/assembly payloads under a low threshold.
+
+The diagnostic 8192-token profile at
+`reports/sparse_burst_payload_20260614/stress-8192-profile.json` kept the
+promoted path active: `8192` sequential tokens, `8184` burst-owned tokens,
+`1023` burst executions, `257` host-truth syncs, `7935` skips, active
+`inplace_triton` on the RTX 3060, zero graph/burst failures, and zero strong
+event rows. It measured `3041.984 tokens/sec` complete and `3744.536`
+trainer-observed, with `text_burst_runtime_event_drain=0.058908 ms/token`,
+`text_burst_runtime_replay_loop=0.138568`, and
+`text_burst_graph_replay=0.221720`. Compared with the previous slim-packet
+profile's `0.056869 ms/token` event drain, this does not prove an event-drain
+speed win; profiling overhead and host conditions dominate that small bucket.
+
+The clean 32768-token stress run at
+`reports/sparse_burst_payload_20260614/stress-32768-clean.json` is the
+maintained evidence for correctness under the full service executor:
+`3411.104 tokens/sec`, `32768` in-place CUDA/Triton executions, `4094` burst
+replays, `32752` burst-owned tokens, `1025` host-truth syncs, `31743` skips,
+`32768` staged/reused quantum-input tokens, zero mismatch/discard/fallback
+copies, zero graph/burst failures, and `0` strong result rows. Runtime Truth
+kept `resolved_device=cuda`, `cuda_selected=true`,
+`route_vote_resolved_mode=cuda_graph_text`, and
+`route_vote_kernel_variant=two_stage_route_vote`. CPU/GPU contention probes
+were clean (`64%` CPU max, `0%` GPU max). The result is above recent contended
+checks but below the retained top `4577.595 tokens/sec`, so this is accepted as
+dead device-memory work deletion, not a new throughput ceiling. The next broad
+target remains the actual replay loop and host-truth boundary: one graph replay
+per token plus synchronous truth publication, not more no-strong payload
+trimming.
+
+The longer same-surface check at
+`reports/sparse_burst_payload_20260614/stress-131072-clean.json` is the stronger
+comparison because the retained top was also a 131072-token run. It processed
+`131072` sequential tokens in `29.5296 s` (`4438.669 tokens/sec`), with
+`131072` in-place CUDA/Triton executions, `16382` burst replays, `131056`
+burst-owned tokens, `4097` host-truth syncs, `126975` skips, `8194` quantum
+input stages for `131072` staged/reused tokens, zero graph/burst failures, zero
+forced event drains, and zero strong result rows. Runtime Truth stayed on the
+RTX 3060 `cuda_graph_text` path with `route_vote_kernel_variant=two_stage_route_vote`.
+Velocity environment probes reported no contention (`82%` CPU max, `17%` GPU
+max). This protects the high-throughput path but still does not beat the
+retained top `4577.595 tokens/sec`; `train_compute=0.191043 ms/token` remains
+the dominant stage. The next large implementation target is therefore a
+lower-level device-owned multi-tick executor or persistent sequence kernel that
+reduces actual per-token graph/kernel launch and truth-publication work while
+preserving exact sequential SNN state.
+
 ## Preferred Burst Capacity Ownership And q16 Rejection, 2026-06-14
 
 The service execution quantum is `16`, but the maintained CUDA burst capacity remains `8`. The trainer now asks `ColumnTransitionRuntime` for the runtime-owned burst capacity instead of carrying a separate hard-coded eight-token chunk size. This keeps the boundary in the transition runtime and prevents service/trainer drift if a future executor proves a different capacity.

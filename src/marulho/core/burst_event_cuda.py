@@ -45,7 +45,7 @@ if triton is not None:
         routing_mask = (offsets < routing_dim) & strong
         routing_values = tl.load(
             routing_key + offsets,
-            mask=offsets < routing_dim,
+            mask=routing_mask,
             other=0.0,
         )
         tl.store(
@@ -56,7 +56,7 @@ if triton is not None:
         assembly_mask = (offsets < assembly_dim) & strong
         assembly_values = tl.load(
             assembly + offsets,
-            mask=offsets < assembly_dim,
+            mask=assembly_mask,
             other=0.0,
         )
         tl.store(

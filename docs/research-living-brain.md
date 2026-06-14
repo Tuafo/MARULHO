@@ -765,6 +765,26 @@ This file records research anchors for current architecture work. It is not a pr
   is still the credible route to higher sustained cognitive velocity. Sources:
   https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/ and
   https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html.
+- Sparse burst-payload note, June 2026: NVIDIA CUDA Graph guidance warns that
+  CPU-bound launches and synchronization can erase small-kernel gains, while
+  sync-free graph code examples keep device work asynchronous unless host
+  consumption is required. NVIDIA's CUDA Graph quick checklist and PyTorch's
+  pinned/non-blocking transfer tutorial also reinforce that GPU-to-CPU
+  consumption has synchronization semantics and should not be hidden in ordinary
+  ticks. MARULHO therefore deletes no-strong routing/assembly payload loads from
+  the Device Strong-Event Ring instead of creating a decorative async host
+  mirror: only the result row and strong flag are ordinary truth evidence, and
+  archival payloads are loaded only for real strong captures. The measured
+  implication is narrow but important: ordinary no-strong ticks no longer pay
+  replay-payload memory traffic. A 131072-token clean stress run preserved the
+  maintained high-throughput path at `4438.669 tokens/sec` with zero graph/burst
+  failures, but did not beat the retained `4577.595 tokens/sec` top; the next
+  major speed work stays focused on a lower-level device-owned multi-tick
+  executor or persistent sequence kernel that reduces actual graph/kernel
+  launches. Sources:
+  https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html,
+  https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/quick-checklist.html,
+  and https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html.
 
 ## Engineering Implications
 

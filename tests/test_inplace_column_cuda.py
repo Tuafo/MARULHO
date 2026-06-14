@@ -5,7 +5,87 @@ import torch
 import torch.nn.functional as F
 
 from marulho.core.column_transition import steady_state_column_transition
+from marulho.core.burst_event_cuda import (
+    snapshot_burst_event_cuda,
+    triton as burst_event_triton,
+)
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or burst_event_triton is None,
+    reason="CUDA and Triton required",
+)
+def test_burst_event_snapshot_skips_payload_when_not_strong() -> None:
+    device = torch.device("cuda")
+    result = torch.tensor(
+        [0.1, 0.2, 0.3, 0.4],
+        dtype=torch.float32,
+        device=device,
+    )
+    routing_key = torch.arange(8, dtype=torch.float32, device=device)
+    assembly = torch.arange(32, dtype=torch.float32, device=device)
+    result_ring = torch.full((2, 4), -7.0, dtype=torch.float32, device=device)
+    routing_ring = torch.full((2, 8), -7.0, dtype=torch.float32, device=device)
+    assembly_ring = torch.full((2, 32), -7.0, dtype=torch.float32, device=device)
+    strong_flags = torch.ones(2, dtype=torch.bool, device=device)
+    slot = torch.zeros((), dtype=torch.long, device=device)
+
+    snapshot_burst_event_cuda(
+        result=result,
+        routing_key=routing_key,
+        assembly=assembly,
+        result_ring=result_ring,
+        routing_ring=routing_ring,
+        assembly_ring=assembly_ring,
+        strong_flags=strong_flags,
+        slot=slot,
+        strong_threshold=10.0,
+    )
+    torch.cuda.synchronize()
+
+    assert torch.equal(result_ring[0], result)
+    assert bool(strong_flags[0].item()) is False
+    assert torch.equal(routing_ring[0], torch.full_like(routing_ring[0], -7.0))
+    assert torch.equal(assembly_ring[0], torch.full_like(assembly_ring[0], -7.0))
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or burst_event_triton is None,
+    reason="CUDA and Triton required",
+)
+def test_burst_event_snapshot_preserves_payload_when_strong() -> None:
+    device = torch.device("cuda")
+    result = torch.tensor(
+        [0.9, 0.2, 0.3, 0.4],
+        dtype=torch.float32,
+        device=device,
+    )
+    routing_key = torch.arange(8, dtype=torch.float32, device=device)
+    assembly = torch.arange(32, dtype=torch.float32, device=device)
+    result_ring = torch.full((2, 4), -7.0, dtype=torch.float32, device=device)
+    routing_ring = torch.full((2, 8), -7.0, dtype=torch.float32, device=device)
+    assembly_ring = torch.full((2, 32), -7.0, dtype=torch.float32, device=device)
+    strong_flags = torch.zeros(2, dtype=torch.bool, device=device)
+    slot = torch.zeros((), dtype=torch.long, device=device)
+
+    snapshot_burst_event_cuda(
+        result=result,
+        routing_key=routing_key,
+        assembly=assembly,
+        result_ring=result_ring,
+        routing_ring=routing_ring,
+        assembly_ring=assembly_ring,
+        strong_flags=strong_flags,
+        slot=slot,
+        strong_threshold=0.5,
+    )
+    torch.cuda.synchronize()
+
+    assert torch.equal(result_ring[0], result)
+    assert bool(strong_flags[0].item()) is True
+    assert torch.equal(routing_ring[0], routing_key)
+    assert torch.equal(assembly_ring[0], assembly)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

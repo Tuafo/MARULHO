@@ -78,7 +78,7 @@ related_benchmarks: []
         burst, replays the same one-tick graph eight times in order, and applies
         equivalent host bookkeeping in one bounded operation. A separate captured
         one-tick variant writes results into a Device Strong-Event Ring and
-        copies assembly/routing rows only for threshold crossings; training
+        loads and copies assembly/routing rows only for threshold crossings; training
         drains those records at the host-truth boundary and archives all
         payloads on CPU. Eligibility still fails closed at drift, telemetry,
         sleep, slow-memory cadence, cross-modal wake, host-truth, routing-mode,
