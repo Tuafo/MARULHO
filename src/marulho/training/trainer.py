@@ -140,6 +140,7 @@ class MarulhoTrainer:
         ] = []
         self._text_burst_event_flush_count = 0
         self._text_burst_event_forced_flush_count = 0
+        self._text_burst_event_deferred_apply_skip_count = 0
         self._text_burst_event_last_flush_reason: str | None = None
         self._text_sequence_execution_count = 0
         self._text_sequence_token_count = 0
@@ -219,6 +220,9 @@ class MarulhoTrainer:
         )
         report["text_burst_event_forced_flush_count"] = int(
             self._text_burst_event_forced_flush_count
+        )
+        report["text_burst_event_deferred_apply_skip_count"] = int(
+            self._text_burst_event_deferred_apply_skip_count
         )
         report["text_burst_event_last_flush_reason"] = (
             self._text_burst_event_last_flush_reason
@@ -499,12 +503,14 @@ class MarulhoTrainer:
         self._routing_index_device_update_count += updated_count
         self._routing_index_buffer_skip_count += updated_count
         self._routing_index_cpu_mirror_stale = True
-        truth_synced = self._apply_text_burst_events(
-            burst_outputs,
-            reason="host_truth_boundary",
-            forced=False,
-        )
-        if not truth_synced:
+        if bool(burst_outputs.get("truth_synced", False)):
+            self._apply_text_burst_events(
+                burst_outputs,
+                reason="host_truth_boundary",
+                forced=False,
+            )
+        else:
+            self._text_burst_event_deferred_apply_skip_count += 1
             self._winner_host_mirror_fresh = False
         if cross_modal is not None:
             cross_modal.record_text_idle_skip(

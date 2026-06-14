@@ -127,6 +127,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy.pt", trainer)
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["cuda_graph_host_truth_sync_interval_tokens"] = 8
             payload["metadata"].pop("hot_path_config_defaults_revision", None)
             torch.save(payload, checkpoint)
 
@@ -134,9 +135,47 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 restored, metadata = load_trainer_checkpoint(checkpoint)
 
             self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 256)
+            self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
             self.assertEqual(
                 metadata["config_migrations"][-1]["reason"],
-                "retired_hot_path_memory_archive_cadence",
+                "retired_host_truth_sync_interval_cadence",
+            )
+            self.assertEqual(
+                [item["reason"] for item in metadata["config_migrations"][-2:]],
+                [
+                    "retired_hot_path_memory_archive_cadence",
+                    "retired_host_truth_sync_interval_cadence",
+                ],
+            )
+
+    def test_legacy_checkpoint_migrates_retired_host_truth_interval(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+                cuda_graph_host_truth_sync_interval_tokens=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy_truth.pt", trainer)
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["metadata"].pop("hot_path_config_defaults_revision", None)
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
+            self.assertEqual(
+                metadata["config_migrations"][-1]["reason"],
+                "retired_host_truth_sync_interval_cadence",
             )
 
     def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:

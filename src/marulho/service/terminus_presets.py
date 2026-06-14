@@ -67,6 +67,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             "memory_capacity": 1000,
             "enable_context_layer": False,
             "enable_binding_layer": False,
+            "cuda_graph_host_truth_sync_interval_tokens": 32,
             "routing_shards": 4,
             "plasticity_spike_backend": "adex",
             "slow_memory_archive_interval_tokens": 256,

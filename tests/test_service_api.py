@@ -17194,6 +17194,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertEqual(manager._trainer.model.memory_store.capacity, 1000)
                     self.assertFalse(manager._trainer.config.enable_context_layer)
                     self.assertFalse(manager._trainer.config.enable_binding_layer)
+                    self.assertEqual(
+                        manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens,
+                        32,
+                    )
                     self.assertNotIn("curriculum", data["terminus_runtime"])
                     stop_resp = client.post("/terminus/stop")
                     self.assertEqual(stop_resp.status_code, 200)

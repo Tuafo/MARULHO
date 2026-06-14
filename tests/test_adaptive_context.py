@@ -347,7 +347,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         cfg = MarulhoConfig()
         assert cfg.cuda_graph_quantum_input_staging is True
         self.assertEqual(cfg.context_mode, "adaptive")
-        self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 8)
+        self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 32)
         self.assertEqual(cfg.slow_memory_archive_interval_tokens, 256)
 
     def test_model_subcortex_device_report_includes_adaptive_context(self) -> None:

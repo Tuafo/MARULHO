@@ -15,7 +15,7 @@ from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
 MAX_QUANTUM_INPUT_TOKENS = 128
 PERSISTENT_EXECUTOR_BURST_TOKENS = 8
-PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 16
+PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 32
 
 
 class CudaGraphRouteTransition:

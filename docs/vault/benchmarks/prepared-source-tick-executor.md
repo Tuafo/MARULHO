@@ -23,6 +23,9 @@ related_benchmarks:
   - reports/wide_sequence_quantum_20260614/stress-32768-q16.json
   - reports/wide_sequence_quantum_20260614/stress-32768-q16-repeat.json
   - reports/wide_sequence_quantum_20260614/stress-131072-q16.json
+  - reports/host_truth_interval_sweep_20260614/stress-32768-i16-seq.json
+  - reports/host_truth_interval_sweep_20260614/stress-32768-i32-seq.json
+  - reports/host_truth_interval_sweep_20260614/stress-131072-i32.json
 ---
 
 # Prepared Source Tick Executor
@@ -110,14 +113,32 @@ instead of enabling old always-on higher layers. The curriculum preset uses a
 128-token tick, 16-token execution quantum, explicit ingestion prewarm, and
 keeps context and binding layers disabled until a conditional scheduler can
 wake them without forcing `train_text_burst` into the retained per-token path.
+It also promotes the 32-token host-truth cadence used by the current sustained
+CUDA evidence.
 This fixes the operator-facing path so dashboard runs are comparable to the
 true sustained speed evidence rather than a slow compatibility shape.
 
+## Thirty-Two Token Truth And Event Cadence
+
+The device event queue now holds thirty-two tokens, matching the promoted
+host-truth cadence. Training skips the Python event-apply call when the graph
+reports that no truth packet was drained, so deferred CUDA evidence remains
+device-owned until the actual boundary instead of paying an empty host path.
+
+- Baseline command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/host_truth_interval_sweep_20260614/stress-32768-i16-seq.json --target-tokens 32768 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 300 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 16`
+- Baseline throughput: `2768.913 tokens/sec`, `train_compute=0.293511 ms/token`, `2049` host-truth syncs, `2048` event drains, and `2046` skipped empty event-apply attempts.
+- Promoted command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/host_truth_interval_sweep_20260614/stress-32768-i32-seq.json --target-tokens 32768 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 300 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Promoted throughput: `4237.534 tokens/sec`, `train_compute=0.197902 ms/token`, `1025` host-truth syncs, `1024` event drains, `31743` host-truth skips, and `3070` deferred event bursts.
+- Long confirmation: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/host_truth_interval_sweep_20260614/stress-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 900 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Long throughput: `4577.595 tokens/sec` over `28.633 s`, mean tick `25.576 ms`, p95 `38.320 ms`, and stop latency `147.713 ms`.
+- CUDA evidence: RTX 3060, `resolved_mode=inplace_triton`, all `131072` transitions on CUDA, `4097` host-truth syncs, `126975` skips, `4096` event drains, `12286` deferred bursts, zero forced drains, zero graph/burst failures, and only `runtime_not_fully_warm` plus `sleep_boundary` fallbacks.
+- Promotion rule: intervals `8` and `16` are migrated to `32` for legacy unstamped checkpoints. Exact interval `1` remains available for parity/evaluation runs.
+
 ## Remaining Cost
 
-`train_compute=0.200979 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at `66.710 s` for 131072 prepared tokens. The long
-run stop latency was `113.502 ms`.
+`train_compute=0.181855 ms/token` is still dominant. Source prewarm remains an
+explicit startup slow path at `69.605 s` for the 131072-token confirmation. The
+long run stop latency was `147.713 ms`.
 
 ## Rejected Continuation
 

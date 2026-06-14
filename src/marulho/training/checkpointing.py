@@ -15,9 +15,11 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 20260614
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061402
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
+PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
+_RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -222,6 +224,24 @@ def _migrate_loaded_config_snapshot(
                 "from": current_interval,
                 "to": PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS,
                 "reason": "retired_hot_path_memory_archive_cadence",
+            }
+        )
+    current_truth_interval = int(
+        migrated.get(
+            "cuda_graph_host_truth_sync_interval_tokens",
+            PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS,
+        )
+    )
+    if current_truth_interval in _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS:
+        migrated["cuda_graph_host_truth_sync_interval_tokens"] = (
+            PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS
+        )
+        migrations.append(
+            {
+                "field": "cuda_graph_host_truth_sync_interval_tokens",
+                "from": current_truth_interval,
+                "to": PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS,
+                "reason": "retired_host_truth_sync_interval_cadence",
             }
         )
     return migrated, migrations

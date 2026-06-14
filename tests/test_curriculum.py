@@ -48,5 +48,6 @@ class TestRuntimeAutonomyCurriculum:
         assert preset["model_overrides"]["memory_capacity"] == 1000
         assert preset["model_overrides"]["enable_context_layer"] is False
         assert preset["model_overrides"]["enable_binding_layer"] is False
+        assert preset["model_overrides"]["cuda_graph_host_truth_sync_interval_tokens"] == 32
         assert "binding_mode" not in preset["model_overrides"]
         assert preset["model_overrides"]["slow_memory_archive_interval_tokens"] == 256

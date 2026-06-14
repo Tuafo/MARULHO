@@ -143,7 +143,9 @@ def test_stress_runner_extends_runtime_event_history_for_long_runs() -> None:
     assert list(history) == [{"type": "existing"}]
 
 
-def test_main_forwards_trainer_stage_profile_flag(monkeypatch, tmp_path) -> None:
+def test_main_forwards_trainer_stage_profile_and_host_truth_override(
+    monkeypatch, tmp_path
+) -> None:
     captured: dict[str, object] = {}
 
     def _run(checkpoint, **kwargs):
@@ -165,8 +167,24 @@ def test_main_forwards_trainer_stage_profile_flag(monkeypatch, tmp_path) -> None
             "--output",
             str(tmp_path / "report.json"),
             "--profile-trainer-stages",
+            "--host-truth-sync-interval-tokens",
+            "32",
         ],
     )
 
     assert main() == 0
     assert captured["profile_trainer_stages"] is True
+    assert captured["host_truth_sync_interval_tokens"] == 32
+
+
+def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            host_truth_sync_interval_tokens=0,
+        )
+    except ValueError as exc:
+        assert "host_truth_sync_interval_tokens" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected invalid host truth interval rejection")

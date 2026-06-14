@@ -715,6 +715,7 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
     assert runtime_report["text_burst_fallback_count"] == 0
     assert runtime_report["text_burst_fallback_reasons"] == {}
     assert runtime_report["text_burst_strong_event_count"] == 0
+    assert runtime_report["text_burst_event_deferred_apply_skip_count"] == 0
     assert report["burst_event_ring_device_owned"] is True
 
 
@@ -819,6 +820,7 @@ def test_text_burst_drift_refresh_does_not_force_event_drain() -> None:
     assert runtime_report["text_burst_fallback_count"] == 0
     assert runtime_report["text_burst_event_pending_tokens"] == 8
     assert runtime_report["text_burst_event_forced_flush_count"] == 0
+    assert runtime_report["text_burst_event_deferred_apply_skip_count"] == 1
     assert graph_report["burst_event_forced_drain_count"] == 0
     assert controller["drift_refresh_count"] == 1
     assert controller["drift_refresh_sync_free_count"] == 1
@@ -993,7 +995,7 @@ def test_text_burst_defers_host_truth_across_two_quanta() -> None:
     assert quantum.last_winner == sequential.last_winner
     assert report["text_burst_event_pending_tokens"] == 0
     assert report["text_burst_event_flush_count"] == 1
-    assert graph_report["burst_event_capacity_tokens"] == 16
+    assert graph_report["burst_event_capacity_tokens"] == 32
     assert graph_report["burst_event_deferred_count"] == 1
     assert graph_report["burst_event_drain_count"] == 1
     assert graph_report["burst_event_drained_token_count"] == 16

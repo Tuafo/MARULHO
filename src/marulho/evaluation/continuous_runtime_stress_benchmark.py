@@ -229,6 +229,7 @@ def run_continuous_runtime_stress(
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
     profile_trainer_stages: bool = False,
+    host_truth_sync_interval_tokens: int | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -238,6 +239,11 @@ def run_continuous_runtime_stress(
         raise ValueError("quantum_tokens must be positive")
     if source_concept_observation_tick_interval <= 0:
         raise ValueError("source_concept_observation_tick_interval must be positive")
+    if (
+        host_truth_sync_interval_tokens is not None
+        and int(host_truth_sync_interval_tokens) <= 0
+    ):
+        raise ValueError("host_truth_sync_interval_tokens must be positive")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -251,7 +257,20 @@ def run_continuous_runtime_stress(
     runtime = manager.runtime_facade
     seen_events: set[tuple[Any, ...]] = set()
     tick_events: list[dict[str, Any]] = []
+    config_overrides: dict[str, Any] = {}
     try:
+        if host_truth_sync_interval_tokens is not None:
+            with manager._lock:
+                previous_interval = int(
+                    manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                )
+                manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens = int(
+                    host_truth_sync_interval_tokens
+                )
+            config_overrides["cuda_graph_host_truth_sync_interval_tokens"] = {
+                "from": previous_interval,
+                "to": int(host_truth_sync_interval_tokens),
+            }
         runtime.configure_terminus(
             source_bank=[
                 {
@@ -294,6 +313,7 @@ def run_continuous_runtime_stress(
                 "source_concept_observation_tick_interval": int(
                     source_concept_observation_tick_interval
                 ),
+                "config_overrides": dict(config_overrides),
                 "trainer_config": {
                     "slow_memory_archive_interval_tokens": int(
                         manager._trainer.config.slow_memory_archive_interval_tokens
@@ -404,6 +424,7 @@ def run_continuous_runtime_stress(
             "source_concept_observation_tick_interval": int(
                 source_concept_observation_tick_interval
             ),
+            "config_overrides": dict(config_overrides),
             "trainer_config": {
                 "slow_memory_archive_interval_tokens": int(
                     manager._trainer.config.slow_memory_archive_interval_tokens
@@ -471,6 +492,17 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--sample-interval-seconds", type=float, default=0.02)
     parser.add_argument(
+        "--host-truth-sync-interval-tokens",
+        type=int,
+        default=None,
+        help=(
+            "Evaluation-only override for "
+            "cuda_graph_host_truth_sync_interval_tokens. Use to remeasure "
+            "Runtime Truth freshness/speed tradeoffs without editing a "
+            "checkpoint or production preset."
+        ),
+    )
+    parser.add_argument(
         "--profile-trainer-stages",
         action="store_true",
         help=(
@@ -490,6 +522,7 @@ def main() -> int:
         timeout_seconds=args.timeout_seconds,
         sample_interval_seconds=args.sample_interval_seconds,
         profile_trainer_stages=args.profile_trainer_stages,
+        host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1
