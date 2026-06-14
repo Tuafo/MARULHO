@@ -54,9 +54,11 @@ class _BrainSourceRuntime:
     buffered_patterns: deque[tuple[str, torch.Tensor]] = field(default_factory=deque)
     bootstrap_attempted: bool = False
     cache_material_hash: str | None = None
+    cache_material_token_count: int = 0
     cache_write_count: int = 0
     cache_schedule_count: int = 0
     cache_skip_count: int = 0
+    cache_partial_skip_count: int = 0
     cache_failure_count: int = 0
     cache_pending: bool = False
     last_cache_update_mode: str = "not_run"
@@ -369,6 +371,15 @@ class RuntimeSources:
         raw_windows = raw_windows[: max(1, target_tokens)]
         if not raw_windows:
             return
+        if (
+            len(raw_windows) < target_tokens
+            and runtime.cache_material_hash is not None
+            and int(runtime.cache_material_token_count) >= target_tokens
+        ):
+            runtime.cache_skip_count += 1
+            runtime.cache_partial_skip_count += 1
+            runtime.last_cache_update_mode = "skipped_partial_material"
+            return
         material_hash = self._brain_runtime_cache_material_hash(raw_windows)
         if runtime.cache_material_hash == material_hash:
             runtime.cache_skip_count += 1
@@ -381,6 +392,7 @@ class RuntimeSources:
             "saved_at": datetime.now(timezone.utc).isoformat(),
         }
         runtime.cache_material_hash = material_hash
+        runtime.cache_material_token_count = int(len(raw_windows))
         runtime.cache_schedule_count += 1
         runtime.cache_pending = True
         runtime.last_cache_update_mode = "scheduled"
@@ -424,6 +436,7 @@ class RuntimeSources:
                     runtime.last_cache_update_mode = "write_failed"
                     if runtime.cache_material_hash == material_hash:
                         runtime.cache_material_hash = None
+                        runtime.cache_material_token_count = 0
                     try:
                         temporary_path.unlink(missing_ok=True)
                     except OSError:
@@ -485,6 +498,7 @@ class RuntimeSources:
             return 0
         runtime.buffered_patterns = deque(examples)
         runtime.cache_material_hash = material_hash
+        runtime.cache_material_token_count = int(token_count)
         runtime.last_cache_update_mode = "restored"
         return int(len(examples))
 

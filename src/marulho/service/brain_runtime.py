@@ -1517,6 +1517,8 @@ class BrainRuntime:
                     "cache_write_count": int(runtime.cache_write_count),
                     "cache_schedule_count": int(runtime.cache_schedule_count),
                     "cache_skip_count": int(runtime.cache_skip_count),
+                    "cache_partial_skip_count": int(runtime.cache_partial_skip_count),
+                    "cache_material_token_count": int(runtime.cache_material_token_count),
                     "cache_failure_count": int(runtime.cache_failure_count),
                     "cache_pending": bool(runtime.cache_pending),
                     "last_cache_update_mode": str(runtime.last_cache_update_mode),

@@ -258,6 +258,48 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
             self.assertEqual(restored_runtime.cache_skip_count, 1)
             self.assertEqual(restored_runtime.last_cache_update_mode, "skipped_unchanged_material")
 
+    def test_brain_runtime_cache_skips_shrinking_tail_after_full_material(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            module = _runtime_sources(_FakeManager(root))
+            runtime = _BrainSourceRuntime(
+                spec={
+                    "name": "remote_source",
+                    "source": "https://example.com/corpus",
+                    "source_type": "hf",
+                },
+                stream=iter([]),
+                buffered_patterns=deque(
+                    [
+                        ("window-1", "pattern-1"),
+                        ("window-2", "pattern-2"),
+                        ("window-3", "pattern-3"),
+                        ("window-4", "pattern-4"),
+                    ]
+                ),
+            )
+            module._update_brain_runtime_cache_locked(runtime)
+            module.flush_brain_runtime_cache_writes()
+            cache_hash = runtime.cache_material_hash
+
+            runtime.buffered_patterns = deque(
+                [("window-3", "pattern-3"), ("window-4", "pattern-4")]
+            )
+            with patch("marulho.service.runtime_sources.torch.save") as save:
+                module._update_brain_runtime_cache_locked(
+                    runtime,
+                    served_examples=[("window-2", "pattern-2")],
+                )
+
+            save.assert_not_called()
+            self.assertEqual(runtime.cache_material_hash, cache_hash)
+            self.assertEqual(runtime.cache_write_count, 1)
+            self.assertEqual(runtime.cache_material_token_count, 4)
+            self.assertEqual(runtime.cache_schedule_count, 1)
+            self.assertEqual(runtime.cache_skip_count, 1)
+            self.assertEqual(runtime.cache_partial_skip_count, 1)
+            self.assertEqual(runtime.last_cache_update_mode, "skipped_partial_material")
+
     def test_local_file_runtime_cache_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

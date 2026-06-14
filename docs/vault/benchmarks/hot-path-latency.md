@@ -346,6 +346,16 @@ The fixed complete background runtime check `reports/quantum_size_sweep_20260614
 
 The benchmark now reports `baseline_quantum_*` and `candidate_quantum_*` fields so a future quantum-size change must beat the current service-shaped path, not only a narrower encoded loop. The next credible thousands/sec path is a broader persistent tick executor that removes more host-controlled per-token stages; increasing host quantum length alone is rejected.
 
+## Continuous Runtime Stress Gate, 2026-06-14
+
+`continuous_runtime_stress_benchmark` is now the maintained long-run complete-runtime gate for the promoted CUDA path. It waits for a fully prewarmed source queue, runs the background Terminus loop for a target token budget, polls Runtime Truth while the loop is active, and aggregates tick duration plus stage timings across observed tick events. This is an explicit evaluation slow path; it does not add hot-path reporting work.
+
+`reports/continuous_runtime_stress_20260614/stress-1024-fullwarm.json` measured the 1024-column CUDA checkpoint with 1024 fully prewarmed source tokens, `tick_tokens=128`, and the retained `execution_quantum_tokens=8`. It completed 1024 sequential SNN token updates in `1.4923 s` (`686.196 tokens/sec`), with eight 128-token tick events observed, CUDA selected on the NVIDIA GeForce RTX 3060, active `inplace_triton`, `1024` CUDA graph replays, zero graph failures, zero quantum-input mismatches, and stop latency `13.169 ms`.
+
+That first long run exposed dead metabolism in source-cache persistence: while `torch.save` was already off the tick, the runtime still scheduled shrinking tail-cache rewrites as the fully warmed queue drained. The promoted source-cache rule now keeps the full cached material and skips partial-tail rewrites once a full cache exists. `reports/continuous_runtime_stress_20260614/stress-1024-fullwarm-cache-tail-skip.json` reran the same surface and reached `711.113 tokens/sec`; `prepare_training` fell from `5.6861 ms/tick` to `1.8056 ms/tick`, cache writes fell from `8` to `1`, `cache_partial_skip_count=7`, cache failures remained zero, and cache flush completed with `cache_pending_count=0`.
+
+The remaining large bottleneck is still the trainer/graph-prep cluster, not source collection or disk persistence. In the post-change run, top complete-runtime stage costs were `train_compute=1.0669 ms/token`, `trainer_step=0.9952 ms/token`, `train_lock_wait=0.1757 ms/token`, and concept/finalize work below that. The next broad speed slice should collapse more per-token trainer orchestration into the persistent tick executor while preserving sequential spike updates, Runtime Truth sampling cadence, and fail-closed CUDA fallback.
+
 ## Persistent Quantum Input Ring, 2026-06-13
 
 The Persistent Text Tick Executor now owns a fixed 128-row CUDA input ring and

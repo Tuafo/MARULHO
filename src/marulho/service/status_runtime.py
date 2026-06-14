@@ -744,6 +744,8 @@ class RuntimeStatusCore:
             "cache_write_count": int(sum(runtime.cache_write_count for runtime in self._brain_source_runtimes)),
             "cache_schedule_count": int(sum(runtime.cache_schedule_count for runtime in self._brain_source_runtimes)),
             "cache_skip_count": int(sum(runtime.cache_skip_count for runtime in self._brain_source_runtimes)),
+            "cache_partial_skip_count": int(sum(runtime.cache_partial_skip_count for runtime in self._brain_source_runtimes)),
+            "cache_material_token_count": int(sum(runtime.cache_material_token_count for runtime in self._brain_source_runtimes)),
             "cache_failure_count": int(sum(runtime.cache_failure_count for runtime in self._brain_source_runtimes)),
             "cache_pending_count": int(sum(bool(runtime.cache_pending) for runtime in self._brain_source_runtimes)),
             "last_prefetch_at": latest_prefetch_at,
