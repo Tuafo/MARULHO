@@ -1310,13 +1310,17 @@ input boundary used by the Persistent Text Tick Executor. Brain Runtime may
 offer one bounded sequential execution quantum, but training stages its already
 encoded tensors into the ring and the captured graph advances the device slot
 and recent-spike-row cursor. When an ordinary warm text sequence is wider than
-the eight-token burst graph, training may pre-stage the whole metric-free
-quantum once and let consecutive bursts consume exact pointer-checked slices
+the eight-token burst graph, training first preflights every burst-sized slice
+with the same boundary classifier used by the real burst plan, but without
+mutating Runtime Truth counters. Only a fully safe metric-free quantum is
+pre-staged once, then consecutive bursts consume exact pointer-checked slices
 from that staged window. Pointer-order checks make staged reuse exact; mismatch,
-sensory, or unsupported paths discard the staged remainder and use the retained
-per-token copy before mutation. Runtime Truth exposes staged, reused, fallback,
-mismatch, discard, and device-owned cursor counts; `quantum_input_reuse_count`
-counts consumed tokens, not just successful staging calls.
+sensory, unsupported, sleep, host-truth, metrics, or other fallback boundaries
+skip or discard staged material before mutation and use the retained per-token
+copy. Runtime Truth exposes staged, reused, fallback, mismatch, discard, and
+device-owned cursor counts; `quantum_input_reuse_count` counts consumed tokens,
+not just successful staging calls, and staged-token counts should not exceed
+consumed tokens for a clean boundary-safe run.
 _Avoid_: treating the quantum as parallel cognition, placing graph algorithms
 in `service`, staging more than the bounded ring capacity, or synchronizing CUDA
 per token to report ring progress
@@ -1337,8 +1341,9 @@ counts, strong-event count, ring ownership, and CUDA device evidence.
 _Avoid_: calling the burst parallel cognition, skipping CUDA transitions,
 moving eligibility algorithms into `service`, crossing a slow-path boundary,
 using the previous mirrored surprise value to predict internal burst events,
-retaining archival tensors on CUDA, or replacing the one-tick graph with a
-larger graph without sustained evidence
+retaining archival tensors on CUDA, letting speculative preflight update Runtime
+Truth counters, or replacing the one-tick graph with a larger graph without
+sustained evidence
 
 **Training-Owned Text Sequence** — the training boundary that accepts one complete service text tick, executes its ordered eight-token quanta, requests full metrics only for explicit evaluator evidence positions, checks stop requests between quanta, and returns Device-Burst Lightweight Metrics to service for ordinary prepared source ticks. Service still owns source selection, locks, Runtime Truth projection, and concept observation; training owns neural sequencing, burst/fallback selection, event drains, and per-token mutation semantics. Runtime Truth reports sequence calls, tokens, quanta, stops, owner, and stop boundary.
 _Avoid_: moving concept algorithms into training, skipping sequential SNN updates, checking stop only after an unbounded tick, letting service duplicate burst policy, or claiming one API call means one CUDA kernel.

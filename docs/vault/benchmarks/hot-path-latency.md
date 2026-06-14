@@ -559,6 +559,21 @@ long-run velocity evidence remains
 profiling visibility while leaving the next velocity gate to an uncontended
 long run.
 
+The follow-up preflight fix at
+`reports/boundary_prestage_preflight_20260614/stress-32768-clean.json`
+keeps quantum input staging from crossing a known burst fallback boundary.
+The run processed `32768` sequential tokens at `2624.774 tokens/sec`, selected
+CUDA on the NVIDIA GeForce RTX 3060, executed `32768` in-place Triton
+transitions and persistent graph replays with zero failures, reported
+`4094` burst executions for `32752` burst-owned tokens, and kept quantum
+staging exact: `32768` staged tokens, `32768` reused tokens, and zero discards.
+It is not a velocity promotion because `velocity_environment.v1` reported
+CPU-busy and GPU-busy contention (`100%` CPU max, `33%` GPU max). The evidence
+is narrower but important: training now previews q16 slices with a
+non-mutating boundary classifier, so speculative full-quantum staging does not
+dirty Runtime Truth counters or copy input tensors across a known sleep,
+host-truth, metrics, or other fallback boundary.
+
 ## Boundary-Aware Text Burst, 2026-06-14
 
 The first implementation captured eight complete tick bodies into one CUDA

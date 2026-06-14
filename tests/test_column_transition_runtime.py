@@ -1402,6 +1402,70 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_training_owned_quantum_does_not_prestage_across_sleep_boundary() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=128,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=17,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        micro_sleep_interval_tokens=9,
+        deep_sleep_interval_tokens=10**9,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="boundary preflight warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    trainer.last_micro_sleep_token = 0
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(16)
+    ]
+    raw_windows = [
+        f"boundary preflight sequence {index}"
+        for index in range(16)
+    ]
+
+    result = trainer.train_text_sequence(
+        patterns,
+        raw_windows=raw_windows,
+        quantum_tokens=16,
+        metric_indices=set(),
+    )
+    torch.cuda.synchronize()
+
+    report = trainer.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert result["trained"] == 16
+    assert result["quantum_count"] == 1
+    assert report["text_burst_execution_count"] == 1
+    assert report["text_burst_token_count"] == 8
+    assert report["text_burst_fallback_count"] == 1
+    assert report["text_burst_fallback_reasons"] == {"sleep_boundary": 1}
+    assert graph_report["quantum_input_staged_token_count"] == 16
+    assert graph_report["quantum_input_reuse_count"] == 16
+    assert graph_report["quantum_input_discard_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
     config = MarulhoConfig(
         n_columns=32,

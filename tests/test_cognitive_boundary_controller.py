@@ -49,6 +49,43 @@ def test_observation_boundaries_do_not_interrupt_device_execution() -> None:
     assert report["drift_refresh_execution_gate"] is False
 
 
+def test_classify_previews_boundaries_without_runtime_truth_mutation() -> None:
+    controller = CognitiveBoundaryController()
+
+    preview = controller.classify(
+        start_token=16,
+        token_count=8,
+        telemetry_interval=64,
+        slow_memory_archive_interval=256,
+        drift_floor_window_tokens=10_000,
+        hnsw_flush_interval=16,
+        hnsw_buffer_pending=True,
+        deep_sleep_interval_tokens=10_000,
+        last_deep_sleep_token=0,
+        pending_emergency_deep_sleep=False,
+        emergency_deep_sleep_cooldown_tokens=1_000,
+        micro_sleep_interval_tokens=10_000,
+        last_micro_sleep_token=0,
+    )
+
+    assert preview.fallback_reason == "routing_index_flush_boundary"
+    report = controller.report()
+    assert report["plan_count"] == 0
+    assert report["fallback_count"] == 0
+    assert report["last_fallback_reason"] is None
+
+    actual = _plan(
+        controller,
+        start_token=16,
+        hnsw_buffer_pending=True,
+    )
+    report = controller.report()
+    assert actual.fallback_reason == "routing_index_flush_boundary"
+    assert report["plan_count"] == 1
+    assert report["fallback_count"] == 1
+    assert report["last_fallback_reason"] == "routing_index_flush_boundary"
+
+
 def test_drift_floor_window_closes_after_device_execution() -> None:
     controller = CognitiveBoundaryController()
 

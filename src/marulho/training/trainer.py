@@ -22,6 +22,7 @@ from marulho.data.encoder_factory import build_encoder
 from marulho.training.model import MarulhoModel
 from marulho.training.bootstrap import PredictiveBootstrap
 from marulho.training.cognitive_boundary_controller import (
+    CognitiveBoundaryPlan,
     CognitiveBoundaryController,
 )
 from marulho.training.column_transition_runtime import ColumnTransitionRuntime
@@ -384,62 +385,55 @@ class MarulhoTrainer:
             forced=True,
         )
 
-    @torch.no_grad()
-    def train_text_burst(
+    def _text_burst_precheck_fallback_reason(
         self,
-        patterns: list[torch.Tensor],
         *,
-        raw_windows: list[str] | None = None,
-        memory_metadata: Mapping[str, Any] | None = None,
-    ) -> bool:
-        """Collapse ordinary text ticks between explicit cognitive boundaries."""
-
-        token_count = len(patterns)
+        token_count: int,
+        raw_window_count: int | None,
+        start_token: int | None = None,
+    ) -> str | None:
         graph = self._column_transition_runtime._cuda_graph_runtime
         if graph is None or not graph.active:
-            return self._text_burst_fallback("persistent_cuda_graph_inactive")
+            return "persistent_cuda_graph_inactive"
         burst_capacity = max(
             1,
             int(self._column_transition_runtime.text_burst_token_capacity()),
         )
         if token_count <= 0 or token_count > burst_capacity:
-            return self._text_burst_fallback("burst_exceeds_device_capacity")
-        if raw_windows is None or len(raw_windows) != token_count:
-            return self._text_burst_fallback("burst_requires_raw_windows")
-        profile_enabled = bool(self._train_step_profile_enabled)
-        profile_started = time.perf_counter() if profile_enabled else 0.0
-        profile_last = profile_started
-        if self.token_count < self.config.bootstrap_tokens:
-            return self._text_burst_fallback("bootstrap_active")
+            return "burst_exceeds_device_capacity"
+        if raw_window_count is None or raw_window_count != token_count:
+            return "burst_requires_raw_windows"
+        token_start = self.token_count if start_token is None else int(start_token)
+        if token_start < self.config.bootstrap_tokens:
+            return "bootstrap_active"
         if (
             self.model.context_layer is not None
             or self.model.binding_layer is not None
             or self.model.abstraction_layer is not None
             or self.column_anchors
         ):
-            return self._text_burst_fallback("higher_layer_tick_active")
+            return "higher_layer_tick_active"
         if not self.memory_warm_started or self._cached_drift is None:
-            return self._text_burst_fallback("runtime_not_fully_warm")
+            return "runtime_not_fully_warm"
         if graph._last_result is None:
-            return self._text_burst_fallback("host_truth_not_initialized")
+            return "host_truth_not_initialized"
         cross_modal = self.model.cross_modal
         if cross_modal is not None and (
-            self.token_count <= self._cross_modal_sensory_trace_until_token
+            token_start <= self._cross_modal_sensory_trace_until_token
             or not self._cross_modal_traces_cleared_for_idle
             or len(self._recent_visual_frames) >= 3
             or len(self._recent_audio_frames) >= 3
         ):
-            return self._text_burst_fallback("cross_modal_wake_boundary")
-        if profile_enabled:
-            profile_now = time.perf_counter()
-            self._record_train_step_profile_stage(
-                "text_burst_precheck",
-                (profile_now - profile_last) * 1000.0,
-            )
-            profile_last = profile_now
+            return "cross_modal_wake_boundary"
+        return None
 
-        start = int(self.token_count)
-        end = start + token_count
+    def _classify_text_burst_boundaries(
+        self,
+        *,
+        start_token: int,
+        token_count: int,
+        record: bool,
+    ) -> CognitiveBoundaryPlan:
         telemetry_interval = max(
             1,
             int(self.config.trainer_telemetry_interval_tokens),
@@ -448,8 +442,13 @@ class MarulhoTrainer:
             1,
             int(self.config.slow_memory_archive_interval_tokens),
         )
-        boundary_plan = self._cognitive_boundary_controller.plan(
-            start_token=start,
+        planner = (
+            self._cognitive_boundary_controller.plan
+            if bool(record)
+            else self._cognitive_boundary_controller.classify
+        )
+        return planner(
+            start_token=start_token,
             token_count=token_count,
             telemetry_interval=telemetry_interval,
             slow_memory_archive_interval=archive_interval,
@@ -466,6 +465,100 @@ class MarulhoTrainer:
             ),
             micro_sleep_interval_tokens=self.config.micro_sleep_interval_tokens,
             last_micro_sleep_token=self.last_micro_sleep_token,
+        )
+
+    def _can_prestage_text_quantum(
+        self,
+        *,
+        start: int,
+        end: int,
+        burst_capacity: int,
+        requested_metrics: set[int],
+    ) -> bool:
+        if requested_metrics.intersection(range(start, end)):
+            return False
+        graph = self._column_transition_runtime._cuda_graph_runtime
+        if graph is None:
+            return False
+        simulated_token = int(self.token_count)
+        simulated_replay = int(graph.replay_count)
+        for chunk_start in range(start, end, burst_capacity):
+            chunk_end = min(end, chunk_start + burst_capacity)
+            chunk_len = int(chunk_end - chunk_start)
+            reason = self._text_burst_precheck_fallback_reason(
+                token_count=chunk_len,
+                raw_window_count=chunk_len,
+                start_token=simulated_token,
+            )
+            if reason is not None:
+                return False
+            boundary_plan = self._classify_text_burst_boundaries(
+                start_token=simulated_token,
+                token_count=chunk_len,
+                record=False,
+            )
+            if boundary_plan.fallback_reason is not None:
+                return False
+            threshold = int(self.config.candidate_homeostasis_start_tokens)
+            if simulated_token < threshold < simulated_token + chunk_len:
+                return False
+            sync_interval = max(
+                1,
+                int(self.config.cuda_graph_host_truth_sync_interval_tokens),
+            )
+            sync_offsets = [
+                offset
+                for offset in range(1, chunk_len + 1)
+                if (simulated_replay + offset) % sync_interval == 0
+            ]
+            if sync_offsets not in ([], [chunk_len]):
+                return False
+            simulated_token += chunk_len
+            simulated_replay += chunk_len
+        return True
+
+    @torch.no_grad()
+    def train_text_burst(
+        self,
+        patterns: list[torch.Tensor],
+        *,
+        raw_windows: list[str] | None = None,
+        memory_metadata: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Collapse ordinary text ticks between explicit cognitive boundaries."""
+
+        token_count = len(patterns)
+        graph = self._column_transition_runtime._cuda_graph_runtime
+        raw_window_count = None if raw_windows is None else len(raw_windows)
+        precheck_reason = self._text_burst_precheck_fallback_reason(
+            token_count=token_count,
+            raw_window_count=raw_window_count,
+        )
+        if precheck_reason is not None:
+            return self._text_burst_fallback(precheck_reason)
+        assert graph is not None
+        profile_enabled = bool(self._train_step_profile_enabled)
+        profile_started = time.perf_counter() if profile_enabled else 0.0
+        profile_last = profile_started
+        cross_modal = self.model.cross_modal
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_precheck",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
+
+        start = int(self.token_count)
+        end = start + token_count
+        archive_interval = max(
+            1,
+            int(self.config.slow_memory_archive_interval_tokens),
+        )
+        boundary_plan = self._classify_text_burst_boundaries(
+            start_token=start,
+            token_count=token_count,
+            record=True,
         )
         if boundary_plan.fallback_reason is not None:
             return self._text_burst_fallback(boundary_plan.fallback_reason)
@@ -689,7 +782,6 @@ class MarulhoTrainer:
                 stopped = True
                 break
             end = min(token_count, start + quantum)
-            quantum_metric_indices = requested_metrics.intersection(range(start, end))
             can_prestage_quantum = (
                 self._column_transition_runtime.can_prestage_text_input_quantum()
                 and self.memory_warm_started
@@ -701,8 +793,13 @@ class MarulhoTrainer:
             )
             if (
                 can_prestage_quantum
-                and not quantum_metric_indices
                 and end - start > burst_capacity
+                and self._can_prestage_text_quantum(
+                    start=start,
+                    end=end,
+                    burst_capacity=burst_capacity,
+                    requested_metrics=requested_metrics,
+                )
             ):
                 profile_started = time.perf_counter() if profile_enabled else 0.0
                 self.stage_text_input_quantum(list(patterns[start:end]))

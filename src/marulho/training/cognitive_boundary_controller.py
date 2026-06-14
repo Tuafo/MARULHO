@@ -57,6 +57,47 @@ class CognitiveBoundaryController:
         last_micro_sleep_token: int,
     ) -> CognitiveBoundaryPlan:
         self.plan_count += 1
+        plan = self.classify(
+            start_token=start_token,
+            token_count=token_count,
+            telemetry_interval=telemetry_interval,
+            slow_memory_archive_interval=slow_memory_archive_interval,
+            drift_floor_window_tokens=drift_floor_window_tokens,
+            hnsw_flush_interval=hnsw_flush_interval,
+            hnsw_buffer_pending=hnsw_buffer_pending,
+            deep_sleep_interval_tokens=deep_sleep_interval_tokens,
+            last_deep_sleep_token=last_deep_sleep_token,
+            pending_emergency_deep_sleep=pending_emergency_deep_sleep,
+            emergency_deep_sleep_cooldown_tokens=(
+                emergency_deep_sleep_cooldown_tokens
+            ),
+            micro_sleep_interval_tokens=micro_sleep_interval_tokens,
+            last_micro_sleep_token=last_micro_sleep_token,
+        )
+        if plan.fallback_reason is None:
+            self.device_continuous_count += 1
+        else:
+            self.fallback_count += 1
+            self.last_fallback_reason = plan.fallback_reason
+        return plan
+
+    @staticmethod
+    def classify(
+        *,
+        start_token: int,
+        token_count: int,
+        telemetry_interval: int,
+        slow_memory_archive_interval: int,
+        drift_floor_window_tokens: int,
+        hnsw_flush_interval: int,
+        hnsw_buffer_pending: bool,
+        deep_sleep_interval_tokens: int,
+        last_deep_sleep_token: int,
+        pending_emergency_deep_sleep: bool,
+        emergency_deep_sleep_cooldown_tokens: int,
+        micro_sleep_interval_tokens: int,
+        last_micro_sleep_token: int,
+    ) -> CognitiveBoundaryPlan:
         drift_refresh_due = False
         drift_floor_close_due = False
         telemetry_observation_due = False
@@ -106,11 +147,6 @@ class CognitiveBoundaryController:
                 fallback_reason = "sleep_boundary"
                 break
 
-        if fallback_reason is None:
-            self.device_continuous_count += 1
-        else:
-            self.fallback_count += 1
-            self.last_fallback_reason = fallback_reason
         return CognitiveBoundaryPlan(
             fallback_reason=fallback_reason,
             drift_refresh_due=drift_refresh_due,

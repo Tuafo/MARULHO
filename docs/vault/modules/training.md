@@ -62,12 +62,15 @@ related_benchmarks: []
         owning CUDA algorithms; `ColumnTransitionRuntime` stages the encoded
         tensors into a fixed 128-row CUDA ring and the captured graph advances
         the input slot and recent-spike-row cursor. Warm metric-free text
-        sequences can pre-stage a full training quantum once, then let the
-        eight-token burst executor consume pointer-checked slices from that
-        staged window. Pointer-order validation preserves exact token order,
-        while mismatch and sensory boundaries discard staged remainder and fall
-        back before mutation. Runtime Truth exposes stage, token reuse,
-        fallback-copy, mismatch, discard, and device-owned cursor counters.
+        sequences can pre-stage a full training quantum once only after a
+        non-mutating boundary preflight classifies every burst-sized slice as
+        device-continuous. The eight-token burst executor then consumes
+        pointer-checked slices from that staged window. Pointer-order validation
+        preserves exact token order, while mismatch, sensory, sleep,
+        host-truth, metrics, and other fallback boundaries skip or discard
+        staged remainder and fall back before mutation. Runtime Truth exposes
+        stage, token reuse, fallback-copy, mismatch, discard, and device-owned
+        cursor counters; only the real burst plan updates boundary counters.
 
         The production trainer now owns Boundary-Aware Text Burst execution.
         For exactly eight ordinary text ticks, it consumes an already staged
@@ -79,10 +82,12 @@ related_benchmarks: []
         drains those records at the host-truth boundary and archives all
         payloads on CPU. Eligibility still fails closed at drift, telemetry,
         sleep, slow-memory cadence, cross-modal wake, host-truth, routing-mode,
-        and metrics boundaries. Service only offers the encoded quantum; it
-        does not own burst algorithms. Runtime Truth exposes burst executions,
-        burst tokens, failures, fallback-reason counts, strong events, ring
-        ownership, and graph names.
+        and metrics boundaries. The same classifier can preview those
+        boundaries for quantum pre-staging without incrementing Runtime Truth
+        counters; service only offers the encoded quantum and does not own burst
+        algorithms. Runtime Truth exposes burst executions, burst tokens,
+        failures, fallback-reason counts, strong events, ring ownership, and
+        graph names.
 
         The promoted graph specialization has live service evidence on an opt-in checkpoint: one 24-token source tick executed the graph-backed CUDA path 24 times with zero failures. Fresh-process hot-window evidence improved mean throughput from `176.24` to `264.46 ticks/sec`, but the source tick still took about `1.24 s`. The next training-owned optimization boundary is the remaining host orchestration and per-token stages outside the graph, without moving algorithms into service.
 

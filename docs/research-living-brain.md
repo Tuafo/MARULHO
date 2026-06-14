@@ -576,6 +576,19 @@ This file records research anchors for current architecture work. It is not a pr
   `0.053073 ms/token` to a combined `0.026171-0.031875 ms/token`; clean runs
   proved CUDA execution and exact staged-token reuse but were not velocity
   promotions because benchmark environment snapshots showed CPU contention.
+- NVIDIA CUDA Graph performance guidance warns that capture boundaries can
+  fail to improve or can regress when the graph misses the real bottleneck,
+  input-copy overhead dominates, or dynamic control flow forces fallbacks:
+  https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html
+  and
+  https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html
+  MARULHO therefore does not pre-stage a whole q16 input window merely because
+  the ring can hold it. Training first runs a non-mutating boundary preflight
+  over every burst-sized slice; only fully device-continuous windows are copied
+  into the ring. The 32768-token follow-up kept `staged == reused == 32768`
+  with zero graph/burst failures under CUDA, while refusing to promote the
+  lower `2624.774 tokens/sec` result because run-condition evidence showed CPU
+  and GPU contention.
 - The result changes the next implementation direction. More isolated Triton
   arithmetic is unlikely to remove the dominant host tax by itself; the next
   slice should widen persistent ownership across routing preparation,
