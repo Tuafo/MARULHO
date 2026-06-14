@@ -62,9 +62,13 @@ mutation.
 Training may use a Boundary-Aware Text Burst for exactly eight eligible
 text-only ticks. The burst replays the existing one-tick graph eight times in
 causal order, while collapsing repeated Python bookkeeping. It cannot cross
-drift, telemetry, sleep, slow-memory, strong-capture, cross-modal wake,
-host-truth, or routing-mode boundaries. Brain Runtime may request the burst,
-but training owns eligibility and all neural/bookkeeping semantics.
+drift, telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth, or
+routing-mode boundaries. Strong capture is data-dependent inside the burst, so
+a separate one-tick burst graph snapshots the result packet into a bounded
+device ring every tick and copies assembly/routing evidence only for threshold
+crossings. Training drains the ring once at the host-truth boundary and stores
+all archival payloads on CPU. Brain Runtime may request the burst, but training
+owns eligibility, event admission, and all neural/bookkeeping semantics.
 
 Device float neuromodulation and Triton reductions may differ from Python
 double scalar arithmetic by floating-point noise. Promotion requires exact
@@ -87,6 +91,9 @@ cognitive-quality evidence, and grounded fallback gates.
   counters and device-owned recent-spike-row updates.
 - Runtime Truth reports graph consolidation-lookup skips and persistent empty
   revival-tensor reuses, proving the allocation-free bookkeeping path executed.
+- Runtime Truth reports device strong-event ring ownership, strong-event count,
+  and a bounded burst fallback-reason histogram without adding per-token host
+  synchronization.
 - Current evidence shows a fresh-process `1.506x` complete hot-window gain and
   a text quality-gate `1.202x` gain with exact winners.
 - Fresh-process graph memory increased by about `8.13 MB` allocated and `24 MB`
@@ -118,6 +125,12 @@ cognitive-quality evidence, and grounded fallback gates.
   `2387.898` and `2607.316 tokens/sec` in repeated complete-runtime runs.
   Runtime Truth counted `18032` and `18016` burst-owned tokens with zero burst
   replay failures.
+- After preserving data-dependent strong events, final repeated 32768-token
+  runs measured `2648.747`, `2533.719`, and `2599.013 tokens/sec`. The final
+  run executed all `32768` transitions on `cuda:0`, used `9760` burst tokens,
+  reported zero graph/burst failures, and exposed fallback counts:
+  host truth `1033`, exploration `581`, drift refresh `441`, telemetry `369`,
+  and drift floor `1`. Graph capture startup was `480.524 ms`.
 
 ## Reversal
 

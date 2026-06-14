@@ -27,6 +27,8 @@ related_benchmarks: []
 
         Trainer metrics include `trainer_telemetry_interval_tokens` and `trainer_telemetry_due` so operators can distinguish freshly synchronized scalar metrics from cached values. Runtime Truth remains visible without forcing every cognitive tick to synchronize CUDA for display-only statistics.
 
+        Boundary-Aware Text Burst evidence includes device strong-event ring ownership, captured strong-event count, and a bounded fallback-reason histogram. These counters identify why a burst stayed on the full Python path without adding per-token CUDA synchronization.
+
         ## Relationships
 
         - [Subcortex](subcortex.md)

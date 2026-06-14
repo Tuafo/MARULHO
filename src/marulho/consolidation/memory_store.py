@@ -694,8 +694,7 @@ class DualMemoryStore:
         capture_tag: float | None = None,
     ) -> int | None:
         self.update_calls += 1
-        _on_cpu = not assembly.is_cuda
-        x = assembly.detach().clone() if _on_cpu else assembly.detach().clone().cpu()
+        x = assembly.detach().clone().cpu()
         token_marker = int(self.n_seen if token_count is None else token_count)
         capture_value = float(max(0.0, tag_strength if capture_tag is None else capture_tag))
 
@@ -724,14 +723,10 @@ class DualMemoryStore:
             admission_index = candidate_index
 
         stored_input = (
-            input_pattern.detach().clone()
-            if _on_cpu
-            else input_pattern.detach().clone().cpu()
+            input_pattern.detach().clone().cpu()
         ) if input_pattern is not None else None
         stored_routing = (
-            routing_key.detach().clone()
-            if _on_cpu
-            else routing_key.detach().clone().cpu()
+            routing_key.detach().clone().cpu()
         ) if routing_key is not None else None
         self.optional_payload_copy_count += int(stored_input is not None) + int(
             stored_routing is not None

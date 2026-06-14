@@ -68,11 +68,16 @@ related_benchmarks: []
         The production trainer now owns Boundary-Aware Text Burst execution.
         For exactly eight ordinary text ticks, it stages the ring once, replays
         the same one-tick graph eight times in order, and applies equivalent
-        host bookkeeping in one bounded operation. Eligibility fails closed at
-        drift, telemetry, sleep, slow-memory, strong-capture, cross-modal wake,
-        host-truth, routing-mode, and metrics boundaries. Service only offers
-        the encoded quantum; it does not own burst algorithms. Runtime Truth
-        exposes burst executions, burst tokens, failures, and fallback reason.
+        host bookkeeping in one bounded operation. A separate captured
+        one-tick variant writes results into a Device Strong-Event Ring and
+        copies assembly/routing rows only for threshold crossings; training
+        drains those records at the host-truth boundary and archives all
+        payloads on CPU. Eligibility still fails closed at drift, telemetry,
+        sleep, slow-memory cadence, cross-modal wake, host-truth, routing-mode,
+        and metrics boundaries. Service only offers the encoded quantum; it
+        does not own burst algorithms. Runtime Truth exposes burst executions,
+        burst tokens, failures, fallback-reason counts, strong events, ring
+        ownership, and graph names.
 
         The promoted graph specialization has live service evidence on an opt-in checkpoint: one 24-token source tick executed the graph-backed CUDA path 24 times with zero failures. Fresh-process hot-window evidence improved mean throughput from `176.24` to `264.46 ticks/sec`, but the source tick still took about `1.24 s`. The next training-owned optimization boundary is the remaining host orchestration and per-token stages outside the graph, without moving algorithms into service.
 

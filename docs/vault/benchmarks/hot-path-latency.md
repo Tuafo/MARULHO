@@ -464,3 +464,22 @@ to `2497.607 tokens/sec` (`1.145x`). The rerun measured
 `train_compute=0.3012 ms/token` and `trainer_step=0.1657 ms/token`. The next
 large bottleneck is source preparation plus the boundary ticks that still need
 full Python orchestration, not the in-place transition kernel.
+
+## Device Strong-Event Ring, 2026-06-14
+
+The previous burst gate used the last mirrored reconstruction error and could
+miss a threshold crossing inside a burst. The promoted burst graph now writes
+eight result rows into a fixed CUDA ring and copies assembly/routing rows only
+for strong events. A forced-threshold CUDA test preserved all eight events,
+their exact token markers and raw windows, and CPU ownership of archival input
+and routing tensors.
+
+Final complete full-warm 32768-token runs measured `2648.747`, `2533.719`, and
+`2599.013 tokens/sec`. Each ran all 32768 transitions on the RTX 3060 with zero
+graph failures and exact one-time quantum staging. The final Runtime Truth run
+used 9760 burst tokens, captured zero strong events for that corpus, and
+reported fallback counts: host truth 1033, exploration 581, drift refresh 441,
+telemetry 369, drift floor 1. Capture startup was `480.524 ms`. The next large
+speed slice is a bounded truth-interval device event queue that can preserve
+events across multiple host bursts, followed by measured treatment of
+exploration/drift/telemetry boundaries.

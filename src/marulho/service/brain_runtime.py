@@ -450,7 +450,11 @@ class BrainRuntime:
                     not burst_requires_metrics
                     and callable(train_text_burst)
                     and train_text_burst(
-                        [pattern for _raw_window, pattern in sub]
+                        [pattern for _raw_window, pattern in sub],
+                        raw_windows=[
+                            str(raw_window) for raw_window, _pattern in sub
+                        ],
+                        memory_metadata=memory_metadata,
                     )
                 )
                 if burst_executed:

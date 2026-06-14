@@ -632,7 +632,12 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
             allow_sleep_maintenance=False,
             return_metrics=False,
         )
-    assert quantum.train_text_burst(patterns) is True
+    assert quantum.train_text_burst(
+        patterns,
+        raw_windows=[
+            f"quantum persistent executor {index}" for index in range(8)
+        ],
+    ) is True
     torch.cuda.synchronize()
 
     for sequential_tensor, quantum_tensor in (
@@ -708,6 +713,74 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
     assert runtime_report["text_burst_execution_count"] == 1
     assert runtime_report["text_burst_token_count"] == 8
     assert runtime_report["text_burst_fallback_count"] == 0
+    assert runtime_report["text_burst_fallback_reasons"] == {}
+    assert runtime_report["text_burst_strong_event_count"] == 0
+    assert report["burst_event_ring_device_owned"] is True
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=9,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=0.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="strong capture warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+    raw_windows = [f"strong capture burst {index}" for index in range(8)]
+
+    assert trainer.train_text_burst(
+        patterns,
+        raw_windows=raw_windows,
+    ) is True
+
+    assert trainer._slow_memory_archive_count == 9
+    assert trainer._slow_memory_archive_skip_count == 0
+    assert trainer._slow_memory_last_archive_reason == "strong_capture"
+    runtime_report = trainer.column_transition_runtime_report()
+    assert runtime_report["text_burst_strong_event_count"] == 8
+    assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
+    assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
+        range(2, 10)
+    )
+    assert all(
+        pattern is not None and pattern.device.type == "cpu"
+        for pattern in trainer.model.memory_store.slow_input_patterns[-8:]
+    )
+    assert all(
+        routing is not None and routing.device.type == "cpu"
+        for routing in trainer.model.memory_store.slow_routing_keys[-8:]
+    )
+    assert all(
+        value >= 0.0
+        for value in trainer.model.memory_store.slow_capture_tag[-8:]
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

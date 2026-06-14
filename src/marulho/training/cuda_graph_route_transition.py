@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import gc
 import time
 from typing import Any
 
 import torch
 import torch.nn.functional as F
 
-from marulho.core.columns import (
-    _normalize_routing_key,
-)
+from marulho.core.burst_event_cuda import snapshot_burst_event_cuda
+from marulho.core.columns import _normalize_routing_key
 from marulho.core.fused_route_vote_cuda import fused_route_vote_cuda
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
@@ -64,6 +64,8 @@ class CudaGraphRouteTransition:
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
+        self._burst_graphs: dict[str, torch.cuda.CUDAGraph] = {}
+        self._burst_graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._route_vectors: torch.Tensor | None = None
         self._route_ids: torch.Tensor | None = None
         self._route_position_by_column: torch.Tensor | None = None
@@ -87,6 +89,11 @@ class CudaGraphRouteTransition:
         self._staged_pattern_offset = 0
         self._neuromodulator_state: torch.Tensor | None = None
         self._result: torch.Tensor | None = None
+        self._burst_result_ring: torch.Tensor | None = None
+        self._burst_routing_ring: torch.Tensor | None = None
+        self._burst_assembly_ring: torch.Tensor | None = None
+        self._burst_strong_flags: torch.Tensor | None = None
+        self._burst_slot: torch.Tensor | None = None
         self._last_graph_name: str | None = None
         self._last_result: tuple[float, ...] | None = None
         self._last_result_from_host_sync = False
@@ -253,6 +260,33 @@ class CudaGraphRouteTransition:
             "result": self._result,
         }
 
+    def _burst_tick_ops(
+        self,
+        candidates: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        outputs = self._tick_ops(candidates)
+        assert self._burst_result_ring is not None
+        assert self._burst_routing_ring is not None
+        assert self._burst_assembly_ring is not None
+        assert self._burst_strong_flags is not None
+        assert self._burst_slot is not None
+        snapshot_burst_event_cuda(
+            result=outputs["result"],
+            routing_key=outputs["routing_key"],
+            assembly=self._runtime._assembly,
+            result_ring=self._burst_result_ring,
+            routing_ring=self._burst_routing_ring,
+            assembly_ring=self._burst_assembly_ring,
+            strong_flags=self._burst_strong_flags,
+            slot=self._burst_slot,
+            strong_threshold=float(
+                self._trainer.config.slow_memory_archive_strong_capture_threshold
+            ),
+        )
+        self._burst_slot.add_(1)
+        self._burst_slot.remainder_(PERSISTENT_EXECUTOR_BURST_TOKENS)
+        return outputs
+
     def _capture(self) -> None:
         trainer = self._trainer
         runtime = self._runtime
@@ -262,6 +296,9 @@ class CudaGraphRouteTransition:
         self.capture_attempted = True
         started = time.perf_counter_ns()
         try:
+            # CUDAGraph finalization during a new capture poisons CUDA's
+            # process-wide capture state. Retire older trainer graphs first.
+            gc.collect()
             if device.type != "cuda":
                 raise RuntimeError("cuda_graph_requires_cuda")
             vectors, ids = trainer.model.hnsw_index.routing_tensor_cache()
@@ -361,6 +398,31 @@ class CudaGraphRouteTransition:
                 dtype=torch.float32,
                 device=device,
             )
+            self._burst_result_ring = torch.empty(
+                (PERSISTENT_EXECUTOR_BURST_TOKENS, int(self._result.numel())),
+                dtype=torch.float32,
+                device=device,
+            )
+            self._burst_routing_ring = torch.empty(
+                (PERSISTENT_EXECUTOR_BURST_TOKENS, comp.column_dim),
+                dtype=torch.float32,
+                device=device,
+            )
+            self._burst_assembly_ring = torch.empty(
+                (PERSISTENT_EXECUTOR_BURST_TOKENS, comp.n_columns),
+                dtype=torch.float32,
+                device=device,
+            )
+            self._burst_strong_flags = torch.zeros(
+                PERSISTENT_EXECUTOR_BURST_TOKENS,
+                dtype=torch.bool,
+                device=device,
+            )
+            self._burst_slot = torch.zeros(
+                (),
+                dtype=torch.long,
+                device=device,
+            )
             self._consolidation = (
                 trainer.model.memory_store.bucket_consolidation_tensor(
                     comp.n_columns,
@@ -403,6 +465,11 @@ class CudaGraphRouteTransition:
                 self._learning_rate_update_count,
                 self._neuromodulator_state,
                 self._result,
+                self._burst_result_ring,
+                self._burst_routing_ring,
+                self._burst_assembly_ring,
+                self._burst_strong_flags,
+                self._burst_slot,
                 self._route_vectors,
                 self._input_slot,
             )
@@ -427,6 +494,21 @@ class CudaGraphRouteTransition:
                 self._graphs[name] = graph
                 self._graph_outputs[name] = outputs
                 self.capture_count += 1
+                for tensor, snapshot in zip(mutable, snapshots):
+                    tensor.copy_(snapshot)
+                torch.cuda.synchronize(device)
+                self._burst_tick_ops(candidates)
+                torch.cuda.synchronize(device)
+                for tensor, snapshot in zip(mutable, snapshots):
+                    tensor.copy_(snapshot)
+                torch.cuda.synchronize(device)
+                burst_graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(burst_graph, stream=stream):
+                    burst_outputs = self._burst_tick_ops(candidates)
+                torch.cuda.synchronize(device)
+                self._burst_graphs[name] = burst_graph
+                self._burst_graph_outputs[name] = burst_outputs
+                self.capture_count += 1
             for tensor, snapshot in zip(mutable, snapshots):
                 tensor.copy_(snapshot)
             torch.cuda.synchronize(device)
@@ -438,6 +520,8 @@ class CudaGraphRouteTransition:
             )
             self._graphs.clear()
             self._graph_outputs.clear()
+            self._burst_graphs.clear()
+            self._burst_graph_outputs.clear()
         finally:
             self.capture_latency_ms = (
                 time.perf_counter_ns() - started
@@ -905,9 +989,9 @@ class CudaGraphRouteTransition:
             for offset in range(1, len(patterns) + 1)
             if (self.replay_count + offset) % sync_interval == 0
         ]
-        if sync_offsets and sync_offsets != [len(patterns)]:
+        if sync_offsets != [len(patterns)]:
             raise RuntimeError(
-                "persistent executor burst crosses host-truth boundary"
+                "persistent executor burst must end on host-truth boundary"
             )
 
         assert self._parameters is not None
@@ -947,7 +1031,7 @@ class CudaGraphRouteTransition:
         token_count = len(patterns)
         try:
             for _ in range(token_count):
-                self._graphs[graph_name].replay()
+                self._burst_graphs[graph_name].replay()
         except Exception:
             self.burst_replay_failure_count += 1
             raise
@@ -967,48 +1051,67 @@ class CudaGraphRouteTransition:
         self.learning_rate_device_owned_count += token_count
         self.recent_spike_row_device_owned_count += token_count
         self._last_graph_name = graph_name
-        outputs = self._graph_outputs[graph_name]
-        if sync_offsets:
-            result = tuple(float(value) for value in outputs["result"].tolist())
-            self.host_truth_sync_count += 1
-            self.host_truth_skip_count += token_count - 1
-            self.host_truth_mirror_update_count += 1
-            self._last_result = result
-            self._last_result_from_host_sync = True
-            (
-                _reconstruction_error,
-                predicted_error,
-                dopamine,
-                acetylcholine,
-                norepinephrine,
-                serotonin,
-                _winner,
-                _effective_modulator,
-                *optional_competitive_surprise,
-            ) = result
-            surprise.predicted_error = predicted_error
-            surprise.dopamine = dopamine
-            surprise.acetylcholine = acetylcholine
-            surprise.norepinephrine = norepinephrine
-            surprise.serotonin = serotonin
-            mark_changed = getattr(
-                surprise,
-                "mark_modulator_state_changed",
-                None,
+        outputs = self._burst_graph_outputs[graph_name]
+        assert self._burst_result_ring is not None
+        assert self._burst_strong_flags is not None
+        result_rows = self._burst_result_ring.tolist()
+        strong_flags = self._burst_strong_flags.tolist()
+        result = tuple(float(value) for value in result_rows[-1])
+        self.host_truth_sync_count += 1
+        self.host_truth_skip_count += token_count - 1
+        self.host_truth_mirror_update_count += 1
+        self._last_result = result
+        self._last_result_from_host_sync = True
+        (
+            _reconstruction_error,
+            predicted_error,
+            dopamine,
+            acetylcholine,
+            norepinephrine,
+            serotonin,
+            _winner,
+            _effective_modulator,
+            *optional_competitive_surprise,
+        ) = result
+        surprise.predicted_error = predicted_error
+        surprise.dopamine = dopamine
+        surprise.acetylcholine = acetylcholine
+        surprise.norepinephrine = norepinephrine
+        surprise.serotonin = serotonin
+        mark_changed = getattr(
+            surprise,
+            "mark_modulator_state_changed",
+            None,
+        )
+        if callable(mark_changed):
+            mark_changed()
+        self._competitive_surprise_pending = (
+            float(optional_competitive_surprise[0])
+            if optional_competitive_surprise
+            else None
+        )
+        self.competitive_surprise_update_count += int(
+            bool(optional_competitive_surprise)
+        )
+        strong_indices = [
+            index for index, strong in enumerate(strong_flags) if bool(strong)
+        ]
+        strong_assemblies: list[torch.Tensor] = []
+        strong_routing_keys: list[torch.Tensor] = []
+        if strong_indices:
+            assert self._burst_assembly_ring is not None
+            assert self._burst_routing_ring is not None
+            index_tensor = torch.tensor(
+                strong_indices,
+                dtype=torch.long,
+                device=self._burst_assembly_ring.device,
             )
-            if callable(mark_changed):
-                mark_changed()
-            self._competitive_surprise_pending = (
-                float(optional_competitive_surprise[0])
-                if optional_competitive_surprise
-                else None
+            strong_assemblies = list(
+                self._burst_assembly_ring.index_select(0, index_tensor).cpu()
             )
-            self.competitive_surprise_update_count += int(
-                bool(optional_competitive_surprise)
+            strong_routing_keys = list(
+                self._burst_routing_ring.index_select(0, index_tensor).cpu()
             )
-        else:
-            self.host_truth_skip_count += token_count
-            self._last_result_from_host_sync = False
         trainer._prev_routing_key = self._previous_routing_key
         comp.last_input_pattern = outputs["normalized_input"]
         comp.last_projected_input = outputs["projected_input"]
@@ -1026,7 +1129,13 @@ class CudaGraphRouteTransition:
         )
         comp.update_count += token_count
         trainer.token_count += token_count
-        return self._graph_outputs[graph_name]
+        return {
+            **outputs,
+            "result_rows": result_rows,
+            "strong_indices": strong_indices,
+            "strong_assemblies": strong_assemblies,
+            "strong_routing_keys": strong_routing_keys,
+        }
 
     def _next_staged_pattern_pointer(self) -> int | None:
         if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
@@ -1178,6 +1287,13 @@ class CudaGraphRouteTransition:
             "burst_replay_failure_count": int(
                 self.burst_replay_failure_count
             ),
+            "burst_event_ring_device_owned": bool(
+                self._burst_result_ring is not None
+                and self._burst_routing_ring is not None
+                and self._burst_assembly_ring is not None
+                and self._burst_strong_flags is not None
+            ),
+            "burst_graph_names": sorted(self._burst_graphs),
             "recent_spike_row_device_owned_count": int(
                 self.recent_spike_row_device_owned_count
             ),

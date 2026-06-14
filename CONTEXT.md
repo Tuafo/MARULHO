@@ -1292,14 +1292,20 @@ per token to report ring progress
 **Boundary-Aware Text Burst** — the training-owned host-orchestration fast path
 for eight ordinary text ticks between explicit cognitive boundaries. It stages
 the existing input ring once, replays the proven one-tick CUDA graph eight
-times in causal order, and batches only host bookkeeping. Drift refresh,
-telemetry, sleep, slow-memory admission, strong capture, cross-modal wake,
-host-truth, concept-observation, and final-metrics boundaries retain the full
-per-token path. Runtime Truth reports burst executions, tokens, failures, and
-fallback reason.
+times in causal order, and batches only host bookkeeping. A graph-owned
+**Device Strong-Event Ring** snapshots the bounded result packet on every burst
+tick and copies assembly/routing evidence only when that tick crosses the
+configured strong-capture threshold. Training drains those events at the
+host-truth boundary and archives their input/evidence payloads on CPU. Drift
+refresh, telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth,
+concept-observation, and final-metrics boundaries retain the full per-token
+path. Runtime Truth reports burst executions, tokens, failures, fallback-reason
+counts, strong-event count, ring ownership, and CUDA device evidence.
 _Avoid_: calling the burst parallel cognition, skipping CUDA transitions,
 moving eligibility algorithms into `service`, crossing a slow-path boundary,
-or replacing the one-tick graph with a larger graph without sustained evidence
+using the previous mirrored surprise value to predict internal burst events,
+retaining archival tensors on CUDA, or replacing the one-tick graph with a
+larger graph without sustained evidence
 
 ## Flagged Ambiguities
 

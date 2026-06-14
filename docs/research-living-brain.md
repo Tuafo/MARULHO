@@ -613,6 +613,19 @@ This file records research anchors for current architecture work. It is not a pr
   keeps slow/event-driven work awake only at explicit boundaries. Repeated
   complete 32768-token runs reached `2387.898` and `2607.316 tokens/sec`, with
   all transitions on CUDA and zero graph/burst failures.
+- Data-dependent strong-memory admission cannot be inferred from the previous
+  host mirror. MARULHO therefore adds one bounded device event snapshot to the
+  burst graph, keeps archival assembly/input/routing tensors CPU-resident, and
+  performs host work only when the burst reaches its existing truth boundary.
+  This follows CUDA Graph fixed-address ownership and PyTorch's requirement
+  that CUDA-to-CPU data must be synchronized before host consumption; it does
+  not move the replay ledger onto CUDA.
+- Repeated final complete-runtime runs reached `2648.747`, `2533.719`, and
+  `2599.013 tokens/sec` with all 32768 transitions on the RTX 3060 and zero
+  graph failures. Runtime Truth now shows that host-truth, exploration, drift,
+  and telemetry boundaries dominate failed burst attempts. The next research
+  direction is a truth-interval device event queue or native conditional/device
+  loop, not more isolated arithmetic fusion.
 
 ## Engineering Implications
 

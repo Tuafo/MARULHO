@@ -397,7 +397,11 @@ class _BurstSamplingManager(_ConceptSamplingManager):
         self.burst_sizes: list[int] = []
         self._trainer.train_text_burst = self.train_text_burst
 
-    def train_text_burst(self, patterns: list[object]) -> bool:
+    def train_text_burst(
+        self,
+        patterns: list[object],
+        **_kwargs: object,
+    ) -> bool:
         self.burst_sizes.append(len(patterns))
         self._trainer.token_count += len(patterns)
         return True
