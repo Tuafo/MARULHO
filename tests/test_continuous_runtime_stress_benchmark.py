@@ -1,5 +1,6 @@
 from marulho.evaluation.continuous_runtime_stress_benchmark import (
     _collect_tick_events,
+    _ensure_runtime_event_history_capacity,
     _runtime_event_history_limit,
     _source_text_for_target,
     _summarize_tick_events,
@@ -117,3 +118,25 @@ def test_runtime_event_history_limit_reads_manager_capacity() -> None:
         _runtime_state = _State()
 
     assert _runtime_event_history_limit(_Manager()) == 1
+
+
+def test_stress_runner_extends_runtime_event_history_for_long_runs() -> None:
+    from collections import deque
+
+    class _State:
+        _brain_event_history = deque([{"type": "existing"}], maxlen=2)
+
+    class _Manager:
+        _runtime_state = _State()
+
+    report = _ensure_runtime_event_history_capacity(_Manager(), 5)
+
+    assert report == {
+        "extended": True,
+        "before_limit": 2,
+        "after_limit": 5,
+        "required_events": 5,
+    }
+    history = _Manager._runtime_state._brain_event_history
+    assert history.maxlen == 5
+    assert list(history) == [{"type": "existing"}]

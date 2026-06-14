@@ -110,6 +110,60 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 )
             )
 
+    def test_legacy_checkpoint_migrates_retired_slow_memory_archive_cadence(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+                slow_memory_archive_interval_tokens=8,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy.pt", trainer)
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["metadata"].pop("hot_path_config_defaults_revision", None)
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 256)
+            self.assertEqual(
+                metadata["config_migrations"][-1]["reason"],
+                "retired_hot_path_memory_archive_cadence",
+            )
+
+    def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+                slow_memory_archive_interval_tokens=64,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "current.pt", trainer)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 64)
+            self.assertNotIn("config_migrations", metadata)
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_checkpoint_cuda_graph_capture_happens_after_state_restore(self) -> None:
         from tempfile import TemporaryDirectory

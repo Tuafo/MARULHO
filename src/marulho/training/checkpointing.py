@@ -15,6 +15,11 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 20260614
+PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
+_RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
+
+
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
     return value.detach().clone().cpu() if isinstance(value, torch.Tensor) else None
 
@@ -112,6 +117,11 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     config_snapshot = asdict(trainer.config)
     config_snapshot.pop("input_dim", None)
+    metadata_snapshot = dict(metadata or {})
+    metadata_snapshot.setdefault(
+        "hot_path_config_defaults_revision",
+        HOT_PATH_CONFIG_DEFAULTS_REVISION,
+    )
     payload = {
         "config": config_snapshot,
         "model": _model_snapshot(trainer),
@@ -148,7 +158,7 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
                 if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
             },
         },
-        "metadata": dict(metadata or {}),
+        "metadata": metadata_snapshot,
     }
     temporary_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.tmp")
     try:
@@ -184,10 +194,54 @@ def _checkpoint_load_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def _migrate_loaded_config_snapshot(
+    config_snapshot: dict[str, Any],
+    metadata: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    migrated = dict(config_snapshot)
+    migrations: list[dict[str, Any]] = []
+    try:
+        revision = int(metadata.get("hot_path_config_defaults_revision", 0) or 0)
+    except (TypeError, ValueError):
+        revision = 0
+    if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
+        return migrated, migrations
+
+    current_interval = int(
+        migrated.get(
+            "slow_memory_archive_interval_tokens",
+            PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS,
+        )
+    )
+    if current_interval in _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS:
+        migrated["slow_memory_archive_interval_tokens"] = (
+            PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS
+        )
+        migrations.append(
+            {
+                "field": "slow_memory_archive_interval_tokens",
+                "from": current_interval,
+                "to": PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS,
+                "reason": "retired_hot_path_memory_archive_cadence",
+            }
+        )
+    return migrated, migrations
+
+
 def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str, Any]]:
     checkpoint_path = Path(path)
     payload = torch.load(checkpoint_path, map_location=_checkpoint_load_device())
-    cfg = MarulhoConfig(**payload["config"])
+    metadata = dict(payload.get("metadata", {}))
+    config_snapshot, config_migrations = _migrate_loaded_config_snapshot(
+        dict(payload["config"]),
+        metadata,
+    )
+    if config_migrations:
+        metadata["config_migrations"] = [
+            *list(metadata.get("config_migrations") or []),
+            *config_migrations,
+        ]
+    cfg = MarulhoConfig(**config_snapshot)
     requested_route_vote_mode = cfg.predictive_route_vote_mode
     defer_cuda_graph_capture = requested_route_vote_mode == "cuda_graph_text"
     if defer_cuda_graph_capture:
@@ -244,4 +298,4 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
 
         trainer.config.predictive_route_vote_mode = requested_route_vote_mode
         trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
-    return trainer, dict(payload.get("metadata", {}))
+    return trainer, metadata

@@ -44,4 +44,4 @@ class TestRuntimeAutonomyCurriculum:
         assert preset["execution_yield_seconds"] == 0.0
         assert preset["source_concept_observation_tick_interval"] == 4
         assert preset["model_overrides"]["memory_capacity"] == 1000
-        assert preset["model_overrides"]["slow_memory_archive_interval_tokens"] == 64
+        assert preset["model_overrides"]["slow_memory_archive_interval_tokens"] == 256

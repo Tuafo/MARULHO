@@ -64,7 +64,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             "binding_mode": "hypercube",
             "routing_shards": 4,
             "plasticity_spike_backend": "adex",
-            "slow_memory_archive_interval_tokens": 64,
+            "slow_memory_archive_interval_tokens": 256,
             "enable_cross_modal": True,
             "cross_modal_dim_visual": 64,
             "cross_modal_dim_audio": 64,

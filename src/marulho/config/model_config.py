@@ -126,7 +126,7 @@ class MarulhoConfig:
     stc_prp_consumption: float = 0.50
     stc_strong_event_threshold: float = 0.60
     slow_memory_start_tokens: int = 0
-    slow_memory_archive_interval_tokens: int = 64
+    slow_memory_archive_interval_tokens: int = 256
     slow_memory_archive_strong_capture_threshold: float = 0.95
     use_winner_local_drift: bool = True
 

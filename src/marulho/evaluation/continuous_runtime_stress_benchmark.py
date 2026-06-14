@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import json
 from pathlib import Path
 import statistics
@@ -190,6 +191,32 @@ def _runtime_event_history_limit(manager: MarulhoServiceManager) -> int:
     return max(1, int(maxlen or 1))
 
 
+def _ensure_runtime_event_history_capacity(
+    manager: MarulhoServiceManager,
+    required_events: int,
+) -> dict[str, Any]:
+    history = getattr(manager._runtime_state, "_brain_event_history", None)
+    before_limit = max(1, int(getattr(history, "maxlen", None) or 1))
+    required_limit = max(1, int(required_events))
+    if before_limit >= required_limit or not isinstance(history, deque):
+        return {
+            "extended": False,
+            "before_limit": int(before_limit),
+            "after_limit": int(before_limit),
+            "required_events": int(required_limit),
+        }
+    manager._runtime_state._brain_event_history = deque(
+        list(history),
+        maxlen=required_limit,
+    )
+    return {
+        "extended": True,
+        "before_limit": int(before_limit),
+        "after_limit": int(required_limit),
+        "required_events": int(required_limit),
+    }
+
+
 def run_continuous_runtime_stress(
     checkpoint: Path,
     *,
@@ -265,6 +292,25 @@ def run_continuous_runtime_stress(
                 "source_concept_observation_tick_interval": int(
                     source_concept_observation_tick_interval
                 ),
+                "trainer_config": {
+                    "slow_memory_archive_interval_tokens": int(
+                        manager._trainer.config.slow_memory_archive_interval_tokens
+                    ),
+                    "trainer_telemetry_interval_tokens": int(
+                        manager._trainer.config.trainer_telemetry_interval_tokens
+                    ),
+                    "cuda_graph_host_truth_sync_interval_tokens": int(
+                        manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                    ),
+                },
+                "checkpoint_metadata": {
+                    "config_migrations": list(
+                        manager._metadata.get("config_migrations") or []
+                    ),
+                    "hot_path_config_defaults_revision": manager._metadata.get(
+                        "hot_path_config_defaults_revision"
+                    ),
+                },
                 "timeout_seconds": float(timeout_seconds),
                 "warm_ingestion": warm_ingestion,
             }
@@ -280,6 +326,10 @@ def run_continuous_runtime_stress(
         expected_tick_count = max(
             1,
             (int(target_tokens) + int(tick_tokens) - 1) // int(tick_tokens),
+        )
+        event_history_capacity = _ensure_runtime_event_history_capacity(
+            manager,
+            expected_tick_count + 16,
         )
         event_history_limit = _runtime_event_history_limit(manager)
         poll_snapshots = expected_tick_count > event_history_limit
@@ -343,11 +393,31 @@ def run_continuous_runtime_stress(
             "source_concept_observation_tick_interval": int(
                 source_concept_observation_tick_interval
             ),
+            "trainer_config": {
+                "slow_memory_archive_interval_tokens": int(
+                    manager._trainer.config.slow_memory_archive_interval_tokens
+                ),
+                "trainer_telemetry_interval_tokens": int(
+                    manager._trainer.config.trainer_telemetry_interval_tokens
+                ),
+                "cuda_graph_host_truth_sync_interval_tokens": int(
+                    manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                ),
+            },
+            "checkpoint_metadata": {
+                "config_migrations": list(
+                    manager._metadata.get("config_migrations") or []
+                ),
+                "hot_path_config_defaults_revision": manager._metadata.get(
+                    "hot_path_config_defaults_revision"
+                ),
+            },
             "timeout_seconds": float(timeout_seconds),
             "sample_interval_seconds": float(sample_interval_seconds),
             "observer": {
                 "expected_tick_count": int(expected_tick_count),
                 "runtime_event_history_limit": int(event_history_limit),
+                "event_history_capacity": dict(event_history_capacity),
                 "poll_snapshots_during_measurement": bool(poll_snapshots),
                 "poll_snapshot_count": int(poll_snapshot_count),
             },
