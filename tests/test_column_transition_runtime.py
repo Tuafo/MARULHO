@@ -784,6 +784,171 @@ def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_defers_host_truth_across_two_quanta() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=32,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=17,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    sequential = MarulhoTrainer(MarulhoModel(config), config)
+    torch.manual_seed(20260614)
+    quantum = MarulhoTrainer(MarulhoModel(config), config)
+    warm_pattern = torch.rand(config.input_dim, device="cuda")
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(16)
+    ]
+    for trainer in (sequential, quantum):
+        trainer.train_step(
+            warm_pattern,
+            raw_window="two quantum warmup",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+    for index, pattern in enumerate(patterns):
+        sequential.train_step(
+            pattern,
+            raw_window=f"sequential two quantum {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+
+    assert quantum.train_text_burst(
+        patterns[:8],
+        raw_windows=[f"deferred quantum {index}" for index in range(8)],
+    ) is True
+    deferred = quantum.column_transition_runtime_report()
+    assert deferred["text_burst_event_pending_tokens"] == 8
+    assert deferred["cuda_graph_route_transition"]["burst_event_pending_tokens"] == 8
+    assert deferred["cuda_graph_route_transition"]["burst_event_drain_count"] == 0
+    assert quantum.train_text_burst(
+        patterns[8:],
+        raw_windows=[f"drained quantum {index}" for index in range(8, 16)],
+    ) is True
+    torch.cuda.synchronize()
+
+    for sequential_tensor, quantum_tensor in (
+        (
+            sequential.model.competitive.prototypes,
+            quantum.model.competitive.prototypes,
+        ),
+        (
+            sequential.model.competitive.prototype_velocity,
+            quantum.model.competitive.prototype_velocity,
+        ),
+        (
+            sequential.model.competitive.thresholds,
+            quantum.model.competitive.thresholds,
+        ),
+        (
+            sequential.model.competitive.recent_spike_window,
+            quantum.model.competitive.recent_spike_window,
+        ),
+        (
+            sequential.model.predictive.location,
+            quantum.model.predictive.location,
+        ),
+        (
+            sequential.model.predictive.velocity,
+            quantum.model.predictive.velocity,
+        ),
+        (
+            sequential.model.predictive._prediction_weights,
+            quantum.model.predictive._prediction_weights,
+        ),
+        (
+            sequential.model.predictive.prediction_error,
+            quantum.model.predictive.prediction_error,
+        ),
+    ):
+        assert torch.equal(sequential_tensor, quantum_tensor)
+    report = quantum.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert quantum.token_count == sequential.token_count == 17
+    assert quantum.last_winner == sequential.last_winner
+    assert report["text_burst_event_pending_tokens"] == 0
+    assert report["text_burst_event_flush_count"] == 1
+    assert graph_report["burst_event_capacity_tokens"] == 16
+    assert graph_report["burst_event_deferred_count"] == 1
+    assert graph_report["burst_event_drain_count"] == 1
+    assert graph_report["burst_event_drained_token_count"] == 16
+    assert graph_report["burst_event_forced_drain_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=17,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=0.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="forced flush warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+    raw_windows = [f"forced flush burst {index}" for index in range(8)]
+
+    assert trainer.train_text_burst(patterns, raw_windows=raw_windows) is True
+    assert trainer.column_transition_runtime_report()[
+        "text_burst_event_pending_tokens"
+    ] == 8
+    assert trainer.flush_text_burst_events(reason="test_boundary") is True
+
+    report = trainer.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert report["text_burst_event_pending_tokens"] == 0
+    assert report["text_burst_event_forced_flush_count"] == 1
+    assert report["text_burst_event_last_flush_reason"] == "test_boundary"
+    assert report["text_burst_strong_event_count"] == 8
+    assert graph_report["burst_event_forced_drain_count"] == 1
+    assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
+    assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
+        range(2, 10)
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
     config = MarulhoConfig(
         n_columns=32,

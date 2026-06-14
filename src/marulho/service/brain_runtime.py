@@ -463,6 +463,13 @@ class BrainRuntime:
                         if raw_text:
                             evidence_windows.append(raw_text)
                 else:
+                    flush_text_burst_events = getattr(
+                        self._trainer,
+                        "flush_text_burst_events",
+                        None,
+                    )
+                    if callable(flush_text_burst_events):
+                        flush_text_burst_events(reason="service_per_token_boundary")
                     stage_text_input_quantum = getattr(
                         self._trainer,
                         "stage_text_input_quantum",
@@ -539,6 +546,14 @@ class BrainRuntime:
                     stage_timings_ms["train_yield"] = stage_timings_ms.get(
                         "train_yield", 0.0
                     ) + float((time.perf_counter() - yield_started) * 1000.0)
+        flush_text_burst_events = getattr(
+            self._trainer,
+            "flush_text_burst_events",
+            None,
+        )
+        if callable(flush_text_burst_events):
+            with self._lock:
+                flush_text_burst_events(reason="service_tick_complete")
         if (
             concept_observation_due
             and pending_concept_observation is not None

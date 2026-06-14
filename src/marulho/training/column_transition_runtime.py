@@ -495,12 +495,23 @@ class ColumnTransitionRuntime:
     def replay_text_burst(
         self,
         patterns: list[torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, Any]:
         if self._cuda_graph_runtime is None:
             raise RuntimeError("cuda_graph_runtime_unavailable")
         return self._cuda_graph_runtime.replay_staged_text_burst(
             patterns
         )
+
+    def drain_text_burst_events(self) -> dict[str, Any]:
+        if self._cuda_graph_runtime is None:
+            return {
+                "truth_synced": False,
+                "result_rows": [],
+                "strong_indices": [],
+                "strong_assemblies": [],
+                "strong_routing_keys": [],
+            }
+        return self._cuda_graph_runtime.drain_burst_events()
 
     def _retained_consensus_gain(
         self,

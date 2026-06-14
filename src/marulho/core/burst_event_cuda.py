@@ -97,14 +97,15 @@ def snapshot_burst_event_cuda(
     )
     if not result.is_cuda or any(tensor.device != result.device for tensor in tensors):
         raise ValueError("burst event tensors must share one CUDA device")
-    if result_ring.shape != (8, int(result.numel())):
-        raise ValueError("result_ring must be [8, result_dim]")
-    if routing_ring.shape != (8, int(routing_key.numel())):
-        raise ValueError("routing_ring must be [8, routing_dim]")
-    if assembly_ring.shape != (8, int(assembly.numel())):
-        raise ValueError("assembly_ring must be [8, assembly_dim]")
-    if strong_flags.shape != (8,) or strong_flags.dtype != torch.bool:
-        raise ValueError("strong_flags must be bool[8]")
+    capacity = int(result_ring.shape[0])
+    if capacity <= 0 or result_ring.shape != (capacity, int(result.numel())):
+        raise ValueError("result_ring must be [capacity, result_dim]")
+    if routing_ring.shape != (capacity, int(routing_key.numel())):
+        raise ValueError("routing_ring must be [capacity, routing_dim]")
+    if assembly_ring.shape != (capacity, int(assembly.numel())):
+        raise ValueError("assembly_ring must be [capacity, assembly_dim]")
+    if strong_flags.shape != (capacity,) or strong_flags.dtype != torch.bool:
+        raise ValueError("strong_flags must be bool[capacity]")
     if slot.numel() != 1 or slot.dtype != torch.long:
         raise ValueError("slot must be one int64 value")
 

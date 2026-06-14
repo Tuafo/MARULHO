@@ -133,6 +133,12 @@ class MarulhoTrainer:
         self._text_burst_fallback_reasons: dict[str, int] = {}
         self._text_burst_strong_event_count = 0
         self._text_burst_last_fallback_reason: str | None = None
+        self._pending_text_burst_events: list[
+            tuple[int, torch.Tensor, str, dict[str, Any] | None]
+        ] = []
+        self._text_burst_event_flush_count = 0
+        self._text_burst_event_forced_flush_count = 0
+        self._text_burst_event_last_flush_reason: str | None = None
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
         """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
@@ -198,6 +204,18 @@ class MarulhoTrainer:
         report["text_burst_last_fallback_reason"] = (
             self._text_burst_last_fallback_reason
         )
+        report["text_burst_event_pending_tokens"] = len(
+            self._pending_text_burst_events
+        )
+        report["text_burst_event_flush_count"] = int(
+            self._text_burst_event_flush_count
+        )
+        report["text_burst_event_forced_flush_count"] = int(
+            self._text_burst_event_forced_flush_count
+        )
+        report["text_burst_event_last_flush_reason"] = (
+            self._text_burst_event_last_flush_reason
+        )
         return report
 
     def stage_text_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
@@ -207,12 +225,108 @@ class MarulhoTrainer:
 
     def _text_burst_fallback(self, reason: str) -> bool:
         normalized_reason = str(reason)
+        if self._pending_text_burst_events:
+            self.flush_text_burst_events(reason=normalized_reason)
         self._text_burst_fallback_count += 1
         self._text_burst_fallback_reasons[normalized_reason] = (
             self._text_burst_fallback_reasons.get(normalized_reason, 0) + 1
         )
         self._text_burst_last_fallback_reason = normalized_reason
         return False
+
+    def _apply_text_burst_events(
+        self,
+        burst_outputs: Mapping[str, Any],
+        *,
+        reason: str,
+        forced: bool,
+    ) -> bool:
+        if not bool(burst_outputs.get("truth_synced", False)):
+            return False
+        pending = self._pending_text_burst_events
+        result_rows = list(burst_outputs["result_rows"])
+        if len(result_rows) != len(pending):
+            raise RuntimeError(
+                "persistent executor event metadata does not match device evidence"
+            )
+        strong_indices = [
+            int(index) for index in burst_outputs["strong_indices"]
+        ]
+        strong_assemblies = list(burst_outputs["strong_assemblies"])
+        strong_routing_keys = list(burst_outputs["strong_routing_keys"])
+        for position, index in enumerate(strong_indices):
+            token_marker, pattern, raw_window, metadata = pending[index]
+            row = result_rows[index]
+            self.model.memory_store.update(
+                strong_assemblies[position],
+                importance=max(1e-3, abs(float(row[7]))),
+                token_count=token_marker,
+                bucket_id=int(row[6]),
+                input_pattern=pattern,
+                routing_key=strong_routing_keys[position],
+                raw_window=raw_window,
+                text=raw_window,
+                metadata=metadata,
+                capture_tag=max(0.0, float(row[0])),
+            )
+        event_count = len(pending)
+        strong_count = len(strong_indices)
+        self._text_burst_strong_event_count += strong_count
+        self._slow_memory_archive_count += strong_count
+        self._slow_memory_archive_skip_count += event_count - strong_count
+        self._slow_memory_last_archive_reason = (
+            "strong_capture" if strong_count else "cadence_skip"
+        )
+        graph = self._column_transition_runtime._cuda_graph_runtime
+        assert graph is not None
+        final_result = graph.consume_result()
+        self.last_winner = int(final_result[6])
+        self._winner_host_mirror_sync_count += 1
+        self._winner_host_mirror_skip_count += event_count - 1
+        self._winner_host_mirror_fresh = True
+        self._column_transition_runtime.graph_host_winner_reuse_count += 1
+        if self.model.surprise.dopamine > 0.7 and strong_count:
+            tagged = self.model.memory_store.ripple_tag_awake(
+                current_token=int(self.token_count),
+                window_tokens=max(1, self.config.functional_minute // 2),
+                da_level=self.model.surprise.dopamine,
+            )
+            self._awake_ripple_tag_count += 1
+            self._awake_ripple_last_tagged = int(tagged)
+            self._awake_ripple_last_reason = "strong_capture"
+            self._awake_ripple_tag_skip_count += event_count - strong_count
+        elif self.model.surprise.dopamine > 0.7:
+            self._awake_ripple_tag_skip_count += event_count
+            self._awake_ripple_last_tagged = 0
+            self._awake_ripple_last_reason = "cadence_skip"
+        else:
+            self._awake_ripple_last_reason = "dopamine_below_threshold"
+        graph_competitive_surprise = (
+            self._column_transition_runtime.consume_graph_competitive_surprise()
+        )
+        if graph_competitive_surprise is not None:
+            self.model.surprise.record_error(
+                "competitive",
+                graph_competitive_surprise,
+            )
+        self._pending_text_burst_events = []
+        self._text_burst_event_flush_count += 1
+        self._text_burst_event_forced_flush_count += int(forced)
+        self._text_burst_event_last_flush_reason = str(reason)
+        return True
+
+    @torch.no_grad()
+    def flush_text_burst_events(self, *, reason: str = "explicit") -> bool:
+        """Drain bounded device evidence before a CPU-owned boundary."""
+
+        if not self._pending_text_burst_events:
+            return False
+        burst_outputs = self._column_transition_runtime.drain_text_burst_events()
+        return self._apply_text_burst_events(
+            burst_outputs,
+            reason=reason,
+            forced=True,
+        )
 
     @torch.no_grad()
     def train_text_burst(
@@ -309,7 +423,7 @@ class MarulhoTrainer:
             for offset in range(1, token_count + 1)
             if (graph.replay_count + offset) % sync_interval == 0
         ]
-        if sync_offsets != [token_count]:
+        if sync_offsets not in ([], [token_count]):
             return self._text_burst_fallback("host_truth_boundary")
 
         try:
@@ -318,6 +432,20 @@ class MarulhoTrainer:
             )
         except RuntimeError as exc:
             return self._text_burst_fallback(str(exc))
+        stable_metadata = (
+            None
+            if memory_metadata is None
+            else {str(key): value for key, value in dict(memory_metadata).items()}
+        )
+        self._pending_text_burst_events.extend(
+            (
+                start + index + 1,
+                pattern,
+                str(raw_windows[index]),
+                None if stable_metadata is None else dict(stable_metadata),
+            )
+            for index, pattern in enumerate(patterns)
+        )
 
         runtime = self._column_transition_runtime
         comp = self.model.competitive
@@ -345,45 +473,12 @@ class MarulhoTrainer:
         self._routing_index_device_update_count += updated_count
         self._routing_index_buffer_skip_count += updated_count
         self._routing_index_cpu_mirror_stale = True
-        strong_indices = [
-            int(index) for index in burst_outputs["strong_indices"]
-        ]
-        strong_assemblies = list(burst_outputs["strong_assemblies"])
-        strong_routing_keys = list(burst_outputs["strong_routing_keys"])
-        result_rows = list(burst_outputs["result_rows"])
-        for position, index in enumerate(strong_indices):
-            row = result_rows[index]
-            capture_tag = max(0.0, float(row[0]))
-            winner_id = int(row[6])
-            effective_modulator = float(row[7])
-            self.model.memory_store.update(
-                strong_assemblies[position],
-                importance=max(1e-3, abs(effective_modulator)),
-                token_count=start + index + 1,
-                bucket_id=winner_id,
-                input_pattern=patterns[index],
-                routing_key=strong_routing_keys[position],
-                raw_window=raw_windows[index],
-                text=str(raw_windows[index]),
-                metadata=memory_metadata,
-                capture_tag=capture_tag,
-            )
-        strong_count = len(strong_indices)
-        self._text_burst_strong_event_count += strong_count
-        self._slow_memory_archive_count += strong_count
-        self._slow_memory_archive_skip_count += token_count - strong_count
-        self._slow_memory_last_archive_reason = (
-            "strong_capture" if strong_count else "cadence_skip"
+        truth_synced = self._apply_text_burst_events(
+            burst_outputs,
+            reason="host_truth_boundary",
+            forced=False,
         )
-        if graph.last_result_from_host_sync:
-            final_result = graph.consume_result()
-            self.last_winner = int(final_result[6])
-            self._winner_host_mirror_sync_count += 1
-            self._winner_host_mirror_skip_count += token_count - 1
-            self._winner_host_mirror_fresh = True
-            runtime.graph_host_winner_reuse_count += 1
-        else:
-            self._winner_host_mirror_skip_count += token_count
+        if not truth_synced:
             self._winner_host_mirror_fresh = False
         if cross_modal is not None:
             cross_modal.record_text_idle_skip(
@@ -391,30 +486,6 @@ class MarulhoTrainer:
                 count=token_count,
             )
             self._cross_modal_fast_idle_skip_count += token_count
-        if self.model.surprise.dopamine > 0.7 and strong_count:
-            tagged = self.model.memory_store.ripple_tag_awake(
-                current_token=end,
-                window_tokens=max(1, self.config.functional_minute // 2),
-                da_level=self.model.surprise.dopamine,
-            )
-            self._awake_ripple_tag_count += 1
-            self._awake_ripple_last_tagged = int(tagged)
-            self._awake_ripple_last_reason = "strong_capture"
-            self._awake_ripple_tag_skip_count += token_count - strong_count
-        elif self.model.surprise.dopamine > 0.7:
-            self._awake_ripple_tag_skip_count += token_count
-            self._awake_ripple_last_tagged = 0
-            self._awake_ripple_last_reason = "cadence_skip"
-        else:
-            self._awake_ripple_last_reason = "dopamine_below_threshold"
-        graph_competitive_surprise = (
-            runtime.consume_graph_competitive_surprise()
-        )
-        if graph_competitive_surprise is not None:
-            self.model.surprise.record_error(
-                "competitive",
-                graph_competitive_surprise,
-            )
         self._exploration_noise_scale = max(
             1.0,
             self._exploration_noise_scale * (0.99**token_count),

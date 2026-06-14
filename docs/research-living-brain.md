@@ -626,6 +626,27 @@ This file records research anchors for current architecture work. It is not a pr
   and telemetry boundaries dominate failed burst attempts. The next research
   direction is a truth-interval device event queue or native conditional/device
   loop, not more isolated arithmetic fusion.
+- The promoted follow-up keeps the checkpoint's measured
+  `cuda_graph_host_truth_sync_interval_tokens=16` unchanged and replaces the
+  immediate eight-row drain with a fixed sixteen-row device event queue. This
+  is intentionally different from the rejected interval-32/64/128 experiments:
+  truth freshness remains bounded at sixteen tokens, while two eight-token
+  service quanta can share one exact drain. CPU fallback and tick completion
+  force a drain before control leaves training. Exact 16-tick CUDA trajectory
+  parity and forced strong-event archival tests pass. Repeated full-warm
+  32768-token runs reached `2631.493` and `2656.216 tokens/sec`; burst-owned
+  tokens increased from the prior Runtime Truth sample's `9760` to `18248` and
+  `18328`, `host_truth_boundary` fallbacks fell from `1033` to zero, all
+  `32768` transitions executed on the RTX 3060, and graph/burst failure counts
+  remained zero. Remaining fallback quanta are now dominated by exploration,
+  drift refresh, and telemetry. CUDA Graph fixed-address and synchronization
+  semantics support bounded device retention, while native conditional/device
+  graph control remains a later lower-level option rather than a PyTorch
+  assumption. Sources:
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html,
+  https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__GRAPH.html,
+  https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html,
+  and https://docs.pytorch.org/docs/stable/notes/cuda.html.
 
 ## Engineering Implications
 

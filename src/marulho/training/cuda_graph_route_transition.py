@@ -15,6 +15,7 @@ from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
 MAX_QUANTUM_INPUT_TOKENS = 128
 PERSISTENT_EXECUTOR_BURST_TOKENS = 8
+PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 16
 
 
 class CudaGraphRouteTransition:
@@ -61,6 +62,10 @@ class CudaGraphRouteTransition:
         self.burst_replay_count = 0
         self.burst_replayed_token_count = 0
         self.burst_replay_failure_count = 0
+        self.burst_event_deferred_count = 0
+        self.burst_event_drain_count = 0
+        self.burst_event_drained_token_count = 0
+        self.burst_event_forced_drain_count = 0
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
@@ -94,6 +99,7 @@ class CudaGraphRouteTransition:
         self._burst_assembly_ring: torch.Tensor | None = None
         self._burst_strong_flags: torch.Tensor | None = None
         self._burst_slot: torch.Tensor | None = None
+        self._burst_pending_event_count = 0
         self._last_graph_name: str | None = None
         self._last_result: tuple[float, ...] | None = None
         self._last_result_from_host_sync = False
@@ -284,7 +290,7 @@ class CudaGraphRouteTransition:
             ),
         )
         self._burst_slot.add_(1)
-        self._burst_slot.remainder_(PERSISTENT_EXECUTOR_BURST_TOKENS)
+        self._burst_slot.remainder_(PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS)
         return outputs
 
     def _capture(self) -> None:
@@ -399,22 +405,25 @@ class CudaGraphRouteTransition:
                 device=device,
             )
             self._burst_result_ring = torch.empty(
-                (PERSISTENT_EXECUTOR_BURST_TOKENS, int(self._result.numel())),
+                (
+                    PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS,
+                    int(self._result.numel()),
+                ),
                 dtype=torch.float32,
                 device=device,
             )
             self._burst_routing_ring = torch.empty(
-                (PERSISTENT_EXECUTOR_BURST_TOKENS, comp.column_dim),
+                (PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS, comp.column_dim),
                 dtype=torch.float32,
                 device=device,
             )
             self._burst_assembly_ring = torch.empty(
-                (PERSISTENT_EXECUTOR_BURST_TOKENS, comp.n_columns),
+                (PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS, comp.n_columns),
                 dtype=torch.float32,
                 device=device,
             )
             self._burst_strong_flags = torch.zeros(
-                PERSISTENT_EXECUTOR_BURST_TOKENS,
+                PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS,
                 dtype=torch.bool,
                 device=device,
             )
@@ -962,7 +971,7 @@ class CudaGraphRouteTransition:
     def replay_staged_text_burst(
         self,
         patterns: list[torch.Tensor],
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, Any]:
         """Burst-replay eight ticks without interleaved host bookkeeping."""
 
         if len(patterns) != PERSISTENT_EXECUTOR_BURST_TOKENS:
@@ -989,10 +998,15 @@ class CudaGraphRouteTransition:
             for offset in range(1, len(patterns) + 1)
             if (self.replay_count + offset) % sync_interval == 0
         ]
-        if sync_offsets != [len(patterns)]:
+        if sync_offsets not in ([], [len(patterns)]):
             raise RuntimeError(
-                "persistent executor burst must end on host-truth boundary"
+                "persistent executor burst crosses host-truth boundary"
             )
+        if (
+            self._burst_pending_event_count + len(patterns)
+            > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS
+        ):
+            raise RuntimeError("persistent executor event queue capacity exceeded")
 
         assert self._parameters is not None
         assert self._parameter_device_prefix is not None
@@ -1050,18 +1064,70 @@ class CudaGraphRouteTransition:
         self.previous_flag_device_owned_count += token_count
         self.learning_rate_device_owned_count += token_count
         self.recent_spike_row_device_owned_count += token_count
+        self._burst_pending_event_count += token_count
         self._last_graph_name = graph_name
         outputs = self._burst_graph_outputs[graph_name]
+        trainer._prev_routing_key = self._previous_routing_key
+        comp.last_input_pattern = outputs["normalized_input"]
+        comp.last_projected_input = outputs["projected_input"]
+        comp._cached_proto_sim = None
+        comp._cached_raw_drive = None
+        comp.last_execution_mode = "candidate_subset_persistent_burst_graph"
+        comp.last_scored_column_count = int(self._runtime._route_candidates.numel())
+        comp.last_candidate_count = int(self._runtime._route_candidates.numel())
+        comp.recent_spike_window_cursor = (
+            comp.recent_spike_window_cursor + token_count
+        ) % comp.spike_history_window
+        comp.recent_spike_window_count = min(
+            comp.spike_history_window,
+            comp.recent_spike_window_count + token_count,
+        )
+        comp.update_count += token_count
+        trainer.token_count += token_count
+        if sync_offsets or (
+            self._burst_pending_event_count
+            >= PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS
+        ):
+            return {
+                **outputs,
+                **self._drain_burst_events(forced=False),
+            }
+        self.burst_event_deferred_count += 1
+        self._last_result_from_host_sync = False
+        return {
+            **outputs,
+            "truth_synced": False,
+            "result_rows": [],
+            "strong_indices": [],
+            "strong_assemblies": [],
+            "strong_routing_keys": [],
+        }
+
+    @torch.no_grad()
+    def _drain_burst_events(self, *, forced: bool) -> dict[str, Any]:
+        token_count = int(self._burst_pending_event_count)
+        if token_count <= 0:
+            return {
+                "truth_synced": False,
+                "result_rows": [],
+                "strong_indices": [],
+                "strong_assemblies": [],
+                "strong_routing_keys": [],
+            }
         assert self._burst_result_ring is not None
         assert self._burst_strong_flags is not None
-        result_rows = self._burst_result_ring.tolist()
-        strong_flags = self._burst_strong_flags.tolist()
+        result_rows = self._burst_result_ring[:token_count].tolist()
+        strong_flags = self._burst_strong_flags[:token_count].tolist()
         result = tuple(float(value) for value in result_rows[-1])
         self.host_truth_sync_count += 1
         self.host_truth_skip_count += token_count - 1
         self.host_truth_mirror_update_count += 1
+        self.burst_event_drain_count += 1
+        self.burst_event_drained_token_count += token_count
+        self.burst_event_forced_drain_count += int(forced)
         self._last_result = result
         self._last_result_from_host_sync = True
+        surprise = self._trainer.model.surprise
         (
             _reconstruction_error,
             predicted_error,
@@ -1112,30 +1178,22 @@ class CudaGraphRouteTransition:
             strong_routing_keys = list(
                 self._burst_routing_ring.index_select(0, index_tensor).cpu()
             )
-        trainer._prev_routing_key = self._previous_routing_key
-        comp.last_input_pattern = outputs["normalized_input"]
-        comp.last_projected_input = outputs["projected_input"]
-        comp._cached_proto_sim = None
-        comp._cached_raw_drive = None
-        comp.last_execution_mode = "candidate_subset_persistent_burst_graph"
-        comp.last_scored_column_count = int(self._runtime._route_candidates.numel())
-        comp.last_candidate_count = int(self._runtime._route_candidates.numel())
-        comp.recent_spike_window_cursor = (
-            comp.recent_spike_window_cursor + token_count
-        ) % comp.spike_history_window
-        comp.recent_spike_window_count = min(
-            comp.spike_history_window,
-            comp.recent_spike_window_count + token_count,
-        )
-        comp.update_count += token_count
-        trainer.token_count += token_count
+        assert self._burst_slot is not None
+        self._burst_slot.zero_()
+        self._burst_pending_event_count = 0
         return {
-            **outputs,
+            "truth_synced": True,
             "result_rows": result_rows,
             "strong_indices": strong_indices,
             "strong_assemblies": strong_assemblies,
             "strong_routing_keys": strong_routing_keys,
         }
+
+    @torch.no_grad()
+    def drain_burst_events(self) -> dict[str, Any]:
+        """Materialize bounded pending burst evidence at an explicit slow boundary."""
+
+        return self._drain_burst_events(forced=True)
 
     def _next_staged_pattern_pointer(self) -> int | None:
         if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
@@ -1286,6 +1344,18 @@ class CudaGraphRouteTransition:
             ),
             "burst_replay_failure_count": int(
                 self.burst_replay_failure_count
+            ),
+            "burst_event_capacity_tokens": (
+                PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS
+            ),
+            "burst_event_pending_tokens": int(self._burst_pending_event_count),
+            "burst_event_deferred_count": int(self.burst_event_deferred_count),
+            "burst_event_drain_count": int(self.burst_event_drain_count),
+            "burst_event_drained_token_count": int(
+                self.burst_event_drained_token_count
+            ),
+            "burst_event_forced_drain_count": int(
+                self.burst_event_forced_drain_count
             ),
             "burst_event_ring_device_owned": bool(
                 self._burst_result_ring is not None

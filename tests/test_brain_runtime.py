@@ -395,7 +395,9 @@ class _BurstSamplingManager(_ConceptSamplingManager):
     def __init__(self) -> None:
         super().__init__()
         self.burst_sizes: list[int] = []
+        self.burst_flush_reasons: list[str] = []
         self._trainer.train_text_burst = self.train_text_burst
+        self._trainer.flush_text_burst_events = self.flush_text_burst_events
 
     def train_text_burst(
         self,
@@ -404,6 +406,10 @@ class _BurstSamplingManager(_ConceptSamplingManager):
     ) -> bool:
         self.burst_sizes.append(len(patterns))
         self._trainer.token_count += len(patterns)
+        return True
+
+    def flush_text_burst_events(self, *, reason: str) -> bool:
+        self.burst_flush_reasons.append(str(reason))
         return True
 
 
@@ -681,6 +687,10 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(manager.burst_sizes, [8, 8])
         self.assertEqual(manager.staged_input_quantum_sizes, [8])
         self.assertEqual(manager.train_step_return_metrics_requests, [False] * 7 + [True])
+        self.assertEqual(
+            manager.burst_flush_reasons,
+            ["service_per_token_boundary", "service_tick_complete"],
+        )
 
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()
