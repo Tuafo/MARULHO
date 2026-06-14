@@ -14505,6 +14505,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             }
                         ],
                         "tick_tokens": 20,
+                        "source_concept_observation_tick_interval": 3,
                         "sleep_interval_seconds": 0.01,
                         "execution_quantum_tokens": 5,
                         "execution_yield_seconds": 0.0,
@@ -14521,6 +14522,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertTrue(configure_response.json()["terminus_runtime"]["configured"])
             self.assertGreater(tick_response.json()["token_count"], configure_response.json()["token_count"])
             self.assertEqual(status_response.json()["terminus_runtime"]["source_bank"][0]["name"], "api_terminus_source")
+            self.assertEqual(
+                status_response.json()["terminus_runtime"]["source_concept_observation_tick_interval"],
+                3,
+            )
             self.assertEqual(
                 status_response.json()["terminus_runtime"]["execution_schedule"],
                 {

@@ -90,9 +90,31 @@ def _summarize_tick_events(events: Iterable[Mapping[str, Any]]) -> dict[str, Any
     ]
     stage_values: dict[str, list[float]] = {}
     stage_token_totals: dict[str, float] = {}
+    concept_modes: dict[str, int] = {}
+    concept_due_count = 0
+    concept_observation_attempts = 0
+    concept_observation_count = 0
+    concept_skipped_attempts = 0
     observed_tokens = sum(token_deltas)
     for event in tick_events:
         token_delta = max(1, int(event.get("token_delta") or 0))
+        source = event.get("source")
+        if isinstance(source, Mapping):
+            concept = source.get("concept_observation")
+            if isinstance(concept, Mapping):
+                mode = str(concept.get("mode") or "unknown")
+                concept_modes[mode] = concept_modes.get(mode, 0) + 1
+                if bool(concept.get("tick_due")):
+                    concept_due_count += 1
+                concept_observation_attempts += int(
+                    concept.get("attempts") or 0
+                )
+                concept_observation_count += int(
+                    concept.get("observations") or 0
+                )
+                concept_skipped_attempts += int(
+                    concept.get("skipped_attempts") or 0
+                )
         timings = dict(event.get("stage_timings_ms") or {})
         for name, value in timings.items():
             measured = float(value)
@@ -129,6 +151,16 @@ def _summarize_tick_events(events: Iterable[Mapping[str, Any]]) -> dict[str, Any
         "observed_tick_tokens": int(observed_tokens),
         "tick_token_delta": _stats(token_deltas),
         "tick_duration_ms": _stats(durations),
+        "concept_observation": {
+            "modes": dict(sorted(concept_modes.items())),
+            "tick_due_count": int(concept_due_count),
+            "tick_skip_count": int(
+                concept_modes.get("cadenced_tick_skip", 0)
+            ),
+            "attempts": int(concept_observation_attempts),
+            "observations": int(concept_observation_count),
+            "skipped_attempts": int(concept_skipped_attempts),
+        },
         "stages": stages,
         "top_stage_mean_ms_per_token": top_stage_mean_ms_per_token,
     }
@@ -152,6 +184,12 @@ def _flush_source_cache_writes(manager: MarulhoServiceManager) -> dict[str, Any]
     }
 
 
+def _runtime_event_history_limit(manager: MarulhoServiceManager) -> int:
+    history = getattr(manager._runtime_state, "_brain_event_history", None)
+    maxlen = getattr(history, "maxlen", None)
+    return max(1, int(maxlen or 1))
+
+
 def run_continuous_runtime_stress(
     checkpoint: Path,
     *,
@@ -159,6 +197,7 @@ def run_continuous_runtime_stress(
     target_tokens: int = 1024,
     tick_tokens: int = 128,
     quantum_tokens: int = 8,
+    source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
 ) -> dict[str, Any]:
@@ -168,14 +207,17 @@ def run_continuous_runtime_stress(
         raise ValueError("tick_tokens must be positive")
     if quantum_tokens <= 0:
         raise ValueError("quantum_tokens must be positive")
+    if source_concept_observation_tick_interval <= 0:
+        raise ValueError("source_concept_observation_tick_interval must be positive")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path = output_path.parent / "continuous-runtime-stress-source.txt"
+    run_root = output_path.parent / output_path.stem
+    run_root.mkdir(parents=True, exist_ok=True)
+    source_path = run_root / "continuous-runtime-stress-source.txt"
     source_path.write_text(_source_text_for_target(target_tokens), encoding="utf-8")
-    env_root = output_path.parent / "runtime"
     manager = MarulhoServiceManager(
         checkpoint,
-        trace_dir=env_root / "traces",
-        env_root=env_root,
+        trace_dir=run_root / "traces",
+        env_root=run_root,
     )
     runtime = manager.runtime_facade
     seen_events: set[tuple[Any, ...]] = set()
@@ -190,6 +232,9 @@ def run_continuous_runtime_stress(
                 }
             ],
             tick_tokens=int(tick_tokens),
+            source_concept_observation_tick_interval=int(
+                source_concept_observation_tick_interval
+            ),
             sleep_interval_seconds=0.01,
             execution_quantum_tokens=int(quantum_tokens),
             execution_yield_seconds=0.0,
@@ -212,9 +257,14 @@ def run_continuous_runtime_stress(
                 "success": False,
                 "failure_reason": "source_queue_not_fully_warm",
                 "checkpoint": str(checkpoint),
+                "run_root": str(run_root),
+                "source_path": str(source_path),
                 "target_tokens": int(target_tokens),
                 "tick_tokens": int(tick_tokens),
                 "quantum_tokens": int(quantum_tokens),
+                "source_concept_observation_tick_interval": int(
+                    source_concept_observation_tick_interval
+                ),
                 "timeout_seconds": float(timeout_seconds),
                 "warm_ingestion": warm_ingestion,
             }
@@ -227,15 +277,27 @@ def run_continuous_runtime_stress(
         started = time.perf_counter()
         deadline = started + max(0.1, float(timeout_seconds))
         current_token = start_token
+        expected_tick_count = max(
+            1,
+            (int(target_tokens) + int(tick_tokens) - 1) // int(tick_tokens),
+        )
+        event_history_limit = _runtime_event_history_limit(manager)
+        poll_snapshots = expected_tick_count > event_history_limit
+        poll_snapshot_count = 0
         while time.perf_counter() < deadline:
             with manager._lock:
                 current_token = int(manager._trainer.token_count)
-                snapshot = manager._brain_runtime_snapshot_locked()
-            _collect_tick_events(
-                snapshot,
-                seen_keys=seen_events,
-                events=tick_events,
-            )
+                if poll_snapshots:
+                    snapshot = manager._brain_runtime_snapshot_locked()
+                else:
+                    snapshot = None
+            if snapshot is not None:
+                poll_snapshot_count += 1
+                _collect_tick_events(
+                    snapshot,
+                    seen_keys=seen_events,
+                    events=tick_events,
+                )
             if current_token - start_token >= int(target_tokens):
                 break
             time.sleep(max(0.001, float(sample_interval_seconds)))
@@ -259,6 +321,8 @@ def run_continuous_runtime_stress(
         report = {
             "surface": "continuous_runtime_stress.v1",
             "checkpoint": str(checkpoint),
+            "run_root": str(run_root),
+            "source_path": str(source_path),
             "scope": (
                 "background_terminus_loop_with_full_prewarmed_source_queue_"
                 "and_sequential_cuda_train_step"
@@ -276,8 +340,17 @@ def run_continuous_runtime_stress(
             "target_tokens": int(target_tokens),
             "tick_tokens": int(tick_tokens),
             "quantum_tokens": int(quantum_tokens),
+            "source_concept_observation_tick_interval": int(
+                source_concept_observation_tick_interval
+            ),
             "timeout_seconds": float(timeout_seconds),
             "sample_interval_seconds": float(sample_interval_seconds),
+            "observer": {
+                "expected_tick_count": int(expected_tick_count),
+                "runtime_event_history_limit": int(event_history_limit),
+                "poll_snapshots_during_measurement": bool(poll_snapshots),
+                "poll_snapshot_count": int(poll_snapshot_count),
+            },
             "token_delta": int(token_delta),
             "elapsed_seconds": float(elapsed_seconds),
             "tokens_per_second": float(token_delta / max(elapsed_seconds, 1e-9)),
@@ -308,6 +381,7 @@ def main() -> int:
     parser.add_argument("--target-tokens", type=int, default=1024)
     parser.add_argument("--tick-tokens", type=int, default=128)
     parser.add_argument("--quantum-tokens", type=int, default=8)
+    parser.add_argument("--source-concept-observation-tick-interval", type=int, default=4)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--sample-interval-seconds", type=float, default=0.02)
     args = parser.parse_args()
@@ -317,6 +391,7 @@ def main() -> int:
         target_tokens=args.target_tokens,
         tick_tokens=args.tick_tokens,
         quantum_tokens=args.quantum_tokens,
+        source_concept_observation_tick_interval=args.source_concept_observation_tick_interval,
         timeout_seconds=args.timeout_seconds,
         sample_interval_seconds=args.sample_interval_seconds,
     )

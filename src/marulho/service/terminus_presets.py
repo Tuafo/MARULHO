@@ -51,6 +51,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "autonomy": current_runtime_autonomy_config(),
         "sensory": current_runtime_sensory_config(),
         "tick_tokens": 128,
+        "source_concept_observation_tick_interval": 4,
         "sleep_interval_seconds": 0.05,
         "execution_quantum_tokens": 8,
         "execution_yield_seconds": 0.0,

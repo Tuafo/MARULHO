@@ -32,6 +32,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         normalized = module._normalize_brain_config(None)
 
         self.assertEqual(normalized["tick_tokens"], 128)
+        self.assertEqual(normalized["source_concept_observation_tick_interval"], 4)
         self.assertEqual(normalized["execution_quantum_tokens"], 8)
         self.assertEqual(normalized["execution_yield_seconds"], 0.0)
         self.assertEqual(normalized["ingestion"]["queue_target_tokens"], 256)
@@ -49,6 +50,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
                     }
                 ],
                 "tick_tokens": 128,
+                "source_concept_observation_tick_interval": 6,
                 "sleep_interval_seconds": 0.02,
                 "execution_quantum_tokens": 16,
                 "execution_yield_seconds": 0.001,
@@ -83,6 +85,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         self.assertEqual(normalized["source_bank"][0]["source"], "notes.txt")
         self.assertEqual(normalized["source_bank"][0]["name"], "source_1")
         self.assertEqual(normalized["tick_tokens"], 128)
+        self.assertEqual(normalized["source_concept_observation_tick_interval"], 6)
         self.assertEqual(normalized["execution_quantum_tokens"], 16)
         self.assertEqual(normalized["execution_yield_seconds"], 0.001)
         self.assertFalse(normalized["repeat_sources"])

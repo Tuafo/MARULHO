@@ -29,6 +29,7 @@ MAX_EXECUTION_QUANTUM_TOKENS = 128
 DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
+DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL = 4
 
 
 class RuntimeConfig:
@@ -452,6 +453,7 @@ class RuntimeConfig:
             return {
                 "source_bank": [],
                 "tick_tokens": tick_tokens,
+                "source_concept_observation_tick_interval": DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
                 "sleep_interval_seconds": DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
                 "execution_quantum_tokens": min(
                     tick_tokens,
@@ -486,6 +488,15 @@ class RuntimeConfig:
         normalized = {
             "source_bank": source_bank,
             "tick_tokens": tick_tokens,
+            "source_concept_observation_tick_interval": max(
+                1,
+                int(
+                    config.get(
+                        "source_concept_observation_tick_interval",
+                        DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
+                    )
+                ),
+            ),
             "sleep_interval_seconds": max(
                 0.01,
                 float(config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS)),

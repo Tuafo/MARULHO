@@ -17,6 +17,7 @@ DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_EXECUTION_QUANTUM_TOKENS = 8
 DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
+DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL = 4
 
 _terminus_runtime_logger = _logging.getLogger(__name__ + ".terminus_runtime")
 
@@ -90,6 +91,7 @@ class RuntimeControl(RuntimePrewarmer):
         sleep_interval_seconds: float = DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
         execution_quantum_tokens: int = DEFAULT_EXECUTION_QUANTUM_TOKENS,
         execution_yield_seconds: float = DEFAULT_EXECUTION_YIELD_SECONDS,
+        source_concept_observation_tick_interval: int = DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
         repeat_sources: bool = True,
         autonomy: dict[str, Any] | None = None,
         sensory: dict[str, Any] | None = None,
@@ -109,6 +111,9 @@ class RuntimeControl(RuntimePrewarmer):
                     "sleep_interval_seconds": sleep_interval_seconds,
                     "execution_quantum_tokens": execution_quantum_tokens,
                     "execution_yield_seconds": execution_yield_seconds,
+                    "source_concept_observation_tick_interval": (
+                        source_concept_observation_tick_interval
+                    ),
                     "repeat_sources": repeat_sources,
                     "autonomy": autonomy,
                     "sensory": sensory,
@@ -603,6 +608,22 @@ class RuntimeControl(RuntimePrewarmer):
             )
 
             background_memory_metadata = None if collect_meta is None else self._brain_source_memory_metadata(collect_meta["runtime"])
+            concept_tick_interval = max(
+                1,
+                int(
+                    self._brain_config.get(
+                        "source_concept_observation_tick_interval",
+                        DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
+                    )
+                ),
+            )
+            source_tick_visit = 1
+            if collect_meta is not None:
+                source_tick_visit = int(collect_meta["runtime"].tick_visits) + 1
+            concept_observation_due = (
+                source_tick_visit == 1
+                or source_tick_visit % concept_tick_interval == 0
+            )
             (
                 total_trained,
                 last_metrics,
@@ -615,6 +636,8 @@ class RuntimeControl(RuntimePrewarmer):
                 yield_seconds=yield_seconds,
                 memory_metadata=background_memory_metadata,
                 stage_timings_ms=stage_timings_ms,
+                concept_observation_due=concept_observation_due,
+                concept_observation_tick_interval=concept_tick_interval,
             )
             source_info = {
                 "runtime": collect_meta["runtime"],

@@ -3525,6 +3525,9 @@ def create_app(
                 **runtime.configure_terminus(
                     source_bank=[_model_to_dict(item) for item in request.source_bank],
                     tick_tokens=request.tick_tokens,
+                    source_concept_observation_tick_interval=(
+                        request.source_concept_observation_tick_interval
+                    ),
                     sleep_interval_seconds=request.sleep_interval_seconds,
                     execution_quantum_tokens=request.execution_quantum_tokens,
                     execution_yield_seconds=request.execution_yield_seconds,

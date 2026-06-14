@@ -32,6 +32,7 @@ DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
 DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_INTERVAL = 8
 DEFAULT_BACKGROUND_CONCEPT_OBSERVATION_MAX_PER_TICK = 4
+DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL = 4
 _BACKGROUND_SOURCE_UTILITY_INT_FIELDS = (
     "attempts",
     "selections",
@@ -401,6 +402,8 @@ class BrainRuntime:
         yield_seconds: float,
         memory_metadata: Mapping[str, Any] | None = None,
         stage_timings_ms: dict[str, float] | None = None,
+        concept_observation_due: bool = True,
+        concept_observation_tick_interval: int = DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
     ) -> tuple[int, Any, list[str], dict[str, Any]]:
         total_trained = 0
         last_metrics = None
@@ -435,7 +438,7 @@ class BrainRuntime:
                 for offset, (raw_window, pattern) in enumerate(sub):
                     raw_text = str(raw_window)
                     token_ordinal = total_trained + offset + 1
-                    observation_candidate = (
+                    observation_candidate = bool(concept_observation_due) and (
                         token_ordinal == 1
                         or token_ordinal % observation_interval == 0
                     )
@@ -490,9 +493,13 @@ class BrainRuntime:
                     stage_timings_ms["train_yield"] = stage_timings_ms.get(
                         "train_yield", 0.0
                     ) + float((time.perf_counter() - yield_started) * 1000.0)
-        if pending_concept_observation is not None and len(sampled_concept_observations) < max_observations_per_tick:
+        if (
+            concept_observation_due
+            and pending_concept_observation is not None
+            and len(sampled_concept_observations) < max_observations_per_tick
+        ):
             sampled_concept_observations.append(pending_concept_observation)
-        elif pending_concept_observation is not None:
+        elif concept_observation_due and pending_concept_observation is not None:
             skipped_concept_observations += 1
 
         observed_batch: list[dict[str, Any] | None] = []
@@ -516,8 +523,14 @@ class BrainRuntime:
             last_metrics,
             list(evidence_windows),
             {
-                "mode": "sampled_batched",
+                "mode": (
+                    "sampled_batched"
+                    if concept_observation_due
+                    else "cadenced_tick_skip"
+                ),
                 "interval_tokens": int(observation_interval),
+                "tick_interval": max(1, int(concept_observation_tick_interval)),
+                "tick_due": bool(concept_observation_due),
                 "max_per_tick": int(max_observations_per_tick),
                 "attempts": int(len(sampled_concept_observations)),
                 "skipped_attempts": int(skipped_concept_observations),
@@ -1431,6 +1444,12 @@ class BrainRuntime:
             "environment": self._runtime_environment_summary(),
             "action_loop": self._action_loop_summary_locked(),
             "tick_tokens": int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)),
+            "source_concept_observation_tick_interval": int(
+                self._brain_config.get(
+                    "source_concept_observation_tick_interval",
+                    DEFAULT_SOURCE_CONCEPT_OBSERVATION_TICK_INTERVAL,
+                )
+            ),
             "sleep_interval_seconds": float(
                 self._brain_config.get("sleep_interval_seconds", DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS)
             ),

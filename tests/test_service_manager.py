@@ -111,6 +111,34 @@ def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) 
     )
 
 
+class ServiceManagerRuntimeTruthSeamTests(unittest.TestCase):
+    def test_trace_history_limit_controls_runtime_event_history_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg = MarulhoConfig(
+                n_columns=4,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                input_weight_blend=0.0,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                root / "initial.pt",
+                trainer,
+                metadata={"test_case": "runtime_event_history_limit"},
+            )
+            manager = MarulhoServiceManager(
+                checkpoint_path,
+                trace_dir=root / "traces",
+                trace_history_limit=32,
+            )
+            try:
+                history = manager._runtime_state._brain_event_history
+                self.assertEqual(history.maxlen, 32)
+            finally:
+                manager.close()
+
+
 @contextmanager
 def _serve_directory(root: Path) -> Iterator[str]:
     port = _free_port()

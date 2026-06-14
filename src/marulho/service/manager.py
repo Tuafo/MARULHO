@@ -120,7 +120,10 @@ class MarulhoServiceManager:
         env_root: str | Path | None = None,
     ) -> None:
         self._lock = RLock()
-        self._runtime_state: RuntimeState = RuntimeState(lock=self._lock)
+        self._runtime_state: RuntimeState = RuntimeState(
+            lock=self._lock,
+            history_limit=trace_history_limit,
+        )
         self._brain_execution_lock = Lock()
         self._checkpoint_path = RuntimePersistence.resolve_current_checkpoint_path(checkpoint_path)
         self._checkpoint_dir = RuntimePersistence.checkpoint_root_for_path(self._checkpoint_path)

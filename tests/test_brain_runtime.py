@@ -588,6 +588,8 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             {
                 "mode": "sampled_batched",
                 "interval_tokens": 8,
+                "tick_interval": 4,
+                "tick_due": True,
                 "max_per_tick": 4,
                 "attempts": 3,
                 "skipped_attempts": 0,
@@ -598,6 +600,33 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         )
         self.assertIn("trainer_step", stage_timings)
         self.assertIn("concept_observation", stage_timings)
+
+    def test_background_training_can_cadence_source_concept_observation(self) -> None:
+        manager = _ConceptSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        stage_timings: dict[str, float] = {}
+        chunk = [(f"window-{index}", object()) for index in range(1, 13)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=8,
+            yield_seconds=0.0,
+            stage_timings_ms=stage_timings,
+            concept_observation_due=False,
+            concept_observation_tick_interval=4,
+        )
+
+        self.assertEqual(trained, 12)
+        self.assertEqual(metrics["memory_index"], 11)
+        self.assertEqual(len(windows), 12)
+        self.assertEqual(manager.concept_observation_windows, [])
+        self.assertEqual(observation["mode"], "cadenced_tick_skip")
+        self.assertFalse(observation["tick_due"])
+        self.assertEqual(observation["tick_interval"], 4)
+        self.assertEqual(observation["attempts"], 0)
+        self.assertEqual(observation["observations"], 0)
+        self.assertNotIn("concept_observation", stage_timings)
 
     def test_background_training_mutates_runtime_once_per_execution_quantum(self) -> None:
         manager = _ConceptSamplingManager()
@@ -638,6 +667,8 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             ["window-1", "window-8", "window-16", "window-24"],
         )
         self.assertEqual(observation["max_per_tick"], 4)
+        self.assertTrue(observation["tick_due"])
+        self.assertEqual(observation["tick_interval"], 4)
         self.assertEqual(observation["attempts"], 4)
         self.assertEqual(observation["skipped_attempts"], 13)
         self.assertEqual(observation["observations"], 4)
