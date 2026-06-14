@@ -434,3 +434,33 @@ the resulting service throughput is not a warm service-speed claim. The next
 large target is broader persistent multi-tick ownership across routing
 preparation, graph replay/post-transition bookkeeping, compact metric packets,
 and event-driven memory admission.
+
+## Boundary-Aware Text Burst, 2026-06-14
+
+The first implementation captured eight complete tick bodies into one CUDA
+Graph. It passed exact eight-tick state parity and a 4096-tick probe reached
+`1.230x`, but the required 32768-tick run regressed to `0.951x`: `6748.34`
+versus `7097.98 ticks/sec`. That graph was deleted rather than retained as an
+unused experiment.
+
+The promoted path keeps the faster one-tick graph and removes Python
+orchestration between safe ticks. Training owns the eligibility gate and falls
+back before mutation at drift, telemetry, sleep, slow-memory, strong-capture,
+cross-modal wake, host-truth, routing-mode, and metrics boundaries. Every
+neural transition remains sequential and executes on CUDA.
+
+Repeated complete full-warm 32768-token runs:
+
+- `reports/text_burst_executor_20260614/stress-32768-long.json`:
+  `2387.898 tokens/sec`, 32768 graph replays, 18032 burst tokens, zero graph or
+  burst failures.
+- `reports/text_burst_executor_20260614/stress-32768-long-rerun.json`:
+  `2607.316 tokens/sec`, 32768 graph replays, 18016 burst tokens, zero graph or
+  burst failures.
+
+The prior allocation-free bookkeeping repeats measured `2169.815` and
+`2191.057 tokens/sec`. Mean complete throughput therefore rose from `2180.436`
+to `2497.607 tokens/sec` (`1.145x`). The rerun measured
+`train_compute=0.3012 ms/token` and `trainer_step=0.1657 ms/token`. The next
+large bottleneck is source preparation plus the boundary ticks that still need
+full Python orchestration, not the in-place transition kernel.

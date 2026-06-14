@@ -147,17 +147,24 @@ class CrossModalGroundingLayer:
         self._maybe_synaptic_scaling()
         self._decay_traces()
 
-    def record_text_idle_skip(self, *, decay_traces: bool = True) -> None:
+    def record_text_idle_skip(
+        self,
+        *,
+        decay_traces: bool = True,
+        count: int = 1,
+    ) -> None:
         """Record a skipped text-only cross-modal update.
 
         The trainer owns the wake decision. Core keeps this operation cheap and
         explicit so Runtime Truth can distinguish cached text-only ticks from
         real cross-modal learning events.
         """
-        self.runtime_text_idle_skip_count += 1
+        skip_count = max(1, int(count))
+        self.runtime_text_idle_skip_count += skip_count
         self.last_text_runtime_execution_mode = "text_idle_cached_state"
         if decay_traces:
-            self._decay_traces()
+            for _ in range(skip_count):
+                self._decay_traces()
 
     def on_visual_spike(self, visual_spikes: torch.Tensor) -> None:
         """Process a visual spike event — update traces and W_vt."""

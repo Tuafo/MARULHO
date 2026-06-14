@@ -492,6 +492,16 @@ class ColumnTransitionRuntime:
             return False
         return self._cuda_graph_runtime.stage_input_quantum(patterns)
 
+    def replay_text_burst(
+        self,
+        patterns: list[torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        if self._cuda_graph_runtime is None:
+            raise RuntimeError("cuda_graph_runtime_unavailable")
+        return self._cuda_graph_runtime.replay_staged_text_burst(
+            patterns
+        )
+
     def _retained_consensus_gain(
         self,
         context_gain: torch.Tensor | None,

@@ -391,6 +391,18 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
         ]
 
 
+class _BurstSamplingManager(_ConceptSamplingManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.burst_sizes: list[int] = []
+        self._trainer.train_text_burst = self.train_text_burst
+
+    def train_text_burst(self, patterns: list[object]) -> bool:
+        self.burst_sizes.append(len(patterns))
+        self._trainer.token_count += len(patterns)
+        return True
+
+
 class _SnapshotManager(_BrainRuntimeFixtureBase):
     def __init__(self) -> None:
         super().__init__()
@@ -644,6 +656,27 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(metrics["memory_index"], 11)
         self.assertEqual(manager._runtime_state.mutated, 2)
         self.assertEqual(manager.staged_input_quantum_sizes, [8, 4])
+
+    def test_background_training_uses_burst_for_metric_free_quanta(self) -> None:
+        manager = _BurstSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        chunk = [(f"window-{index}", object()) for index in range(1, 25)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=8,
+            yield_seconds=0.0,
+            concept_observation_due=False,
+        )
+
+        self.assertEqual(trained, 24)
+        self.assertEqual(metrics["memory_index"], 23)
+        self.assertEqual(len(windows), 24)
+        self.assertEqual(observation["mode"], "cadenced_tick_skip")
+        self.assertEqual(manager.burst_sizes, [8, 8])
+        self.assertEqual(manager.staged_input_quantum_sizes, [8])
+        self.assertEqual(manager.train_step_return_metrics_requests, [False] * 7 + [True])
 
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()

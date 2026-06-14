@@ -50,13 +50,21 @@ allocating a new CUDA tensor on every token. Retained and sensory paths keep
 their normal lookup behavior, and explicit structural maintenance may still
 replace `last_revived_indices` with real revival evidence.
 
-The executor copies one bounded nine-scalar result packet to the host per tick
+The executor copies one bounded nine-scalar result packet to the host on the
+configured truth cadence
 to mirror reconstruction, neuromodulator, winner, effective-plasticity, and
 post-transition competitive-surprise truth. The CPU surprise history records
 that last scalar from the existing readback rather than launching a separate
 CUDA norm and scalar synchronization. Sensory ticks and graph-ineligible states
 use the retained path. Pointer changes and graph failures fail before further
 mutation.
+
+Training may use a Boundary-Aware Text Burst for exactly eight eligible
+text-only ticks. The burst replays the existing one-tick graph eight times in
+causal order, while collapsing repeated Python bookkeeping. It cannot cross
+drift, telemetry, sleep, slow-memory, strong-capture, cross-modal wake,
+host-truth, or routing-mode boundaries. Brain Runtime may request the burst,
+but training owns eligibility and all neural/bookkeeping semantics.
 
 Device float neuromodulation and Triton reductions may differ from Python
 double scalar arithmetic by floating-point noise. Promotion requires exact
@@ -103,6 +111,13 @@ cognitive-quality evidence, and grounded fallback gates.
   `2169.815` and `2191.057 tokens/sec`, versus the retained `1779.859`
   reference, with zero graph failures and exact skip/reuse counts for every
   token.
+- A larger graph containing eight copied tick bodies was rejected after the
+  32768-tick device-only run measured `0.951x`; the larger graph added device
+  scheduling and evidence-copy work to an already efficient one-tick replay.
+- The accepted host-burst path kept all 32768 CUDA transitions and measured
+  `2387.898` and `2607.316 tokens/sec` in repeated complete-runtime runs.
+  Runtime Truth counted `18032` and `18016` burst-owned tokens with zero burst
+  replay failures.
 
 ## Reversal
 

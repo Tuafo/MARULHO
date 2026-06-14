@@ -127,6 +127,10 @@ class MarulhoTrainer:
         self._train_step_profile_enabled = False
         self._train_step_profile_totals_ms: dict[str, float] = {}
         self._train_step_profile_count = 0
+        self._text_burst_execution_count = 0
+        self._text_burst_token_count = 0
+        self._text_burst_fallback_count = 0
+        self._text_burst_last_fallback_reason: str | None = None
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
         """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
@@ -176,12 +180,204 @@ class MarulhoTrainer:
         report["winner_host_mirror_fresh"] = bool(
             self._winner_host_mirror_fresh
         )
+        report["text_burst_execution_count"] = int(
+            self._text_burst_execution_count
+        )
+        report["text_burst_token_count"] = int(self._text_burst_token_count)
+        report["text_burst_fallback_count"] = int(
+            self._text_burst_fallback_count
+        )
+        report["text_burst_last_fallback_reason"] = (
+            self._text_burst_last_fallback_reason
+        )
         return report
 
     def stage_text_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
         """Stage one bounded text quantum into persistent CUDA graph input state."""
 
         return self._column_transition_runtime.stage_text_input_quantum(patterns)
+
+    def _text_burst_fallback(self, reason: str) -> bool:
+        self._text_burst_fallback_count += 1
+        self._text_burst_last_fallback_reason = str(reason)
+        return False
+
+    @torch.no_grad()
+    def train_text_burst(
+        self,
+        patterns: list[torch.Tensor],
+    ) -> bool:
+        """Collapse ordinary text ticks between explicit cognitive boundaries."""
+
+        token_count = len(patterns)
+        if token_count != 8:
+            return self._text_burst_fallback("burst_requires_eight_tokens")
+        graph = self._column_transition_runtime._cuda_graph_runtime
+        if graph is None or not graph.active:
+            return self._text_burst_fallback("persistent_cuda_graph_inactive")
+        if self._train_step_profile_enabled:
+            return self._text_burst_fallback("trainer_profile_enabled")
+        if self.token_count < self.config.bootstrap_tokens:
+            return self._text_burst_fallback("bootstrap_active")
+        if (
+            self.model.context_layer is not None
+            or self.model.binding_layer is not None
+            or self.model.abstraction_layer is not None
+            or self.column_anchors
+        ):
+            return self._text_burst_fallback("higher_layer_tick_active")
+        if not self.memory_warm_started or self._cached_drift is None:
+            return self._text_burst_fallback("runtime_not_fully_warm")
+        if self.model.surprise.should_boost_exploration():
+            return self._text_burst_fallback("exploration_boundary")
+        if graph._last_result is None:
+            return self._text_burst_fallback("host_truth_not_initialized")
+        if (
+            float(graph._last_result[0])
+            >= float(self.config.slow_memory_archive_strong_capture_threshold)
+        ):
+            return self._text_burst_fallback("strong_capture_active")
+        cross_modal = self.model.cross_modal
+        if cross_modal is not None and (
+            self.token_count <= self._cross_modal_sensory_trace_until_token
+            or not self._cross_modal_traces_cleared_for_idle
+            or len(self._recent_visual_frames) >= 3
+            or len(self._recent_audio_frames) >= 3
+        ):
+            return self._text_burst_fallback("cross_modal_wake_boundary")
+
+        start = int(self.token_count)
+        end = start + token_count
+        telemetry_interval = max(
+            1,
+            int(self.config.trainer_telemetry_interval_tokens),
+        )
+        archive_interval = max(
+            1,
+            int(self.config.slow_memory_archive_interval_tokens),
+        )
+        for current in range(start, end):
+            next_token = current + 1
+            if current % 50 == 0:
+                return self._text_burst_fallback("drift_refresh_boundary")
+            if current % telemetry_interval == 0:
+                return self._text_burst_fallback("telemetry_boundary")
+            if (
+                current % self._hnsw_flush_interval == 0
+                and (self._hnsw_buffer_ids or self._hnsw_buffer_vecs)
+            ):
+                return self._text_burst_fallback("routing_index_flush_boundary")
+            if next_token % archive_interval == 0:
+                return self._text_burst_fallback("slow_memory_boundary")
+            if next_token % self.config.drift_floor_window_tokens == 0:
+                return self._text_burst_fallback("drift_floor_boundary")
+            deep_due = (
+                current >= self.config.deep_sleep_interval_tokens
+                and current - self.last_deep_sleep_token
+                >= self.config.deep_sleep_interval_tokens
+            )
+            emergency_due = (
+                self.pending_emergency_deep_sleep
+                and current - self.last_deep_sleep_token
+                >= self.config.emergency_deep_sleep_cooldown_tokens
+            )
+            micro_due = (
+                current >= self.config.micro_sleep_interval_tokens
+                and current - self.last_micro_sleep_token
+                >= self.config.micro_sleep_interval_tokens
+            )
+            if deep_due or emergency_due or micro_due:
+                return self._text_burst_fallback("sleep_boundary")
+        sync_interval = max(
+            1,
+            int(self.config.cuda_graph_host_truth_sync_interval_tokens),
+        )
+        sync_offsets = [
+            offset
+            for offset in range(1, token_count + 1)
+            if (graph.replay_count + offset) % sync_interval == 0
+        ]
+        if sync_offsets and sync_offsets != [token_count]:
+            return self._text_burst_fallback("host_truth_boundary")
+
+        try:
+            self._column_transition_runtime.replay_text_burst(
+                patterns
+            )
+        except RuntimeError as exc:
+            return self._text_burst_fallback(str(exc))
+
+        runtime = self._column_transition_runtime
+        comp = self.model.competitive
+        pred = self.model.predictive
+        runtime.route_vote_execution_count += token_count
+        runtime.selection_execution_count += token_count
+        runtime.fused_vote_competition_execution_count += token_count
+        runtime.graph_consolidation_lookup_skip_count += token_count
+        runtime.graph_empty_revival_tensor_reuse_count += token_count
+        runtime.execution_count += token_count
+        runtime.last_execution_mode = "cuda_graph_route_transition_burst"
+        runtime.last_selection_mode = "fused_route_vote_triton"
+        comp.last_input_plasticity_mode = "skipped_zero_blend"
+        comp.input_plasticity_skip_count += token_count
+        comp.last_revived_indices = runtime._empty_revived_indices
+        comp.last_homeostasis_update_count = int(
+            runtime._route_candidates.numel()
+        )
+        comp.last_homeostasis_update_mode = "candidate_subset"
+        pred.last_dense_transition_mode = "inplace_triton"
+        pred.last_dense_transition_fallback_reason = None
+        pred._record_prediction_update_scope(None)
+
+        updated_count = token_count * int(runtime._winner.numel())
+        self._routing_index_device_update_count += updated_count
+        self._routing_index_buffer_skip_count += updated_count
+        self._routing_index_cpu_mirror_stale = True
+        self._slow_memory_archive_skip_count += token_count
+        self._slow_memory_last_archive_reason = "cadence_skip"
+        if graph.last_result_from_host_sync:
+            final_result = graph.consume_result()
+            self.last_winner = int(final_result[6])
+            self._winner_host_mirror_sync_count += 1
+            self._winner_host_mirror_skip_count += token_count - 1
+            self._winner_host_mirror_fresh = True
+            runtime.graph_host_winner_reuse_count += 1
+        else:
+            self._winner_host_mirror_skip_count += token_count
+            self._winner_host_mirror_fresh = False
+        if cross_modal is not None:
+            cross_modal.record_text_idle_skip(
+                decay_traces=False,
+                count=token_count,
+            )
+            self._cross_modal_fast_idle_skip_count += token_count
+        if self.model.surprise.dopamine > 0.7:
+            self._awake_ripple_tag_skip_count += token_count
+            self._awake_ripple_last_tagged = 0
+            self._awake_ripple_last_reason = "cadence_skip"
+        else:
+            self._awake_ripple_last_reason = "dopamine_below_threshold"
+        graph_competitive_surprise = (
+            runtime.consume_graph_competitive_surprise()
+        )
+        if graph_competitive_surprise is not None:
+            self.model.surprise.record_error(
+                "competitive",
+                graph_competitive_surprise,
+            )
+        self._exploration_noise_scale = max(
+            1.0,
+            self._exploration_noise_scale * (0.99**token_count),
+        )
+        self.current_window_min_drift = min(
+            self.current_window_min_drift,
+            float(self._cached_drift),
+        )
+        self._train_step_metrics_skip_count += token_count
+        self._text_burst_execution_count += 1
+        self._text_burst_token_count += token_count
+        self._text_burst_last_fallback_reason = None
+        return True
 
     def _buffer_hnsw_update(
         self,

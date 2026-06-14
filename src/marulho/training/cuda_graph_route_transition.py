@@ -14,6 +14,7 @@ from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
 
 MAX_QUANTUM_INPUT_TOKENS = 128
+PERSISTENT_EXECUTOR_BURST_TOKENS = 8
 
 
 class CudaGraphRouteTransition:
@@ -57,6 +58,9 @@ class CudaGraphRouteTransition:
         self.quantum_input_fallback_copy_count = 0
         self.quantum_input_mismatch_count = 0
         self.quantum_input_discard_count = 0
+        self.burst_replay_count = 0
+        self.burst_replayed_token_count = 0
+        self.burst_replay_failure_count = 0
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
@@ -870,6 +874,160 @@ class CudaGraphRouteTransition:
         self.quantum_input_staged_token_count += len(patterns)
         return True
 
+    @torch.no_grad()
+    def replay_staged_text_burst(
+        self,
+        patterns: list[torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Burst-replay eight ticks without interleaved host bookkeeping."""
+
+        if len(patterns) != PERSISTENT_EXECUTOR_BURST_TOKENS:
+            raise ValueError(
+                "persistent executor burst requires exactly "
+                f"{PERSISTENT_EXECUTOR_BURST_TOKENS} patterns"
+            )
+        if not self.eligible():
+            raise RuntimeError(self.fallback_reason or "cuda_graph_not_active")
+        trainer = self._trainer
+        start_token = int(trainer.token_count)
+        threshold = int(trainer.config.candidate_homeostasis_start_tokens)
+        graph_name = "candidate_subset" if start_token >= threshold else "all_columns"
+        if start_token < threshold < start_token + len(patterns):
+            raise RuntimeError("persistent executor burst crosses routing-mode boundary")
+        if not self.stage_input_quantum(patterns):
+            raise RuntimeError("persistent executor burst input staging failed")
+        sync_interval = max(
+            1,
+            int(trainer.config.cuda_graph_host_truth_sync_interval_tokens),
+        )
+        sync_offsets = [
+            offset
+            for offset in range(1, len(patterns) + 1)
+            if (self.replay_count + offset) % sync_interval == 0
+        ]
+        if sync_offsets and sync_offsets != [len(patterns)]:
+            raise RuntimeError(
+                "persistent executor burst crosses host-truth boundary"
+            )
+
+        assert self._parameters is not None
+        assert self._parameter_device_prefix is not None
+        assert self._parameter_host_prefix is not None
+        assert self._host_parameters is not None
+        assert self._previous_routing_key is not None
+        assert self._learning_rate_update_count is not None
+        assert self._learning_rate_update_count_mirror is not None
+        comp = trainer.model.competitive
+        if (
+            trainer._prev_routing_key is not None
+            and trainer._prev_routing_key.data_ptr()
+            != self._previous_routing_key.data_ptr()
+        ):
+            self._previous_routing_key.copy_(trainer._prev_routing_key)
+        if int(comp.update_count) != int(self._learning_rate_update_count_mirror):
+            self._learning_rate_update_count.fill_(float(comp.update_count))
+            self._learning_rate_update_count_mirror = int(comp.update_count)
+            self.learning_rate_host_resync_count += 1
+        surprise = trainer.model.surprise
+        modulator_revision = int(getattr(surprise, "modulator_revision", 0))
+        if self._cached_modulator_revision != modulator_revision:
+            self._cached_modulator_value = float(
+                surprise.get_modulator("competitive")
+            )
+            self._cached_modulator_revision = modulator_revision
+            self._host_parameters[0] = self._cached_modulator_value
+            self._parameter_device_prefix.copy_(
+                self._parameter_host_prefix,
+                non_blocking=True,
+            )
+            self.modulator_stage_copy_count += 1
+        else:
+            self.modulator_stage_skip_count += 1
+
+        token_count = len(patterns)
+        try:
+            for _ in range(token_count):
+                self._graphs[graph_name].replay()
+        except Exception:
+            self.burst_replay_failure_count += 1
+            raise
+
+        self._discard_staged_inputs(count_discard=False)
+        self._learning_rate_update_count_mirror += token_count
+        self._input_slot_mirror = (
+            self._input_slot_mirror + token_count
+        ) % MAX_QUANTUM_INPUT_TOKENS
+        self.tick_replay_count += token_count
+        self.replay_count += token_count
+        self.burst_replay_count += 1
+        self.burst_replayed_token_count += token_count
+        self.route_cache_device_update_count += token_count
+        self.surprise_update_count += token_count
+        self.previous_flag_device_owned_count += token_count
+        self.learning_rate_device_owned_count += token_count
+        self.recent_spike_row_device_owned_count += token_count
+        self._last_graph_name = graph_name
+        outputs = self._graph_outputs[graph_name]
+        if sync_offsets:
+            result = tuple(float(value) for value in outputs["result"].tolist())
+            self.host_truth_sync_count += 1
+            self.host_truth_skip_count += token_count - 1
+            self.host_truth_mirror_update_count += 1
+            self._last_result = result
+            self._last_result_from_host_sync = True
+            (
+                _reconstruction_error,
+                predicted_error,
+                dopamine,
+                acetylcholine,
+                norepinephrine,
+                serotonin,
+                _winner,
+                _effective_modulator,
+                *optional_competitive_surprise,
+            ) = result
+            surprise.predicted_error = predicted_error
+            surprise.dopamine = dopamine
+            surprise.acetylcholine = acetylcholine
+            surprise.norepinephrine = norepinephrine
+            surprise.serotonin = serotonin
+            mark_changed = getattr(
+                surprise,
+                "mark_modulator_state_changed",
+                None,
+            )
+            if callable(mark_changed):
+                mark_changed()
+            self._competitive_surprise_pending = (
+                float(optional_competitive_surprise[0])
+                if optional_competitive_surprise
+                else None
+            )
+            self.competitive_surprise_update_count += int(
+                bool(optional_competitive_surprise)
+            )
+        else:
+            self.host_truth_skip_count += token_count
+            self._last_result_from_host_sync = False
+        trainer._prev_routing_key = self._previous_routing_key
+        comp.last_input_pattern = outputs["normalized_input"]
+        comp.last_projected_input = outputs["projected_input"]
+        comp._cached_proto_sim = None
+        comp._cached_raw_drive = None
+        comp.last_execution_mode = "candidate_subset_persistent_burst_graph"
+        comp.last_scored_column_count = int(self._runtime._route_candidates.numel())
+        comp.last_candidate_count = int(self._runtime._route_candidates.numel())
+        comp.recent_spike_window_cursor = (
+            comp.recent_spike_window_cursor + token_count
+        ) % comp.spike_history_window
+        comp.recent_spike_window_count = min(
+            comp.spike_history_window,
+            comp.recent_spike_window_count + token_count,
+        )
+        comp.update_count += token_count
+        trainer.token_count += token_count
+        return self._graph_outputs[graph_name]
+
     def _next_staged_pattern_pointer(self) -> int | None:
         if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
             return None
@@ -1009,6 +1167,16 @@ class CudaGraphRouteTransition:
             ),
             "quantum_input_discard_count": int(
                 self.quantum_input_discard_count
+            ),
+            "persistent_executor_burst_tokens": (
+                PERSISTENT_EXECUTOR_BURST_TOKENS
+            ),
+            "burst_replay_count": int(self.burst_replay_count),
+            "burst_replayed_token_count": int(
+                self.burst_replayed_token_count
+            ),
+            "burst_replay_failure_count": int(
+                self.burst_replay_failure_count
             ),
             "recent_spike_row_device_owned_count": int(
                 self.recent_spike_row_device_owned_count

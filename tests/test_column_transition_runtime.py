@@ -586,6 +586,131 @@ def test_cuda_graph_quantum_input_staging_preserves_sequential_trajectory() -> N
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=9,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    sequential = MarulhoTrainer(MarulhoModel(config), config)
+    torch.manual_seed(20260614)
+    quantum = MarulhoTrainer(MarulhoModel(config), config)
+    warm_pattern = torch.rand(config.input_dim, device="cuda")
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+
+    for trainer in (sequential, quantum):
+        trainer.train_step(
+            warm_pattern,
+            raw_window="persistent executor warmup",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+    for index, pattern in enumerate(patterns):
+        sequential.train_step(
+            pattern,
+            raw_window=f"sequential persistent executor {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+    assert quantum.train_text_burst(patterns) is True
+    torch.cuda.synchronize()
+
+    for sequential_tensor, quantum_tensor in (
+        (
+            sequential.model.competitive.prototypes,
+            quantum.model.competitive.prototypes,
+        ),
+        (
+            sequential.model.competitive.prototype_velocity,
+            quantum.model.competitive.prototype_velocity,
+        ),
+        (
+            sequential.model.competitive.thresholds,
+            quantum.model.competitive.thresholds,
+        ),
+        (
+            sequential.model.competitive.win_rate_ema,
+            quantum.model.competitive.win_rate_ema,
+        ),
+        (
+            sequential.model.competitive.steps_since_win,
+            quantum.model.competitive.steps_since_win,
+        ),
+        (
+            sequential.model.competitive.recent_spike_window,
+            quantum.model.competitive.recent_spike_window,
+        ),
+        (
+            sequential.model.predictive.location,
+            quantum.model.predictive.location,
+        ),
+        (
+            sequential.model.predictive.velocity,
+            quantum.model.predictive.velocity,
+        ),
+        (
+            sequential.model.predictive._prediction_weights,
+            quantum.model.predictive._prediction_weights,
+        ),
+        (
+            sequential.model.predictive.prediction_error,
+            quantum.model.predictive.prediction_error,
+        ),
+        (
+            sequential.model.predictive.prediction_failure_streak,
+            quantum.model.predictive.prediction_failure_streak,
+        ),
+        (
+            sequential.model.predictive.confidence,
+            quantum.model.predictive.confidence,
+        ),
+    ):
+        assert torch.equal(sequential_tensor, quantum_tensor)
+    assert quantum.token_count == sequential.token_count == 9
+    assert (
+        quantum.model.competitive.recent_spike_window_cursor
+        == sequential.model.competitive.recent_spike_window_cursor
+    )
+    assert quantum.last_winner == sequential.last_winner
+    assert (
+        quantum._winner_host_mirror_sync_count
+        == sequential._winner_host_mirror_sync_count
+    )
+    assert (
+        quantum._winner_host_mirror_skip_count
+        == sequential._winner_host_mirror_skip_count
+    )
+    runtime_report = quantum.column_transition_runtime_report()
+    report = runtime_report["cuda_graph_route_transition"]
+    assert report["burst_replay_count"] == 1
+    assert report["burst_replayed_token_count"] == 8
+    assert report["burst_replay_failure_count"] == 0
+    assert runtime_report["text_burst_execution_count"] == 1
+    assert runtime_report["text_burst_token_count"] == 8
+    assert runtime_report["text_burst_fallback_count"] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
     config = MarulhoConfig(
         n_columns=32,

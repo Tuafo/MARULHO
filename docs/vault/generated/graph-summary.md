@@ -8,17 +8,17 @@ last_verified: 2026-06-14
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9205
-- Edges: 1066486
+- Nodes: 9255
+- Edges: 1147587
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3376 nodes
+- `tests`: 3395 nodes
 - `service`: 2580 nodes
-- `evaluation`: 536 nodes
+- `evaluation`: 552 nodes
 - `core`: 516 nodes
-- `training`: 451 nodes
+- `training`: 459 nodes
 - `data`: 377 nodes
 - `semantics`: 334 nodes
 - `MARULHO_UI`: 212 nodes
@@ -32,16 +32,16 @@ last_verified: 2026-06-14
 
 ## Common Relations
 
-- `calls`: 274113
-- `references`: 246248
-- `uses`: 188307
-- `method`: 171432
-- `contains`: 104755
-- `rationale_for`: 42207
-- `imports`: 19886
-- `inherits`: 11176
-- `imports_from`: 6511
-- `re_exports`: 1844
+- `calls`: 294992
+- `references`: 265152
+- `uses`: 202515
+- `method`: 184330
+- `contains`: 112905
+- `rationale_for`: 45496
+- `imports`: 21306
+- `inherits`: 12000
+- `imports_from`: 6905
+- `re_exports`: 1979
 - `extends`: 7
 
 ## Largest Source Files By Node Count
@@ -52,7 +52,7 @@ last_verified: 2026-06-14
 - `src/marulho/service/runtime_facade.py`: 272 nodes
 - `src/marulho/service/schemas.py`: 242 nodes
 - `src/marulho/service/status_read_model.py`: 206 nodes
-- `tests/test_service_manager.py`: 155 nodes
+- `tests/test_service_manager.py`: 157 nodes
 - `tests/test_adr_service_manager_composition.py`: 120 nodes
 - `src/marulho/service/replay_runtime.py`: 103 nodes
 - `tests/test_hypercube.py`: 86 nodes
@@ -64,5 +64,5 @@ last_verified: 2026-06-14
 - `tests/test_developmental_runner.py`: 72 nodes
 - `tests/test_service_api.py`: 72 nodes
 - `src/marulho/service/delayed_consequence.py`: 70 nodes
+- `src/marulho/training/trainer.py`: 70 nodes
 - `tests/test_snn_language_readout_ledger.py`: 68 nodes
-- `TERMINUS_Tutorial.md`: 68 nodes

@@ -596,6 +596,24 @@ This file records research anchors for current architecture work. It is not a pr
 - MARULHO does not yet have a fully GPU-resident cognitive loop, and this change does not batch or reorder neural learning. It removes a host-only `5 ms` sleep and per-token execution-lock/mutation cycle, then groups up to eight still-sequential token updates under one bounded Runtime Control quantum. Stop checks remain between quanta, with a hard 128-token configuration ceiling.
 - Reversed production-loop A/B on the 1024-column RTX 3060 checkpoint measured `662.800` versus `135.240 tokens/sec` (`4.901x`). Both quantum arms retained full warm source queues, observed CUDA on the RTX 3060, executed the in-place Triton transition `256` times with zero failures, and stopped in `13.896` and `11.883 ms`. The next direction is broader persistent device ownership of route/index/graph-preparation state, not increasing the host quantum without bound.
 
+### Persistent burst versus larger graph, June 2026
+
+- NVIDIA CUDA Graphs reduce repeated CPU setup and launch overhead, but graph
+  nodes still execute scheduled device work; a larger graph is not free.
+  Conditional graph nodes can move loops and decisions device-side, while
+  PyTorch does not yet expose the full CUDA conditional-node surface used by
+  the native API. Sources:
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html,
+  https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html,
+  and https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html
+- MARULHO tested an eight-tick monolithic graph. Exact trajectory passed, but
+  sustained device execution regressed to `0.951x`, so it was deleted.
+- The implementation direction changed to a boundary-aware host burst over the
+  already efficient one-tick graph. This preserves causal SNN updates and
+  keeps slow/event-driven work awake only at explicit boundaries. Repeated
+  complete 32768-token runs reached `2387.898` and `2607.316 tokens/sec`, with
+  all transitions on CUDA and zero graph/burst failures.
+
 ## Engineering Implications
 
 - Keep **Subcortex** tensor state on the configured `torch.device`.

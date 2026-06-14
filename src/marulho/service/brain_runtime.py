@@ -426,53 +426,95 @@ class BrainRuntime:
                         "train_lock_wait", 0.0
                     ) + float((time.perf_counter() - lock_wait_started) * 1000.0)
                 train_started = time.perf_counter()
-                stage_text_input_quantum = getattr(
-                    self._trainer,
-                    "stage_text_input_quantum",
-                    None,
-                )
-                if callable(stage_text_input_quantum):
-                    stage_text_input_quantum(
-                        [pattern for _raw_window, pattern in sub]
-                    )
-                for offset, (raw_window, pattern) in enumerate(sub):
-                    raw_text = str(raw_window)
-                    token_ordinal = total_trained + offset + 1
-                    observation_candidate = bool(concept_observation_due) and (
-                        token_ordinal == 1
-                        or token_ordinal % observation_interval == 0
-                    )
-                    observation_slot_available = (
-                        observation_candidate
+                burst_requires_metrics = any(
+                    (
+                        bool(concept_observation_due)
+                        and (
+                            total_trained + offset + 1 == 1
+                            or (total_trained + offset + 1)
+                            % observation_interval
+                            == 0
+                        )
                         and len(sampled_concept_observations)
                         < max_observations_per_tick
                     )
-                    final_token = token_ordinal >= len(chunk)
-                    return_metrics = bool(observation_slot_available or final_token)
-                    trainer_step_started = time.perf_counter()
-                    last_metrics = self._trainer.train_step(
-                        pattern,
-                        raw_window=raw_window,
-                        memory_metadata=memory_metadata,
-                        return_metrics=return_metrics,
+                    or total_trained + offset + 1 >= len(chunk)
+                    for offset in range(len(sub))
+                )
+                train_text_burst = getattr(
+                    self._trainer,
+                    "train_text_burst",
+                    None,
+                )
+                burst_executed = bool(
+                    not burst_requires_metrics
+                    and callable(train_text_burst)
+                    and train_text_burst(
+                        [pattern for _raw_window, pattern in sub]
                     )
-                    if stage_timings_ms is not None:
-                        stage_timings_ms["trainer_step"] = stage_timings_ms.get(
-                            "trainer_step", 0.0
-                        ) + float(
-                            (time.perf_counter() - trainer_step_started) * 1000.0
+                )
+                if burst_executed:
+                    for raw_window, _pattern in sub:
+                        raw_text = str(raw_window)
+                        if raw_text:
+                            evidence_windows.append(raw_text)
+                else:
+                    stage_text_input_quantum = getattr(
+                        self._trainer,
+                        "stage_text_input_quantum",
+                        None,
+                    )
+                    if callable(stage_text_input_quantum):
+                        stage_text_input_quantum(
+                            [pattern for _raw_window, pattern in sub]
                         )
-                    if raw_text:
-                        evidence_windows.append(raw_text)
-                    metrics = dict(last_metrics or {})
-                    if return_metrics:
-                        pending_concept_observation = (raw_text, metrics)
-                    if observation_candidate:
-                        if observation_slot_available:
-                            sampled_concept_observations.append((raw_text, metrics))
-                        else:
-                            skipped_concept_observations += 1
-                        pending_concept_observation = None
+                    for offset, (raw_window, pattern) in enumerate(sub):
+                        raw_text = str(raw_window)
+                        token_ordinal = total_trained + offset + 1
+                        observation_candidate = bool(concept_observation_due) and (
+                            token_ordinal == 1
+                            or token_ordinal % observation_interval == 0
+                        )
+                        observation_slot_available = (
+                            observation_candidate
+                            and len(sampled_concept_observations)
+                            < max_observations_per_tick
+                        )
+                        final_token = token_ordinal >= len(chunk)
+                        return_metrics = bool(
+                            observation_slot_available or final_token
+                        )
+                        trainer_step_started = time.perf_counter()
+                        last_metrics = self._trainer.train_step(
+                            pattern,
+                            raw_window=raw_window,
+                            memory_metadata=memory_metadata,
+                            return_metrics=return_metrics,
+                        )
+                        if stage_timings_ms is not None:
+                            stage_timings_ms["trainer_step"] = (
+                                stage_timings_ms.get("trainer_step", 0.0)
+                                + float(
+                                    (
+                                        time.perf_counter()
+                                        - trainer_step_started
+                                    )
+                                    * 1000.0
+                                )
+                            )
+                        if raw_text:
+                            evidence_windows.append(raw_text)
+                        metrics = dict(last_metrics or {})
+                        if return_metrics:
+                            pending_concept_observation = (raw_text, metrics)
+                        if observation_candidate:
+                            if observation_slot_available:
+                                sampled_concept_observations.append(
+                                    (raw_text, metrics)
+                                )
+                            else:
+                                skipped_concept_observations += 1
+                            pending_concept_observation = None
                 total_trained += len(sub)
                 mutation_mark_started = time.perf_counter()
                 self._runtime_state.mark_mutated()
