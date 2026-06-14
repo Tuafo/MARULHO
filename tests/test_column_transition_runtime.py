@@ -1000,6 +1000,8 @@ def test_text_burst_defers_host_truth_across_two_quanta() -> None:
     assert graph_report["burst_event_drain_count"] == 1
     assert graph_report["burst_event_drained_token_count"] == 16
     assert graph_report["burst_event_forced_drain_count"] == 0
+    assert graph_report["burst_event_slim_result_packet_count"] == 1
+    assert graph_report["burst_event_strong_result_row_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -1052,6 +1054,8 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
     assert report["text_burst_event_last_flush_reason"] == "test_boundary"
     assert report["text_burst_strong_event_count"] == 8
     assert graph_report["burst_event_forced_drain_count"] == 1
+    assert graph_report["burst_event_slim_result_packet_count"] == 1
+    assert graph_report["burst_event_strong_result_row_count"] == 8
     assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
     assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
         range(2, 10)

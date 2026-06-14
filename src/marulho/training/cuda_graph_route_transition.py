@@ -66,6 +66,8 @@ class CudaGraphRouteTransition:
         self.burst_event_drain_count = 0
         self.burst_event_drained_token_count = 0
         self.burst_event_forced_drain_count = 0
+        self.burst_event_slim_result_packet_count = 0
+        self.burst_event_strong_result_row_count = 0
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
@@ -1146,15 +1148,18 @@ class CudaGraphRouteTransition:
             }
         assert self._burst_result_ring is not None
         assert self._burst_strong_flags is not None
-        result_rows = self._burst_result_ring[:token_count].tolist()
+        result = tuple(
+            float(value)
+            for value in self._burst_result_ring[token_count - 1].tolist()
+        )
         strong_flags = self._burst_strong_flags[:token_count].tolist()
-        result = tuple(float(value) for value in result_rows[-1])
         self.host_truth_sync_count += 1
         self.host_truth_skip_count += token_count - 1
         self.host_truth_mirror_update_count += 1
         self.burst_event_drain_count += 1
         self.burst_event_drained_token_count += token_count
         self.burst_event_forced_drain_count += int(forced)
+        self.burst_event_slim_result_packet_count += 1
         self._last_result = result
         self._last_result_from_host_sync = True
         surprise = self._trainer.model.surprise
@@ -1192,6 +1197,7 @@ class CudaGraphRouteTransition:
         strong_indices = [
             index for index, strong in enumerate(strong_flags) if bool(strong)
         ]
+        strong_result_rows: list[list[float]] = []
         strong_assemblies: list[torch.Tensor] = []
         strong_routing_keys: list[torch.Tensor] = []
         if strong_indices:
@@ -1202,18 +1208,27 @@ class CudaGraphRouteTransition:
                 dtype=torch.long,
                 device=self._burst_assembly_ring.device,
             )
+            strong_result_rows = [
+                [float(value) for value in row]
+                for row in self._burst_result_ring.index_select(
+                    0,
+                    index_tensor,
+                ).cpu().tolist()
+            ]
             strong_assemblies = list(
                 self._burst_assembly_ring.index_select(0, index_tensor).cpu()
             )
             strong_routing_keys = list(
                 self._burst_routing_ring.index_select(0, index_tensor).cpu()
             )
+            self.burst_event_strong_result_row_count += len(strong_result_rows)
         assert self._burst_slot is not None
         self._burst_slot.zero_()
         self._burst_pending_event_count = 0
         return {
             "truth_synced": True,
-            "result_rows": result_rows,
+            "final_result": result,
+            "strong_result_rows": strong_result_rows,
             "strong_indices": strong_indices,
             "strong_assemblies": strong_assemblies,
             "strong_routing_keys": strong_routing_keys,
@@ -1386,6 +1401,12 @@ class CudaGraphRouteTransition:
             ),
             "burst_event_forced_drain_count": int(
                 self.burst_event_forced_drain_count
+            ),
+            "burst_event_slim_result_packet_count": int(
+                self.burst_event_slim_result_packet_count
+            ),
+            "burst_event_strong_result_row_count": int(
+                self.burst_event_strong_result_row_count
             ),
             "burst_event_ring_device_owned": bool(
                 self._burst_result_ring is not None

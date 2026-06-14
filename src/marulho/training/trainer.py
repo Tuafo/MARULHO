@@ -278,19 +278,26 @@ class MarulhoTrainer:
         if not bool(burst_outputs.get("truth_synced", False)):
             return False
         pending = self._pending_text_burst_events
-        result_rows = list(burst_outputs["result_rows"])
-        if len(result_rows) != len(pending):
-            raise RuntimeError(
-                "persistent executor event metadata does not match device evidence"
-            )
         strong_indices = [
             int(index) for index in burst_outputs["strong_indices"]
         ]
+        result_rows = list(burst_outputs.get("result_rows", []))
+        strong_result_rows = list(burst_outputs.get("strong_result_rows", []))
+        if result_rows:
+            if len(result_rows) != len(pending):
+                raise RuntimeError(
+                    "persistent executor event metadata does not match device evidence"
+                )
+            strong_result_rows = [result_rows[index] for index in strong_indices]
+        elif len(strong_result_rows) != len(strong_indices):
+            raise RuntimeError(
+                "persistent executor strong-event metadata does not match device evidence"
+            )
         strong_assemblies = list(burst_outputs["strong_assemblies"])
         strong_routing_keys = list(burst_outputs["strong_routing_keys"])
         for position, index in enumerate(strong_indices):
             token_marker, pattern, raw_window, metadata = pending[index]
-            row = result_rows[index]
+            row = strong_result_rows[position]
             self.model.memory_store.update(
                 strong_assemblies[position],
                 importance=max(1e-3, abs(float(row[7]))),
