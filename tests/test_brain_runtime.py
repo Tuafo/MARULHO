@@ -413,6 +413,46 @@ class _BurstSamplingManager(_ConceptSamplingManager):
         return True
 
 
+class _SequenceSamplingManager(_ConceptSamplingManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sequence_calls: list[dict[str, object]] = []
+        self._trainer.train_text_sequence = self.train_text_sequence
+
+    def train_text_sequence(
+        self,
+        patterns: list[object],
+        *,
+        raw_windows: list[str],
+        quantum_tokens: int,
+        metric_indices: set[int],
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        self.sequence_calls.append(
+            {
+                "pattern_count": len(patterns),
+                "raw_windows": list(raw_windows),
+                "quantum_tokens": int(quantum_tokens),
+                "metric_indices": set(metric_indices),
+            }
+        )
+        start = self._trainer.token_count
+        self._trainer.token_count += len(patterns)
+        return {
+            "trained": len(patterns),
+            "metrics_by_index": {
+                index: {
+                    "memory_index": start + index,
+                    "winner": 0,
+                    "train_step_metrics_mode": "full",
+                }
+                for index in metric_indices
+            },
+            "quantum_count": len(patterns) // max(1, int(quantum_tokens)),
+            "stopped": False,
+        }
+
+
 class _SnapshotManager(_BrainRuntimeFixtureBase):
     def __init__(self) -> None:
         super().__init__()
@@ -692,6 +732,35 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             ["service_per_token_boundary", "service_tick_complete"],
         )
 
+    def test_background_training_delegates_complete_tick_to_training(self) -> None:
+        manager = _SequenceSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        chunk = [(f"window-{index}", object()) for index in range(1, 129)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=8,
+            yield_seconds=0.0,
+        )
+
+        self.assertEqual(trained, 128)
+        self.assertEqual(metrics["memory_index"], 127)
+        self.assertEqual(len(windows), 128)
+        self.assertEqual(len(manager.sequence_calls), 1)
+        self.assertEqual(manager.sequence_calls[0]["pattern_count"], 128)
+        self.assertEqual(manager.sequence_calls[0]["quantum_tokens"], 8)
+        self.assertEqual(
+            manager.sequence_calls[0]["metric_indices"],
+            {0, 7, 15, 23, 127},
+        )
+        self.assertEqual(manager._runtime_state.mutated, 1)
+        self.assertEqual(observation["execution_owner"], "training_text_sequence")
+        self.assertEqual(
+            manager.concept_observation_windows,
+            ["window-1", "window-8", "window-16", "window-24"],
+        )
+
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()
         module = _brain_runtime_from_fixture(manager)
@@ -791,6 +860,8 @@ class BrainRuntimeSeamTests(unittest.TestCase):
                 "yield_seconds": 0.0,
                 "stop_check_boundary": "between_quanta",
                 "sequential_token_training": True,
+                "execution_owner": "training_text_sequence",
+                "service_dispatches_per_tick": 1,
             },
         )
         self.assertEqual(snapshot["execution"]["tick_source_name"], "source_a")

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 import re
 import time
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -141,6 +141,10 @@ class MarulhoTrainer:
         self._text_burst_event_flush_count = 0
         self._text_burst_event_forced_flush_count = 0
         self._text_burst_event_last_flush_reason: str | None = None
+        self._text_sequence_execution_count = 0
+        self._text_sequence_token_count = 0
+        self._text_sequence_quantum_count = 0
+        self._text_sequence_stop_count = 0
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
         """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
@@ -218,6 +222,20 @@ class MarulhoTrainer:
         report["text_burst_event_last_flush_reason"] = (
             self._text_burst_event_last_flush_reason
         )
+        report["text_sequence_execution_count"] = int(
+            self._text_sequence_execution_count
+        )
+        report["text_sequence_token_count"] = int(
+            self._text_sequence_token_count
+        )
+        report["text_sequence_quantum_count"] = int(
+            self._text_sequence_quantum_count
+        )
+        report["text_sequence_stop_count"] = int(
+            self._text_sequence_stop_count
+        )
+        report["text_sequence_owner"] = "training"
+        report["text_sequence_stop_boundary"] = "between_quanta"
         report["cognitive_boundary_controller"] = (
             self._cognitive_boundary_controller.report()
         )
@@ -512,6 +530,86 @@ class MarulhoTrainer:
         self._text_burst_token_count += token_count
         self._text_burst_last_fallback_reason = None
         return True
+
+    @torch.no_grad()
+    def train_text_sequence(
+        self,
+        patterns: Sequence[torch.Tensor],
+        *,
+        raw_windows: Sequence[str],
+        memory_metadata: Mapping[str, Any] | None = None,
+        quantum_tokens: int = 8,
+        metric_indices: Iterable[int] = (),
+        should_continue: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Execute one service-owned text sequence through training-owned quanta."""
+
+        token_count = len(patterns)
+        if len(raw_windows) != token_count:
+            raise ValueError("raw_windows must align with patterns")
+        quantum = max(1, int(quantum_tokens))
+        requested_metrics = {
+            int(index)
+            for index in metric_indices
+            if 0 <= int(index) < token_count
+        }
+        metrics_by_index: dict[int, dict[str, Any]] = {}
+        trained = 0
+        quantum_count = 0
+        stopped = False
+
+        for start in range(0, token_count, quantum):
+            if should_continue is not None and not bool(should_continue()):
+                stopped = True
+                break
+            end = min(token_count, start + quantum)
+            quantum_patterns = list(patterns[start:end])
+            quantum_windows = [str(value) for value in raw_windows[start:end]]
+            quantum_metric_indices = requested_metrics.intersection(
+                range(start, end)
+            )
+            burst_executed = bool(
+                len(quantum_patterns) == 8
+                and not quantum_metric_indices
+                and self.train_text_burst(
+                    quantum_patterns,
+                    raw_windows=quantum_windows,
+                    memory_metadata=memory_metadata,
+                )
+            )
+            if not burst_executed:
+                self.flush_text_burst_events(
+                    reason="text_sequence_per_token_boundary"
+                )
+                self.stage_text_input_quantum(quantum_patterns)
+                for offset, (pattern, raw_window) in enumerate(
+                    zip(quantum_patterns, quantum_windows)
+                ):
+                    index = start + offset
+                    return_metrics = index in requested_metrics
+                    metrics = self.train_step(
+                        pattern,
+                        raw_window=raw_window,
+                        memory_metadata=memory_metadata,
+                        return_metrics=return_metrics,
+                    )
+                    if return_metrics:
+                        metrics_by_index[index] = dict(metrics or {})
+            trained += len(quantum_patterns)
+            quantum_count += 1
+
+        self.flush_text_burst_events(reason="text_sequence_complete")
+        self._text_sequence_execution_count += 1
+        self._text_sequence_token_count += trained
+        self._text_sequence_quantum_count += quantum_count
+        if stopped:
+            self._text_sequence_stop_count += 1
+        return {
+            "trained": int(trained),
+            "metrics_by_index": metrics_by_index,
+            "quantum_count": int(quantum_count),
+            "stopped": bool(stopped),
+        }
 
     def _buffer_hnsw_update(
         self,

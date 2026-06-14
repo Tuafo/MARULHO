@@ -666,6 +666,19 @@ This file records research anchors for current architecture work. It is not a pr
   next broad bottleneck at `0.156315 ms/token`, behind train compute at
   `0.281598 ms/token`. Source:
   https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html.
+- Prepared-source/tick-executor follow-up, June 2026: the same CUDA Graph
+  guidance implies that repeated short device work should be submitted through
+  a stable enclosing workflow, but it does not justify moving source
+  persistence or semantic observation onto CUDA. MARULHO therefore made
+  prepared source queues generation-aware and moved complete text-tick neural
+  sequencing into training while retaining eight-token causal quanta and
+  between-quantum cancellation. A 131072-token complete-runtime run improved
+  sustained throughput from `2126.013` to `3359.378 tokens/sec`; preparation
+  fell `94.6%`, mean tick latency fell `38.2%`, and p95 fell `44.5%`, with
+  exact focused CUDA trajectory parity and zero graph/burst failures. The next
+  bottleneck is device transition work at `0.259876 ms/token`; source prewarm
+  remains a separate `84.725 s` startup cost. Source:
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html.
 
 ## Engineering Implications
 

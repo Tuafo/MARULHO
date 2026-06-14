@@ -41,6 +41,9 @@ _Avoid_: treating a fresh report as liveness proof, running benchmark work from 
 **File Source Ingestion Cache** — the runtime-source cache for deterministic local/file text sources. It stores bounded encoded source windows under the checkpoint runtime cache using the source path, size, and modification timestamp in the cache key, so a later configure can restore ready source tokens before the cognitive tick. Restored material carries a hash so an unchanged source window can skip a synchronous cache rewrite during tick preparation. It is ingestion metabolism, not memory, replay, or cognition.
 _Avoid_: reusing stale file contents, counting cache restore as learned memory, rewriting unchanged cache material inside tick preparation, or hiding source encoding inside tick latency when a reviewed cache/prewarm path can own it.
 
+**Prepared Source Generation** — one immutable, cache-backed generation of encoded source windows owned by Runtime Sources. Ordinary queue consumption does not change the generation, so a cognitive tick can prove cache stability in constant time without rebuilding or hashing the remaining queue. Only refill, stream replacement, source change, failed persistence retry, or another real material mutation may construct a new cache payload. Runtime Truth reports stable-generation skips separately from partial-tail and hash-equality skips.
+_Avoid_: treating deque consumption as new persistence material, scanning a full warm queue on every tick, hiding refill behind a stable-generation claim, or interpreting ingestion-cache reuse as neural cognition.
+
 **Bounded Batched Text Ingestion** — the live Runtime Sources rule that inference-only character windows are assembled in a bounded CPU control batch and emitted as one device tensor batch when the learned-chunk codebook is empty. The output preserves the scalar RTF representation within declared floating tolerance, while chunk-codebook mutation stays in explicit training or remote-bootstrap work. Runtime Truth reports the encoder mode and that hot-path chunk plasticity is disabled.
 _Avoid_: launching scalar CUDA work per character, consuming an unbounded source before yielding, learning chunk codebooks inside source collection, or calling cache/prewarm speed a cognitive-kernel speedup.
 
@@ -1312,6 +1315,9 @@ moving eligibility algorithms into `service`, crossing a slow-path boundary,
 using the previous mirrored surprise value to predict internal burst events,
 retaining archival tensors on CUDA, or replacing the one-tick graph with a
 larger graph without sustained evidence
+
+**Training-Owned Text Sequence** — the training boundary that accepts one complete service text tick, executes its ordered eight-token quanta, requests metrics only at explicit evidence positions, checks stop requests between quanta, and returns bounded metric snapshots to service. Service still owns source selection, locks, Runtime Truth projection, and concept observation; training owns neural sequencing, burst/fallback selection, event drains, and per-token mutation semantics. Runtime Truth reports sequence calls, tokens, quanta, stops, owner, and stop boundary.
+_Avoid_: moving concept algorithms into training, skipping sequential SNN updates, checking stop only after an unbounded tick, letting service duplicate burst policy, or claiming one API call means one CUDA kernel.
 
 ## Flagged Ambiguities
 

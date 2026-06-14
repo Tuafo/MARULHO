@@ -15,6 +15,7 @@ related_benchmarks: []
 - [Hot Path Latency](hot-path-latency.md)
 - [Language Readout Speed](language-readout-speed.md)
 - [Memory Lookup](memory-lookup.md)
+- [Prepared Source Tick Executor](prepared-source-tick-executor.md)
 - [Replay Cost](replay-cost.md)
 - [Startup](startup.md)
 - [Tool Loop Throughput](tool-loop-throughput.md)

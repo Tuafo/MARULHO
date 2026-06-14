@@ -385,7 +385,7 @@ def run_continuous_runtime_stress(
             "source_path": str(source_path),
             "scope": (
                 "background_terminus_loop_with_full_prewarmed_source_queue_"
-                "and_sequential_cuda_train_step"
+                "and_training_owned_sequential_cuda_text_sequence"
             ),
             "claim_boundary": (
                 "measures complete warm continuous runtime cost; does not "

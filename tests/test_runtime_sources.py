@@ -300,6 +300,48 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
             self.assertEqual(runtime.cache_partial_skip_count, 1)
             self.assertEqual(runtime.last_cache_update_mode, "skipped_partial_material")
 
+    def test_brain_runtime_cache_skips_stable_generation_without_scanning_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = _runtime_sources(_FakeManager(Path(tmpdir)))
+            runtime = _BrainSourceRuntime(
+                spec={
+                    "name": "remote_source",
+                    "source": "https://example.com/corpus",
+                    "source_type": "hf",
+                },
+                stream=iter([]),
+                buffered_patterns=deque(
+                    [
+                        ("window-1", "pattern-1"),
+                        ("window-2", "pattern-2"),
+                        ("window-3", "pattern-3"),
+                        ("window-4", "pattern-4"),
+                    ]
+                ),
+            )
+            module._update_brain_runtime_cache_locked(runtime)
+            module.flush_brain_runtime_cache_writes()
+            runtime.buffered_patterns.popleft()
+
+            with patch.object(
+                module,
+                "_brain_runtime_cache_material_hash",
+                side_effect=AssertionError("stable generation must not be hashed"),
+            ):
+                module._update_brain_runtime_cache_locked(
+                    runtime,
+                    served_examples=[("window-1", "pattern-1")],
+                    queue_material_changed=False,
+                )
+
+            self.assertEqual(runtime.cache_schedule_count, 1)
+            self.assertEqual(runtime.cache_skip_count, 1)
+            self.assertEqual(runtime.cache_stable_generation_skip_count, 1)
+            self.assertEqual(
+                runtime.last_cache_update_mode,
+                "skipped_stable_generation",
+            )
+
     def test_local_file_runtime_cache_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

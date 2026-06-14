@@ -74,6 +74,16 @@ archival payloads on CPU. Brain Runtime may request the burst, but training
 owns eligibility, event admission, maintenance, and neural/bookkeeping
 semantics.
 
+Brain Runtime submits one complete prepared text tick through the
+Training-Owned Text Sequence API. Training retains the ordered eight-token
+quantum boundary, checks cancellation between quanta, chooses burst versus
+retained per-token execution, and drains bounded device evidence before
+returning. Service supplies source metadata and requested metric positions,
+then performs concept observation and Runtime Truth projection outside neural
+execution. Runtime Sources separately treats a fully prepared cache generation
+as immutable under consumption, so ordinary ticks do not rebuild or hash the
+remaining source queue.
+
 Device float neuromodulation and Triton reductions may differ from Python
 double scalar arithmetic by floating-point noise. Promotion requires exact
 winners, bounded reconstruction tolerance, bounded sequential tensor tolerance,
@@ -147,6 +157,15 @@ cognitive-quality evidence, and grounded fallback gates.
   `2126.013 tokens/sec` over `61.652 s`, executed all `131072` transitions on
   the RTX 3060, used `116696` burst-owned tokens, reported zero graph/burst
   failures, and retained only two real `sleep_boundary` fallbacks.
+- The Prepared Source Generation and Training-Owned Text Sequence follow-up
+  removed the largest remaining host preparation tax. The clean 131072-token
+  CUDA run reached `3359.378 tokens/sec` over `39.017 s`, up `58.0%` from the
+  prior `2126.013` long baseline. Mean tick latency fell from `57.714` to
+  `35.667 ms`, p95 from `87.300` to `48.458 ms`, and preparation fell from
+  `0.156315` to `0.008415 ms/token`. Runtime Truth reported `1024` complete
+  training-owned sequences, `16384` quanta, `1024` stable cache-generation
+  skips, all `131072` transitions on the RTX 3060, `116680` burst-owned
+  tokens, and zero graph/burst failures.
 
 ## Reversal
 

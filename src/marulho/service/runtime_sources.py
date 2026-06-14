@@ -59,6 +59,7 @@ class _BrainSourceRuntime:
     cache_schedule_count: int = 0
     cache_skip_count: int = 0
     cache_partial_skip_count: int = 0
+    cache_stable_generation_skip_count: int = 0
     cache_failure_count: int = 0
     cache_pending: bool = False
     last_cache_update_mode: str = "not_run"
@@ -358,12 +359,22 @@ class RuntimeSources:
         runtime: _BrainSourceRuntime,
         *,
         served_examples: Sequence[tuple[str, torch.Tensor]] | None = None,
+        queue_material_changed: bool = True,
     ) -> None:
         if not self._brain_runtime_cache_enabled(runtime.spec):
             return
         ingestion = self._brain_config.get("ingestion") or {}
         tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
         target_tokens = max(int(tick_tokens), int(ingestion.get("queue_target_tokens", tick_tokens)))
+        if (
+            not queue_material_changed
+            and runtime.cache_material_hash is not None
+            and int(runtime.cache_material_token_count) > 0
+        ):
+            runtime.cache_skip_count += 1
+            runtime.cache_stable_generation_skip_count += 1
+            runtime.last_cache_update_mode = "skipped_stable_generation"
+            return
         raw_windows: list[str] = []
         if served_examples:
             raw_windows.extend(str(raw_window) for raw_window, _pattern in served_examples if str(raw_window))

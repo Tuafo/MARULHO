@@ -8,17 +8,17 @@ last_verified: 2026-06-14
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9294
-- Edges: 1229435
+- Nodes: 9306
+- Edges: 1256803
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3407 nodes
+- `tests`: 3413 nodes
 - `service`: 2580 nodes
 - `evaluation`: 552 nodes
 - `core`: 519 nodes
-- `training`: 478 nodes
+- `training`: 480 nodes
 - `data`: 377 nodes
 - `semantics`: 334 nodes
 - `MARULHO_UI`: 212 nodes
@@ -32,16 +32,16 @@ last_verified: 2026-06-14
 
 ## Common Relations
 
-- `calls`: 315930
-- `references`: 284129
-- `uses`: 216732
-- `method`: 197217
-- `contains`: 121086
-- `rationale_for`: 49371
-- `imports`: 22726
-- `inherits`: 12825
-- `imports_from`: 7298
-- `re_exports`: 2114
+- `calls`: 322928
+- `references`: 290461
+- `uses`: 221478
+- `method`: 201539
+- `contains`: 123826
+- `rationale_for`: 50679
+- `imports`: 23198
+- `inherits`: 13101
+- `imports_from`: 7427
+- `re_exports`: 2159
 - `extends`: 7
 
 ## Largest Source Files By Node Count
@@ -60,9 +60,9 @@ last_verified: 2026-06-14
 - `tests/test_living_loop_replay.py`: 79 nodes
 - `src/marulho/semantics/language_surface.py`: 78 nodes
 - `src/marulho/core/hypercube.py`: 75 nodes
+- `src/marulho/training/trainer.py`: 75 nodes
 - `tests/test_turboquant_store.py`: 75 nodes
-- `src/marulho/training/trainer.py`: 73 nodes
 - `tests/test_developmental_runner.py`: 72 nodes
 - `tests/test_service_api.py`: 72 nodes
+- `tests/test_brain_runtime.py`: 71 nodes
 - `src/marulho/service/delayed_consequence.py`: 70 nodes
-- `tests/test_snn_language_readout_ledger.py`: 68 nodes

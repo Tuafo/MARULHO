@@ -36,4 +36,5 @@ measurement started while source prewarm was still running.
 
 The long run measured `train_compute=0.281598 ms/token` and
 `prepare_training=0.156315 ms/token`. Preparation/orchestration is now the next
-large optimization boundary.
+large optimization boundary. This constraint was addressed by
+[[prepared-source-tick-executor]].

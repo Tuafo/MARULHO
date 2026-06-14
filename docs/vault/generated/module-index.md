@@ -57,7 +57,7 @@ last_verified: 2026-06-14
 - `src/marulho/service/snn_language_plasticity_executor.py`: 54 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 73 nodes
+- `src/marulho/training/trainer.py`: 75 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes

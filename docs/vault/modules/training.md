@@ -85,6 +85,8 @@ related_benchmarks: []
 
         Runtime-source cache persistence is not trainer-owned cognition. The 2026-06-13 cache-material skip leaves deterministic source cache ownership in `service.runtime_sources.RuntimeSources` and removes identical cache rewrites from tick preparation before the trainer runs.
 
+        The 2026-06-14 Training-Owned Text Sequence gives `MarulhoTrainer` the complete ordered text-tick execution boundary while service retains source orchestration and semantic observation. Runtime Sources separately owns Prepared Source Generations, allowing consumption-only ticks to skip cache reconstruction in O(1). See [[prepared-source-tick-executor]].
+
         Slow replay-memory archival now has its own trainer cadence. Every token still runs the promoted column transition, context, binding, cross-modal, surprise, and routing-index buffer policies, but expensive `DualMemoryStore.update()` admission and stream-text episode reconstruction run only on the first token, every `slow_memory_archive_interval_tokens` token, or high-surprise override tokens. The production default is 256 tokens, and checkpointing migrates unstamped retired defaults at 8 or 64 to that cadence while preserving revision-stamped explicit configs. Runtime Truth exposes archive count, skip count, interval, and last archive reason through `memory_hot_path`.
 
         ## Should Not Own

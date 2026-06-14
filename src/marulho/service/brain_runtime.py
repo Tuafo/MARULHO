@@ -415,6 +415,161 @@ class BrainRuntime:
         sampled_concept_observations: list[tuple[str, dict[str, Any]]] = []
         skipped_concept_observations = 0
         pending_concept_observation: tuple[str, dict[str, Any]] | None = None
+        train_text_sequence = getattr(
+            self._trainer,
+            "train_text_sequence",
+            None,
+        )
+        if (
+            callable(train_text_sequence)
+            and batch_size == DEFAULT_EXECUTION_QUANTUM_TOKENS
+            and pause_seconds <= 0.0
+        ):
+            metric_indices: set[int] = set()
+            if concept_observation_due:
+                observation_indices = [
+                    index
+                    for index in range(len(chunk))
+                    if index == 0 or (index + 1) % observation_interval == 0
+                ]
+                metric_indices.update(
+                    observation_indices[:max_observations_per_tick]
+                )
+            if chunk:
+                metric_indices.add(len(chunk) - 1)
+            lock_wait_started = time.perf_counter()
+            with self._lock:
+                if stage_timings_ms is not None:
+                    stage_timings_ms["train_lock_wait"] = float(
+                        (time.perf_counter() - lock_wait_started) * 1000.0
+                    )
+                train_started = time.perf_counter()
+                execution = train_text_sequence(
+                    [pattern for _raw_window, pattern in chunk],
+                    raw_windows=[
+                        str(raw_window) for raw_window, _pattern in chunk
+                    ],
+                    memory_metadata=memory_metadata,
+                    quantum_tokens=batch_size,
+                    metric_indices=metric_indices,
+                    should_continue=(
+                        None
+                        if stop_event is None
+                        else lambda: not stop_event.is_set()
+                    ),
+                )
+                total_trained = max(
+                    0,
+                    min(len(chunk), int(execution.get("trained", 0) or 0)),
+                )
+                metrics_by_index = {
+                    int(index): dict(metrics or {})
+                    for index, metrics in dict(
+                        execution.get("metrics_by_index") or {}
+                    ).items()
+                }
+                mutation_mark_started = time.perf_counter()
+                if total_trained > 0:
+                    self._runtime_state.mark_mutated()
+                if stage_timings_ms is not None:
+                    stage_timings_ms["runtime_mutation_mark"] = float(
+                        (time.perf_counter() - mutation_mark_started)
+                        * 1000.0
+                    )
+                    stage_timings_ms["train_compute"] = float(
+                        (time.perf_counter() - train_started) * 1000.0
+                    )
+
+            for index, (raw_window, _pattern) in enumerate(
+                chunk[:total_trained]
+            ):
+                raw_text = str(raw_window)
+                if raw_text:
+                    evidence_windows.append(raw_text)
+                metrics = metrics_by_index.get(index, {})
+                if metrics:
+                    last_metrics = metrics
+                observation_candidate = bool(concept_observation_due) and (
+                    index == 0 or (index + 1) % observation_interval == 0
+                )
+                if observation_candidate:
+                    if (
+                        len(sampled_concept_observations)
+                        < max_observations_per_tick
+                    ):
+                        sampled_concept_observations.append(
+                            (raw_text, metrics)
+                        )
+                    else:
+                        skipped_concept_observations += 1
+                elif index == total_trained - 1:
+                    pending_concept_observation = (raw_text, metrics)
+
+            if (
+                concept_observation_due
+                and pending_concept_observation is not None
+                and len(sampled_concept_observations)
+                < max_observations_per_tick
+            ):
+                sampled_concept_observations.append(
+                    pending_concept_observation
+                )
+            elif (
+                concept_observation_due
+                and pending_concept_observation is not None
+            ):
+                skipped_concept_observations += 1
+
+            observed_batch: list[dict[str, Any] | None] = []
+            if sampled_concept_observations:
+                concept_lock_started = time.perf_counter()
+                with self._lock:
+                    if stage_timings_ms is not None:
+                        stage_timings_ms["concept_lock_wait"] = float(
+                            (time.perf_counter() - concept_lock_started)
+                            * 1000.0
+                        )
+                    concept_observation_started = time.perf_counter()
+                    observed_batch = self._observe_runtime_concept_batch_locked(
+                        observations=sampled_concept_observations,
+                    )
+                    if stage_timings_ms is not None:
+                        stage_timings_ms["concept_observation"] = float(
+                            (
+                                time.perf_counter()
+                                - concept_observation_started
+                            )
+                            * 1000.0
+                        )
+            return (
+                total_trained,
+                last_metrics,
+                list(evidence_windows),
+                {
+                    "mode": (
+                        "sampled_batched"
+                        if concept_observation_due
+                        else "cadenced_tick_skip"
+                    ),
+                    "interval_tokens": int(observation_interval),
+                    "tick_interval": max(
+                        1,
+                        int(concept_observation_tick_interval),
+                    ),
+                    "tick_due": bool(concept_observation_due),
+                    "max_per_tick": int(max_observations_per_tick),
+                    "attempts": int(len(sampled_concept_observations)),
+                    "skipped_attempts": int(skipped_concept_observations),
+                    "observations": int(
+                        sum(item is not None for item in observed_batch)
+                    ),
+                    "batches": int(bool(sampled_concept_observations)),
+                    "structural_maintenance_passes": int(
+                        any(item is not None for item in observed_batch)
+                    ),
+                    "execution_owner": "training_text_sequence",
+                },
+            )
         for i in range(0, len(chunk), batch_size):
             if stop_event is not None and stop_event.is_set():
                 break
@@ -1529,6 +1684,8 @@ class BrainRuntime:
                 ),
                 "stop_check_boundary": "between_quanta",
                 "sequential_token_training": True,
+                "execution_owner": "training_text_sequence",
+                "service_dispatches_per_tick": 1,
             },
             "repeat_sources": bool(self._brain_config.get("repeat_sources", True)),
             "source_count": int(len(self._brain_source_runtimes)),
@@ -1598,6 +1755,9 @@ class BrainRuntime:
                     "cache_schedule_count": int(runtime.cache_schedule_count),
                     "cache_skip_count": int(runtime.cache_skip_count),
                     "cache_partial_skip_count": int(runtime.cache_partial_skip_count),
+                    "cache_stable_generation_skip_count": int(
+                        runtime.cache_stable_generation_skip_count
+                    ),
                     "cache_material_token_count": int(runtime.cache_material_token_count),
                     "cache_failure_count": int(runtime.cache_failure_count),
                     "cache_pending": bool(runtime.cache_pending),

@@ -601,7 +601,14 @@ class RuntimeControl(RuntimePrewarmer):
                 )
                 self._commit_collected_runtime_locked(collect_meta)
                 if collect_meta is not None:
-                    self._update_brain_runtime_cache_locked(collect_meta["runtime"], served_examples=chunk)
+                    self._update_brain_runtime_cache_locked(
+                        collect_meta["runtime"],
+                        served_examples=chunk,
+                        queue_material_changed=bool(
+                            int(collect_meta.get("prefetch_tokens", 0) or 0) > 0
+                            or collect_meta.get("new_stream") is not None
+                        ),
+                    )
                 self._start_remote_warm_promotion_locked(trigger="post_collect")
             stage_timings_ms["prepare_training"] = float(
                 (time.perf_counter() - prepare_started) * 1000.0
