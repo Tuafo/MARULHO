@@ -15,6 +15,8 @@ related_benchmarks:
   - reports/prepared_source_tick_executor_20260614/stress-131072.json
   - reports/device_lightweight_metrics_20260614/stress-32768.json
   - reports/device_lightweight_metrics_20260614/stress-131072.json
+  - reports/hot_path_cadence_retired_20260614/stress-32768.json
+  - reports/hot_path_cadence_retired_20260614/stress-131072.json
 ---
 
 # Prepared Source Tick Executor
@@ -50,11 +52,26 @@ request.
 - CUDA: RTX 3060, all `131072` transitions, `126952` burst-owned tokens, zero graph/burst failures.
 - Runtime Truth: `1024` sequence calls, `16384` quanta, stop boundary between quanta, `1024` stable-generation skips, one cache write, zero cache failures.
 
+## Deferred Slow Memory Cadence
+
+Fixed-cadence slow-memory admission no longer forces ordinary burst quanta
+through retained `train_step`. First-token retained/fallback admission and
+strong-capture device-ring events remain; routine cadence is reported as
+deferred maintenance.
+
+- Command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/hot_path_cadence_retired_20260614/stress-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 8 --timeout-seconds 900 --sample-interval-seconds 0.5`
+- Throughput: `3901.906 tokens/sec` over `33.592 s`, versus `3565.968` for the prior long lightweight-metrics run (`1.094x`).
+- Latency: mean tick `30.279 ms`, p95 `40.424 ms`.
+- Training: `train_compute=0.219858 ms/token`, down from `0.241568`.
+- CUDA: RTX 3060, all `131072` transitions, `131056` burst-owned tokens, zero graph/burst failures.
+- Runtime Truth: `512` deferred slow-memory cadence events, only `runtime_not_fully_warm` and one `sleep_boundary` fallback, `1024` sequence calls, and `16384` quanta.
+- Rejected variant: exact cadence archive payloads in the burst event ring removed slow-memory fallbacks but regressed 32768-token throughput to `3052.470` and `3145.964 tokens/sec`.
+
 ## Remaining Cost
 
-`train_compute=0.241568 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at `82.713 s` for 131072 prepared tokens. The long
-run stop latency improved to `124.712 ms`.
+`train_compute=0.219858 ms/token` is still dominant. Source prewarm remains an
+explicit startup slow path at `66.143 s` for 131072 prepared tokens. The long
+run stop latency was `116.972 ms`.
 
 ## Rejected Continuation
 

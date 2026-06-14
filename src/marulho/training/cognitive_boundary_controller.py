@@ -13,6 +13,7 @@ class CognitiveBoundaryPlan:
     drift_refresh_due: bool
     drift_floor_close_due: bool
     telemetry_observation_due: bool
+    slow_memory_cadence_due: bool
 
     @property
     def device_continuous(self) -> bool:
@@ -29,10 +30,12 @@ class CognitiveBoundaryController:
         self.drift_refresh_count = 0
         self.drift_floor_close_count = 0
         self.telemetry_observation_deferred_count = 0
+        self.slow_memory_cadence_deferred_count = 0
         self.last_fallback_reason: str | None = None
         self.last_drift_refresh_token: int | None = None
         self.last_drift_floor_close_token: int | None = None
         self.last_telemetry_observation_token: int | None = None
+        self.last_slow_memory_cadence_token: int | None = None
 
     def plan(
         self,
@@ -55,6 +58,7 @@ class CognitiveBoundaryController:
         drift_refresh_due = False
         drift_floor_close_due = False
         telemetry_observation_due = False
+        slow_memory_cadence_due = False
         fallback_reason: str | None = None
         end_token = int(start_token) + int(token_count)
         for current in range(int(start_token), end_token):
@@ -71,14 +75,15 @@ class CognitiveBoundaryController:
                 drift_floor_close_due
                 or next_token % max(1, int(drift_floor_window_tokens)) == 0
             )
+            slow_memory_cadence_due = (
+                slow_memory_cadence_due
+                or next_token % max(1, int(slow_memory_archive_interval)) == 0
+            )
             if (
                 current % max(1, int(hnsw_flush_interval)) == 0
                 and hnsw_buffer_pending
             ):
                 fallback_reason = "routing_index_flush_boundary"
-                break
-            if next_token % max(1, int(slow_memory_archive_interval)) == 0:
-                fallback_reason = "slow_memory_boundary"
                 break
             deep_due = (
                 current >= int(deep_sleep_interval_tokens)
@@ -109,6 +114,7 @@ class CognitiveBoundaryController:
             drift_refresh_due=drift_refresh_due,
             drift_floor_close_due=drift_floor_close_due,
             telemetry_observation_due=telemetry_observation_due,
+            slow_memory_cadence_due=slow_memory_cadence_due,
         )
 
     def record_drift_refresh(self, *, token: int) -> None:
@@ -123,6 +129,10 @@ class CognitiveBoundaryController:
         self.telemetry_observation_deferred_count += 1
         self.last_telemetry_observation_token = int(token)
 
+    def record_slow_memory_cadence_deferred(self, *, token: int) -> None:
+        self.slow_memory_cadence_deferred_count += 1
+        self.last_slow_memory_cadence_token = int(token)
+
     def report(self) -> dict[str, Any]:
         return {
             "surface": "device_owned_cognitive_boundary_controller.v1",
@@ -135,14 +145,21 @@ class CognitiveBoundaryController:
             "telemetry_observation_deferred_count": int(
                 self.telemetry_observation_deferred_count
             ),
+            "slow_memory_cadence_deferred_count": int(
+                self.slow_memory_cadence_deferred_count
+            ),
             "last_fallback_reason": self.last_fallback_reason,
             "last_drift_refresh_token": self.last_drift_refresh_token,
             "last_drift_floor_close_token": self.last_drift_floor_close_token,
             "last_telemetry_observation_token": (
                 self.last_telemetry_observation_token
             ),
+            "last_slow_memory_cadence_token": (
+                self.last_slow_memory_cadence_token
+            ),
             "exploration_execution_gate": False,
             "telemetry_execution_gate": False,
             "drift_refresh_execution_gate": False,
+            "slow_memory_cadence_execution_gate": False,
             "cpu_maintenance_after_device_burst": True,
         }

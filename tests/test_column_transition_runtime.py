@@ -719,6 +719,59 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_defers_slow_memory_cadence_without_fallback() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=9,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=8,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="cadence deferred warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+    raw_windows = [f"cadence deferred burst {index}" for index in range(8)]
+
+    assert trainer.train_text_burst(patterns, raw_windows=raw_windows) is True
+
+    runtime_report = trainer.column_transition_runtime_report()
+    controller = runtime_report["cognitive_boundary_controller"]
+    assert runtime_report["text_burst_fallback_count"] == 0
+    assert runtime_report["text_burst_fallback_reasons"] == {}
+    assert runtime_report["text_burst_strong_event_count"] == 0
+    assert trainer._slow_memory_archive_count == 1
+    assert trainer._slow_memory_archive_skip_count == 9
+    assert trainer._slow_memory_last_archive_reason == "cadence_deferred"
+    assert trainer.model.memory_store.slow_raw_windows == ["cadence deferred warmup"]
+    assert controller["slow_memory_cadence_deferred_count"] == 1
+    assert controller["last_slow_memory_cadence_token"] == 8
+    assert controller["slow_memory_cadence_execution_gate"] is False
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
     config = MarulhoConfig(
         n_columns=32,

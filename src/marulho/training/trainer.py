@@ -533,6 +533,20 @@ class MarulhoTrainer:
             self._cognitive_boundary_controller.record_drift_floor_close(
                 token=self.token_count
             )
+        if boundary_plan.slow_memory_cadence_due:
+            deferred_token = next(
+                (
+                    start + index + 1
+                    for index in range(token_count)
+                    if (start + index + 1) % archive_interval == 0
+                ),
+                end,
+            )
+            self._slow_memory_archive_skip_count += 1
+            self._slow_memory_last_archive_reason = "cadence_deferred"
+            self._cognitive_boundary_controller.record_slow_memory_cadence_deferred(
+                token=deferred_token,
+            )
         if boundary_plan.telemetry_observation_due:
             self._cognitive_boundary_controller.record_telemetry_deferred(
                 token=self.token_count

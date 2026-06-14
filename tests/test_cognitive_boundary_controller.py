@@ -72,7 +72,7 @@ def test_drift_floor_window_closes_after_device_execution() -> None:
     assert plan.drift_floor_close_due is True
 
 
-def test_slow_memory_boundary_remains_a_real_fallback() -> None:
+def test_slow_memory_cadence_defers_after_device_execution() -> None:
     controller = CognitiveBoundaryController()
 
     plan = _plan(
@@ -81,9 +81,15 @@ def test_slow_memory_boundary_remains_a_real_fallback() -> None:
         slow_memory_archive_interval=256,
     )
 
-    assert plan.device_continuous is False
-    assert plan.fallback_reason == "slow_memory_boundary"
-    assert controller.report()["fallback_count"] == 1
+    assert plan.device_continuous is True
+    assert plan.fallback_reason is None
+    assert plan.slow_memory_cadence_due is True
+    assert controller.report()["fallback_count"] == 0
+    controller.record_slow_memory_cadence_deferred(token=256)
+    report = controller.report()
+    assert report["slow_memory_cadence_deferred_count"] == 1
+    assert report["last_slow_memory_cadence_token"] == 256
+    assert report["slow_memory_cadence_execution_gate"] is False
 
 
 def test_pending_routing_index_flush_remains_a_real_fallback() -> None:

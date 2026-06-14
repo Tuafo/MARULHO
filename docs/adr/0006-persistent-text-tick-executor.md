@@ -173,6 +173,13 @@ cognitive-quality evidence, and grounded fallback gates.
   as bounded Runtime Truth. The 131072-token CUDA service run improved to
   `3565.968 tokens/sec`, reduced `train_compute` to `0.241568 ms/token`, and
   raised burst-owned tokens to `126952` with zero graph/burst failures.
+- Fixed slow-memory cadence is no longer a burst execution fallback. The
+  hot path still admits first-token retained records and strong/surprise burst
+  events, but ordinary cadence ticks are reported as deferred maintenance rather
+  than forcing CPU replay-memory admission. The 131072-token CUDA service run
+  reached `3901.906 tokens/sec`, reduced `train_compute` to
+  `0.219858 ms/token`, executed `131056` burst-owned tokens, reported `512`
+  deferred slow-memory cadence events, and retained zero graph/burst failures.
 
 ## Reversal
 
