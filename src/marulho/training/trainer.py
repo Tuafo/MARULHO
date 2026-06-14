@@ -26,6 +26,7 @@ from marulho.training.cognitive_boundary_controller import (
     CognitiveBoundaryController,
 )
 from marulho.training.column_transition_runtime import ColumnTransitionRuntime
+from marulho.training.cuda_graph_route_transition import MAX_QUANTUM_INPUT_TOKENS
 
 
 class MarulhoTrainer:
@@ -147,6 +148,9 @@ class MarulhoTrainer:
         self._text_sequence_token_count = 0
         self._text_sequence_quantum_count = 0
         self._text_sequence_stop_count = 0
+        self._text_sequence_input_stage_count = 0
+        self._text_sequence_input_staged_token_count = 0
+        self._text_sequence_input_stage_skip_count = 0
         self._last_text_burst_metrics: dict[str, Any] | None = None
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
@@ -245,6 +249,18 @@ class MarulhoTrainer:
         )
         report["text_sequence_stop_count"] = int(
             self._text_sequence_stop_count
+        )
+        report["text_sequence_input_staging_enabled"] = bool(
+            getattr(self.config, "cuda_graph_sequence_input_staging", True)
+        )
+        report["text_sequence_input_stage_count"] = int(
+            self._text_sequence_input_stage_count
+        )
+        report["text_sequence_input_staged_token_count"] = int(
+            self._text_sequence_input_staged_token_count
+        )
+        report["text_sequence_input_stage_skip_count"] = int(
+            self._text_sequence_input_stage_skip_count
         )
         report["text_sequence_owner"] = "training"
         report["text_sequence_stop_boundary"] = "between_quanta"
@@ -517,6 +533,65 @@ class MarulhoTrainer:
             simulated_replay += chunk_len
         return True
 
+    def _stageable_text_sequence_end(
+        self,
+        *,
+        start: int,
+        token_count: int,
+        burst_capacity: int,
+        requested_metrics: set[int],
+    ) -> int:
+        start = int(start)
+        token_count = int(token_count)
+        if start < 0 or start >= token_count:
+            return start
+        if self._column_transition_runtime._cuda_graph_runtime is None:
+            return start
+        burst_capacity = max(1, int(burst_capacity))
+        max_end = min(token_count, start + int(MAX_QUANTUM_INPUT_TOKENS))
+        best_end = start
+        graph = self._column_transition_runtime._cuda_graph_runtime
+        assert graph is not None
+        simulated_token = int(self.token_count)
+        simulated_replay = int(graph.replay_count)
+        for chunk_start in range(start, max_end, burst_capacity):
+            chunk_end = min(max_end, chunk_start + burst_capacity)
+            chunk_len = int(chunk_end - chunk_start)
+            if requested_metrics.intersection(range(chunk_start, chunk_end)):
+                break
+            reason = self._text_burst_precheck_fallback_reason(
+                token_count=chunk_len,
+                raw_window_count=chunk_len,
+                start_token=simulated_token,
+            )
+            if reason is not None:
+                break
+            boundary_plan = self._classify_text_burst_boundaries(
+                start_token=simulated_token,
+                token_count=chunk_len,
+                record=False,
+            )
+            if boundary_plan.fallback_reason is not None:
+                break
+            threshold = int(self.config.candidate_homeostasis_start_tokens)
+            if simulated_token < threshold < simulated_token + chunk_len:
+                break
+            sync_interval = max(
+                1,
+                int(self.config.cuda_graph_host_truth_sync_interval_tokens),
+            )
+            sync_offsets = [
+                offset
+                for offset in range(1, chunk_len + 1)
+                if (simulated_replay + offset) % sync_interval == 0
+            ]
+            if sync_offsets not in ([], [chunk_len]):
+                break
+            best_end = chunk_end
+            simulated_token += chunk_len
+            simulated_replay += chunk_len
+        return best_end
+
     @torch.no_grad()
     def train_text_burst(
         self,
@@ -776,14 +851,60 @@ class MarulhoTrainer:
         quantum_count = 0
         stopped = False
         profile_enabled = bool(self._train_step_profile_enabled)
+        can_stage_sequence = (
+            bool(getattr(self.config, "cuda_graph_sequence_input_staging", True))
+            and self._column_transition_runtime.can_prestage_text_input_quantum()
+            and self.memory_warm_started
+            and self._cached_drift is not None
+            and self.model.context_layer is None
+            and self.model.binding_layer is None
+            and self.model.abstraction_layer is None
+            and not self.column_anchors
+        )
+        sequence_staged_until = 0
+
+        def stage_sequence_segment(stage_start: int) -> None:
+            nonlocal sequence_staged_until
+            stage_start = int(stage_start)
+            if not can_stage_sequence or stage_start < sequence_staged_until:
+                return
+            stage_end = self._stageable_text_sequence_end(
+                start=stage_start,
+                token_count=token_count,
+                burst_capacity=burst_capacity,
+                requested_metrics=requested_metrics,
+            )
+            if stage_end <= stage_start:
+                return
+            profile_started = time.perf_counter() if profile_enabled else 0.0
+            sequence_staged = self.stage_text_input_quantum(
+                list(patterns[stage_start:stage_end])
+            )
+            if sequence_staged:
+                self._text_sequence_input_stage_count += 1
+                self._text_sequence_input_staged_token_count += (
+                    stage_end - stage_start
+                )
+                sequence_staged_until = stage_end
+            else:
+                self._text_sequence_input_stage_skip_count += 1
+            if profile_enabled:
+                elapsed_ms = (time.perf_counter() - profile_started) * 1000.0
+                self._record_train_step_profile_stage(
+                    "text_sequence_input_stage",
+                    elapsed_ms,
+                )
+                self._record_train_step_profile_stage("total", elapsed_ms)
 
         for start in range(0, token_count, quantum):
             if should_continue is not None and not bool(should_continue()):
                 stopped = True
                 break
             end = min(token_count, start + quantum)
+            stage_sequence_segment(start)
             can_prestage_quantum = (
-                self._column_transition_runtime.can_prestage_text_input_quantum()
+                start >= sequence_staged_until
+                and self._column_transition_runtime.can_prestage_text_input_quantum()
                 and self.memory_warm_started
                 and self._cached_drift is not None
                 and self.model.context_layer is None
@@ -811,6 +932,7 @@ class MarulhoTrainer:
                     )
                     self._record_train_step_profile_stage("total", elapsed_ms)
             for chunk_start in range(start, end, burst_capacity):
+                stage_sequence_segment(chunk_start)
                 chunk_end = min(end, chunk_start + burst_capacity)
                 chunk_patterns = list(patterns[chunk_start:chunk_end])
                 chunk_windows = [

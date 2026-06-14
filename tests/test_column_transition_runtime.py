@@ -1392,6 +1392,10 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert report["text_sequence_execution_count"] == 1
     assert report["text_sequence_token_count"] == 32
     assert report["text_sequence_quantum_count"] == 2
+    assert report["text_sequence_input_staging_enabled"] is True
+    assert report["text_sequence_input_stage_count"] == 1
+    assert report["text_sequence_input_staged_token_count"] == 32
+    assert report["text_sequence_input_stage_skip_count"] == 0
     assert report["text_burst_execution_count"] == 4
     assert report["text_burst_token_count"] == 32
     assert report["text_burst_fallback_count"] == 0
@@ -1402,6 +1406,120 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["burst_event_slot_reset_count"] == 0
     assert graph_report["burst_event_slot_reset_skip_count"] == 1
     assert graph_report["burst_replay_failure_count"] == 0
+    assert graph_report["quantum_input_stage_count"] == 1
+    assert graph_report["quantum_input_staged_token_count"] == 32
+    assert graph_report["quantum_input_reuse_count"] == 32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_training_owned_sequence_input_staging_segments_around_host_truth_phase() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=256,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=32,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=256,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="sequence staging off-phase warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(128)
+    ]
+
+    result = trainer.train_text_sequence(
+        patterns,
+        raw_windows=[f"sequence staging off-phase {index}" for index in range(128)],
+        quantum_tokens=16,
+        metric_indices=set(),
+    )
+    torch.cuda.synchronize()
+
+    report = trainer.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert result["trained"] == 128
+    assert report["text_sequence_input_stage_count"] == 4
+    assert report["text_sequence_input_staged_token_count"] == 96
+    assert report["text_sequence_input_stage_skip_count"] == 0
+    assert report["text_burst_execution_count"] == 12
+    assert report["text_burst_token_count"] == 96
+    assert report["text_burst_fallback_reasons"] == {"host_truth_boundary": 4}
+    assert graph_report["quantum_input_stage_count"] == 8
+    assert graph_report["quantum_input_staged_token_count"] == 128
+    assert graph_report["quantum_input_reuse_count"] == 128
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_training_owned_sequence_input_staging_can_be_disabled() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=128,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=33,
+        cuda_graph_sequence_input_staging=False,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="sequence staging disabled warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(32)
+    ]
+
+    result = trainer.train_text_sequence(
+        patterns,
+        raw_windows=[f"sequence staging disabled {index}" for index in range(32)],
+        quantum_tokens=16,
+        metric_indices=set(),
+    )
+    torch.cuda.synchronize()
+
+    report = trainer.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert result["trained"] == 32
+    assert report["text_sequence_input_staging_enabled"] is False
+    assert report["text_sequence_input_stage_count"] == 0
+    assert report["text_sequence_input_staged_token_count"] == 0
     assert graph_report["quantum_input_stage_count"] == 2
     assert graph_report["quantum_input_staged_token_count"] == 32
     assert graph_report["quantum_input_reuse_count"] == 32
@@ -1466,6 +1584,9 @@ def test_training_owned_quantum_does_not_prestage_across_sleep_boundary() -> Non
     assert report["text_burst_token_count"] == 8
     assert report["text_burst_fallback_count"] == 1
     assert report["text_burst_fallback_reasons"] == {"sleep_boundary": 1}
+    assert report["text_sequence_input_stage_count"] == 1
+    assert report["text_sequence_input_staged_token_count"] == 8
+    assert report["text_sequence_input_stage_skip_count"] == 0
     assert graph_report["quantum_input_staged_token_count"] == 16
     assert graph_report["quantum_input_reuse_count"] == 16
     assert graph_report["quantum_input_discard_count"] == 0

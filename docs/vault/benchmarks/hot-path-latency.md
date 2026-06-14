@@ -6,6 +6,7 @@ related_code:
   - ../../../src/marulho/evaluation/binding_wake_benchmark.py
   - ../../../src/marulho/evaluation/cross_modal_wake_benchmark.py
   - ../../../src/marulho/evaluation/hot_window_benchmark.py
+  - ../../../src/marulho/evaluation/sequence_input_staging_benchmark.py
   - ../../../src/marulho/evaluation/compiled_column_kernel_benchmark.py
   - ../../../src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py
   - ../../../src/marulho/evaluation/predictive_transition_benchmark.py
@@ -83,6 +84,26 @@ two-stage route/vote path. This confirms that the next real speed target is a
 lower-level device-owned multi-tick executor or persistent sequence kernel, not
 a local one-block top-k fusion that still leaves one CUDA Graph replay per
 token.
+
+Boundary-aware source-sequence input staging is now promoted as the maintained
+input-ring policy. The same-process reversed A/B at
+`reports/sequence_input_staging_20260614/sequence-input-staging-ab-clean.json`
+measured sequence staging at `3365.278 tokens/sec` versus per-quantum staging at
+`3007.088 tokens/sec` (`1.119x`). The active sequence arms reduced measured
+graph input-stage calls from `1536` to `1024` over `16384` tokens while staging
+`12288` source-sequence tokens and preserving zero graph/burst failures. A
+profiled short A/B was noisy and failed the speed gate (`0.967x`), but it proved
+the Runtime Truth counters and showed the same stage-call reduction.
+
+The complete warm runtime proof at
+`reports/sequence_input_staging_20260614/stress-65536-segment-staging.json`
+processed `65536` tokens at `3593.347 tokens/sec` with CUDA selected on the RTX
+3060, `65536` graph-backed executions, zero graph/burst failures, and active
+sequence staging for `65408` tokens. `velocity_environment.v1` reported GPU
+contention, so this is not a new top-speed claim over the retained
+`4577.595 tokens/sec` run. It does prove the promoted staging boundary executes
+inside the service-style path and keeps the dominant bottleneck at
+`train_compute=0.234968 ms/token`.
 
 ## Commands
 

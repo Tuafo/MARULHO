@@ -1318,15 +1318,18 @@ encoded tensors into the ring and the captured graph advances the device slot
 and recent-spike-row cursor. When an ordinary warm text sequence is wider than
 the eight-token burst graph, training first preflights every burst-sized slice
 with the same boundary classifier used by the real burst plan, but without
-mutating Runtime Truth counters. Only a fully safe metric-free quantum is
-pre-staged once, then consecutive bursts consume exact pointer-checked slices
-from that staged window. Pointer-order checks make staged reuse exact; mismatch,
-sensory, unsupported, sleep, host-truth, metrics, or other fallback boundaries
-skip or discard staged material before mutation and use the retained per-token
-copy. Runtime Truth exposes staged, reused, fallback, mismatch, discard, and
-device-owned cursor counts; `quantum_input_reuse_count` counts consumed tokens,
-not just successful staging calls, and staged-token counts should not exceed
-consumed tokens for a clean boundary-safe run.
+mutating Runtime Truth counters. Training stages the longest safe metric-free
+segment up to the bounded ring capacity, then consecutive bursts consume exact
+pointer-checked slices from that staged window. Host-truth, sleep, metrics, and
+other cognitive boundaries stop the staged segment instead of freezing the
+whole source tick. Pointer-order checks make staged reuse exact; mismatch,
+sensory, unsupported, or other fallback boundaries skip or discard staged
+material before mutation and use the retained fallback copy. Runtime Truth
+exposes sequence-stage calls/tokens/skips plus graph-level staged, reused,
+fallback, mismatch, discard, and device-owned cursor counts;
+`quantum_input_reuse_count` counts consumed tokens, not just successful staging
+calls, and staged-token counts should not exceed consumed tokens for a clean
+boundary-safe run.
 _Avoid_: treating the quantum as parallel cognition, placing graph algorithms
 in `service`, staging more than the bounded ring capacity, or synchronizing CUDA
 per token to report ring progress

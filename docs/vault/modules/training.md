@@ -62,15 +62,17 @@ related_benchmarks: []
         owning CUDA algorithms; `ColumnTransitionRuntime` stages the encoded
         tensors into a fixed 128-row CUDA ring and the captured graph advances
         the input slot and recent-spike-row cursor. Warm metric-free text
-        sequences can pre-stage a full training quantum once only after a
-        non-mutating boundary preflight classifies every burst-sized slice as
-        device-continuous. The eight-token burst executor then consumes
-        pointer-checked slices from that staged window. Pointer-order validation
-        preserves exact token order, while mismatch, sensory, sleep,
-        host-truth, metrics, and other fallback boundaries skip or discard
-        staged remainder and fall back before mutation. Runtime Truth exposes
-        stage, token reuse, fallback-copy, mismatch, discard, and device-owned
-        cursor counters; only the real burst plan updates boundary counters.
+        sequences stage the longest safe segment up to the ring capacity after
+        a non-mutating boundary preflight classifies each burst-sized slice as
+        device-continuous. Host-truth, sleep, metrics, and other cognitive
+        boundaries stop the staged segment instead of disabling the whole source
+        tick. The eight-token burst executor then consumes pointer-checked
+        slices from the staged window. Pointer-order validation preserves exact
+        token order, while mismatch, sensory, and fallback boundaries skip or
+        discard staged remainder and fall back before mutation. Runtime Truth
+        exposes sequence-stage calls/tokens/skips plus graph stage, token reuse,
+        fallback-copy, mismatch, discard, and device-owned cursor counters; only
+        the real burst plan updates boundary counters.
 
         The production trainer now owns Boundary-Aware Text Burst execution.
         For exactly eight ordinary text ticks, it consumes an already staged
@@ -106,7 +108,10 @@ related_benchmarks: []
         persistent CUDA burst executor, event ring, host-truth boundary, and
         SNN transition order remain unchanged. This removes the old q16
         fallback path where wider quanta bypassed burst execution and fell
-        through to per-token `train_step`.
+        through to per-token `train_step`. The source-sequence input stage now
+        spans multiple quanta when safe, but never crosses the same host-truth,
+        sleep, metrics, or fallback boundaries that the real burst executor
+        enforces.
 
         Slow replay-memory admission is no longer a fixed-cadence hot-path write. Every token still runs the promoted column transition, context, binding, cross-modal, surprise, and routing-index buffer policies, but expensive `DualMemoryStore.update()` admission and stream-text episode reconstruction run only on retained/fallback admission or high-surprise strong-capture events. Fixed cadence is counted as deferred maintenance by the cognitive boundary controller, not as a reason to break burst execution. Runtime Truth exposes deferred cadence, archive count, skip count, interval, and last archive reason through `memory_hot_path` and the boundary report.
 
