@@ -728,6 +728,9 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
     assert runtime_report["text_burst_strong_event_count"] == 0
     assert runtime_report["text_burst_event_deferred_apply_skip_count"] == 0
     assert report["burst_event_ring_device_owned"] is True
+    assert report["quantum_input_stage_count"] == 1
+    assert report["quantum_input_staged_token_count"] == 8
+    assert report["quantum_input_reuse_count"] == 8
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -1393,6 +1396,9 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["burst_event_drain_count"] == 2
     assert graph_report["burst_event_drained_token_count"] == 32
     assert graph_report["burst_replay_failure_count"] == 0
+    assert graph_report["quantum_input_stage_count"] == 2
+    assert graph_report["quantum_input_staged_token_count"] == 32
+    assert graph_report["quantum_input_reuse_count"] == 32
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

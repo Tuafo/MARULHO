@@ -930,6 +930,20 @@ class CudaGraphRouteTransition:
         )
 
     @torch.no_grad()
+    def can_prestage_input_quantum(self) -> bool:
+        return (
+            bool(self.active)
+            and self._last_result is not None
+            and bool(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_quantum_input_staging",
+                    True,
+                )
+            )
+        )
+
+    @torch.no_grad()
     def stage_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
         if (
             not self.active
@@ -1021,9 +1035,6 @@ class CudaGraphRouteTransition:
         if start_token < threshold < start_token + len(patterns):
             raise RuntimeError("persistent executor burst crosses routing-mode boundary")
         _profile_mark("text_burst_runtime_eligibility")
-        if not self.stage_input_quantum(patterns):
-            raise RuntimeError("persistent executor burst input staging failed")
-        _profile_mark("text_burst_runtime_input_stage")
         sync_interval = max(
             1,
             int(trainer.config.cuda_graph_host_truth_sync_interval_tokens),
@@ -1043,6 +1054,11 @@ class CudaGraphRouteTransition:
         ):
             raise RuntimeError("persistent executor event queue capacity exceeded")
         _profile_mark("text_burst_runtime_host_truth_gate")
+        if not self._staged_inputs_cover(patterns) and not self.stage_input_quantum(
+            patterns
+        ):
+            raise RuntimeError("persistent executor burst input staging failed")
+        _profile_mark("text_burst_runtime_input_stage")
 
         assert self._parameters is not None
         assert self._parameter_device_prefix is not None
@@ -1088,11 +1104,12 @@ class CudaGraphRouteTransition:
             raise
         _profile_mark("text_burst_runtime_replay_loop")
 
-        self._discard_staged_inputs(count_discard=False)
+        self._consume_staged_inputs(token_count)
         self._learning_rate_update_count_mirror += token_count
         self._input_slot_mirror = (
             self._input_slot_mirror + token_count
         ) % MAX_QUANTUM_INPUT_TOKENS
+        self.quantum_input_reuse_count += token_count
         self.tick_replay_count += token_count
         self.replay_count += token_count
         self.burst_replay_count += 1
@@ -1258,6 +1275,27 @@ class CudaGraphRouteTransition:
         if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
             return None
         return int(self._staged_pattern_pointers[self._staged_pattern_offset])
+
+    def _staged_inputs_cover(self, patterns: list[torch.Tensor]) -> bool:
+        if not self._staged_pattern_pointers:
+            return False
+        end = self._staged_pattern_offset + len(patterns)
+        if end > len(self._staged_pattern_pointers):
+            return False
+        for offset, pattern in enumerate(patterns):
+            if (
+                self._staged_pattern_pointers[self._staged_pattern_offset + offset]
+                != int(pattern.data_ptr())
+            ):
+                return False
+        return True
+
+    def _consume_staged_inputs(self, token_count: int) -> None:
+        if not self._staged_pattern_pointers:
+            return
+        self._staged_pattern_offset += int(token_count)
+        if self._staged_pattern_offset >= len(self._staged_pattern_pointers):
+            self._discard_staged_inputs(count_discard=False)
 
     def _discard_staged_inputs(self, *, count_discard: bool = True) -> None:
         if self._staged_pattern_pointers and count_discard:

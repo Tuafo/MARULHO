@@ -567,6 +567,15 @@ This file records research anchors for current architecture work. It is not a pr
   diagnostic regressed because each forced barrier removes the intended
   cross-token overlap; it is retained as latency/profile evidence, not the
   continuous-throughput promotion gate.
+- The 2026-06-14 follow-up keeps the same stable-address rule but moves staging
+  to the wider training-owned quantum when the graph is warm and no per-token
+  metric evidence is requested. The burst graph still replays exactly eight
+  sequential ticks at a time, but each burst now consumes pointer-checked slices
+  from a pre-staged q16 window instead of staging its own smaller copy. The
+  diagnostic profile reduced measured input staging from
+  `0.053073 ms/token` to a combined `0.026171-0.031875 ms/token`; clean runs
+  proved CUDA execution and exact staged-token reuse but were not velocity
+  promotions because benchmark environment snapshots showed CPU contention.
 - The result changes the next implementation direction. More isolated Triton
   arithmetic is unlikely to remove the dominant host tax by itself; the next
   slice should widen persistent ownership across routing preparation,

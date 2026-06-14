@@ -682,12 +682,37 @@ class MarulhoTrainer:
         trained = 0
         quantum_count = 0
         stopped = False
+        profile_enabled = bool(self._train_step_profile_enabled)
 
         for start in range(0, token_count, quantum):
             if should_continue is not None and not bool(should_continue()):
                 stopped = True
                 break
             end = min(token_count, start + quantum)
+            quantum_metric_indices = requested_metrics.intersection(range(start, end))
+            can_prestage_quantum = (
+                self._column_transition_runtime.can_prestage_text_input_quantum()
+                and self.memory_warm_started
+                and self._cached_drift is not None
+                and self.model.context_layer is None
+                and self.model.binding_layer is None
+                and self.model.abstraction_layer is None
+                and not self.column_anchors
+            )
+            if (
+                can_prestage_quantum
+                and not quantum_metric_indices
+                and end - start > burst_capacity
+            ):
+                profile_started = time.perf_counter() if profile_enabled else 0.0
+                self.stage_text_input_quantum(list(patterns[start:end]))
+                if profile_enabled:
+                    elapsed_ms = (time.perf_counter() - profile_started) * 1000.0
+                    self._record_train_step_profile_stage(
+                        "text_sequence_quantum_input_stage",
+                        elapsed_ms,
+                    )
+                    self._record_train_step_profile_stage("total", elapsed_ms)
             for chunk_start in range(start, end, burst_capacity):
                 chunk_end = min(end, chunk_start + burst_capacity)
                 chunk_patterns = list(patterns[chunk_start:chunk_end])

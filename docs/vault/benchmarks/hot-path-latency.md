@@ -527,6 +527,38 @@ large target is broader persistent multi-tick ownership across routing
 preparation, graph replay/post-transition bookkeeping, compact metric packets,
 and event-driven memory admission.
 
+### Quantum-Boundary Input Staging, 2026-06-14
+
+Warm text-sequence execution now pre-stages a full metric-free training quantum
+when the persistent graph has already produced host truth. Consecutive
+eight-token bursts consume pointer-checked slices from that staged q16 window
+instead of staging a smaller window for each burst. This keeps the same exact
+one-tick CUDA graph and does not batch neural time.
+
+The before profile at
+`reports/next_speed_cycle_20260614/stress-8192-profile-current-env.json`
+measured `text_burst_runtime_input_stage=0.053073 ms/token` and
+`train_compute=0.364045 ms/token`. After quantum-boundary staging,
+`reports/next_speed_cycle_20260614/stress-8192-profile-quantum-input-stage.json`
+measured `text_burst_runtime_input_stage=0.001323` plus
+`text_sequence_quantum_input_stage=0.024848 ms/token`; the guarded 4096-token
+profile measured `0.001447` plus `0.030428 ms/token` with exactly `4096`
+staged tokens and `4096` reused tokens.
+
+Clean stress evidence proved the maintained CUDA path but not a new throughput
+ceiling because both fresh runs reported CPU contention:
+`reports/next_speed_cycle_20260614/stress-32768-clean-quantum-input-stage.json`
+reached `2872.995 tokens/sec` with `32768` CUDA transitions, zero graph/burst
+failures, `32784` staged tokens, and `32768` reused tokens while CPU peaked at
+`93%`; the repeat
+`reports/next_speed_cycle_20260614/stress-4096-clean-quantum-input-stage-repeat.json`
+reached `2361.073 tokens/sec` while CPU peaked at `100%`. The retained best
+long-run velocity evidence remains
+`reports/host_truth_interval_sweep_20260614/stress-131072-i32.json` at
+`4577.595 tokens/sec`; this iteration improves staging correctness and
+profiling visibility while leaving the next velocity gate to an uncontended
+long run.
+
 ## Boundary-Aware Text Burst, 2026-06-14
 
 The first implementation captured eight complete tick bodies into one CUDA

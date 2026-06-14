@@ -1309,18 +1309,23 @@ capture as proof of end-to-end production velocity
 input boundary used by the Persistent Text Tick Executor. Brain Runtime may
 offer one bounded sequential execution quantum, but training stages its already
 encoded tensors into the ring and the captured graph advances the device slot
-and recent-spike-row cursor. Pointer-order checks make staged reuse exact;
-mismatch, sensory, or unsupported paths discard the staged remainder and use
-the retained per-token copy before mutation. Runtime Truth exposes staged,
-reused, fallback, mismatch, discard, and device-owned cursor counts.
+and recent-spike-row cursor. When an ordinary warm text sequence is wider than
+the eight-token burst graph, training may pre-stage the whole metric-free
+quantum once and let consecutive bursts consume exact pointer-checked slices
+from that staged window. Pointer-order checks make staged reuse exact; mismatch,
+sensory, or unsupported paths discard the staged remainder and use the retained
+per-token copy before mutation. Runtime Truth exposes staged, reused, fallback,
+mismatch, discard, and device-owned cursor counts; `quantum_input_reuse_count`
+counts consumed tokens, not just successful staging calls.
 _Avoid_: treating the quantum as parallel cognition, placing graph algorithms
 in `service`, staging more than the bounded ring capacity, or synchronizing CUDA
 per token to report ring progress
 
 **Boundary-Aware Text Burst** — the training-owned host-orchestration fast path
 for eight ordinary text ticks between explicit cognitive boundaries. It stages
-the existing input ring once, replays the proven one-tick CUDA graph eight
-times in causal order, and batches only host bookkeeping. A graph-owned
+the existing input ring only when no wider staged quantum already covers the
+burst slice, replays the proven one-tick CUDA graph eight times in causal order,
+and batches only host bookkeeping. A graph-owned
 **Device Strong-Event Ring** snapshots the bounded result packet on every burst
 tick and copies assembly/routing evidence only when that tick crosses the
 configured strong-capture threshold. Training drains those events at the

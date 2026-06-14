@@ -61,16 +61,19 @@ related_benchmarks: []
         Brain Runtime offers each bounded sequential execution quantum without
         owning CUDA algorithms; `ColumnTransitionRuntime` stages the encoded
         tensors into a fixed 128-row CUDA ring and the captured graph advances
-        the input slot and recent-spike-row cursor. Pointer-order validation
-        preserves exact token order, while mismatch and sensory boundaries
-        discard staged remainder and fall back before mutation. Runtime Truth
-        exposes stage, reuse, fallback-copy, mismatch, discard, and
-        device-owned cursor counters.
+        the input slot and recent-spike-row cursor. Warm metric-free text
+        sequences can pre-stage a full training quantum once, then let the
+        eight-token burst executor consume pointer-checked slices from that
+        staged window. Pointer-order validation preserves exact token order,
+        while mismatch and sensory boundaries discard staged remainder and fall
+        back before mutation. Runtime Truth exposes stage, token reuse,
+        fallback-copy, mismatch, discard, and device-owned cursor counters.
 
         The production trainer now owns Boundary-Aware Text Burst execution.
-        For exactly eight ordinary text ticks, it stages the ring once, replays
-        the same one-tick graph eight times in order, and applies equivalent
-        host bookkeeping in one bounded operation. A separate captured
+        For exactly eight ordinary text ticks, it consumes an already staged
+        wider quantum slice when available, otherwise stages the ring for that
+        burst, replays the same one-tick graph eight times in order, and applies
+        equivalent host bookkeeping in one bounded operation. A separate captured
         one-tick variant writes results into a Device Strong-Event Ring and
         copies assembly/routing rows only for threshold crossings; training
         drains those records at the host-truth boundary and archives all

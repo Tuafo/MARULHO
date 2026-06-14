@@ -498,6 +498,11 @@ class ColumnTransitionRuntime:
             return False
         return self._cuda_graph_runtime.stage_input_quantum(patterns)
 
+    def can_prestage_text_input_quantum(self) -> bool:
+        if self._cuda_graph_runtime is None:
+            return False
+        return self._cuda_graph_runtime.can_prestage_input_quantum()
+
     def replay_text_burst(
         self,
         patterns: list[torch.Tensor],
