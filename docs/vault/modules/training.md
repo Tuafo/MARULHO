@@ -83,9 +83,13 @@ related_benchmarks: []
         directly into the Device Strong-Event Ring, loading and copying
         assembly/routing rows only for threshold crossings; training drains
         those records at the host-truth boundary and archives all payloads on
-        CPU. Full-capacity cadence drains rely on the device slot's natural
-        wrap instead of launching a redundant reset, with reset/skip counts
-        exposed through Runtime Truth. Eligibility still fails closed at drift,
+        CPU. The same kernel also maintains a device-owned cumulative
+        strong-event count, so ordinary no-strong drains skip CPU strong-flag
+        scans while forced or natural strong captures still materialize exact
+        flags and payload rows. Full-capacity cadence drains rely on the device
+        slot's natural wrap instead of launching a redundant reset, with
+        reset/skip counts and strong-count scan/skip counts exposed through
+        Runtime Truth. Eligibility still fails closed at drift,
         telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth,
         routing-mode, and metrics boundaries. The same classifier can preview those
         boundaries for quantum pre-staging without incrementing Runtime Truth
@@ -116,6 +120,8 @@ related_benchmarks: []
         Slow replay-memory admission is no longer a fixed-cadence hot-path write. Every token still runs the promoted column transition, context, binding, cross-modal, surprise, and routing-index buffer policies, but expensive `DualMemoryStore.update()` admission and stream-text episode reconstruction run only on retained/fallback admission or high-surprise strong-capture events. Fixed cadence is counted as deferred maintenance by the cognitive boundary controller, not as a reason to break burst execution. Runtime Truth exposes deferred cadence, archive count, skip count, interval, and last archive reason through `memory_hot_path` and the boundary report.
 
         Drift maintenance is sync-free on burst ticks. The trainer refreshes drift without draining pending CUDA event evidence, uses winner-local drift only when the host winner mirror is already fresh, and reports global-drift refreshes when the mirror is stale. Drift-floor closure is CPU maintenance and no longer forces an event drain. See [[prepared-source-tick-executor]].
+
+        The cognitive boundary classifier now uses range arithmetic for telemetry, drift, slow-memory cadence, sleep, and routing-index boundaries instead of scanning every token in Python for each proposed burst. Focused tests compare the range classifier against the previous loop semantics, and Runtime Truth exposes `classification_mode=range_arithmetic`.
 
         ## Should Not Own
 

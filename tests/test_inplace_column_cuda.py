@@ -214,6 +214,7 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         device=device,
     )
     strong_flags = torch.zeros(2, dtype=torch.bool, device=device)
+    strong_count = torch.zeros((), dtype=torch.int32, device=device)
     slot = torch.zeros((), dtype=torch.long, device=device)
     strong_threshold = -1.0 if force_fallback else 10.0
 
@@ -241,6 +242,7 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         burst_routing_ring=routing_ring,
         burst_assembly_ring=assembly_ring,
         burst_strong_flags=strong_flags,
+        burst_strong_count=strong_count,
         burst_slot=slot,
         strong_threshold=strong_threshold,
         routing_key=routing_key,
@@ -316,10 +318,12 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
     assert int(slot.item()) == 1
     if force_fallback:
         assert bool(strong_flags[0].item()) is True
+        assert int(strong_count.item()) == 1
         assert torch.allclose(routing_ring[0], routing_key, atol=2e-5, rtol=2e-5)
         assert torch.allclose(assembly_ring[0], assembly, atol=2e-5, rtol=2e-5)
     else:
         assert bool(strong_flags[0].item()) is False
+        assert int(strong_count.item()) == 0
         assert torch.equal(routing_ring[0], torch.full_like(routing_ring[0], -7.0))
         assert torch.equal(assembly_ring[0], torch.full_like(assembly_ring[0], -7.0))
     assert torch.allclose(

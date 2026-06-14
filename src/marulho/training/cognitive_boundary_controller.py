@@ -7,6 +7,22 @@ from typing import Any
 DRIFT_REFRESH_INTERVAL_TOKENS = 50
 
 
+def _first_multiple_at_or_after(value: int, interval: int) -> int:
+    interval = max(1, int(interval))
+    value = int(value)
+    remainder = value % interval
+    if remainder == 0:
+        return value
+    return value + (interval - remainder)
+
+
+def _has_multiple_in_range(start: int, stop_exclusive: int, interval: int) -> bool:
+    if int(stop_exclusive) <= int(start):
+        return False
+    first = _first_multiple_at_or_after(int(start), int(interval))
+    return first < int(stop_exclusive)
+
+
 @dataclass(frozen=True)
 class CognitiveBoundaryPlan:
     fallback_reason: str | None
@@ -98,54 +114,70 @@ class CognitiveBoundaryController:
         micro_sleep_interval_tokens: int,
         last_micro_sleep_token: int,
     ) -> CognitiveBoundaryPlan:
-        drift_refresh_due = False
-        drift_floor_close_due = False
-        telemetry_observation_due = False
-        slow_memory_cadence_due = False
         fallback_reason: str | None = None
-        end_token = int(start_token) + int(token_count)
-        for current in range(int(start_token), end_token):
-            next_token = current + 1
-            drift_refresh_due = (
-                drift_refresh_due
-                or current % DRIFT_REFRESH_INTERVAL_TOKENS == 0
+        start = int(start_token)
+        end_token = start + int(token_count)
+        fallback_token: int | None = None
+
+        if end_token > start and bool(hnsw_buffer_pending):
+            first_routing = _first_multiple_at_or_after(
+                start,
+                max(1, int(hnsw_flush_interval)),
             )
-            telemetry_observation_due = (
-                telemetry_observation_due
-                or current % max(1, int(telemetry_interval)) == 0
-            )
-            drift_floor_close_due = (
-                drift_floor_close_due
-                or next_token % max(1, int(drift_floor_window_tokens)) == 0
-            )
-            slow_memory_cadence_due = (
-                slow_memory_cadence_due
-                or next_token % max(1, int(slow_memory_archive_interval)) == 0
-            )
-            if (
-                current % max(1, int(hnsw_flush_interval)) == 0
-                and hnsw_buffer_pending
-            ):
+            if first_routing < end_token:
+                fallback_token = first_routing
                 fallback_reason = "routing_index_flush_boundary"
-                break
-            deep_due = (
-                current >= int(deep_sleep_interval_tokens)
-                and current - int(last_deep_sleep_token)
-                >= int(deep_sleep_interval_tokens)
-            )
-            emergency_due = (
-                bool(pending_emergency_deep_sleep)
-                and current - int(last_deep_sleep_token)
-                >= int(emergency_deep_sleep_cooldown_tokens)
-            )
-            micro_due = (
-                current >= int(micro_sleep_interval_tokens)
-                and current - int(last_micro_sleep_token)
-                >= int(micro_sleep_interval_tokens)
-            )
-            if deep_due or emergency_due or micro_due:
+
+        if end_token > start:
+            sleep_candidates = [
+                max(
+                    int(deep_sleep_interval_tokens),
+                    int(last_deep_sleep_token)
+                    + int(deep_sleep_interval_tokens),
+                ),
+                max(
+                    int(micro_sleep_interval_tokens),
+                    int(last_micro_sleep_token)
+                    + int(micro_sleep_interval_tokens),
+                ),
+            ]
+            if bool(pending_emergency_deep_sleep):
+                sleep_candidates.append(
+                    int(last_deep_sleep_token)
+                    + int(emergency_deep_sleep_cooldown_tokens)
+                )
+            first_sleep = max(start, min(sleep_candidates))
+            if first_sleep < end_token and (
+                fallback_token is None or first_sleep < fallback_token
+            ):
+                fallback_token = first_sleep
                 fallback_reason = "sleep_boundary"
-                break
+
+        scan_stop = (
+            int(fallback_token) + 1
+            if fallback_token is not None
+            else end_token
+        )
+        drift_refresh_due = _has_multiple_in_range(
+            start,
+            scan_stop,
+            DRIFT_REFRESH_INTERVAL_TOKENS,
+        )
+        telemetry_observation_due = _has_multiple_in_range(
+            start,
+            scan_stop,
+            max(1, int(telemetry_interval)),
+        )
+        drift_floor_close_due = _has_multiple_in_range(
+            start + 1,
+            scan_stop + 1,
+            max(1, int(drift_floor_window_tokens)),
+        )
+        slow_memory_cadence_due = _has_multiple_in_range(
+            start + 1,
+            scan_stop + 1,
+            max(1, int(slow_memory_archive_interval)),
+        )
 
         return CognitiveBoundaryPlan(
             fallback_reason=fallback_reason,
@@ -215,4 +247,5 @@ class CognitiveBoundaryController:
             "drift_refresh_requires_host_truth": False,
             "slow_memory_cadence_execution_gate": False,
             "cpu_maintenance_after_device_burst": True,
+            "classification_mode": "range_arithmetic",
         }

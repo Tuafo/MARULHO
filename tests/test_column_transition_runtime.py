@@ -728,6 +728,7 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
     assert runtime_report["text_burst_strong_event_count"] == 0
     assert runtime_report["text_burst_event_deferred_apply_skip_count"] == 0
     assert report["burst_event_ring_device_owned"] is True
+    assert report["burst_event_strong_count_device_owned"] is True
     assert report["quantum_input_stage_count"] == 1
     assert report["quantum_input_staged_token_count"] == 8
     assert report["quantum_input_reuse_count"] == 8
@@ -1016,6 +1017,9 @@ def test_text_burst_defers_host_truth_across_two_quanta() -> None:
     assert graph_report["burst_event_forced_drain_count"] == 0
     assert graph_report["burst_event_slim_result_packet_count"] == 1
     assert graph_report["burst_event_strong_result_row_count"] == 0
+    assert graph_report["burst_event_strong_flag_scan_count"] == 0
+    assert graph_report["burst_event_no_strong_flag_scan_skip_count"] == 1
+    assert graph_report["burst_event_strong_count_total"] == 0
     assert graph_report["burst_event_slot_reset_count"] == 1
     assert graph_report["burst_event_slot_reset_skip_count"] == 0
 
@@ -1072,6 +1076,9 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
     assert graph_report["burst_event_forced_drain_count"] == 1
     assert graph_report["burst_event_slim_result_packet_count"] == 1
     assert graph_report["burst_event_strong_result_row_count"] == 8
+    assert graph_report["burst_event_strong_flag_scan_count"] == 1
+    assert graph_report["burst_event_no_strong_flag_scan_skip_count"] == 0
+    assert graph_report["burst_event_strong_count_total"] == 8
     assert graph_report["burst_event_slot_reset_count"] == 1
     assert graph_report["burst_event_slot_reset_skip_count"] == 0
     assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
@@ -1405,6 +1412,9 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["burst_event_drained_token_count"] == 32
     assert graph_report["burst_event_slot_reset_count"] == 0
     assert graph_report["burst_event_slot_reset_skip_count"] == 1
+    assert graph_report["burst_event_strong_flag_scan_count"] == 0
+    assert graph_report["burst_event_no_strong_flag_scan_skip_count"] == 1
+    assert graph_report["burst_event_strong_count_total"] == 0
     assert graph_report["burst_replay_failure_count"] == 0
     assert graph_report["quantum_input_stage_count"] == 1
     assert graph_report["quantum_input_staged_token_count"] == 32

@@ -211,6 +211,7 @@ if triton is not None:
         burst_routing_ring,
         burst_assembly_ring,
         burst_strong_flags,
+        burst_strong_count,
         burst_slot,
         routing_key,
         previous_routing_key,
@@ -532,6 +533,12 @@ if triton is not None:
             if result_width >= 9:
                 tl.store(burst_result_ring + event_base + 8, competitive_surprise)
             tl.store(burst_strong_flags + event_slot, strong_event)
+            current_strong_count = tl.load(burst_strong_count)
+            tl.store(
+                burst_strong_count,
+                current_strong_count + 1,
+                mask=strong_event,
+            )
             tl.store(
                 burst_routing_ring + event_slot * column_dim + feature_offsets,
                 routing,
@@ -692,6 +699,7 @@ def inplace_column_transition_cuda(
     burst_routing_ring: torch.Tensor | None = None,
     burst_assembly_ring: torch.Tensor | None = None,
     burst_strong_flags: torch.Tensor | None = None,
+    burst_strong_count: torch.Tensor | None = None,
     burst_slot: torch.Tensor | None = None,
     strong_threshold: float = 1.0,
 ) -> None:
@@ -711,6 +719,7 @@ def inplace_column_transition_cuda(
             burst_routing_ring,
             burst_assembly_ring,
             burst_strong_flags,
+            burst_strong_count,
             burst_slot,
         )
     )
@@ -723,6 +732,7 @@ def inplace_column_transition_cuda(
             burst_routing_ring,
             burst_assembly_ring,
             burst_strong_flags,
+            burst_strong_count,
             burst_slot,
         )
     ):
@@ -745,6 +755,9 @@ def inplace_column_transition_cuda(
     )
     burst_flags_tensor = (
         burst_strong_flags if burst_strong_flags is not None else competition_had_positive
+    )
+    burst_strong_count_tensor = (
+        burst_strong_count if burst_strong_count is not None else competition_had_positive
     )
     burst_slot_tensor = burst_slot if burst_slot is not None else recent_spike_row
 
@@ -780,6 +793,7 @@ def inplace_column_transition_cuda(
         burst_routing_tensor,
         burst_assembly_tensor,
         burst_flags_tensor,
+        burst_strong_count_tensor,
         burst_slot_tensor,
     )
     if any(tensor.device != prototypes.device for tensor in tensors):
@@ -815,6 +829,8 @@ def inplace_column_transition_cuda(
             raise ValueError("burst_assembly_ring width must match n_columns")
         if int(burst_flags_tensor.numel()) < int(burst_result_tensor.shape[0]):
             raise ValueError("burst_strong_flags must cover the event ring")
+        if int(burst_strong_count_tensor.numel()) != 1:
+            raise ValueError("burst_strong_count must be scalar")
         if int(burst_slot_tensor.numel()) != 1:
             raise ValueError("burst_slot must be scalar")
     if advance_recent_spike_row and int(spike_history_window) <= 0:
@@ -869,6 +885,7 @@ def inplace_column_transition_cuda(
         burst_routing_tensor,
         burst_assembly_tensor,
         burst_flags_tensor,
+        burst_strong_count_tensor,
         burst_slot_tensor,
         routing_key,
         previous_routing_key,
@@ -1169,6 +1186,7 @@ def warmup_inplace_column_transition_cuda(
         recent_spike_window,
         assembly,
         prediction_boost_out,
+        effective_modulator_out,
         effective_modulator_out,
         effective_modulator_out,
         effective_modulator_out,

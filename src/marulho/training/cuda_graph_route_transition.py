@@ -69,6 +69,8 @@ class CudaGraphRouteTransition:
         self.burst_event_forced_drain_count = 0
         self.burst_event_slim_result_packet_count = 0
         self.burst_event_strong_result_row_count = 0
+        self.burst_event_strong_flag_scan_count = 0
+        self.burst_event_no_strong_flag_scan_skip_count = 0
         self.burst_event_slot_reset_count = 0
         self.burst_event_slot_reset_skip_count = 0
         self.route_vote_kernel_variant = "unavailable"
@@ -104,6 +106,8 @@ class CudaGraphRouteTransition:
         self._burst_routing_ring: torch.Tensor | None = None
         self._burst_assembly_ring: torch.Tensor | None = None
         self._burst_strong_flags: torch.Tensor | None = None
+        self._burst_strong_count: torch.Tensor | None = None
+        self._burst_strong_count_mirror = 0
         self._burst_slot: torch.Tensor | None = None
         self._burst_pending_event_count = 0
         self._last_graph_name: str | None = None
@@ -408,6 +412,12 @@ class CudaGraphRouteTransition:
                 dtype=torch.bool,
                 device=device,
             )
+            self._burst_strong_count = torch.zeros(
+                (),
+                dtype=torch.int32,
+                device=device,
+            )
+            self._burst_strong_count_mirror = 0
             self._burst_slot = torch.zeros(
                 (),
                 dtype=torch.long,
@@ -459,6 +469,7 @@ class CudaGraphRouteTransition:
                 self._burst_routing_ring,
                 self._burst_assembly_ring,
                 self._burst_strong_flags,
+                self._burst_strong_count,
                 self._burst_slot,
                 self._route_vectors,
                 self._input_slot,
@@ -575,6 +586,7 @@ class CudaGraphRouteTransition:
             assert self._burst_routing_ring is not None
             assert self._burst_assembly_ring is not None
             assert self._burst_strong_flags is not None
+            assert self._burst_strong_count is not None
             assert self._burst_slot is not None
         inplace_column_transition_cuda(
             prototypes=comp.prototypes,
@@ -607,6 +619,9 @@ class CudaGraphRouteTransition:
             ),
             burst_strong_flags=(
                 self._burst_strong_flags if write_burst_event else None
+            ),
+            burst_strong_count=(
+                self._burst_strong_count if write_burst_event else None
             ),
             burst_slot=self._burst_slot if write_burst_event else None,
             strong_threshold=float(
@@ -1177,11 +1192,17 @@ class CudaGraphRouteTransition:
             }
         assert self._burst_result_ring is not None
         assert self._burst_strong_flags is not None
+        assert self._burst_strong_count is not None
         result = tuple(
             float(value)
             for value in self._burst_result_ring[token_count - 1].tolist()
         )
-        strong_flags = self._burst_strong_flags[:token_count].tolist()
+        cumulative_strong_count = int(self._burst_strong_count.item())
+        pending_strong_count = max(
+            0,
+            cumulative_strong_count - int(self._burst_strong_count_mirror),
+        )
+        self._burst_strong_count_mirror = cumulative_strong_count
         self.host_truth_sync_count += 1
         self.host_truth_skip_count += token_count - 1
         self.host_truth_mirror_update_count += 1
@@ -1223,9 +1244,19 @@ class CudaGraphRouteTransition:
         self.competitive_surprise_update_count += int(
             bool(optional_competitive_surprise)
         )
-        strong_indices = [
-            index for index, strong in enumerate(strong_flags) if bool(strong)
-        ]
+        if pending_strong_count > 0:
+            strong_flags = self._burst_strong_flags[:token_count].tolist()
+            self.burst_event_strong_flag_scan_count += 1
+            strong_indices = [
+                index for index, strong in enumerate(strong_flags) if bool(strong)
+            ]
+            if len(strong_indices) != pending_strong_count:
+                raise RuntimeError(
+                    "burst strong-count mirror disagrees with strong flags"
+                )
+        else:
+            self.burst_event_no_strong_flag_scan_skip_count += 1
+            strong_indices = []
         strong_result_rows: list[list[float]] = []
         strong_assemblies: list[torch.Tensor] = []
         strong_routing_keys: list[torch.Tensor] = []
@@ -1465,6 +1496,18 @@ class CudaGraphRouteTransition:
             "burst_event_strong_result_row_count": int(
                 self.burst_event_strong_result_row_count
             ),
+            "burst_event_strong_flag_scan_count": int(
+                self.burst_event_strong_flag_scan_count
+            ),
+            "burst_event_no_strong_flag_scan_skip_count": int(
+                self.burst_event_no_strong_flag_scan_skip_count
+            ),
+            "burst_event_strong_count_device_owned": bool(
+                self._burst_strong_count is not None
+            ),
+            "burst_event_strong_count_total": int(
+                self._burst_strong_count_mirror
+            ),
             "burst_event_slot_reset_count": int(
                 self.burst_event_slot_reset_count
             ),
@@ -1476,6 +1519,7 @@ class CudaGraphRouteTransition:
                 and self._burst_routing_ring is not None
                 and self._burst_assembly_ring is not None
                 and self._burst_strong_flags is not None
+                and self._burst_strong_count is not None
             ),
             "burst_graph_names": sorted(self._burst_graphs),
             "recent_spike_row_device_owned_count": int(

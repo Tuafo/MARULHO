@@ -803,6 +803,22 @@ This file records research anchors for current architecture work. It is not a pr
   a lower-level device-owned multi-tick or persistent sequence executor. Sources:
   https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html
   and https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/.
+- Device strong-count drain note, June 2026: the same sync-free guidance also
+  applies to small host materialization inside an already bounded truth drain.
+  MARULHO kept exact strong-capture payloads, but moved ordinary no-strong
+  detection to a device-owned cumulative count written by the in-place
+  transition kernel. Host drains now skip CPU strong-flag scans when the device
+  count proves the pending window has no strong events, while count/flag
+  mismatch fails closed for actual strong captures. A profiled 8192-token run
+  recorded `256` no-strong scan skips, `0` strong scans, zero graph/burst
+  failures, and `text_burst_runtime_event_drain=0.057988 ms/token`; the
+  131072-token validation stayed on RTX 3060 CUDA at `4122.568 tokens/sec` with
+  `4096` no-strong scan skips, but CPU/GPU contention kept the retained
+  `4577.595 tokens/sec` best as the velocity ceiling. This is a host-evidence
+  cleanup, not the persistent multi-tick executor needed for the next large
+  speed jump. Sources remain:
+  https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html
+  and https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html.
 
 ## Engineering Implications
 

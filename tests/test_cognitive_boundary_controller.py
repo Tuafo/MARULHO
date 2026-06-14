@@ -1,5 +1,7 @@
 from marulho.training.cognitive_boundary_controller import (
     CognitiveBoundaryController,
+    CognitiveBoundaryPlan,
+    DRIFT_REFRESH_INTERVAL_TOKENS,
 )
 
 
@@ -139,3 +141,111 @@ def test_pending_routing_index_flush_remains_a_real_fallback() -> None:
     )
 
     assert plan.fallback_reason == "routing_index_flush_boundary"
+
+
+def _reference_loop_plan(
+    *,
+    start_token: int,
+    token_count: int,
+    telemetry_interval: int,
+    slow_memory_archive_interval: int,
+    drift_floor_window_tokens: int,
+    hnsw_flush_interval: int,
+    hnsw_buffer_pending: bool,
+    deep_sleep_interval_tokens: int,
+    last_deep_sleep_token: int,
+    pending_emergency_deep_sleep: bool,
+    emergency_deep_sleep_cooldown_tokens: int,
+    micro_sleep_interval_tokens: int,
+    last_micro_sleep_token: int,
+) -> CognitiveBoundaryPlan:
+    drift_refresh_due = False
+    drift_floor_close_due = False
+    telemetry_observation_due = False
+    slow_memory_cadence_due = False
+    fallback_reason = None
+    end_token = int(start_token) + int(token_count)
+    for current in range(int(start_token), end_token):
+        next_token = current + 1
+        drift_refresh_due = (
+            drift_refresh_due
+            or current % DRIFT_REFRESH_INTERVAL_TOKENS == 0
+        )
+        telemetry_observation_due = (
+            telemetry_observation_due
+            or current % max(1, int(telemetry_interval)) == 0
+        )
+        drift_floor_close_due = (
+            drift_floor_close_due
+            or next_token % max(1, int(drift_floor_window_tokens)) == 0
+        )
+        slow_memory_cadence_due = (
+            slow_memory_cadence_due
+            or next_token % max(1, int(slow_memory_archive_interval)) == 0
+        )
+        if (
+            current % max(1, int(hnsw_flush_interval)) == 0
+            and hnsw_buffer_pending
+        ):
+            fallback_reason = "routing_index_flush_boundary"
+            break
+        deep_due = (
+            current >= int(deep_sleep_interval_tokens)
+            and current - int(last_deep_sleep_token)
+            >= int(deep_sleep_interval_tokens)
+        )
+        emergency_due = (
+            bool(pending_emergency_deep_sleep)
+            and current - int(last_deep_sleep_token)
+            >= int(emergency_deep_sleep_cooldown_tokens)
+        )
+        micro_due = (
+            current >= int(micro_sleep_interval_tokens)
+            and current - int(last_micro_sleep_token)
+            >= int(micro_sleep_interval_tokens)
+        )
+        if deep_due or emergency_due or micro_due:
+            fallback_reason = "sleep_boundary"
+            break
+    return CognitiveBoundaryPlan(
+        fallback_reason=fallback_reason,
+        drift_refresh_due=drift_refresh_due,
+        drift_floor_close_due=drift_floor_close_due,
+        telemetry_observation_due=telemetry_observation_due,
+        slow_memory_cadence_due=slow_memory_cadence_due,
+    )
+
+
+def test_range_arithmetic_classifier_matches_loop_semantics() -> None:
+    starts = [0, 1, 15, 16, 31, 49, 56, 63, 248, 255, 9998, 10_001]
+    token_counts = [0, 1, 7, 8, 16, 33]
+    for start_token in starts:
+        for token_count in token_counts:
+            for hnsw_pending in (False, True):
+                for pending_emergency in (False, True):
+                    kwargs = {
+                        "start_token": start_token,
+                        "token_count": token_count,
+                        "telemetry_interval": 8,
+                        "slow_memory_archive_interval": 32,
+                        "drift_floor_window_tokens": 64,
+                        "hnsw_flush_interval": 16,
+                        "hnsw_buffer_pending": hnsw_pending,
+                        "deep_sleep_interval_tokens": 10_000,
+                        "last_deep_sleep_token": 0,
+                        "pending_emergency_deep_sleep": pending_emergency,
+                        "emergency_deep_sleep_cooldown_tokens": 12,
+                        "micro_sleep_interval_tokens": 9,
+                        "last_micro_sleep_token": 0,
+                    }
+                    assert CognitiveBoundaryController.classify(**kwargs) == (
+                        _reference_loop_plan(**kwargs)
+                    )
+
+
+def test_boundary_report_exposes_range_arithmetic_mode() -> None:
+    controller = CognitiveBoundaryController()
+
+    report = controller.report()
+
+    assert report["classification_mode"] == "range_arithmetic"

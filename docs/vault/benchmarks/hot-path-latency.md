@@ -750,3 +750,36 @@ telemetry 369, drift floor 1. Capture startup was `480.524 ms`. The next large
 speed slice is a bounded truth-interval device event queue that can preserve
 events across multiple host bursts, followed by measured treatment of
 exploration/drift/telemetry boundaries.
+
+### Device Strong-Count Drain And Range Boundary Classifier, 2026-06-14
+
+The in-place transition kernel now maintains a device-owned cumulative
+strong-event count. Host-truth drains read that scalar and skip the CPU
+strong-flag vector when the count proves no strong events occurred in the
+pending window; strong drains still materialize exact flags, result rows,
+routing keys, and assemblies. The cognitive boundary controller also replaced
+its per-token Python scan with range arithmetic while preserving the prior loop
+semantics in focused tests.
+
+The profiled 8192-token run at
+`reports/boundary_controller_profile_20260614/stress-8192-profile-after-strong-count.json`
+processed `8192` CUDA graph-backed executions with zero graph/burst failures,
+`256` no-strong flag-scan skips, `0` strong flag scans, and
+`classification_mode=range_arithmetic`. It measured `2875.310 tokens/sec`
+complete and trainer-observed `3651.014 tokens/sec`; the targeted buckets were
+`text_burst_runtime_event_drain=0.057988 ms/token` and
+`text_burst_boundary_plan=0.004666 ms/token`. The run still reported GPU
+contention, so it is diagnostic evidence, not a top-speed promotion.
+
+The longer validation at
+`reports/strong_event_count_20260614/stress-32768-clean.json` reached
+`3908.062 tokens/sec` over `32768` tokens with CUDA selected on the RTX 3060,
+zero graph/burst failures, `1024` no-strong flag-scan skips, and
+`train_compute=0.215580 ms/token`. The 4x long run at
+`reports/strong_event_count_20260614/stress-131072-clean.json` reached
+`4122.568 tokens/sec`, executed all `131072` transitions on the persistent CUDA
+path, skipped `4096` no-strong flag scans, preserved zero graph/burst failures,
+and measured `train_compute=0.202385 ms/token`. `velocity_environment.v1`
+reported CPU and GPU contention on the long run, so the retained uncontended
+best remains `4577.595 tokens/sec` at
+`reports/host_truth_interval_sweep_20260614/stress-131072-i32.json`.
