@@ -145,6 +145,7 @@ class MarulhoTrainer:
         self._text_sequence_token_count = 0
         self._text_sequence_quantum_count = 0
         self._text_sequence_stop_count = 0
+        self._last_text_burst_metrics: dict[str, Any] | None = None
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
         """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
@@ -303,6 +304,21 @@ class MarulhoTrainer:
         graph = self._column_transition_runtime._cuda_graph_runtime
         assert graph is not None
         final_result = graph.consume_result()
+        final_token = int(pending[-1][0]) if pending else int(self.token_count)
+        self._last_text_burst_metrics = {
+            "token": final_token,
+            "winner": int(final_result[6]),
+            "recon_error": float(final_result[0]),
+            "pred_error": max(0.0, min(1.0, float(final_result[1]))),
+            "surprise": max(0.0, min(1.0, float(final_result[0]))),
+            "dopamine": float(final_result[2]),
+            "acetylcholine": float(final_result[3]),
+            "norepinephrine": float(final_result[4]),
+            "serotonin": float(final_result[5]),
+            "effective_modulator": float(final_result[7]),
+            "train_step_metrics_mode": "device_burst_lightweight",
+            "memory_index": None,
+        }
         self.last_winner = int(final_result[6])
         self._winner_host_mirror_sync_count += 1
         self._winner_host_mirror_skip_count += event_count - 1
@@ -554,6 +570,7 @@ class MarulhoTrainer:
             if 0 <= int(index) < token_count
         }
         metrics_by_index: dict[int, dict[str, Any]] = {}
+        last_metrics: dict[str, Any] | None = None
         trained = 0
         quantum_count = 0
         stopped = False
@@ -595,10 +612,14 @@ class MarulhoTrainer:
                     )
                     if return_metrics:
                         metrics_by_index[index] = dict(metrics or {})
+                        if metrics:
+                            last_metrics = dict(metrics)
             trained += len(quantum_patterns)
             quantum_count += 1
 
         self.flush_text_burst_events(reason="text_sequence_complete")
+        if last_metrics is None and self._last_text_burst_metrics is not None:
+            last_metrics = dict(self._last_text_burst_metrics)
         self._text_sequence_execution_count += 1
         self._text_sequence_token_count += trained
         self._text_sequence_quantum_count += quantum_count
@@ -607,6 +628,7 @@ class MarulhoTrainer:
         return {
             "trained": int(trained),
             "metrics_by_index": metrics_by_index,
+            "last_metrics": last_metrics or {},
             "quantum_count": int(quantum_count),
             "stopped": bool(stopped),
         }

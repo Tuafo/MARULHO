@@ -448,6 +448,11 @@ class _SequenceSamplingManager(_ConceptSamplingManager):
                 }
                 for index in metric_indices
             },
+            "last_metrics": {
+                "memory_index": start + len(patterns) - 1,
+                "winner": 0,
+                "train_step_metrics_mode": "device_burst_lightweight",
+            },
             "quantum_count": len(patterns) // max(1, int(quantum_tokens)),
             "stopped": False,
         }
@@ -752,7 +757,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(manager.sequence_calls[0]["quantum_tokens"], 8)
         self.assertEqual(
             manager.sequence_calls[0]["metric_indices"],
-            {0, 7, 15, 23, 127},
+            set(),
         )
         self.assertEqual(manager._runtime_state.mutated, 1)
         self.assertEqual(observation["execution_owner"], "training_text_sequence")

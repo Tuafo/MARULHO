@@ -426,17 +426,6 @@ class BrainRuntime:
             and pause_seconds <= 0.0
         ):
             metric_indices: set[int] = set()
-            if concept_observation_due:
-                observation_indices = [
-                    index
-                    for index in range(len(chunk))
-                    if index == 0 or (index + 1) % observation_interval == 0
-                ]
-                metric_indices.update(
-                    observation_indices[:max_observations_per_tick]
-                )
-            if chunk:
-                metric_indices.add(len(chunk) - 1)
             lock_wait_started = time.perf_counter()
             with self._lock:
                 if stage_timings_ms is not None:
@@ -468,6 +457,7 @@ class BrainRuntime:
                         execution.get("metrics_by_index") or {}
                     ).items()
                 }
+                last_metrics = dict(execution.get("last_metrics") or {})
                 mutation_mark_started = time.perf_counter()
                 if total_trained > 0:
                     self._runtime_state.mark_mutated()

@@ -166,6 +166,13 @@ cognitive-quality evidence, and grounded fallback gates.
   training-owned sequences, `16384` quanta, `1024` stable cache-generation
   skips, all `131072` transitions on the RTX 3060, `116680` burst-owned
   tokens, and zero graph/burst failures.
+- Device-Burst Lightweight Metrics keep ordinary prepared source ticks on the
+  burst path instead of requesting full per-token `train_step` metrics for
+  source concept samples. Full metrics remain available for explicit evaluator
+  evidence positions, but normal service ticks use the final CUDA result packet
+  as bounded Runtime Truth. The 131072-token CUDA service run improved to
+  `3565.968 tokens/sec`, reduced `train_compute` to `0.241568 ms/token`, and
+  raised burst-owned tokens to `126952` with zero graph/burst failures.
 
 ## Reversal
 
