@@ -709,6 +709,27 @@ This file records research anchors for current architecture work. It is not a pr
   a replacement for Runtime Truth evidence. Sources:
   https://research.nvidia.com/labs/nemotron/Nemotron-3-Ultra/ and
   https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v3.
+- Direct route/vote fusion rejection, June 2026: CUDA Graph and persistent-kernel
+  literature supports reducing repeated host launch/orchestration only when the
+  fused boundary actually reduces the dominant live work. MARULHO tested a
+  one-block Triton direct route/vote kernel for the live `1024 x 64` exact-cache
+  shape after reviewing CUDA Graph launch-overhead guidance, PyTorch CUDA Graph
+  fixed-address constraints, persistent-kernel/RNN execution, NeuronSpark-style
+  fused Triton spiking kernels, and GPU-native ANN routing directions. The
+  direct route/vote candidate passed CUDA parity but failed complete-runtime
+  evidence: the profiled 8192-token run measured `2381.587 tokens/sec` versus
+  `2408.630` before direct selection, and the 32768-token clean direct run
+  measured `2266.882` versus `2359.929` after reverting to the retained
+  two-stage route/vote path. Runtime Truth now reports
+  `route_vote_kernel_variant`, but the direct kernel body was deleted. The
+  implementation direction remains a lower-level device-owned multi-tick
+  executor or persistent sequence kernel, not a local one-block top-k fusion
+  that leaves one CUDA Graph replay per token. Sources:
+  https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html,
+  https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/,
+  https://proceedings.mlr.press/v48/diamos16.html,
+  https://arxiv.org/html/2603.16148v1, and
+  https://arxiv.org/abs/2602.23999.
 
 ## Engineering Implications
 

@@ -197,6 +197,24 @@ def fused_route_vote_available() -> bool:
     return bool(triton is not None and torch.cuda.is_available())
 
 
+def fused_route_vote_kernel_variant(
+    routing_vectors: torch.Tensor,
+    candidates_out: torch.Tensor,
+) -> str:
+    if triton is None or routing_vectors.dim() != 2:
+        return "unavailable"
+    vector_count, column_dim = map(int, routing_vectors.shape)
+    candidate_count = int(candidates_out.numel())
+    if (
+        vector_count > 0
+        and candidate_count > 0
+        and candidate_count <= vector_count
+        and column_dim > 0
+    ):
+        return "two_stage_route_vote"
+    return "unavailable"
+
+
 def warmup_fused_route_vote_cuda(
     *,
     routing_key: torch.Tensor,

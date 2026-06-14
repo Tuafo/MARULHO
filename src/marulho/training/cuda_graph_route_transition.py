@@ -9,7 +9,10 @@ import torch.nn.functional as F
 
 from marulho.core.burst_event_cuda import snapshot_burst_event_cuda
 from marulho.core.columns import _normalize_routing_key
-from marulho.core.fused_route_vote_cuda import fused_route_vote_cuda
+from marulho.core.fused_route_vote_cuda import (
+    fused_route_vote_cuda,
+    fused_route_vote_kernel_variant,
+)
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
 
 
@@ -68,6 +71,7 @@ class CudaGraphRouteTransition:
         self.burst_event_forced_drain_count = 0
         self.burst_event_slim_result_packet_count = 0
         self.burst_event_strong_result_row_count = 0
+        self.route_vote_kernel_variant = "unavailable"
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
@@ -319,6 +323,10 @@ class CudaGraphRouteTransition:
                 raise RuntimeError("cuda_graph_requires_route_workspaces")
             self._route_vectors = vectors
             self._route_ids = ids
+            self.route_vote_kernel_variant = fused_route_vote_kernel_variant(
+                vectors,
+                runtime._route_candidates,
+            )
             route_ids_cpu = ids.detach().to(device="cpu", dtype=torch.long)
             if int(route_ids_cpu.numel()) != int(comp.n_columns):
                 raise RuntimeError(
@@ -1427,6 +1435,7 @@ class CudaGraphRouteTransition:
             "reconstruction_error_source": (
                 "fused_route_score_max" if self.active else "retained_dense_scan"
             ),
+            "route_vote_kernel_variant": self.route_vote_kernel_variant,
             "fused_reconstruction_error_active": bool(self.active),
             "fused_reconstruction_error_update_count": int(self.tick_replay_count),
             "graph_names": sorted(self._graphs),

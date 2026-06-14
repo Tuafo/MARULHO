@@ -19,6 +19,54 @@ related_benchmarks: []
 
 Latency-sensitive runtime surface checks.
 
+## Sustained Velocity Recheck, 2026-06-14
+
+The retained best long-run evidence is still
+`reports/host_truth_interval_sweep_20260614/stress-131072-i32.json`:
+`4577.595 tokens/sec` over `131072` tokens, `train_compute=0.181855 ms/token`,
+`prepare_training=0.008358 ms/token`, `finalize_total=0.007461 ms/token`,
+`4097` host-truth syncs, `126975` host-truth skips, `16382` burst replays,
+`131056` burst-owned tokens, zero forced drains, zero graph/burst failures, and
+RTX 3060 CUDA execution.
+
+The first current rerun after the route/vote experiment measured only
+`2784.022 tokens/sec` at
+`reports/direct_route_vote_20260614/stress-131072-clean-retained-interval32-rerun.json`.
+Runtime Truth showed the same logical path: `131072` executions, `16382` burst
+replays, `131056` burst-owned tokens, `4097` host-truth syncs, zero graph/burst
+failures, zero forced drains, and `route_vote_kernel_variant=two_stage_route_vote`.
+The drop came from stage timing inflation, especially
+`train_compute=0.310189 ms/token`, plus slower preparation/finalization.
+
+After freeing some machine resources, the same current retained path reran at
+`reports/perf_regression_probe_20260614/current-131072-i32-after-free.json` and
+recovered to `3804.642 tokens/sec` with the same logical CUDA counters:
+`131072` executions, `16382` burst replays, `131056` burst-owned tokens, zero
+graph/burst failures, zero forced drains, and
+`route_vote_kernel_variant=two_stage_route_vote`. `train_compute` improved to
+`0.222647 ms/token`, but still trailed the retained best run's
+`0.181855 ms/token`, so this remains a host-condition reproducibility issue
+rather than a proved code regression.
+
+The old good commit `f5d8ba2d` was rerun in a clean temporary worktree under the
+same host conditions and measured `2413.061 tokens/sec` for `32768` tokens in
+`reports/perf_regression_probe_20260614/f5d8-32768-i32-current-host.json`.
+That falsifies a simple "later commit caused the 4.5k drop" diagnosis. Host
+probes during the slow run showed all CPU cores at `100%`, the GPU in WDDM
+`P3`, about `25%` graphics utilization before MARULHO compute, and active
+League/Riot/browser/Codex processes. Treat the 4.5k number as the retained
+uncontended best evidence, while current "right now" speed must be measured in
+an uncontended profile.
+
+The direct route/vote fusion candidate was rejected: the profiled 8192-token
+direct run measured `2381.587 tokens/sec` versus `2408.630` for the same
+profiled boundary before direct selection, and the 32768-token direct clean run
+measured `2266.882` versus `2359.929` after reverting to the retained
+two-stage route/vote path. This confirms that the next real speed target is a
+lower-level device-owned multi-tick executor or persistent sequence kernel, not
+a local one-block top-k fusion that still leaves one CUDA Graph replay per
+token.
+
 ## Commands
 
 - Search tests: `rg -n "hot|path|latency" tests src`

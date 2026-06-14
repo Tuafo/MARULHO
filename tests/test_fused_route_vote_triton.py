@@ -5,17 +5,27 @@ import torch
 import torch.nn.functional as F
 
 from marulho.evaluation.fused_route_vote_triton import fused_route_vote_cuda
+from marulho.core.fused_route_vote_cuda import fused_route_vote_kernel_variant
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+@pytest.mark.parametrize(
+    ("vector_count", "column_dim", "location_dim", "candidate_count"),
+    [
+        (32, 8, 4, 5),
+        (1024, 64, 64, 10),
+    ],
+)
 @pytest.mark.parametrize("silent", [False, True])
-def test_fused_route_vote_matches_tensor_routing_and_vote(silent: bool) -> None:
+def test_fused_route_vote_matches_tensor_routing_and_vote(
+    vector_count: int,
+    column_dim: int,
+    location_dim: int,
+    candidate_count: int,
+    silent: bool,
+) -> None:
     torch.manual_seed(20260612)
     device = torch.device("cuda")
-    vector_count = 32
-    column_dim = 8
-    location_dim = 4
-    candidate_count = 5
     routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
     routing_vectors = F.normalize(
         torch.rand(vector_count, column_dim, device=device),
@@ -65,6 +75,10 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(silent: bool) -> None:
     strength_out = torch.empty(1, device=device)
     had_positive = torch.empty((), dtype=torch.bool, device=device)
     reconstruction_error_out = torch.empty(1, device=device)
+    assert (
+        fused_route_vote_kernel_variant(routing_vectors, candidates_out)
+        == "two_stage_route_vote"
+    )
     fused_route_vote_cuda(
         routing_key=routing_key,
         routing_vectors=routing_vectors,

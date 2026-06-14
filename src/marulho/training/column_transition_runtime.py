@@ -7,6 +7,7 @@ import torch
 
 from marulho.core.fused_route_vote_cuda import (
     fused_route_vote_cuda,
+    fused_route_vote_kernel_variant,
     warmup_fused_route_vote_cuda,
 )
 from marulho.core.inplace_column_cuda import (
@@ -63,6 +64,7 @@ class ColumnTransitionRuntime:
         self.route_vote_cache_refresh_count = 0
         self.route_vote_clean_cache_reuse_count = 0
         self.route_vote_prepared_graph_reuse_count = 0
+        self.route_vote_kernel_variant = "unavailable"
         self.graph_host_winner_reuse_count = 0
         self.graph_consolidation_lookup_skip_count = 0
         self.graph_empty_revival_tensor_reuse_count = 0
@@ -327,6 +329,10 @@ class ColumnTransitionRuntime:
                 strength_out=self._strength,
                 competition_had_positive=self._competition_had_positive,
                 reconstruction_error_out=self._route_reconstruction_error,
+            )
+            self.route_vote_kernel_variant = fused_route_vote_kernel_variant(
+                vectors,
+                self._route_candidates,
             )
             self.route_vote_warmup_succeeded = True
             self.route_vote_resolved_mode = self.route_vote_requested_mode
@@ -983,6 +989,7 @@ class ColumnTransitionRuntime:
             "route_vote_prepared_graph_reuse_count": (
                 self.route_vote_prepared_graph_reuse_count
             ),
+            "route_vote_kernel_variant": self.route_vote_kernel_variant,
             "graph_host_winner_reuse_count": int(
                 self.graph_host_winner_reuse_count
             ),

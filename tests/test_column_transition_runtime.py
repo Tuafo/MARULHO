@@ -223,6 +223,11 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     assert torch.equal(candidates, expected[0])
     assert runtime.handles_route_vote is True
     assert runtime.route_vote_execution_count == 1
+    assert runtime.route_vote_kernel_variant == "two_stage_route_vote"
+    assert (
+        trainer.column_transition_runtime_report()["route_vote_kernel_variant"]
+        == "two_stage_route_vote"
+    )
     assert runtime.route_vote_clean_cache_reuse_count == 1
     assert runtime.route_candidates(routing_key, sensory_tick=True) is None
     assert runtime.route_vote_sensory_fallback_count == 1
@@ -283,6 +288,11 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
     graph_report = graph.column_transition_runtime_report()
     assert graph_report["cuda_graph_route_transition"]["active"] is True
+    assert graph_report["route_vote_kernel_variant"] == "two_stage_route_vote"
+    assert (
+        graph_report["cuda_graph_route_transition"]["route_vote_kernel_variant"]
+        == "two_stage_route_vote"
+    )
     assert graph_report["execution_count"] == 0
     consolidation_lookup_count = 0
     original_consolidation_lookup = (
@@ -408,6 +418,7 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_runtime["route_cache_device_owned"] is True
     assert graph_runtime["route_cache_device_update_count"] == 16
     assert graph_runtime["reconstruction_error_source"] == "fused_route_score_max"
+    assert graph_runtime["route_vote_kernel_variant"] == "two_stage_route_vote"
     assert graph_runtime["fused_reconstruction_error_active"] is True
     assert graph_runtime["fused_reconstruction_error_update_count"] == 16
     assert graph_runtime["persistent_tick_graph"] is True
