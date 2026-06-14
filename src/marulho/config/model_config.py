@@ -187,6 +187,7 @@ class MarulhoConfig:
     cuda_graph_host_truth_sync_interval_tokens: int = 32
     cuda_graph_quantum_input_staging: bool = True
     cuda_graph_sequence_input_staging: bool = True
+    cuda_graph_native_burst_replay: bool = True
 
     enable_cross_modal: bool = False
     cross_modal_dim_visual: int = 256

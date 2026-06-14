@@ -78,9 +78,16 @@ related_benchmarks: []
         For exactly eight ordinary text ticks, it consumes an already staged
         wider quantum slice when available, otherwise stages the ring for that
         burst, replays the same one-tick graph eight times in order, and applies
-        equivalent host bookkeeping in one bounded operation. The in-place
-        transition kernel writes the slim result packet and strong-event flag
-        directly into the Device Strong-Event Ring, loading and copying
+        equivalent host bookkeeping in one bounded operation. On the promoted
+        CUDA path, native replay composes the captured one-tick burst graph into
+        an eight-child parent CUDA graph and launches that parent once per burst.
+        Runtime Truth exposes whether native replay is configured, loaded,
+        enabled, which backend ran, parent-graph count, launch attempts,
+        successes, covered tokens, fallbacks, failures, and compile/build
+        latency. The retained Python replay loop remains the explicit fallback
+        before mutation. The in-place transition kernel writes the slim result
+        packet and strong-event flag directly into the Device Strong-Event Ring,
+        loading and copying
         assembly/routing rows only for threshold crossings; training drains
         those records at the host-truth boundary and archives all payloads on
         CPU. The same kernel also maintains a device-owned cumulative

@@ -498,6 +498,7 @@ def run_continuous_runtime_stress(
     sample_interval_seconds: float = 0.02,
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
+    native_burst_replay: bool | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -517,6 +518,13 @@ def run_continuous_runtime_stress(
     run_root.mkdir(parents=True, exist_ok=True)
     source_path = run_root / "continuous-runtime-stress-source.txt"
     source_path.write_text(_source_text_for_target(target_tokens), encoding="utf-8")
+    previous_native_replay_env = os.environ.get(
+        "MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"
+    )
+    if native_burst_replay is not None:
+        os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
+            "1" if bool(native_burst_replay) else "0"
+        )
     manager = MarulhoServiceManager(
         checkpoint,
         trace_dir=run_root / "traces",
@@ -538,6 +546,18 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_host_truth_sync_interval_tokens"] = {
                 "from": previous_interval,
                 "to": int(host_truth_sync_interval_tokens),
+            }
+        if native_burst_replay is not None:
+            with manager._lock:
+                previous_native_replay = bool(
+                    manager._trainer.config.cuda_graph_native_burst_replay
+                )
+                manager._trainer.config.cuda_graph_native_burst_replay = bool(
+                    native_burst_replay
+                )
+            config_overrides["cuda_graph_native_burst_replay"] = {
+                "from": previous_native_replay,
+                "to": bool(native_burst_replay),
             }
         runtime.configure_terminus(
             source_bank=[
@@ -595,6 +615,9 @@ def run_continuous_runtime_stress(
                     ),
                     "cuda_graph_host_truth_sync_interval_tokens": int(
                         manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                    ),
+                    "cuda_graph_native_burst_replay": bool(
+                        manager._trainer.config.cuda_graph_native_burst_replay
                     ),
                 },
                 "checkpoint_metadata": {
@@ -714,6 +737,9 @@ def run_continuous_runtime_stress(
                 "cuda_graph_host_truth_sync_interval_tokens": int(
                     manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
                 ),
+                "cuda_graph_native_burst_replay": bool(
+                    manager._trainer.config.cuda_graph_native_burst_replay
+                ),
             },
             "checkpoint_metadata": {
                 "config_migrations": list(
@@ -755,6 +781,13 @@ def run_continuous_runtime_stress(
         return report
     finally:
         manager.close()
+        if native_burst_replay is not None:
+            if previous_native_replay_env is None:
+                os.environ.pop("MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY", None)
+            else:
+                os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
+                    previous_native_replay_env
+                )
 
 
 def main() -> int:
@@ -791,6 +824,15 @@ def main() -> int:
             "perturb throughput."
         ),
     )
+    parser.add_argument(
+        "--disable-native-burst-replay",
+        action="store_true",
+        help=(
+            "Evaluation-only override that keeps the current CUDA graph path "
+            "but replays each token through the older Python CUDAGraph.replay "
+            "loop for A/B comparison."
+        ),
+    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -803,6 +845,7 @@ def main() -> int:
         sample_interval_seconds=args.sample_interval_seconds,
         profile_trainer_stages=args.profile_trainer_stages,
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
+        native_burst_replay=False if args.disable_native_burst_replay else None,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

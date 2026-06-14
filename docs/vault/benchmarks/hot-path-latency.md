@@ -22,13 +22,32 @@ Latency-sensitive runtime surface checks.
 
 ## Sustained Velocity Recheck, 2026-06-14
 
-The retained best long-run evidence is still
+The retained previous best long-run evidence was
 `reports/host_truth_interval_sweep_20260614/stress-131072-i32.json`:
 `4577.595 tokens/sec` over `131072` tokens, `train_compute=0.181855 ms/token`,
 `prepare_training=0.008358 ms/token`, `finalize_total=0.007461 ms/token`,
 `4097` host-truth syncs, `126975` host-truth skips, `16382` burst replays,
 `131056` burst-owned tokens, zero forced drains, zero graph/burst failures, and
 RTX 3060 CUDA execution.
+
+The current retained top is now
+`reports/native_graph_replay_20260614/stress-131072-parent-native.json`:
+`4671.202 tokens/sec` over `131072` tokens, `train_compute=0.177193 ms/token`,
+`prepare_training=0.008906 ms/token`, `finalize_total=0.007671 ms/token`,
+`4097` host-truth syncs, `126975` host-truth skips, `16382` burst replays,
+`131056` burst-owned tokens, `16382` native repeated-child parent-graph
+launches, zero native fallbacks/failures, zero forced drains, zero graph/burst
+failures, and RTX 3060 CUDA execution. The same long command with native replay
+disabled reached `4340.160 tokens/sec` at
+`reports/native_graph_replay_20260614/stress-131072-parent-disabled.json`, so
+the promoted parent graph measured `1.076x` over the disabled replay loop and
+`1.020x` over the prior retained top. Both reports recorded
+`velocity_environment.v1` with `contention.verdict=not_observed`.
+
+The cost is startup, not measured warm throughput: the promoted parent-graph
+run reported `capture_latency_ms=6790.4858` and
+`native_burst_replay_compile_latency_ms=6202.4909`. Keep that visible in
+Runtime Truth and avoid quoting the new top for cold start.
 
 The first current rerun after the route/vote experiment measured only
 `2784.022 tokens/sec` at

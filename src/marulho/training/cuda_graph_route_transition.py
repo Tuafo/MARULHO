@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import os
 import time
 from typing import Any
 
@@ -12,6 +13,11 @@ from marulho.core.fused_route_vote_cuda import (
     fused_route_vote_kernel_variant,
 )
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
+from marulho.core.native_cuda_graph_replay import (
+    make_repeated_cuda_graph_exec,
+    native_cuda_graph_replay_error,
+    replay_repeated_cuda_graph_exec,
+)
 
 
 MAX_QUANTUM_INPUT_TOKENS = 128
@@ -75,10 +81,20 @@ class CudaGraphRouteTransition:
         self.burst_event_slot_reset_skip_count = 0
         self.route_vote_kernel_variant = "unavailable"
         self.recent_spike_row_device_owned_count = 0
+        self.native_burst_replay_enabled = False
+        self.native_burst_replay_attempt_count = 0
+        self.native_burst_replay_success_count = 0
+        self.native_burst_replay_token_count = 0
+        self.native_burst_replay_fallback_count = 0
+        self.native_burst_replay_failure_count = 0
+        self.native_burst_replay_compile_latency_ms = 0.0
+        self.native_burst_replay_backend = "python_loop"
+        self.native_burst_replay_last_error: str | None = None
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._burst_graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._burst_graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
+        self._native_burst_graph_execs: dict[tuple[str, int], Any] = {}
         self._route_vectors: torch.Tensor | None = None
         self._route_ids: torch.Tensor | None = None
         self._route_position_by_column: torch.Tensor | None = None
@@ -503,16 +519,18 @@ class CudaGraphRouteTransition:
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
-                burst_graph = torch.cuda.CUDAGraph()
+                burst_graph = torch.cuda.CUDAGraph(keep_graph=True)
                 with torch.cuda.graph(burst_graph, stream=stream):
                     burst_outputs = self._burst_tick_ops(candidates)
                 torch.cuda.synchronize(device)
+                burst_graph.instantiate()
                 self._burst_graphs[name] = burst_graph
                 self._burst_graph_outputs[name] = burst_outputs
                 self.capture_count += 1
             for tensor, snapshot in zip(mutable, snapshots):
                 tensor.copy_(snapshot)
             torch.cuda.synchronize(device)
+            self._warm_native_burst_replay()
             self.capture_succeeded = True
             self.active = True
         except Exception as exc:
@@ -523,6 +541,7 @@ class CudaGraphRouteTransition:
             self._graph_outputs.clear()
             self._burst_graphs.clear()
             self._burst_graph_outputs.clear()
+            self._native_burst_graph_execs.clear()
         finally:
             self.capture_latency_ms = (
                 time.perf_counter_ns() - started
@@ -562,6 +581,107 @@ class CudaGraphRouteTransition:
             competition_had_positive=runtime._competition_had_positive,
             reconstruction_error_out=reconstruction_error_out,
         )
+
+    def _replay_burst_graph(self, graph_name: str, token_count: int) -> None:
+        graph = self._burst_graphs[graph_name]
+        if not self._native_burst_replay_requested():
+            self.native_burst_replay_backend = "python_loop_disabled"
+            for _ in range(token_count):
+                graph.replay()
+            return
+
+        self.native_burst_replay_attempt_count += 1
+        if not self.native_burst_replay_enabled:
+            started = time.perf_counter_ns()
+            load_error = native_cuda_graph_replay_error()
+            self.native_burst_replay_compile_latency_ms += (
+                time.perf_counter_ns() - started
+            ) / 1e6
+            if load_error is not None:
+                self.native_burst_replay_fallback_count += 1
+                self.native_burst_replay_last_error = load_error
+                self.native_burst_replay_backend = (
+                    "python_loop_after_native_unavailable"
+                )
+                for _ in range(token_count):
+                    graph.replay()
+                return
+
+        repeated_graph_exec = self._native_burst_graph_execs.get(
+            (graph_name, token_count)
+        )
+        if repeated_graph_exec is None:
+            self.native_burst_replay_fallback_count += 1
+            self.native_burst_replay_backend = "python_loop_no_parent_graph"
+            for _ in range(token_count):
+                graph.replay()
+            return
+        try:
+            replay_repeated_cuda_graph_exec(repeated_graph_exec)
+            self.native_burst_replay_backend = "native_repeated_child_graph"
+        except Exception as exc:
+            self.native_burst_replay_failure_count += 1
+            self.native_burst_replay_last_error = f"{type(exc).__name__}: {exc}"
+            self.native_burst_replay_backend = "native_repeated_child_graph_failed"
+            raise
+        self.native_burst_replay_enabled = True
+        self.native_burst_replay_success_count += 1
+        self.native_burst_replay_token_count += token_count
+        self.native_burst_replay_last_error = None
+
+    def _native_burst_replay_requested(self) -> bool:
+        env = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY")
+        if env is not None:
+            return env.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(
+            getattr(
+                self._trainer.config,
+                "cuda_graph_native_burst_replay",
+                True,
+            )
+        )
+
+    def _warm_native_burst_replay(self) -> None:
+        self._native_burst_graph_execs.clear()
+        if not self._native_burst_replay_requested():
+            self.native_burst_replay_backend = "python_loop_disabled"
+            return
+        started = time.perf_counter_ns()
+        load_error = native_cuda_graph_replay_error()
+        self.native_burst_replay_compile_latency_ms += (
+            time.perf_counter_ns() - started
+        ) / 1e6
+        if load_error is not None:
+            self.native_burst_replay_enabled = False
+            self.native_burst_replay_last_error = load_error
+            self.native_burst_replay_backend = "python_loop_after_native_unavailable"
+            return
+        build_started = time.perf_counter_ns()
+        try:
+            for graph_name, graph in self._burst_graphs.items():
+                self._native_burst_graph_execs[
+                    (graph_name, PERSISTENT_EXECUTOR_BURST_TOKENS)
+                ] = make_repeated_cuda_graph_exec(
+                    graph,
+                    PERSISTENT_EXECUTOR_BURST_TOKENS,
+                )
+        except Exception as exc:
+            self.native_burst_replay_compile_latency_ms += (
+                time.perf_counter_ns() - build_started
+            ) / 1e6
+            self._native_burst_graph_execs.clear()
+            self.native_burst_replay_enabled = False
+            self.native_burst_replay_last_error = f"{type(exc).__name__}: {exc}"
+            self.native_burst_replay_backend = (
+                "python_loop_after_native_parent_graph_unavailable"
+            )
+            return
+        self.native_burst_replay_compile_latency_ms += (
+            time.perf_counter_ns() - build_started
+        ) / 1e6
+        self.native_burst_replay_enabled = True
+        self.native_burst_replay_backend = "native_repeated_child_graph_ready"
+        self.native_burst_replay_last_error = None
 
     def _launch_transition(
         self,
@@ -1110,8 +1230,7 @@ class CudaGraphRouteTransition:
 
         token_count = len(patterns)
         try:
-            for _ in range(token_count):
-                self._burst_graphs[graph_name].replay()
+            self._replay_burst_graph(graph_name, token_count)
         except Exception:
             self.burst_replay_failure_count += 1
             raise
@@ -1471,6 +1590,39 @@ class CudaGraphRouteTransition:
             "persistent_executor_burst_tokens": (
                 PERSISTENT_EXECUTOR_BURST_TOKENS
             ),
+            "native_burst_replay_configured": bool(
+                self._native_burst_replay_requested()
+            ),
+            "native_burst_replay_loaded": bool(
+                self.native_burst_replay_enabled
+            ),
+            "native_burst_replay_enabled": bool(
+                self._native_burst_replay_requested()
+                and self.native_burst_replay_enabled
+            ),
+            "native_burst_replay_backend": self.native_burst_replay_backend,
+            "native_burst_replay_parent_graph_count": int(
+                len(self._native_burst_graph_execs)
+            ),
+            "native_burst_replay_attempt_count": int(
+                self.native_burst_replay_attempt_count
+            ),
+            "native_burst_replay_success_count": int(
+                self.native_burst_replay_success_count
+            ),
+            "native_burst_replay_token_count": int(
+                self.native_burst_replay_token_count
+            ),
+            "native_burst_replay_fallback_count": int(
+                self.native_burst_replay_fallback_count
+            ),
+            "native_burst_replay_failure_count": int(
+                self.native_burst_replay_failure_count
+            ),
+            "native_burst_replay_compile_latency_ms": float(
+                self.native_burst_replay_compile_latency_ms
+            ),
+            "native_burst_replay_last_error": self.native_burst_replay_last_error,
             "burst_replay_count": int(self.burst_replay_count),
             "burst_replayed_token_count": int(
                 self.burst_replayed_token_count

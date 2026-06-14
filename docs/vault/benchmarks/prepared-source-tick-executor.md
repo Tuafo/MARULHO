@@ -26,6 +26,8 @@ related_benchmarks:
   - reports/host_truth_interval_sweep_20260614/stress-32768-i16-seq.json
   - reports/host_truth_interval_sweep_20260614/stress-32768-i32-seq.json
   - reports/host_truth_interval_sweep_20260614/stress-131072-i32.json
+  - reports/native_graph_replay_20260614/stress-131072-parent-native.json
+  - reports/native_graph_replay_20260614/stress-131072-parent-disabled.json
 ---
 
 # Prepared Source Tick Executor
@@ -134,11 +136,32 @@ device-owned until the actual boundary instead of paying an empty host path.
 - CUDA evidence: RTX 3060, `resolved_mode=inplace_triton`, all `131072` transitions on CUDA, `4097` host-truth syncs, `126975` skips, `4096` event drains, `12286` deferred bursts, zero forced drains, zero graph/burst failures, and only `runtime_not_fully_warm` plus `sleep_boundary` fallbacks.
 - Promotion rule: intervals `8` and `16` are migrated to `32` for legacy unstamped checkpoints. Exact interval `1` remains available for parity/evaluation runs.
 
+## Native Repeated Child Graph Replay
+
+The eight-token burst now keeps the proven one-tick graph body but composes it
+as an eight-child parent CUDA graph through a small native extension. This
+reduces the host launch boundary to one parent-graph launch per eligible burst
+without changing sequential SNN order, source handling, host-truth cadence, or
+event-drain semantics.
+
+- Promoted command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/native_graph_replay_20260614/stress-131072-parent-native.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 300`
+- Promoted throughput: `4671.202 tokens/sec` over `28.060 s`, mean tick `25.253 ms`, p95 tick `31.694 ms`, and `train_compute=0.177193 ms/token`.
+- CUDA evidence: RTX 3060, all `131072` transitions on CUDA, `16382` native parent-graph attempts/successes, `131056` native-covered burst tokens, `2` parent graphs, zero native fallbacks/failures, zero graph/burst failures, `4097` host-truth syncs, and `126975` skips.
+- Runtime Truth: `native_burst_replay_backend=native_repeated_child_graph`, `native_burst_replay_enabled=true`, `native_burst_replay_parent_graph_count=2`, `native_burst_replay_compile_latency_ms=6202.4909`, and `capture_latency_ms=6790.4858`.
+- Environment: `velocity_environment.v1` reported `contention.verdict=not_observed`, CPU max `83%`, GPU max `16%`.
+- Disabled comparison: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/native_graph_replay_20260614/stress-131072-parent-disabled.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 300 --disable-native-burst-replay`
+- Disabled throughput: `4340.160 tokens/sec`, `train_compute=0.192680 ms/token`, zero graph/burst failures, and `contention.verdict=not_observed`.
+- Promotion delta: `1.076x` over the same-command disabled comparison and `1.020x` over the retained prior top `4577.595 tokens/sec`.
+- Rejected diagnostic: the earlier native C++ loop over `cudaGraphLaunch(graph_exec)` was not promoted because it still launched once per token and lost the recorded long comparison (`4159.316` native-loop versus `4347.554` disabled Python replay).
+
 ## Remaining Cost
 
-`train_compute=0.181855 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at `69.605 s` for the 131072-token confirmation. The
-long run stop latency was `147.713 ms`.
+`train_compute=0.177193 ms/token` is still dominant. Source prewarm remains an
+explicit startup slow path at about `91.051 s` for the parent-graph
+confirmation. Native parent-graph build/capture adds startup cost
+(`native_burst_replay_compile_latency_ms=6202.4909`,
+`capture_latency_ms=6790.4858`) but is outside measured warm token throughput.
+The long run stop latency was `205.315 ms`.
 
 ## Rejected Continuation
 

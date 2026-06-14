@@ -1341,7 +1341,10 @@ per token to report ring progress
 for eight ordinary text ticks between explicit cognitive boundaries. It stages
 the existing input ring only when no wider staged quantum already covers the
 burst slice, replays the proven one-tick CUDA graph eight times in causal order,
-and batches only host bookkeeping. A graph-owned
+and batches only host bookkeeping. When native graph replay is available, the
+trainer may compose the captured one-tick graph into an eight-child parent CUDA
+graph and launch that parent once per burst; this reduces the real replay-launch
+boundary without changing the sequential SNN transition order. A graph-owned
 **Device Strong-Event Ring** snapshots the bounded result packet on every burst
 tick and copies assembly/routing evidence only when that tick crosses the
 configured strong-capture threshold. Training drains those events at the
@@ -1355,7 +1358,7 @@ moving eligibility algorithms into `service`, crossing a slow-path boundary,
 using the previous mirrored surprise value to predict internal burst events,
 retaining archival tensors on CUDA, letting speculative preflight update Runtime
 Truth counters, or replacing the one-tick graph with a larger graph without
-sustained evidence
+sustained evidence or a fail-closed parent-graph promotion gate
 
 **Training-Owned Text Sequence** — the training boundary that accepts one complete service text tick, executes its ordered eight-token quanta, requests full metrics only for explicit evaluator evidence positions, checks stop requests between quanta, and returns Device-Burst Lightweight Metrics to service for ordinary prepared source ticks. Service still owns source selection, locks, Runtime Truth projection, and concept observation; training owns neural sequencing, burst/fallback selection, event drains, and per-token mutation semantics. Runtime Truth reports sequence calls, tokens, quanta, stops, owner, and stop boundary.
 _Avoid_: moving concept algorithms into training, skipping sequential SNN updates, checking stop only after an unbounded tick, letting service duplicate burst policy, or claiming one API call means one CUDA kernel.

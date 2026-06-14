@@ -74,6 +74,16 @@ archival payloads on CPU. Brain Runtime may request the burst, but training
 owns eligibility, event admission, maintenance, and neural/bookkeeping
 semantics.
 
+When available, the burst executor may instantiate a parent CUDA graph whose
+children are the already-captured one-tick burst graph repeated eight times.
+This is not the rejected eight-tick PyTorch graph body: it does not recapture
+the transition cluster, duplicate evidence copies, or widen the cognitive
+boundary. It only lowers the host launch boundary from eight graph launches to
+one parent-graph launch for an otherwise identical eligible burst. If native
+graph construction or launch is unavailable before mutation, the executor uses
+the retained Python replay loop; if native launch fails after selection, the
+runtime fails closed rather than falling back after possible mutation.
+
 Brain Runtime submits one complete prepared text tick through the
 Training-Owned Text Sequence API. Training retains the ordered eight-token
 quantum boundary, checks cancellation between quanta, chooses burst versus
@@ -195,10 +205,31 @@ cognitive-quality evidence, and grounded fallback gates.
   `4247.306 tokens/sec`, `train_compute=0.200979 ms/token`, `8192`
   training-owned quanta, `16382` eight-token burst replays, all `131072`
   transitions on CUDA, and zero graph/burst failures.
+- The native repeated-child parent graph is promoted for the current CUDA path.
+  A 131072-token long run reached `4671.202 tokens/sec` with
+  `train_compute=0.177193 ms/token`, all transitions on the RTX 3060,
+  `16382` native parent-graph launches covering `131056` burst-owned tokens,
+  zero native fallbacks/failures, zero graph/burst failures, and no observed
+  CPU/GPU contention. The same long command with native replay disabled reached
+  `4340.160 tokens/sec` and `train_compute=0.192680 ms/token`. The retained
+  best prior long run was `4577.595 tokens/sec`, so this is a small but real
+  new sustained-throughput ceiling.
+- The C++ loop over `cudaGraphLaunch(graph_exec)` is rejected as a promotion
+  path. It moved the loop below Python, but still launched once per token and
+  lost the 131072-token comparison (`4159.316` native-loop versus `4347.554`
+  disabled Python replay under the recorded runs).
+- Startup/capture cost increased when native parent graphs are built. The
+  131072-token promoted run reported `capture_latency_ms=6790.4858` and
+  `native_burst_replay_compile_latency_ms=6202.4909`. This is a startup
+  slow-path cost, not measured token throughput, and must remain visible in
+  Runtime Truth.
 
 ## Reversal
 
 Set `predictive_route_vote_mode` to `fused_triton_text` or `tensor`, or let
 eligibility fail closed. Set `cuda_graph_quantum_input_staging=false` to retain
-the persistent graph while restoring exact per-token input copies. Checkpoints
+the persistent graph while restoring exact per-token input copies. Set
+`cuda_graph_native_burst_replay=false` or
+`MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY=0` to keep the current persistent graph
+while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
 preserve the retained execution paths.

@@ -1407,6 +1407,14 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert report["text_burst_token_count"] == 32
     assert report["text_burst_fallback_count"] == 0
     assert graph_report["persistent_executor_burst_tokens"] == 8
+    assert graph_report["native_burst_replay_configured"] is True
+    assert graph_report["native_burst_replay_enabled"] is True
+    assert graph_report["native_burst_replay_backend"] == "native_repeated_child_graph"
+    assert graph_report["native_burst_replay_parent_graph_count"] == 2
+    assert graph_report["native_burst_replay_success_count"] == 4
+    assert graph_report["native_burst_replay_token_count"] == 32
+    assert graph_report["native_burst_replay_fallback_count"] == 0
+    assert graph_report["native_burst_replay_failure_count"] == 0
     assert graph_report["burst_replay_count"] == 4
     assert graph_report["burst_event_drain_count"] == 1
     assert graph_report["burst_event_drained_token_count"] == 32
