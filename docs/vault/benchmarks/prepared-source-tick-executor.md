@@ -40,3 +40,18 @@ transitions and requires exact state tensors.
 explicit startup slow path at `84.725 s` for 131072 prepared tokens. Stop
 latency was `257.755 ms`, still bounded but slightly above the prior
 `236.923 ms`.
+
+## Rejected Continuation
+
+`reports/device_sequence_burst_20260614/stress-32768.json` tested an
+eight-token sequence CUDA Graph around the existing burst tick body. Focused
+CUDA parity passed, but complete service throughput regressed to
+`2249.691 tokens/sec` with `train_compute=0.372436 ms/token`. The retained
+burst executor rerun at
+`reports/device_sequence_burst_20260614/stress-32768-retained.json` restored
+`3171.826 tokens/sec` and `train_compute=0.273302 ms/token`.
+
+The next continuation is therefore not another nested CUDA Graph. It is either
+a real fused/persistent device kernel for the recurrent tick cluster, or a
+lower-cost Runtime Truth/event-drain boundary that preserves bounded evidence
+without synchronizing as often.
