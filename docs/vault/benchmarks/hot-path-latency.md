@@ -460,11 +460,11 @@ The clean 131072-token run at `reports/slim_burst_event_packet_20260614/stress-1
 
 The Slim Burst Event Packet removed ordinary no-strong result-row materialization
 on the host, but code inspection found a remaining device-side mismatch: the
-Triton snapshot still loaded routing-key and assembly payload tensors for every
+Triton packet publisher still loaded routing-key and assembly payload tensors for every
 burst event before masking stores for no-strong rows. Those payloads are replay
 archive data, not ordinary Runtime Truth. MARULHO now predicates both the loads
 and stores on the strong-event condition. Result rows and strong flags still
-write on every snapshot; exact routing/assembly payloads remain available for
+write in every packet; exact routing/assembly payloads remain available for
 real strong captures.
 
 Focused CUDA tests prove both sides of the boundary:
@@ -518,6 +518,50 @@ the dominant stage. The next large implementation target is therefore a
 lower-level device-owned multi-tick executor or persistent sequence kernel that
 reduces actual per-token graph/kernel launch and truth-publication work while
 preserving exact sequential SNN state.
+
+## Fused Burst Event Packet Publication, 2026-06-14
+
+The standalone `burst_event_cuda` snapshot kernel is retired. The in-place
+transition kernel now publishes the Slim Burst Event Packet directly: final
+result row, neuromodulator scalars, winner, effective modulator,
+competitive-surprise, strong flag, and optional routing/assembly payloads for
+real strong captures. Normal full-capacity truth drains also skip the redundant
+device slot reset because the fused packet writer already wraps the slot at the
+thirty-two-token event capacity.
+
+Focused CUDA tests cover the fused packet in both no-strong and forced-strong
+paths, partial forced drains, and full-capacity natural slot wrap. The promoted
+runtime activation check reported `active=true`, `fallback_reason=None`,
+captured `all_columns` and `candidate_subset` burst graphs, and kept
+`route_vote_kernel_variant=two_stage_route_vote`.
+
+The diagnostic 8192-token profiled run at
+`reports/fused_burst_event_packet_20260614/stress-8192-profile-interval32.json`
+processed `8192` tokens with `8184` burst-owned tokens, active
+`inplace_triton`, zero graph/burst failures, and zero strong rows. Profiling
+measured `text_burst_runtime_event_drain=0.036503 ms/token`,
+`text_burst_runtime_replay_loop=0.137001`, and
+`text_burst_graph_replay=0.195881`. The complete profiled throughput was
+`3136.410 tokens/sec`, but the run reported CPU contention, so it is target
+selection evidence rather than a promotion.
+
+The long clean stress gate at
+`reports/fused_burst_event_packet_20260614/stress-131072-clean-slot-skip-interval32.json`
+processed `131072` sequential tokens at `3923.410 tokens/sec` with
+`train_compute=0.210933 ms/token`, `131072` in-place CUDA/Triton transitions,
+`16382` burst executions for `131056` burst-owned tokens, `4097` host-truth
+syncs, `126975` skips, `4096` slim packet drains, `4094` full-capacity slot
+reset skips, `2` actual slot resets, zero forced drains, zero strong rows, and
+zero graph/burst failures. Runtime Truth selected the RTX 3060 CUDA path and
+kept `burst_event_ring_device_owned=true`.
+
+This is accepted as device-boundary cleanup and dead-path deletion, not a new
+throughput ceiling. The run reported CPU contention (`96%` max CPU), and it
+remained below the retained uncontended top
+`reports/host_truth_interval_sweep_20260614/stress-131072-i32.json` at
+`4577.595 tokens/sec`. The next large speed target is still a real lower-level
+device-owned multi-tick/persistent sequence executor that reduces the one
+CUDA Graph replay per token, not another post-transition packet trim.
 
 ## Preferred Burst Capacity Ownership And q16 Rejection, 2026-06-14
 

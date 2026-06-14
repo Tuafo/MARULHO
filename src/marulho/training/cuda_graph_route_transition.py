@@ -6,8 +6,6 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-
-from marulho.core.burst_event_cuda import snapshot_burst_event_cuda
 from marulho.core.columns import _normalize_routing_key
 from marulho.core.fused_route_vote_cuda import (
     fused_route_vote_cuda,
@@ -71,6 +69,8 @@ class CudaGraphRouteTransition:
         self.burst_event_forced_drain_count = 0
         self.burst_event_slim_result_packet_count = 0
         self.burst_event_strong_result_row_count = 0
+        self.burst_event_slot_reset_count = 0
+        self.burst_event_slot_reset_skip_count = 0
         self.route_vote_kernel_variant = "unavailable"
         self.recent_spike_row_device_owned_count = 0
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
@@ -225,6 +225,8 @@ class CudaGraphRouteTransition:
     def _tick_ops(
         self,
         candidates: torch.Tensor,
+        *,
+        write_burst_event: bool = False,
     ) -> dict[str, torch.Tensor]:
         trainer = self._trainer
         normalized_input, projected, routing_key = self._pre_route_ops()
@@ -243,24 +245,14 @@ class CudaGraphRouteTransition:
             comp.lr_initial
             / (1.0 + comp.lr_decay * self._learning_rate_update_count)
         )
-        self._launch_transition(candidates, routing_key=routing_key)
+        self._launch_transition(
+            candidates,
+            routing_key=routing_key,
+            write_burst_event=write_burst_event,
+        )
         self._learning_rate_update_count.add_(1.0)
-        runtime = self._runtime
         assert self._neuromodulator_state is not None
         assert self._result is not None
-        self._result[1:6].copy_(self._neuromodulator_state)
-        self._result[6].copy_(runtime._winner[0])
-        self._result[7].copy_(runtime._effective_modulator)
-        if self._owns_competitive_surprise:
-            self._result[8].copy_(
-                torch.norm(
-                    trainer.model.competitive.prototypes.index_select(
-                        0,
-                        runtime._winner,
-                    ).squeeze(0)
-                    - routing_key,
-                )
-            )
         assert self._input_slot is not None
         self._input_slot.add_(1)
         self._input_slot.remainder_(MAX_QUANTUM_INPUT_TOKENS)
@@ -276,28 +268,7 @@ class CudaGraphRouteTransition:
         self,
         candidates: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        outputs = self._tick_ops(candidates)
-        assert self._burst_result_ring is not None
-        assert self._burst_routing_ring is not None
-        assert self._burst_assembly_ring is not None
-        assert self._burst_strong_flags is not None
-        assert self._burst_slot is not None
-        snapshot_burst_event_cuda(
-            result=outputs["result"],
-            routing_key=outputs["routing_key"],
-            assembly=self._runtime._assembly,
-            result_ring=self._burst_result_ring,
-            routing_ring=self._burst_routing_ring,
-            assembly_ring=self._burst_assembly_ring,
-            strong_flags=self._burst_strong_flags,
-            slot=self._burst_slot,
-            strong_threshold=float(
-                self._trainer.config.slow_memory_archive_strong_capture_threshold
-            ),
-        )
-        self._burst_slot.add_(1)
-        self._burst_slot.remainder_(PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS)
-        return outputs
+        return self._tick_ops(candidates, write_burst_event=True)
 
     def _capture(self) -> None:
         trainer = self._trainer
@@ -586,6 +557,7 @@ class CudaGraphRouteTransition:
         candidates: torch.Tensor,
         *,
         routing_key: torch.Tensor,
+        write_burst_event: bool = False,
     ) -> None:
         trainer = self._trainer
         runtime = self._runtime
@@ -593,9 +565,17 @@ class CudaGraphRouteTransition:
         pred = trainer.model.predictive
         assert self._previous_routing_key is not None
         assert self._parameters is not None
+        assert self._neuromodulator_state is not None
+        assert self._result is not None
         assert self._route_vectors is not None
         assert self._route_position_by_column is not None
         assert self._consolidation is not None
+        if write_burst_event:
+            assert self._burst_result_ring is not None
+            assert self._burst_routing_ring is not None
+            assert self._burst_assembly_ring is not None
+            assert self._burst_strong_flags is not None
+            assert self._burst_slot is not None
         inplace_column_transition_cuda(
             prototypes=comp.prototypes,
             routing_vectors=self._route_vectors,
@@ -614,6 +594,24 @@ class CudaGraphRouteTransition:
             assembly=runtime._assembly,
             prediction_boost_out=runtime._prediction_boost,
             effective_modulator_out=runtime._effective_modulator,
+            result_out=self._result,
+            neuromodulator_state=self._neuromodulator_state,
+            burst_result_ring=(
+                self._burst_result_ring if write_burst_event else None
+            ),
+            burst_routing_ring=(
+                self._burst_routing_ring if write_burst_event else None
+            ),
+            burst_assembly_ring=(
+                self._burst_assembly_ring if write_burst_event else None
+            ),
+            burst_strong_flags=(
+                self._burst_strong_flags if write_burst_event else None
+            ),
+            burst_slot=self._burst_slot if write_burst_event else None,
+            strong_threshold=float(
+                self._trainer.config.slow_memory_archive_strong_capture_threshold
+            ),
             routing_key=routing_key,
             previous_routing_key=self._previous_routing_key,
             winners=runtime._winner,
@@ -1254,7 +1252,14 @@ class CudaGraphRouteTransition:
             )
             self.burst_event_strong_result_row_count += len(strong_result_rows)
         assert self._burst_slot is not None
-        self._burst_slot.zero_()
+        if (
+            not forced
+            and token_count % PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS == 0
+        ):
+            self.burst_event_slot_reset_skip_count += 1
+        else:
+            self._burst_slot.zero_()
+            self.burst_event_slot_reset_count += 1
         self._burst_pending_event_count = 0
         return {
             "truth_synced": True,
@@ -1459,6 +1464,12 @@ class CudaGraphRouteTransition:
             ),
             "burst_event_strong_result_row_count": int(
                 self.burst_event_strong_result_row_count
+            ),
+            "burst_event_slot_reset_count": int(
+                self.burst_event_slot_reset_count
+            ),
+            "burst_event_slot_reset_skip_count": int(
+                self.burst_event_slot_reset_skip_count
             ),
             "burst_event_ring_device_owned": bool(
                 self._burst_result_ring is not None

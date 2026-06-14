@@ -5,87 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from marulho.core.column_transition import steady_state_column_transition
-from marulho.core.burst_event_cuda import (
-    snapshot_burst_event_cuda,
-    triton as burst_event_triton,
-)
 from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
-
-
-@pytest.mark.skipif(
-    not torch.cuda.is_available() or burst_event_triton is None,
-    reason="CUDA and Triton required",
-)
-def test_burst_event_snapshot_skips_payload_when_not_strong() -> None:
-    device = torch.device("cuda")
-    result = torch.tensor(
-        [0.1, 0.2, 0.3, 0.4],
-        dtype=torch.float32,
-        device=device,
-    )
-    routing_key = torch.arange(8, dtype=torch.float32, device=device)
-    assembly = torch.arange(32, dtype=torch.float32, device=device)
-    result_ring = torch.full((2, 4), -7.0, dtype=torch.float32, device=device)
-    routing_ring = torch.full((2, 8), -7.0, dtype=torch.float32, device=device)
-    assembly_ring = torch.full((2, 32), -7.0, dtype=torch.float32, device=device)
-    strong_flags = torch.ones(2, dtype=torch.bool, device=device)
-    slot = torch.zeros((), dtype=torch.long, device=device)
-
-    snapshot_burst_event_cuda(
-        result=result,
-        routing_key=routing_key,
-        assembly=assembly,
-        result_ring=result_ring,
-        routing_ring=routing_ring,
-        assembly_ring=assembly_ring,
-        strong_flags=strong_flags,
-        slot=slot,
-        strong_threshold=10.0,
-    )
-    torch.cuda.synchronize()
-
-    assert torch.equal(result_ring[0], result)
-    assert bool(strong_flags[0].item()) is False
-    assert torch.equal(routing_ring[0], torch.full_like(routing_ring[0], -7.0))
-    assert torch.equal(assembly_ring[0], torch.full_like(assembly_ring[0], -7.0))
-
-
-@pytest.mark.skipif(
-    not torch.cuda.is_available() or burst_event_triton is None,
-    reason="CUDA and Triton required",
-)
-def test_burst_event_snapshot_preserves_payload_when_strong() -> None:
-    device = torch.device("cuda")
-    result = torch.tensor(
-        [0.9, 0.2, 0.3, 0.4],
-        dtype=torch.float32,
-        device=device,
-    )
-    routing_key = torch.arange(8, dtype=torch.float32, device=device)
-    assembly = torch.arange(32, dtype=torch.float32, device=device)
-    result_ring = torch.full((2, 4), -7.0, dtype=torch.float32, device=device)
-    routing_ring = torch.full((2, 8), -7.0, dtype=torch.float32, device=device)
-    assembly_ring = torch.full((2, 32), -7.0, dtype=torch.float32, device=device)
-    strong_flags = torch.zeros(2, dtype=torch.bool, device=device)
-    slot = torch.zeros((), dtype=torch.long, device=device)
-
-    snapshot_burst_event_cuda(
-        result=result,
-        routing_key=routing_key,
-        assembly=assembly,
-        result_ring=result_ring,
-        routing_ring=routing_ring,
-        assembly_ring=assembly_ring,
-        strong_flags=strong_flags,
-        slot=slot,
-        strong_threshold=0.5,
-    )
-    torch.cuda.synchronize()
-
-    assert torch.equal(result_ring[0], result)
-    assert bool(strong_flags[0].item()) is True
-    assert torch.equal(routing_ring[0], routing_key)
-    assert torch.equal(assembly_ring[0], assembly)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -272,6 +192,30 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
     assembly = torch.empty(n_columns, device=device)
     prediction_boost_out = torch.empty((), device=device)
     effective_modulator_out = torch.empty((), device=device)
+    reconstruction_result = torch.tensor(0.25, dtype=torch.float32, device=device)
+    result_out = torch.full((9,), -7.0, dtype=torch.float32, device=device)
+    result_out[0] = reconstruction_result
+    neuromodulator_state = torch.tensor(
+        [0.41, 0.15, 0.62, 0.73, 0.2],
+        dtype=torch.float32,
+        device=device,
+    )
+    result_ring = torch.full((2, 9), -7.0, dtype=torch.float32, device=device)
+    routing_ring = torch.full(
+        (2, column_dim),
+        -7.0,
+        dtype=torch.float32,
+        device=device,
+    )
+    assembly_ring = torch.full(
+        (2, n_columns),
+        -7.0,
+        dtype=torch.float32,
+        device=device,
+    )
+    strong_flags = torch.zeros(2, dtype=torch.bool, device=device)
+    slot = torch.zeros((), dtype=torch.long, device=device)
+    strong_threshold = -1.0 if force_fallback else 10.0
 
     inplace_column_transition_cuda(
         prototypes=actual_state[0],
@@ -291,6 +235,14 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         assembly=assembly,
         prediction_boost_out=prediction_boost_out,
         effective_modulator_out=effective_modulator_out,
+        result_out=result_out,
+        neuromodulator_state=neuromodulator_state,
+        burst_result_ring=result_ring,
+        burst_routing_ring=routing_ring,
+        burst_assembly_ring=assembly_ring,
+        burst_strong_flags=strong_flags,
+        burst_slot=slot,
+        strong_threshold=strong_threshold,
         routing_key=routing_key,
         previous_routing_key=previous_routing_key,
         winners=winners,
@@ -343,6 +295,33 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         expected[16].item(),
         abs=2e-5,
     )
+    expected_competitive_surprise = torch.norm(
+        actual_state[0].index_select(0, winners).squeeze(0) - routing_key
+    )
+    expected_result = torch.stack(
+        (
+            reconstruction_result,
+            neuromodulator_state[0],
+            neuromodulator_state[1],
+            neuromodulator_state[2],
+            neuromodulator_state[3],
+            neuromodulator_state[4],
+            winners[0].to(torch.float32),
+            effective_modulator_out,
+            expected_competitive_surprise,
+        )
+    )
+    assert torch.allclose(result_out, expected_result, atol=2e-5, rtol=2e-5)
+    assert torch.allclose(result_ring[0], expected_result, atol=2e-5, rtol=2e-5)
+    assert int(slot.item()) == 1
+    if force_fallback:
+        assert bool(strong_flags[0].item()) is True
+        assert torch.allclose(routing_ring[0], routing_key, atol=2e-5, rtol=2e-5)
+        assert torch.allclose(assembly_ring[0], assembly, atol=2e-5, rtol=2e-5)
+    else:
+        assert bool(strong_flags[0].item()) is False
+        assert torch.equal(routing_ring[0], torch.full_like(routing_ring[0], -7.0))
+        assert torch.equal(assembly_ring[0], torch.full_like(assembly_ring[0], -7.0))
     assert torch.allclose(
         routing_vectors.index_select(0, routing_position_by_column),
         actual_state[0],

@@ -1016,6 +1016,8 @@ def test_text_burst_defers_host_truth_across_two_quanta() -> None:
     assert graph_report["burst_event_forced_drain_count"] == 0
     assert graph_report["burst_event_slim_result_packet_count"] == 1
     assert graph_report["burst_event_strong_result_row_count"] == 0
+    assert graph_report["burst_event_slot_reset_count"] == 1
+    assert graph_report["burst_event_slot_reset_skip_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -1070,6 +1072,8 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
     assert graph_report["burst_event_forced_drain_count"] == 1
     assert graph_report["burst_event_slim_result_packet_count"] == 1
     assert graph_report["burst_event_strong_result_row_count"] == 8
+    assert graph_report["burst_event_slot_reset_count"] == 1
+    assert graph_report["burst_event_slot_reset_skip_count"] == 0
     assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
     assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
         range(2, 10)
@@ -1301,7 +1305,7 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
         enable_context_layer=False,
         enable_binding_layer=False,
         enable_abstraction_layer=False,
-        cuda_graph_host_truth_sync_interval_tokens=17,
+        cuda_graph_host_truth_sync_interval_tokens=33,
         slow_memory_start_tokens=0,
         slow_memory_archive_interval_tokens=256,
         slow_memory_archive_strong_capture_threshold=10.0,
@@ -1393,8 +1397,10 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert report["text_burst_fallback_count"] == 0
     assert graph_report["persistent_executor_burst_tokens"] == 8
     assert graph_report["burst_replay_count"] == 4
-    assert graph_report["burst_event_drain_count"] == 2
+    assert graph_report["burst_event_drain_count"] == 1
     assert graph_report["burst_event_drained_token_count"] == 32
+    assert graph_report["burst_event_slot_reset_count"] == 0
+    assert graph_report["burst_event_slot_reset_skip_count"] == 1
     assert graph_report["burst_replay_failure_count"] == 0
     assert graph_report["quantum_input_stage_count"] == 2
     assert graph_report["quantum_input_staged_token_count"] == 32

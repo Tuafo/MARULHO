@@ -785,6 +785,23 @@ This file records research anchors for current architecture work. It is not a pr
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html,
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/quick-checklist.html,
   and https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html.
+- Fused burst-packet publication note, June 2026: NVIDIA and PyTorch CUDA Graph
+  guidance both frame graph replay as a way to reduce repeated CPU launch/setup
+  overhead, while NVIDIA's performance guidance warns that graphing or replaying
+  the wrong range can give little or no speedup. MARULHO therefore removed the
+  separate post-transition burst snapshot kernel and folded packet publication
+  into the already-required in-place transition kernel, where winner, assembly,
+  routing key, neuromodulator state, effective modulator, and competitive
+  surprise are live. The implementation also skips redundant event-slot resets
+  when a normal full-capacity drain observes a slot that already wrapped on
+  device. A 131072-token clean run proved CUDA correctness with zero graph/burst
+  failures and `4094` reset skips, but measured only `3923.410 tokens/sec`
+  under recorded CPU contention, below the retained `4577.595` top. The research
+  implication is unchanged: packet fusion removes real dead work, but maximum
+  sustained velocity requires reducing the one CUDA Graph replay per token with
+  a lower-level device-owned multi-tick or persistent sequence executor. Sources:
+  https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html
+  and https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/.
 
 ## Engineering Implications
 

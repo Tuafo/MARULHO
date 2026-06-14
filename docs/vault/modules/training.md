@@ -76,13 +76,16 @@ related_benchmarks: []
         For exactly eight ordinary text ticks, it consumes an already staged
         wider quantum slice when available, otherwise stages the ring for that
         burst, replays the same one-tick graph eight times in order, and applies
-        equivalent host bookkeeping in one bounded operation. A separate captured
-        one-tick variant writes results into a Device Strong-Event Ring and
-        loads and copies assembly/routing rows only for threshold crossings; training
-        drains those records at the host-truth boundary and archives all
-        payloads on CPU. Eligibility still fails closed at drift, telemetry,
-        sleep, slow-memory cadence, cross-modal wake, host-truth, routing-mode,
-        and metrics boundaries. The same classifier can preview those
+        equivalent host bookkeeping in one bounded operation. The in-place
+        transition kernel writes the slim result packet and strong-event flag
+        directly into the Device Strong-Event Ring, loading and copying
+        assembly/routing rows only for threshold crossings; training drains
+        those records at the host-truth boundary and archives all payloads on
+        CPU. Full-capacity cadence drains rely on the device slot's natural
+        wrap instead of launching a redundant reset, with reset/skip counts
+        exposed through Runtime Truth. Eligibility still fails closed at drift,
+        telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth,
+        routing-mode, and metrics boundaries. The same classifier can preview those
         boundaries for quantum pre-staging without incrementing Runtime Truth
         counters; service only offers the encoded quantum and does not own burst
         algorithms. Runtime Truth exposes burst executions, burst tokens,

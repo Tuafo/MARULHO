@@ -182,6 +182,7 @@ if triton is not None:
             "dopamine",
             "serotonin",
             "competitive_learning_rate",
+            "strong_threshold",
             "has_previous_routing_key",
         ],
         do_not_specialize_on_alignment=["winners"],
@@ -204,6 +205,13 @@ if triton is not None:
         assembly,
         prediction_boost_out,
         effective_modulator_out,
+        result_out,
+        neuromodulator_state,
+        burst_result_ring,
+        burst_routing_ring,
+        burst_assembly_ring,
+        burst_strong_flags,
+        burst_slot,
         routing_key,
         previous_routing_key,
         winners,
@@ -216,12 +224,17 @@ if triton is not None:
         competitive_learning_rate,
         competition_had_positive,
         recent_spike_row,
+        strong_threshold,
         has_previous_routing_key,
         use_transition_parameters: tl.constexpr,
+        use_result_packet: tl.constexpr,
+        use_burst_event_packet: tl.constexpr,
         persist_previous_routing_key: tl.constexpr,
         advance_recent_spike_row: tl.constexpr,
         update_routing_vectors: tl.constexpr,
         spike_history_window: tl.constexpr,
+        burst_event_capacity: tl.constexpr,
+        result_width: tl.constexpr,
         n_columns: tl.constexpr,
         column_dim: tl.constexpr,
         location_dim: tl.constexpr,
@@ -452,6 +465,10 @@ if triton is not None:
             tl.sum(next_winner_prototype * next_winner_prototype, axis=0)
         )
         next_winner_prototype /= tl.maximum(prototype_norm, 1e-8)
+        surprise_delta = next_winner_prototype - routing
+        competitive_surprise = tl.sqrt(
+            tl.sum(surprise_delta * surprise_delta, axis=0)
+        )
         tl.store(
             prototype_velocity + winner_row_offsets,
             next_winner_velocity,
@@ -475,11 +492,63 @@ if triton is not None:
                 mask=feature_mask & (routing_cache_row >= 0),
             )
 
-        tl.store(
-            assembly + column_offsets,
-            tl.where(is_winner, winner_similarity, 0.0),
-            mask=column_mask,
-        )
+        next_assembly = tl.where(is_winner, winner_similarity, 0.0)
+        tl.store(assembly + column_offsets, next_assembly, mask=column_mask)
+        if use_result_packet:
+            tl.store(result_out + 1, tl.load(neuromodulator_state))
+            tl.store(result_out + 2, tl.load(neuromodulator_state + 1))
+            tl.store(result_out + 3, tl.load(neuromodulator_state + 2))
+            tl.store(result_out + 4, tl.load(neuromodulator_state + 3))
+            tl.store(result_out + 5, tl.load(neuromodulator_state + 4))
+            tl.store(result_out + 6, winner.to(tl.float32))
+            tl.store(result_out + 7, effective_modulator)
+            if result_width >= 9:
+                tl.store(result_out + 8, competitive_surprise)
+        if use_burst_event_packet:
+            reconstruction_error = tl.load(result_out)
+            event_slot = tl.load(burst_slot)
+            event_base = event_slot * result_width
+            strong_event = reconstruction_error > strong_threshold
+            tl.store(burst_result_ring + event_base, reconstruction_error)
+            tl.store(burst_result_ring + event_base + 1, tl.load(neuromodulator_state))
+            tl.store(
+                burst_result_ring + event_base + 2,
+                tl.load(neuromodulator_state + 1),
+            )
+            tl.store(
+                burst_result_ring + event_base + 3,
+                tl.load(neuromodulator_state + 2),
+            )
+            tl.store(
+                burst_result_ring + event_base + 4,
+                tl.load(neuromodulator_state + 3),
+            )
+            tl.store(
+                burst_result_ring + event_base + 5,
+                tl.load(neuromodulator_state + 4),
+            )
+            tl.store(burst_result_ring + event_base + 6, winner.to(tl.float32))
+            tl.store(burst_result_ring + event_base + 7, effective_modulator)
+            if result_width >= 9:
+                tl.store(burst_result_ring + event_base + 8, competitive_surprise)
+            tl.store(burst_strong_flags + event_slot, strong_event)
+            tl.store(
+                burst_routing_ring + event_slot * column_dim + feature_offsets,
+                routing,
+                mask=feature_mask & strong_event,
+            )
+            tl.store(
+                burst_assembly_ring + event_slot * n_columns + column_offsets,
+                next_assembly,
+                mask=column_mask & strong_event,
+            )
+            next_event_slot = event_slot + 1
+            next_event_slot = tl.where(
+                next_event_slot >= burst_event_capacity,
+                0,
+                next_event_slot,
+            )
+            tl.store(burst_slot, next_event_slot)
         old_steps = tl.load(steps_since_win + column_offsets, mask=column_mask)
         tl.store(
             steps_since_win + column_offsets,
@@ -617,6 +686,14 @@ def inplace_column_transition_cuda(
     prediction_error_ema_alpha: float,
     prediction_failure_streak_threshold: float,
     prediction_learning_rate: float,
+    result_out: torch.Tensor | None = None,
+    neuromodulator_state: torch.Tensor | None = None,
+    burst_result_ring: torch.Tensor | None = None,
+    burst_routing_ring: torch.Tensor | None = None,
+    burst_assembly_ring: torch.Tensor | None = None,
+    burst_strong_flags: torch.Tensor | None = None,
+    burst_slot: torch.Tensor | None = None,
+    strong_threshold: float = 1.0,
 ) -> None:
     """Mutate one steady-state column transition in one Triton launch."""
 
@@ -624,6 +701,53 @@ def inplace_column_transition_cuda(
         raise RuntimeError("Triton is not installed")
     if not prototypes.is_cuda:
         raise ValueError("in-place column transition requires CUDA tensors")
+    use_result_packet = result_out is not None or neuromodulator_state is not None
+    if use_result_packet and (result_out is None or neuromodulator_state is None):
+        raise ValueError("result_out and neuromodulator_state must be provided together")
+    use_burst_event_packet = any(
+        tensor is not None
+        for tensor in (
+            burst_result_ring,
+            burst_routing_ring,
+            burst_assembly_ring,
+            burst_strong_flags,
+            burst_slot,
+        )
+    )
+    if use_burst_event_packet and not all(
+        tensor is not None
+        for tensor in (
+            result_out,
+            neuromodulator_state,
+            burst_result_ring,
+            burst_routing_ring,
+            burst_assembly_ring,
+            burst_strong_flags,
+            burst_slot,
+        )
+    ):
+        raise ValueError("burst event packet tensors must be provided together")
+
+    result_tensor = result_out if result_out is not None else effective_modulator_out
+    neuromodulator_tensor = (
+        neuromodulator_state
+        if neuromodulator_state is not None
+        else effective_modulator_out.reshape(1)
+    )
+    burst_result_tensor = (
+        burst_result_ring if burst_result_ring is not None else result_tensor
+    )
+    burst_routing_tensor = (
+        burst_routing_ring if burst_routing_ring is not None else routing_key
+    )
+    burst_assembly_tensor = (
+        burst_assembly_ring if burst_assembly_ring is not None else assembly
+    )
+    burst_flags_tensor = (
+        burst_strong_flags if burst_strong_flags is not None else competition_had_positive
+    )
+    burst_slot_tensor = burst_slot if burst_slot is not None else recent_spike_row
+
     tensors = (
         prototypes,
         prototype_velocity,
@@ -650,6 +774,13 @@ def inplace_column_transition_cuda(
         if transition_parameters is None
         else transition_parameters,
         competition_had_positive,
+        result_tensor,
+        neuromodulator_tensor,
+        burst_result_tensor,
+        burst_routing_tensor,
+        burst_assembly_tensor,
+        burst_flags_tensor,
+        burst_slot_tensor,
     )
     if any(tensor.device != prototypes.device for tensor in tensors):
         raise ValueError("all in-place transition tensors must share one CUDA device")
@@ -668,6 +799,24 @@ def inplace_column_transition_cuda(
         raise ValueError("assembly must have one value per column")
     if transition_parameters is not None and int(transition_parameters.numel()) < 5:
         raise ValueError("transition_parameters must contain at least five values")
+    result_width = int(result_tensor.numel())
+    if use_result_packet and result_width < 8:
+        raise ValueError("result_out must contain at least eight values")
+    if use_result_packet and int(neuromodulator_tensor.numel()) < 5:
+        raise ValueError("neuromodulator_state must contain five values")
+    if use_burst_event_packet:
+        if int(burst_result_tensor.ndim) != 2:
+            raise ValueError("burst_result_ring must be a two-dimensional tensor")
+        if int(burst_result_tensor.shape[1]) != result_width:
+            raise ValueError("burst_result_ring width must match result_out")
+        if int(burst_routing_tensor.shape[-1]) != int(prototypes.shape[1]):
+            raise ValueError("burst_routing_ring width must match column_dim")
+        if int(burst_assembly_tensor.shape[-1]) != int(prototypes.shape[0]):
+            raise ValueError("burst_assembly_ring width must match n_columns")
+        if int(burst_flags_tensor.numel()) < int(burst_result_tensor.shape[0]):
+            raise ValueError("burst_strong_flags must cover the event ring")
+        if int(burst_slot_tensor.numel()) != 1:
+            raise ValueError("burst_slot must be scalar")
     if advance_recent_spike_row and int(spike_history_window) <= 0:
         raise ValueError("spike_history_window must be positive")
     update_routing_vectors = (
@@ -714,6 +863,13 @@ def inplace_column_transition_cuda(
         assembly,
         prediction_boost_out,
         effective_modulator_out,
+        result_tensor,
+        neuromodulator_tensor,
+        burst_result_tensor,
+        burst_routing_tensor,
+        burst_assembly_tensor,
+        burst_flags_tensor,
+        burst_slot_tensor,
         routing_key,
         previous_routing_key,
         winners,
@@ -726,12 +882,19 @@ def inplace_column_transition_cuda(
         float(competitive_learning_rate),
         competition_had_positive,
         recent_spike_row,
+        float(strong_threshold),
         has_previous_routing_key=int(bool(has_previous_routing_key)),
         use_transition_parameters=int(transition_parameters is not None),
+        use_result_packet=int(bool(use_result_packet)),
+        use_burst_event_packet=int(bool(use_burst_event_packet)),
         persist_previous_routing_key=int(bool(persist_previous_routing_key)),
         advance_recent_spike_row=int(bool(advance_recent_spike_row)),
         update_routing_vectors=int(bool(update_routing_vectors)),
         spike_history_window=int(spike_history_window),
+        burst_event_capacity=int(
+            burst_result_tensor.shape[0] if use_burst_event_packet else 1
+        ),
+        result_width=int(result_width),
         n_columns=int(n_columns),
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
@@ -1007,6 +1170,13 @@ def warmup_inplace_column_transition_cuda(
         assembly,
         prediction_boost_out,
         effective_modulator_out,
+        effective_modulator_out,
+        effective_modulator_out,
+        effective_modulator_out,
+        routing_key,
+        assembly,
+        competition_had_positive,
+        recent_spike_row,
         routing_key,
         previous_routing_key,
         winners,
@@ -1019,12 +1189,17 @@ def warmup_inplace_column_transition_cuda(
         0.0,
         competition_had_positive,
         recent_spike_row,
+        1.0,
         has_previous_routing_key=0,
         use_transition_parameters=0,
+        use_result_packet=0,
+        use_burst_event_packet=0,
         persist_previous_routing_key=0,
         advance_recent_spike_row=0,
         update_routing_vectors=0,
         spike_history_window=1,
+        burst_event_capacity=1,
+        result_width=1,
         n_columns=int(n_columns),
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
