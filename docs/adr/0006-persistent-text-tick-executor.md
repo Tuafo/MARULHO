@@ -62,13 +62,17 @@ mutation.
 Training may use a Boundary-Aware Text Burst for exactly eight eligible
 text-only ticks. The burst replays the existing one-tick graph eight times in
 causal order, while collapsing repeated Python bookkeeping. It cannot cross
-drift, telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth, or
-routing-mode boundaries. Strong capture is data-dependent inside the burst, so
-a separate one-tick burst graph snapshots the result packet into a bounded
-device ring every tick and copies assembly/routing evidence only for threshold
-crossings. Training drains the ring once at the host-truth boundary and stores
-all archival payloads on CPU. Brain Runtime may request the burst, but training
-owns eligibility, event admission, and all neural/bookkeeping semantics.
+sleep/replay, slow-memory admission, cross-modal wake, routing-index mutation,
+host-truth, or routing-mode boundaries. Trainer telemetry is observation-only.
+Drift refresh and drift-floor closure are CPU archival maintenance performed
+after a bounded event drain without replaying the quantum token-by-token.
+Strong capture is data-dependent inside the burst, so a separate one-tick
+burst graph snapshots the result packet into a bounded device ring every tick
+and copies assembly/routing evidence only for threshold crossings. Training
+drains the ring once at the host-truth or maintenance boundary and stores all
+archival payloads on CPU. Brain Runtime may request the burst, but training
+owns eligibility, event admission, maintenance, and neural/bookkeeping
+semantics.
 
 Device float neuromodulation and Triton reductions may differ from Python
 double scalar arithmetic by floating-point noise. Promotion requires exact
@@ -131,6 +135,18 @@ cognitive-quality evidence, and grounded fallback gates.
   reported zero graph/burst failures, and exposed fallback counts:
   host truth `1033`, exploration `581`, drift refresh `441`, telemetry `369`,
   and drift floor `1`. Graph capture startup was `480.524 ms`.
+- The Device-Owned Cognitive Boundary Controller later removed exploration,
+  telemetry, drift-refresh, and drift-floor closure as execution gates.
+  Inspection proved the former exploration noise scalar was never consumed by
+  routing, plasticity, curiosity, or action, so it and its checkpoint field
+  were deleted while device-owned norepinephrine/surprise dynamics remain.
+  A clean 32768-token run reached `2745.790 tokens/sec` with `29136`
+  burst-owned tokens and no old boundary fallbacks. A second sample at
+  `2027.181` was rejected as promotion evidence because measurement began with
+  source prewarm still running. The longer clean 131072-token gate reached
+  `2126.013 tokens/sec` over `61.652 s`, executed all `131072` transitions on
+  the RTX 3060, used `116696` burst-owned tokens, reported zero graph/burst
+  failures, and retained only two real `sleep_boundary` fallbacks.
 
 ## Reversal
 

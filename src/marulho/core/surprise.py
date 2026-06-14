@@ -78,21 +78,6 @@ class SurpriseMonitor:
             self.norepinephrine = _clamp01(self.norepinephrine + 0.10 * serotonin_drive)
         self.update_predicted_error(current_error)
 
-    def should_boost_exploration(self, threshold: float = 0.85) -> bool:
-        """Return True when sustained norepinephrine exceeds *threshold*.
-
-        High norepinephrine indicates persistent, unresolved surprise — the
-        network is consistently failing to predict its input.  Rather than
-        resetting learned state (which would destroy consolidated knowledge at
-        the worst possible moment), this triggers an exploration boost:
-        increased noise scale and curiosity urgency.  Dead column revival is
-        handled separately during deep sleep census.
-
-        The threshold is deliberately higher than the RPE trigger (0.4) so that
-        transient surprises do not cause premature boosts.
-        """
-        return bool(self.norepinephrine > float(threshold))
-
     def precision_weight(self, layer_name: str) -> float:
         layer = self.layers.get(layer_name)
         if layer is None:

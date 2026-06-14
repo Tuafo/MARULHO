@@ -21,6 +21,9 @@ from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
 from marulho.training.model import MarulhoModel
 from marulho.training.bootstrap import PredictiveBootstrap
+from marulho.training.cognitive_boundary_controller import (
+    CognitiveBoundaryController,
+)
 from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 
 
@@ -47,8 +50,6 @@ class MarulhoTrainer:
         self.last_winner: int | None = None
         self._prev_routing_key: torch.Tensor | None = None  # For predictive columns
         self.pending_emergency_deep_sleep = False
-        self.last_network_reset_token: int = -10**9
-        self._exploration_noise_scale: float = 1.0
         self._cached_drift: float | None = None
         self._dead_column_census: dict[str, int | float] = {}
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
@@ -112,6 +113,7 @@ class MarulhoTrainer:
         self._routing_index_host_mirror_sync_count = 0
         self._routing_index_cpu_mirror_stale = False
         self._column_transition_runtime = ColumnTransitionRuntime(self)
+        self._cognitive_boundary_controller = CognitiveBoundaryController()
         self._slow_memory_archive_count = 0
         self._slow_memory_archive_skip_count = 0
         self._slow_memory_last_archive_reason = "not_run"
@@ -215,6 +217,9 @@ class MarulhoTrainer:
         )
         report["text_burst_event_last_flush_reason"] = (
             self._text_burst_event_last_flush_reason
+        )
+        report["cognitive_boundary_controller"] = (
+            self._cognitive_boundary_controller.report()
         )
         return report
 
@@ -359,8 +364,6 @@ class MarulhoTrainer:
             return self._text_burst_fallback("higher_layer_tick_active")
         if not self.memory_warm_started or self._cached_drift is None:
             return self._text_burst_fallback("runtime_not_fully_warm")
-        if self.model.surprise.should_boost_exploration():
-            return self._text_burst_fallback("exploration_boundary")
         if graph._last_result is None:
             return self._text_burst_fallback("host_truth_not_initialized")
         cross_modal = self.model.cross_modal
@@ -382,38 +385,27 @@ class MarulhoTrainer:
             1,
             int(self.config.slow_memory_archive_interval_tokens),
         )
-        for current in range(start, end):
-            next_token = current + 1
-            if current % 50 == 0:
-                return self._text_burst_fallback("drift_refresh_boundary")
-            if current % telemetry_interval == 0:
-                return self._text_burst_fallback("telemetry_boundary")
-            if (
-                current % self._hnsw_flush_interval == 0
-                and (self._hnsw_buffer_ids or self._hnsw_buffer_vecs)
-            ):
-                return self._text_burst_fallback("routing_index_flush_boundary")
-            if next_token % archive_interval == 0:
-                return self._text_burst_fallback("slow_memory_boundary")
-            if next_token % self.config.drift_floor_window_tokens == 0:
-                return self._text_burst_fallback("drift_floor_boundary")
-            deep_due = (
-                current >= self.config.deep_sleep_interval_tokens
-                and current - self.last_deep_sleep_token
-                >= self.config.deep_sleep_interval_tokens
-            )
-            emergency_due = (
-                self.pending_emergency_deep_sleep
-                and current - self.last_deep_sleep_token
-                >= self.config.emergency_deep_sleep_cooldown_tokens
-            )
-            micro_due = (
-                current >= self.config.micro_sleep_interval_tokens
-                and current - self.last_micro_sleep_token
-                >= self.config.micro_sleep_interval_tokens
-            )
-            if deep_due or emergency_due or micro_due:
-                return self._text_burst_fallback("sleep_boundary")
+        boundary_plan = self._cognitive_boundary_controller.plan(
+            start_token=start,
+            token_count=token_count,
+            telemetry_interval=telemetry_interval,
+            slow_memory_archive_interval=archive_interval,
+            drift_floor_window_tokens=self.config.drift_floor_window_tokens,
+            hnsw_flush_interval=self._hnsw_flush_interval,
+            hnsw_buffer_pending=bool(
+                self._hnsw_buffer_ids or self._hnsw_buffer_vecs
+            ),
+            deep_sleep_interval_tokens=self.config.deep_sleep_interval_tokens,
+            last_deep_sleep_token=self.last_deep_sleep_token,
+            pending_emergency_deep_sleep=self.pending_emergency_deep_sleep,
+            emergency_deep_sleep_cooldown_tokens=(
+                self.config.emergency_deep_sleep_cooldown_tokens
+            ),
+            micro_sleep_interval_tokens=self.config.micro_sleep_interval_tokens,
+            last_micro_sleep_token=self.last_micro_sleep_token,
+        )
+        if boundary_plan.fallback_reason is not None:
+            return self._text_burst_fallback(boundary_plan.fallback_reason)
         sync_interval = max(
             1,
             int(self.config.cuda_graph_host_truth_sync_interval_tokens),
@@ -486,10 +478,31 @@ class MarulhoTrainer:
                 count=token_count,
             )
             self._cross_modal_fast_idle_skip_count += token_count
-        self._exploration_noise_scale = max(
-            1.0,
-            self._exploration_noise_scale * (0.99**token_count),
-        )
+        if boundary_plan.drift_refresh_due:
+            self.flush_text_burst_events(reason="drift_refresh_maintenance")
+            drift_bucket = (
+                self.last_winner if self.config.use_winner_local_drift else None
+            )
+            refreshed_drift = self.model.memory_store.compute_drift(drift_bucket)
+            self._cached_drift = refreshed_drift
+            self._update_rolling_drift_floor(refreshed_drift)
+            self.current_window_min_drift = min(
+                self.current_window_min_drift,
+                float(refreshed_drift),
+            )
+            self._cognitive_boundary_controller.record_drift_refresh(
+                token=self.token_count
+            )
+        if boundary_plan.drift_floor_close_due:
+            self.flush_text_burst_events(reason="drift_floor_maintenance")
+            self._close_drift_floor_window()
+            self._cognitive_boundary_controller.record_drift_floor_close(
+                token=self.token_count
+            )
+        if boundary_plan.telemetry_observation_due:
+            self._cognitive_boundary_controller.record_telemetry_deferred(
+                token=self.token_count
+            )
         self.current_window_min_drift = min(
             self.current_window_min_drift,
             float(self._cached_drift),
@@ -1645,23 +1658,6 @@ class MarulhoTrainer:
         ):
             self.model.surprise.update_neuromodulators(current_error=recon_error, novelty=min(1.0, recon_error))
 
-        # If sustained norepinephrine exceeds the exploration threshold and the cooldown
-        # has elapsed, boost exploration noise and curiosity urgency.  Do NOT reset learned
-        # state — destroying consolidated knowledge at the moment of highest uncertainty
-        # is counterproductive.  Dead column revival is handled during deep sleep census.
-        exploration_boosted = False
-        reset_cooldown = self.config.emergency_deep_sleep_cooldown_tokens
-        if (
-            self.model.surprise.should_boost_exploration()
-            and (self.token_count - self.last_network_reset_token) >= reset_cooldown
-        ):
-            self._exploration_noise_scale = min(2.0, self._exploration_noise_scale * 1.5)
-            self.last_network_reset_token = self.token_count
-            exploration_boosted = True
-        else:
-            # Gradually decay exploration noise back to baseline
-            self._exploration_noise_scale = max(1.0, self._exploration_noise_scale * 0.99)
-
         local_trace = self._local_trace_from_raw_window(
             raw_window,
             context_confidence=max(0.0, min(1.0, 1.0 - recon_error)),
@@ -2225,8 +2221,6 @@ class MarulhoTrainer:
         metrics["serotonin"] = float(self.model.surprise.serotonin)
         metrics["acetylcholine"] = float(self.model.surprise.acetylcholine)
         metrics["norepinephrine"] = float(self.model.surprise.norepinephrine)
-        metrics["exploration_boosted"] = int(exploration_boosted)
-        metrics["exploration_noise_scale"] = self._exploration_noise_scale
         metrics["plasticity_mode"] = str(self.config.plasticity_mode)
         metrics["plasticity_spike_backend"] = (
             str(self.model.competitive.local_plasticity.spike_backend)

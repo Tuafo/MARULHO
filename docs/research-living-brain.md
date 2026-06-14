@@ -647,6 +647,25 @@ This file records research anchors for current architecture work. It is not a pr
   https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__GRAPH.html,
   https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_cudagraph_trees.html,
   and https://docs.pytorch.org/docs/stable/notes/cuda.html.
+- Boundary-controller follow-up, June 2026: CUDA Graph guidance favors defining
+  repeated device work once and avoiding piecewise host submission for short
+  kernels, but does not justify moving archival memory or arbitrary Python
+  policy into a graph. MARULHO therefore classified boundaries by ownership:
+  telemetry became deferred observation; drift refresh and drift-floor closure
+  remain exact CPU memory maintenance after a bounded device-event drain; and
+  sleep/replay, sensory wake, slow-memory admission, and index mutation remain
+  real fail-closed boundaries. Repository inspection also found that the
+  claimed exploration noise scale had no consumer anywhere in cognition, so
+  its update, checkpoint state, metrics, and burst gate were deleted instead of
+  being ported decoratively to CUDA. A clean 32768-token run reached
+  `2745.790 tokens/sec`. The authoritative longer 131072-token run reached
+  `2126.013 tokens/sec`, with all transitions on the RTX 3060, `116696`
+  burst-owned tokens, zero graph/burst failures, `2333` drift refreshes, `12`
+  drift-floor closures, `1790` deferred telemetry observations, and only two
+  sleep/replay fallbacks. The longer run also identified preparation as the
+  next broad bottleneck at `0.156315 ms/token`, behind train compute at
+  `0.281598 ms/token`. Source:
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html.
 
 ## Engineering Implications
 

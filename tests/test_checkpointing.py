@@ -61,7 +61,6 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 memory_warm_started=False,
                 last_winner=None,
                 pending_emergency_deep_sleep=False,
-                last_network_reset_token=0,
                 developmental_stage=0,
                 _stage2_bootstrap_budget=0,
                 _stage2_bootstrap_used_visual=0,

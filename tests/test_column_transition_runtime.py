@@ -949,6 +949,54 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_crosses_telemetry_observation_without_fallback() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=9,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        trainer_telemetry_interval_tokens=4,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="boundary controller warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+
+    assert trainer.train_text_burst(
+        patterns,
+        raw_windows=[f"boundary controller {index}" for index in range(8)],
+    ) is True
+
+    report = trainer.column_transition_runtime_report()
+    controller = report["cognitive_boundary_controller"]
+    assert report["text_burst_fallback_count"] == 0
+    assert controller["device_continuous_count"] == 1
+    assert controller["telemetry_observation_deferred_count"] == 1
+    assert controller["telemetry_execution_gate"] is False
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
     config = MarulhoConfig(
         n_columns=32,
