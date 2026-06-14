@@ -340,6 +340,10 @@ class RuntimeStatusCore:
                 "source_tensor_device": metabolism.get("source_tensor_device"),
                 "report_compute_device": metabolism.get("report_compute_device"),
                 "snapshot_tensor_count": int(metabolism.get("snapshot_tensor_count", 0) or 0),
+                "source_tensor_count": int(metabolism.get("source_tensor_count", 0) or 0),
+                "materialized_column_state_count": int(
+                    metabolism.get("materialized_column_state_count", 0) or 0
+                ),
                 "snapshot_bytes": int(metabolism.get("snapshot_bytes", 0) or 0),
                 "device_transfer_count": int(metabolism.get("device_transfer_count", 0) or 0),
                 "report_latency_ms": metabolism.get("report_latency_ms"),
@@ -353,6 +357,7 @@ class RuntimeStatusCore:
             "scheduler": {
                 "mode": scheduler.get("mode"),
                 "promoted_to_execution": bool(scheduler.get("promoted_to_execution", False)),
+                "execution_scope": scheduler.get("execution_scope"),
                 "active_column_fraction": float(scheduler.get("active_column_fraction", 0.0) or 0.0),
                 "cached_state_policy": scheduler.get("cached_state_policy"),
                 "fallback_reason": scheduler.get("fallback_reason"),

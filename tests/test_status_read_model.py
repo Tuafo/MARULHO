@@ -365,13 +365,22 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(column_runtime["metabolism"]["source_tensor_device"], "cpu")
         self.assertEqual(column_runtime["metabolism"]["report_compute_device"], "cpu")
         self.assertEqual(column_runtime["metabolism"]["snapshot_tensor_count"], 5)
+        self.assertEqual(column_runtime["metabolism"]["source_tensor_count"], 5)
+        self.assertLessEqual(
+            column_runtime["metabolism"]["materialized_column_state_count"],
+            column_runtime["total_columns"],
+        )
         self.assertEqual(
             column_runtime["metabolism"]["claim_boundary"],
-            "report_sidecar_compute_only_not_column_execution_device",
+            "latency_first_column_status_snapshot_not_hot_path_execution",
         )
         self.assertEqual(column_runtime["registry"]["surface"], "column_registry.v1")
         self.assertFalse(column_runtime["registry"]["mutates_runtime_state"])
-        self.assertFalse(column_runtime["scheduler"]["promoted_to_execution"])
+        self.assertTrue(column_runtime["scheduler"]["promoted_to_execution"])
+        self.assertEqual(
+            column_runtime["scheduler"]["execution_scope"],
+            "candidate_scoring_and_candidate_homeostasis_only",
+        )
         self.assertTrue(column_runtime["growth_gate"]["repeated_surprise_available"])
         self.assertTrue(column_runtime["local_associative_recall"]["available"])
         self.assertFalse(

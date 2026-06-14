@@ -28,7 +28,8 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert report["awake_count"] <= 3
     assert report["runs_all_columns"] is False
     assert report["scheduler"]["runs_all_columns"] is False
-    assert report["scheduler"]["promoted_to_execution"] is False
+    assert report["scheduler"]["promoted_to_execution"] is True
+    assert report["scheduler"]["execution_scope"] == "candidate_scoring_and_candidate_homeostasis_only"
     assert 5 in report["scheduler"]["awake_column_ids"]
     assert report["registry"]["surface"] == "column_registry.v1"
     assert report["registry"]["mutates_runtime_state"] is False
@@ -43,11 +44,15 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert all(vote["mutates_column"] is False for vote in report["votes"])
     assert report["metabolism"]["source_tensor_device"] == "cpu"
     assert report["metabolism"]["report_compute_device"] == "cpu"
+    assert report["metabolism"]["source_tensor_count"] == 4
     assert report["metabolism"]["snapshot_tensor_count"] == 4
-    assert report["metabolism"]["snapshot_bytes"] == 12 * 4 * 4
+    assert report["metabolism"]["materialized_column_state_count"] < 12
+    assert report["metabolism"]["snapshot_bytes"] == (
+        report["metabolism"]["materialized_column_state_count"] * 4 * 4
+    )
     assert report["metabolism"]["device_transfer_count"] == 0
-    assert report["metabolism"]["hot_path_effect"] == "none_report_only_control_plane"
-    assert report["metabolism"]["claim_boundary"] == "report_sidecar_compute_only_not_column_execution_device"
+    assert report["metabolism"]["hot_path_effect"] == "none_latency_first_runtime_truth_snapshot"
+    assert report["metabolism"]["claim_boundary"] == "latency_first_column_status_snapshot_not_hot_path_execution"
 
 
 def test_column_runtime_growth_gate_needs_repeated_surprise() -> None:
@@ -129,10 +134,12 @@ def test_column_runtime_uses_one_bounded_cuda_snapshot_for_report_compute() -> N
     assert report["device"] == "cuda"
     assert report["metabolism"]["source_tensor_device"] == "cuda:0"
     assert report["metabolism"]["report_compute_device"] == "cpu"
+    assert report["metabolism"]["source_tensor_count"] == 4
     assert report["metabolism"]["snapshot_tensor_count"] == 4
+    assert report["metabolism"]["materialized_column_state_count"] == 1024
     assert report["metabolism"]["snapshot_bytes"] == 1024 * 4 * 4
     assert report["metabolism"]["device_transfer_count"] == 1
-    assert report["metabolism"]["claim_boundary"] == "report_sidecar_compute_only_not_column_execution_device"
+    assert report["metabolism"]["claim_boundary"] == "latency_first_column_status_snapshot_not_hot_path_execution"
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable")

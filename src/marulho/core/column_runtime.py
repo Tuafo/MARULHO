@@ -33,7 +33,7 @@ def _safe_tensor(
     )
 
 
-def _column_state_snapshot(
+def _column_state_tensors(
     *,
     n_columns: int,
     prediction_error: torch.Tensor | None,
@@ -50,36 +50,33 @@ def _column_state_snapshot(
         ),
         torch.device("cpu"),
     )
-    stacked = torch.stack(
-        (
-            _safe_tensor(
-                prediction_error,
-                n_columns=n_columns,
-                fill=0.0,
-                device=source_device,
-            ),
-            _safe_tensor(
-                confidence,
-                n_columns=n_columns,
-                fill=0.5,
-                device=source_device,
-            ),
-            _safe_tensor(
-                steps_since_win,
-                n_columns=n_columns,
-                fill=0.0,
-                device=source_device,
-            ),
-            _safe_tensor(
-                win_rate_ema,
-                n_columns=n_columns,
-                fill=0.0,
-                device=source_device,
-            ),
+    return (
+        _safe_tensor(
+            prediction_error,
+            n_columns=n_columns,
+            fill=0.0,
+            device=source_device,
         ),
-        dim=0,
+        _safe_tensor(
+            confidence,
+            n_columns=n_columns,
+            fill=0.5,
+            device=source_device,
+        ),
+        _safe_tensor(
+            steps_since_win,
+            n_columns=n_columns,
+            fill=0.0,
+            device=source_device,
+        ),
+        _safe_tensor(
+            win_rate_ema,
+            n_columns=n_columns,
+            fill=0.0,
+            device=source_device,
+        ),
+        source_device,
     )
-    return stacked.to(device="cpu"), source_device
 
 
 def _tensor_to_float_list(value: torch.Tensor, limit: int) -> list[float]:
@@ -169,27 +166,27 @@ def bounded_column_associative_recall(
     }
 
 
-def _column_role(
+def _column_role_from_export(
     *,
-    idx: int,
-    awake_set: set[int],
-    cached_vote_mask: torch.Tensor,
-    sleep_mask: torch.Tensor,
-    deep_sleep_mask: torch.Tensor,
-    high_surprise: torch.Tensor,
+    column_id: int,
+    awake: bool,
+    cached_vote: bool,
+    sleeping: bool,
+    deep_sleep: bool,
+    high_surprise: bool,
     last_ids: set[int],
 ) -> str:
-    if bool(deep_sleep_mask[idx].item()):
+    if deep_sleep:
         return "deep_sleep"
-    if bool(sleep_mask[idx].item()):
+    if sleeping:
         return "sleeping"
-    if idx in awake_set and bool(high_surprise[idx].item()):
+    if awake and high_surprise:
         return "surprise_detector"
-    if idx in awake_set and idx in last_ids:
+    if awake and int(column_id) in last_ids:
         return "recent_winner"
-    if bool(cached_vote_mask[idx].item()):
+    if cached_vote:
         return "stable_cached_vote"
-    if idx in awake_set:
+    if awake:
         return "awake_predictor"
     return "idle_column"
 
@@ -229,10 +226,13 @@ def build_column_runtime_report(
             "metabolism": {
                 "source_tensor_device": str(device or "cpu"),
                 "report_compute_device": "cpu",
+                "source_tensor_count": 0,
                 "snapshot_tensor_count": 0,
+                "materialized_column_state_count": 0,
                 "snapshot_bytes": 0,
                 "device_transfer_count": 0,
-                "claim_boundary": "report_sidecar_compute_only_not_column_execution_device",
+                "hot_path_effect": "none_latency_first_runtime_truth_snapshot",
+                "claim_boundary": "latency_first_column_status_snapshot_not_hot_path_execution",
             },
             "votes": [],
             "scheduler": {"mode": "no_columns", "runs_all_columns": False},
@@ -246,30 +246,47 @@ def build_column_runtime_report(
             },
         }
 
-    column_state, source_device = _column_state_snapshot(
+    pred_error_raw, conf_raw, steps_raw, win_rate_raw, source_device = _column_state_tensors(
         n_columns=total_columns,
         prediction_error=prediction_error,
         confidence=confidence,
         steps_since_win=steps_since_win,
         win_rate_ema=win_rate_ema,
     )
-    pred_error, conf, steps, win_rate = column_state.unbind(dim=0)
-    conf = conf.clamp(0.0, 1.0)
-    win_rate = win_rate.clamp(min=0.0)
+    original_source_device = source_device
+    pred_error = pred_error_raw.clamp(min=0.0)
+    conf = conf_raw.clamp(0.0, 1.0)
+    steps = steps_raw.clamp(min=0.0)
+    win_rate = win_rate_raw.clamp(min=0.0)
     last_ids = _ids_to_list(last_winner_ids, n_columns=total_columns)
     last_id_set = set(last_ids)
 
     streak_source_device = None
-    streak_cpu = None
+    streak_tensor = None
     if isinstance(prediction_failure_streak, torch.Tensor) and int(prediction_failure_streak.numel()) == total_columns:
         streak_source_device = prediction_failure_streak.device
-        streak_cpu = prediction_failure_streak.detach().to(device="cpu", dtype=torch.float32).flatten()
+        streak_tensor = prediction_failure_streak.detach().to(
+            device=source_device,
+            dtype=torch.float32,
+        ).flatten()
+    if source_device.type != "cpu":
+        snapshot_rows = [pred_error, conf, steps, win_rate]
+        if streak_tensor is not None:
+            snapshot_rows.append(streak_tensor)
+        snapshot = torch.stack(snapshot_rows, dim=0).detach().cpu()
+        pred_error = snapshot[0]
+        conf = snapshot[1]
+        steps = snapshot[2]
+        win_rate = snapshot[3]
+        if streak_tensor is not None:
+            streak_tensor = snapshot[4]
+        source_device = torch.device("cpu")
 
     surprise_norm = pred_error.clamp(min=0.0, max=1.0)
     confidence_gap = 1.0 - conf
     usefulness = torch.clamp(0.65 * conf + 0.35 * win_rate, min=0.0, max=1.0)
-    cost = torch.ones(total_columns, dtype=torch.float32, device=pred_error.device)
-    recent = torch.zeros(total_columns, dtype=torch.float32, device=pred_error.device)
+    cost = torch.ones(total_columns, dtype=torch.float32, device=source_device)
+    recent = torch.zeros(total_columns, dtype=torch.float32, device=source_device)
     for idx in last_ids:
         recent[idx] = 1.0
 
@@ -280,7 +297,11 @@ def build_column_runtime_report(
         + 0.10 * recent
     )
     top_count = min(max(1, awake_budget), total_columns)
-    awake_indices = torch.topk(scheduler_score, k=top_count).indices if awake_budget > 0 else torch.empty(0, dtype=torch.long)
+    awake_indices = (
+        torch.topk(scheduler_score, k=top_count).indices
+        if awake_budget > 0
+        else torch.empty(0, dtype=torch.long, device=source_device)
+    )
     awake_set = {int(idx) for idx in awake_indices.detach().cpu().tolist()}
 
     deep_sleep_mask = steps >= float(deep_sleep_after_steps)
@@ -290,53 +311,23 @@ def build_column_runtime_report(
         if 0 <= idx < total_columns:
             cached_vote_mask[idx] = False
 
-    score_mean = float(scheduler_score.mean().item())
+    score_mean_tensor = scheduler_score.mean()
+    score_mean = float(score_mean_tensor.item())
     disagreement = torch.abs(scheduler_score - score_mean)
     vote_ids = list(awake_indices.detach().cpu().tolist())
     cached_ids = torch.nonzero(cached_vote_mask, as_tuple=False).flatten()
     if int(cached_ids.numel()) > 0:
         cached_order = cached_ids[torch.argsort(conf[cached_ids], descending=True)]
         vote_ids.extend(int(idx) for idx in cached_order[: max(0, awake_budget - len(vote_ids))].detach().cpu().tolist())
-
-    votes: list[dict[str, Any]] = []
-    for idx in vote_ids[: max(awake_budget, len(awake_set))]:
-        column_id = int(idx)
-        awake = column_id in awake_set
-        sleep_state = "awake" if awake else "cached_vote"
-        wake_reason = "recent_or_surprising_column" if awake else "cached_stable_vote"
-        votes.append(
-            {
-                "column_id": column_id,
-                "state": sleep_state,
-                "role": _column_role(
-                    idx=column_id,
-                    awake_set=awake_set,
-                    cached_vote_mask=cached_vote_mask,
-                    sleep_mask=sleep_mask,
-                    deep_sleep_mask=deep_sleep_mask,
-                    high_surprise=pred_error > 0.65,
-                    last_ids=last_id_set,
-                ),
-                "confidence": round(float(conf[column_id].item()), 6),
-                "prediction_error": round(float(pred_error[column_id].item()), 6),
-                "usefulness": round(float(usefulness[column_id].item()), 6),
-                "estimated_cost": round(float(cost[column_id].item()), 6),
-                "disagreement": round(float(disagreement[column_id].item()), 6),
-                "evidence": {
-                    "prediction_error": round(float(pred_error[column_id].item()), 6),
-                    "confidence_gap": round(float(confidence_gap[column_id].item()), 6),
-                    "win_rate_ema": round(float(win_rate[column_id].item()), 6),
-                    "steps_since_win": int(steps[column_id].item()),
-                },
-                "wake_reason": wake_reason,
-                "sleep_reason": None if awake else "stable_low_surprise_cached_vote",
-                "mutates_column": False,
-            }
-        )
+    vote_ids_tensor = (
+        torch.as_tensor(vote_ids[: max(awake_budget, len(awake_set))], dtype=torch.long, device=source_device)
+        if vote_ids
+        else torch.empty(0, dtype=torch.long, device=source_device)
+    )
 
     high_surprise = pred_error > 0.65
-    if streak_cpu is not None:
-        repeated_surprise = high_surprise & (streak_cpu >= float(max(1, int(growth_streak_threshold))))
+    if streak_tensor is not None:
+        repeated_surprise = high_surprise & (streak_tensor >= float(max(1, int(growth_streak_threshold))))
         repeated_surprise_available = True
     else:
         repeated_surprise = torch.zeros_like(high_surprise, dtype=torch.bool)
@@ -348,69 +339,155 @@ def build_column_runtime_report(
     sample_candidates = torch.unique(
         torch.cat(
             (
-                awake_indices.detach().cpu(),
-                cached_ids[:awake_budget].detach().cpu(),
-                torch.nonzero(sleep_mask | deep_sleep_mask, as_tuple=False).flatten()[:awake_budget].detach().cpu(),
+                awake_indices.detach().to(device=source_device),
+                cached_ids[:awake_budget].detach().to(device=source_device),
+                torch.nonzero(sleep_mask | deep_sleep_mask, as_tuple=False).flatten()[:awake_budget].detach().to(device=source_device),
             )
         )
     )[: max(0, int(registry_sample_limit))]
+    export_ids = torch.unique(
+        torch.cat(
+            (
+                vote_ids_tensor.detach().to(device=source_device),
+                sample_candidates.detach().to(device=source_device),
+            )
+        )
+    )
+    export_ids_cpu = export_ids.detach().cpu().to(dtype=torch.long)
+    export_rows = [
+        pred_error,
+        conf,
+        surprise_norm,
+        usefulness,
+        cost,
+        win_rate,
+        steps,
+        confidence_gap,
+        disagreement,
+        sleep_mask.to(dtype=torch.float32),
+        deep_sleep_mask.to(dtype=torch.float32),
+        cached_vote_mask.to(dtype=torch.float32),
+        high_surprise.to(dtype=torch.float32),
+    ]
+    if streak_tensor is not None:
+        export_rows.append(streak_tensor)
+    export_table = (
+        torch.stack(export_rows, dim=0)
+        .index_select(1, export_ids.to(device=source_device, dtype=torch.long))
+        .detach()
+        .cpu()
+    )
+    export_offset_by_id = {
+        int(column_id): offset for offset, column_id in enumerate(export_ids_cpu.tolist())
+    }
+    sample_ids_cpu = sample_candidates.detach().cpu().to(dtype=torch.long)
+    vote_ids_cpu = vote_ids_tensor.detach().cpu().to(dtype=torch.long)
     memory_budget = None if memory_budget_per_column is None else max(0, int(memory_budget_per_column))
+    votes: list[dict[str, Any]] = []
+    for idx in vote_ids_cpu.tolist():
+        column_id = int(idx)
+        export_offset = export_offset_by_id[column_id]
+        awake = column_id in awake_set
+        sleep_state = "awake" if awake else "cached_vote"
+        wake_reason = "recent_or_surprising_column" if awake else "cached_stable_vote"
+        role = _column_role_from_export(
+            column_id=column_id,
+            awake=awake,
+            cached_vote=bool(export_table[11, export_offset].item()),
+            sleeping=bool(export_table[9, export_offset].item()),
+            deep_sleep=bool(export_table[10, export_offset].item()),
+            high_surprise=bool(export_table[12, export_offset].item()),
+            last_ids=last_id_set,
+        )
+        votes.append(
+            {
+                "column_id": column_id,
+                "state": sleep_state,
+                "role": role,
+                "confidence": round(float(export_table[1, export_offset].item()), 6),
+                "prediction_error": round(float(export_table[0, export_offset].item()), 6),
+                "usefulness": round(float(export_table[3, export_offset].item()), 6),
+                "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
+                "disagreement": round(float(export_table[8, export_offset].item()), 6),
+                "evidence": {
+                    "prediction_error": round(float(export_table[0, export_offset].item()), 6),
+                    "confidence_gap": round(float(export_table[7, export_offset].item()), 6),
+                    "win_rate_ema": round(float(export_table[5, export_offset].item()), 6),
+                    "steps_since_win": int(export_table[6, export_offset].item()),
+                },
+                "wake_reason": wake_reason,
+                "sleep_reason": None if awake else "stable_low_surprise_cached_vote",
+                "mutates_column": False,
+            }
+        )
     registry_sample: list[dict[str, Any]] = []
-    for column_id in _tensor_to_int_list(sample_candidates, max(0, int(registry_sample_limit))):
+    for sample_offset, column_id in enumerate(_tensor_to_int_list(sample_ids_cpu, max(0, int(registry_sample_limit)))):
+        export_offset = export_offset_by_id[column_id]
+        sleeping = bool(export_table[9, export_offset].item())
+        deep_sleep = bool(export_table[10, export_offset].item())
+        cached_vote = bool(export_table[11, export_offset].item())
+        high_surprise_state = bool(export_table[12, export_offset].item())
         registry_sample.append(
             {
                 "column_id": column_id,
-                "role": _column_role(
-                    idx=column_id,
-                    awake_set=awake_set,
-                    cached_vote_mask=cached_vote_mask,
-                    sleep_mask=sleep_mask,
-                    deep_sleep_mask=deep_sleep_mask,
-                    high_surprise=high_surprise,
+                "role": _column_role_from_export(
+                    column_id=column_id,
+                    awake=column_id in awake_set,
+                    cached_vote=cached_vote,
+                    sleeping=sleeping,
+                    deep_sleep=deep_sleep,
+                    high_surprise=high_surprise_state,
                     last_ids=last_id_set,
                 ),
                 "state": (
                     "deep_sleep"
-                    if bool(deep_sleep_mask[column_id].item())
+                    if deep_sleep
                     else "sleeping"
-                    if bool(sleep_mask[column_id].item())
+                    if sleeping
                     else "awake"
                     if column_id in awake_set
                     else "cached_vote"
-                    if bool(cached_vote_mask[column_id].item())
+                    if cached_vote
                     else "idle"
                 ),
                 "local_state": {
-                    "prediction_error": round(float(pred_error[column_id].item()), 6),
-                    "confidence": round(float(conf[column_id].item()), 6),
-                    "surprise": round(float(surprise_norm[column_id].item()), 6),
-                    "usefulness": round(float(usefulness[column_id].item()), 6),
-                    "estimated_cost": round(float(cost[column_id].item()), 6),
-                    "win_rate_ema": round(float(win_rate[column_id].item()), 6),
-                    "steps_since_win": int(steps[column_id].item()),
+                    "prediction_error": round(float(export_table[0, export_offset].item()), 6),
+                    "confidence": round(float(export_table[1, export_offset].item()), 6),
+                    "surprise": round(float(export_table[2, export_offset].item()), 6),
+                    "usefulness": round(float(export_table[3, export_offset].item()), 6),
+                    "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
+                    "win_rate_ema": round(float(export_table[5, export_offset].item()), 6),
+                    "steps_since_win": int(export_table[6, export_offset].item()),
                     "last_run_token": (
                         None
                         if token_count is None
-                        else max(0, int(token_count) - int(steps[column_id].item()))
+                        else max(0, int(token_count) - int(export_table[6, export_offset].item()))
                     ),
                     "memory_budget": memory_budget,
                     "prediction_failure_streak": (
                         None
-                        if streak_cpu is None
-                        else int(streak_cpu[column_id].item())
+                        if streak_tensor is None
+                        else int(export_table[13, export_offset].item())
                     ),
                 },
                 "mutates_runtime_state": False,
             }
         )
     report_latency_ms = round(float((time.perf_counter() - started_at) * 1000.0), 6)
-    snapshot_tensor_count = 4 + (1 if streak_cpu is not None else 0)
-    snapshot_bytes = int(column_state.numel() * column_state.element_size())
-    if streak_cpu is not None:
-        snapshot_bytes += int(streak_cpu.numel() * streak_cpu.element_size())
-    device_transfer_count = int(source_device.type != "cpu")
+    source_tensor_count = 4 + (1 if streak_tensor is not None else 0)
+    materialized_column_state_count = (
+        total_columns if original_source_device.type != "cpu" else int(
+            len({int(idx) for idx in sample_ids_cpu.tolist()} | {int(idx) for idx in vote_ids_cpu.tolist()})
+        )
+    )
+    snapshot_bytes = int(
+        materialized_column_state_count
+        * source_tensor_count
+        * torch.empty((), dtype=torch.float32).element_size()
+    )
+    device_transfer_count = int(original_source_device.type != "cpu")
     if streak_source_device is not None and streak_source_device.type != "cpu":
-        device_transfer_count += 1
+        device_transfer_count = max(device_transfer_count, 1)
 
     return {
         "surface": "column_runtime_metabolism.v1",
@@ -420,14 +497,16 @@ def build_column_runtime_report(
         "device": str(device or source_device),
         "token_count": None if token_count is None else int(token_count),
         "metabolism": {
-            "source_tensor_device": str(source_device),
-            "report_compute_device": "cpu",
-            "snapshot_tensor_count": snapshot_tensor_count,
+            "source_tensor_device": str(original_source_device),
+            "report_compute_device": str(source_device),
+            "source_tensor_count": source_tensor_count,
+            "snapshot_tensor_count": source_tensor_count,
+            "materialized_column_state_count": materialized_column_state_count,
             "snapshot_bytes": snapshot_bytes,
             "device_transfer_count": device_transfer_count,
             "report_latency_ms": report_latency_ms,
-            "hot_path_effect": "none_report_only_control_plane",
-            "claim_boundary": "report_sidecar_compute_only_not_column_execution_device",
+            "hot_path_effect": "none_latency_first_runtime_truth_snapshot",
+            "claim_boundary": "latency_first_column_status_snapshot_not_hot_path_execution",
         },
         "total_columns": total_columns,
         "awake_budget": awake_budget,
@@ -439,9 +518,10 @@ def build_column_runtime_report(
         "cached_votes_allowed": True,
         "runs_all_columns": False,
         "scheduler": {
-            "mode": "top_k_surprise_usefulness_cost_scheduler_report",
+            "mode": "top_k_surprise_usefulness_cost_latency_first_gate",
             "runs_all_columns": False,
-            "promoted_to_execution": False,
+            "promoted_to_execution": True,
+            "execution_scope": "candidate_scoring_and_candidate_homeostasis_only",
             "selection_inputs": [
                 "prediction_error",
                 "confidence_gap",
