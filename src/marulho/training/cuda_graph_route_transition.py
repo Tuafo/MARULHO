@@ -974,7 +974,7 @@ class CudaGraphRouteTransition:
         self,
         patterns: list[torch.Tensor],
     ) -> dict[str, Any]:
-        """Burst-replay eight ticks without interleaved host bookkeeping."""
+        """Burst-replay a bounded token run without interleaved host bookkeeping."""
 
         profile_enabled = bool(
             getattr(self._trainer, "_train_step_profile_enabled", False)
@@ -996,9 +996,12 @@ class CudaGraphRouteTransition:
             ) * 1000.0
             profile_last = now
 
-        if len(patterns) != PERSISTENT_EXECUTOR_BURST_TOKENS:
+        if (
+            len(patterns) <= 0
+            or len(patterns) > PERSISTENT_EXECUTOR_BURST_TOKENS
+        ):
             raise ValueError(
-                "persistent executor burst requires exactly "
+                "persistent executor burst requires between 1 and "
                 f"{PERSISTENT_EXECUTOR_BURST_TOKENS} patterns"
             )
         if not self.eligible():
@@ -1134,6 +1137,9 @@ class CudaGraphRouteTransition:
         }
         _profile_mark("text_burst_runtime_event_defer")
         return result
+
+    def text_burst_token_capacity(self) -> int:
+        return PERSISTENT_EXECUTOR_BURST_TOKENS
 
     @torch.no_grad()
     def _drain_burst_events(self, *, forced: bool) -> dict[str, Any]:

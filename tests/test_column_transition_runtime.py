@@ -1377,6 +1377,7 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert report["text_burst_execution_count"] == 4
     assert report["text_burst_token_count"] == 32
     assert report["text_burst_fallback_count"] == 0
+    assert graph_report["persistent_executor_burst_tokens"] == 8
     assert graph_report["burst_replay_count"] == 4
     assert graph_report["burst_event_drain_count"] == 2
     assert graph_report["burst_event_drained_token_count"] == 32

@@ -502,6 +502,11 @@ class ColumnTransitionRuntime:
             patterns
         )
 
+    def text_burst_token_capacity(self) -> int:
+        if self._cuda_graph_runtime is None:
+            return 0
+        return int(self._cuda_graph_runtime.text_burst_token_capacity())
+
     def drain_text_burst_events(self) -> dict[str, Any]:
         if self._cuda_graph_runtime is None:
             return {

@@ -391,6 +391,14 @@ The profiled retained interval-32 run at `reports/slim_burst_event_packet_202606
 
 The clean 131072-token run at `reports/slim_burst_event_packet_20260614/stress-131072-clean-interval32.json` reached `3656.459 tokens/sec`, below the retained best interval-32 evidence at `4577.595`, so this is a packet/metabolism cleanup and profiling-stage improvement rather than an endpoint-throughput promotion. It still removes dead host materialization from the maintained path and strengthens Runtime Truth with explicit packet counters. A wider 128-token truth/event candidate at `reports/event_queue_128_20260614/stress-131072-clean-interval128.json` reached only `3973.773 tokens/sec`; the next large speed slice should remove or make asynchronous the synchronization boundary itself, not merely widen or shrink host packets.
 
+## Preferred Burst Capacity Ownership And q16 Rejection, 2026-06-14
+
+The service execution quantum is `16`, but the maintained CUDA burst capacity remains `8`. The trainer now asks `ColumnTransitionRuntime` for the runtime-owned burst capacity instead of carrying a separate hard-coded eight-token chunk size. This keeps the boundary in the transition runtime and prevents service/trainer drift if a future executor proves a different capacity.
+
+A candidate that raised the preferred Python burst group to `16` passed focused CUDA parity and reduced host burst groups in `reports/wide_burst_20260614/stress-8192-profile-interval32.json`: `burst_replay_count=511` versus the prior eight-token shape's `1023`, `persistent_executor_burst_tokens=16`, zero graph/burst failures, and `text_burst_runtime_replay_loop=0.179855 ms/token`. That did not reduce the underlying per-token CUDA Graph replay launch count, because `replay_staged_text_burst()` still calls the one-tick graph once per token.
+
+The clean sustained gate at `reports/wide_burst_20260614/stress-32768-clean-interval32.json` rejected the candidate: `2283.710 tokens/sec`, `train_compute=0.379761 ms/token`, `persistent_executor_burst_tokens=16`, `2046` burst groups, all `32768` transitions on CUDA, and zero graph/burst failures. The retained direction is therefore not wider Python bursts. The next credible launch-reduction work is a fused or persistent device-owned multi-tick executor that actually lowers graph/kernel launches while preserving exact sequential SNN state, host-truth freshness, stop responsiveness, and rollback evidence.
+
 ## Sustained Host-Truth Recheck and Abstraction Clone Retirement, 2026-06-14
 
 Host-truth synchronization and slow-memory archival use separate cadences. The retained checkpoint carries `cuda_graph_host_truth_sync_interval_tokens=16`, while the promoted slow-memory archival cadence is `256`. A wider host-truth interval therefore cannot be inferred from the memory result.

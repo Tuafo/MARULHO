@@ -395,13 +395,17 @@ class MarulhoTrainer:
         """Collapse ordinary text ticks between explicit cognitive boundaries."""
 
         token_count = len(patterns)
-        if token_count != 8:
-            return self._text_burst_fallback("burst_requires_eight_tokens")
-        if raw_windows is None or len(raw_windows) != token_count:
-            return self._text_burst_fallback("burst_requires_raw_windows")
         graph = self._column_transition_runtime._cuda_graph_runtime
         if graph is None or not graph.active:
             return self._text_burst_fallback("persistent_cuda_graph_inactive")
+        burst_capacity = max(
+            1,
+            int(self._column_transition_runtime.text_burst_token_capacity()),
+        )
+        if token_count <= 0 or token_count > burst_capacity:
+            return self._text_burst_fallback("burst_exceeds_device_capacity")
+        if raw_windows is None or len(raw_windows) != token_count:
+            return self._text_burst_fallback("burst_requires_raw_windows")
         profile_enabled = bool(self._train_step_profile_enabled)
         profile_started = time.perf_counter() if profile_enabled else 0.0
         profile_last = profile_started
@@ -669,6 +673,10 @@ class MarulhoTrainer:
             for index in metric_indices
             if 0 <= int(index) < token_count
         }
+        burst_capacity = max(
+            1,
+            int(self._column_transition_runtime.text_burst_token_capacity()),
+        )
         metrics_by_index: dict[int, dict[str, Any]] = {}
         last_metrics: dict[str, Any] | None = None
         trained = 0
@@ -680,8 +688,8 @@ class MarulhoTrainer:
                 stopped = True
                 break
             end = min(token_count, start + quantum)
-            for chunk_start in range(start, end, 8):
-                chunk_end = min(end, chunk_start + 8)
+            for chunk_start in range(start, end, burst_capacity):
+                chunk_end = min(end, chunk_start + burst_capacity)
                 chunk_patterns = list(patterns[chunk_start:chunk_end])
                 chunk_windows = [
                     str(value) for value in raw_windows[chunk_start:chunk_end]
@@ -690,7 +698,7 @@ class MarulhoTrainer:
                     range(chunk_start, chunk_end)
                 )
                 burst_executed = bool(
-                    len(chunk_patterns) == 8
+                    len(chunk_patterns) <= burst_capacity
                     and not chunk_metric_indices
                     and self.train_text_burst(
                         chunk_patterns,
