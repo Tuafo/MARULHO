@@ -28,6 +28,8 @@ class CognitiveBoundaryController:
         self.device_continuous_count = 0
         self.fallback_count = 0
         self.drift_refresh_count = 0
+        self.drift_refresh_sync_free_count = 0
+        self.drift_refresh_global_count = 0
         self.drift_floor_close_count = 0
         self.telemetry_observation_deferred_count = 0
         self.slow_memory_cadence_deferred_count = 0
@@ -117,8 +119,16 @@ class CognitiveBoundaryController:
             slow_memory_cadence_due=slow_memory_cadence_due,
         )
 
-    def record_drift_refresh(self, *, token: int) -> None:
+    def record_drift_refresh(
+        self,
+        *,
+        token: int,
+        sync_free: bool = False,
+        global_drift: bool = False,
+    ) -> None:
         self.drift_refresh_count += 1
+        self.drift_refresh_sync_free_count += int(bool(sync_free))
+        self.drift_refresh_global_count += int(bool(global_drift))
         self.last_drift_refresh_token = int(token)
 
     def record_drift_floor_close(self, *, token: int) -> None:
@@ -141,6 +151,12 @@ class CognitiveBoundaryController:
             "fallback_count": int(self.fallback_count),
             "drift_refresh_interval_tokens": DRIFT_REFRESH_INTERVAL_TOKENS,
             "drift_refresh_count": int(self.drift_refresh_count),
+            "drift_refresh_sync_free_count": int(
+                self.drift_refresh_sync_free_count
+            ),
+            "drift_refresh_global_count": int(
+                self.drift_refresh_global_count
+            ),
             "drift_floor_close_count": int(self.drift_floor_close_count),
             "telemetry_observation_deferred_count": int(
                 self.telemetry_observation_deferred_count
@@ -160,6 +176,7 @@ class CognitiveBoundaryController:
             "exploration_execution_gate": False,
             "telemetry_execution_gate": False,
             "drift_refresh_execution_gate": False,
+            "drift_refresh_requires_host_truth": False,
             "slow_memory_cadence_execution_gate": False,
             "cpu_maintenance_after_device_burst": True,
         }

@@ -772,6 +772,61 @@ def test_text_burst_defers_slow_memory_cadence_without_fallback() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_drift_refresh_does_not_force_event_drain() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=64,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=101,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    for index in range(49):
+        trainer.train_step(
+            torch.rand(config.input_dim, device="cuda"),
+            raw_window=f"sync-free drift warmup {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+
+    assert trainer.train_text_burst(
+        patterns,
+        raw_windows=[f"sync-free drift burst {index}" for index in range(8)],
+    ) is True
+
+    runtime_report = trainer.column_transition_runtime_report()
+    graph_report = runtime_report["cuda_graph_route_transition"]
+    controller = runtime_report["cognitive_boundary_controller"]
+    assert runtime_report["text_burst_fallback_count"] == 0
+    assert runtime_report["text_burst_event_pending_tokens"] == 8
+    assert runtime_report["text_burst_event_forced_flush_count"] == 0
+    assert graph_report["burst_event_forced_drain_count"] == 0
+    assert controller["drift_refresh_count"] == 1
+    assert controller["drift_refresh_sync_free_count"] == 1
+    assert controller["drift_refresh_global_count"] == 1
+    assert controller["drift_refresh_requires_host_truth"] is False
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
     config = MarulhoConfig(
         n_columns=32,

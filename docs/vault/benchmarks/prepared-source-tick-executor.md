@@ -17,6 +17,8 @@ related_benchmarks:
   - reports/device_lightweight_metrics_20260614/stress-131072.json
   - reports/hot_path_cadence_retired_20260614/stress-32768.json
   - reports/hot_path_cadence_retired_20260614/stress-131072.json
+  - reports/sync_free_drift_20260614/stress-32768.json
+  - reports/sync_free_drift_20260614/stress-131072.json
 ---
 
 # Prepared Source Tick Executor
@@ -67,11 +69,24 @@ deferred maintenance.
 - Runtime Truth: `512` deferred slow-memory cadence events, only `runtime_not_fully_warm` and one `sleep_boundary` fallback, `1024` sequence calls, and `16384` quanta.
 - Rejected variant: exact cadence archive payloads in the burst event ring removed slow-memory fallbacks but regressed 32768-token throughput to `3052.470` and `3145.964 tokens/sec`.
 
+## Sync-Free Drift Maintenance
+
+Drift refresh and drift-floor closure no longer force pending burst events to
+the host. Burst ticks use winner-local drift only when the host winner mirror is
+already fresh; otherwise they compute global drift and report that explicitly.
+
+- Command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/sync_free_drift_20260614/stress-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 8 --timeout-seconds 900 --sample-interval-seconds 0.5`
+- Throughput: `4045.419 tokens/sec` over `32.400 s`, versus `3901.906` for deferred slow-memory cadence (`1.037x`).
+- Latency: mean tick `29.108 ms`, p95 `39.493 ms`.
+- Training: `train_compute=0.211096 ms/token`, down from `0.219858`.
+- CUDA: RTX 3060, all `131072` transitions, `131056` burst-owned tokens, zero graph/burst failures.
+- Runtime Truth: host-truth syncs fell to `8193`, forced burst-event drains fell to `0`, `2620` drift refreshes were sync-free, and `1310` used global drift because the host winner mirror was stale.
+
 ## Remaining Cost
 
-`train_compute=0.219858 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at `66.143 s` for 131072 prepared tokens. The long
-run stop latency was `116.972 ms`.
+`train_compute=0.211096 ms/token` is still dominant. Source prewarm remains an
+explicit startup slow path at `65.942 s` for 131072 prepared tokens. The long
+run stop latency was `113.222 ms`.
 
 ## Rejected Continuation
 

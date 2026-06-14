@@ -513,10 +513,15 @@ class MarulhoTrainer:
             )
             self._cross_modal_fast_idle_skip_count += token_count
         if boundary_plan.drift_refresh_due:
-            self.flush_text_burst_events(reason="drift_refresh_maintenance")
-            drift_bucket = (
-                self.last_winner if self.config.use_winner_local_drift else None
-            )
+            drift_bucket = None
+            global_drift = True
+            if (
+                self.config.use_winner_local_drift
+                and self._winner_host_mirror_fresh
+                and self.last_winner is not None
+            ):
+                drift_bucket = int(self.last_winner)
+                global_drift = False
             refreshed_drift = self.model.memory_store.compute_drift(drift_bucket)
             self._cached_drift = refreshed_drift
             self._update_rolling_drift_floor(refreshed_drift)
@@ -525,10 +530,11 @@ class MarulhoTrainer:
                 float(refreshed_drift),
             )
             self._cognitive_boundary_controller.record_drift_refresh(
-                token=self.token_count
+                token=self.token_count,
+                sync_free=True,
+                global_drift=global_drift,
             )
         if boundary_plan.drift_floor_close_due:
-            self.flush_text_burst_events(reason="drift_floor_maintenance")
             self._close_drift_floor_window()
             self._cognitive_boundary_controller.record_drift_floor_close(
                 token=self.token_count

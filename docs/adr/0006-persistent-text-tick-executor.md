@@ -180,6 +180,13 @@ cognitive-quality evidence, and grounded fallback gates.
   reached `3901.906 tokens/sec`, reduced `train_compute` to
   `0.219858 ms/token`, executed `131056` burst-owned tokens, reported `512`
   deferred slow-memory cadence events, and retained zero graph/burst failures.
+- Drift refresh and drift-floor closure no longer force burst event drains.
+  Burst ticks refresh CPU drift evidence without synchronizing for a fresh
+  winner mirror; when the mirror is stale, refresh uses global drift and reports
+  that in Runtime Truth. The 131072-token CUDA service run reached
+  `4045.419 tokens/sec`, reduced `train_compute` to `0.211096 ms/token`,
+  reduced host-truth syncs to the configured cadence (`8193`), and recorded
+  zero forced burst-event drains with zero graph/burst failures.
 
 ## Reversal
 

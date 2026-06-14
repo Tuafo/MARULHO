@@ -89,6 +89,8 @@ related_benchmarks: []
 
         Slow replay-memory admission is no longer a fixed-cadence hot-path write. Every token still runs the promoted column transition, context, binding, cross-modal, surprise, and routing-index buffer policies, but expensive `DualMemoryStore.update()` admission and stream-text episode reconstruction run only on retained/fallback admission or high-surprise strong-capture events. Fixed cadence is counted as deferred maintenance by the cognitive boundary controller, not as a reason to break burst execution. Runtime Truth exposes deferred cadence, archive count, skip count, interval, and last archive reason through `memory_hot_path` and the boundary report.
 
+        Drift maintenance is sync-free on burst ticks. The trainer refreshes drift without draining pending CUDA event evidence, uses winner-local drift only when the host winner mirror is already fresh, and reports global-drift refreshes when the mirror is stale. Drift-floor closure is CPU maintenance and no longer forces an event drain. See [[prepared-source-tick-executor]].
+
         ## Should Not Own
 
         Service lifecycle, HTTP policy, or structural mutation authority that belongs behind explicit checkpoint/operator gates.
