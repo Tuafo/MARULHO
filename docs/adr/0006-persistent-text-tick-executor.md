@@ -43,6 +43,13 @@ store as a slow mirror. Before a retained slow-path index mutation, training
 synchronizes that host mirror from live prototypes without invalidating the
 captured device cache.
 
+After graph eligibility validates the captured consolidation tensor generation,
+post-transition bookkeeping does not reacquire that tensor from the memory
+store. It also reuses one persistent empty revival-id tensor instead of
+allocating a new CUDA tensor on every token. Retained and sensory paths keep
+their normal lookup behavior, and explicit structural maintenance may still
+replace `last_revived_indices` with real revival evidence.
+
 The executor copies one bounded nine-scalar result packet to the host per tick
 to mirror reconstruction, neuromodulator, winner, effective-plasticity, and
 post-transition competitive-surprise truth. The CPU surprise history records
@@ -70,6 +77,8 @@ cognitive-quality evidence, and grounded fallback gates.
   per-token index buffering, host-mirror synchronization, and mirror freshness.
 - Runtime Truth reports quantum-input stage/reuse/fallback/mismatch/discard
   counters and device-owned recent-spike-row updates.
+- Runtime Truth reports graph consolidation-lookup skips and persistent empty
+  revival-tensor reuses, proving the allocation-free bookkeeping path executed.
 - Current evidence shows a fresh-process `1.506x` complete hot-window gain and
   a text quality-gate `1.202x` gain with exact winners.
 - Fresh-process graph memory increased by about `8.13 MB` allocated and `24 MB`
@@ -88,6 +97,12 @@ cognitive-quality evidence, and grounded fallback gates.
   `796.22 tokens/sec` versus `630.17 tokens/sec` (`1.264x`) for the quantum
   arms, with `1088` graph replays, `1088` fused reconstruction updates, zero
   graph failures, and zero staged-input mismatches.
+- Removing the duplicate post-replay consolidation lookup and empty CUDA
+  allocation reduced profiled transition bookkeeping from `0.054251` to
+  `0.014375 ms/tick`. Two clean 32768-token continuous-runtime runs reached
+  `2169.815` and `2191.057 tokens/sec`, versus the retained `1779.859`
+  reference, with zero graph failures and exact skip/reuse counts for every
+  token.
 
 ## Reversal
 

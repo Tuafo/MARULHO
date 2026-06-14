@@ -382,6 +382,23 @@ The sustained profiler exposed unconditional `assembly.clone()` work after the c
 
 The remaining profiled costs are broad rather than one scalar copy: `routing_prepare=0.309408 ms/tick`, `cuda_graph_prepare_replay=0.170041`, `column_transition_python_bookkeeping=0.054251`, host-truth sync `0.041206`, and parameter staging `0.018574`. The next credible architecture slice is persistent ownership across routing preparation, replay launch/post-transition bookkeeping, and compact truth publication, not further cadence widening.
 
+## Allocation-Free Graph Bookkeeping, 2026-06-14
+
+Current code inspection found that graph eligibility correctly guarded the captured consolidation tensor by generation, but `ColumnTransitionRuntime.apply()` still called `bucket_consolidation_tensor()` again after replay. The same graph path also created a fresh empty CUDA `last_revived_indices` tensor every token even though hot-path revival is retired and explicit maintenance owns real revival evidence.
+
+The promoted path skips the redundant graph-only consolidation lookup and reuses one runtime-owned empty revival tensor. A 16-step CUDA parity test preserves the retained sequential state, proves zero downstream consolidation lookups, and verifies stable empty-tensor pointer identity. Runtime Truth exposes `graph_consolidation_lookup_skip_count` and `graph_empty_revival_tensor_reuse_count`.
+
+The profiled 8192-token run at `reports/next_speed_cycle_20260614/stress-8192-graph-bookkeeping-reuse-profiled.json` reduced `column_transition_python_bookkeeping` from `0.054251` to `0.014375 ms/tick` and total `column_transition` from `0.093578` to `0.049348`. That process had unusually slow replay timing, so it is stage evidence rather than an endpoint result.
+
+Two clean sustained runs provide the complete-runtime evidence:
+
+- `stress-32768-graph-bookkeeping-reuse-clean.json`: `2169.815 tokens/sec`.
+- `stress-32768-graph-bookkeeping-reuse-clean-repeat.json`: `2191.057 tokens/sec`.
+
+Both processed 32768 sequential tokens with no measurement polling, selected CUDA on the RTX 3060, executed 32768 persistent graph and in-place Triton transitions with zero failures, and reported 32768 consolidation-lookup skips plus 32768 empty-tensor reuses. Against the retained clean reference at `1779.859 tokens/sec`, the repeated gains are `1.219x` and `1.231x`. No additional startup or persistent VRAM allocation was introduced beyond one zero-length tensor owned by the transition runtime.
+
+NVIDIA CUDA Graph guidance supports paying repeated launch/setup cost once, while PyTorch/NVIDIA memory guidance warns that dynamic allocations and graph memory-pool behavior remain real overhead. This change applies that existing direction to MARULHO's downstream bookkeeping rather than widening the cognitive graph or changing SNN semantics. The next target remains fewer host replay launches and broader device-owned truth/bookkeeping across a sequential execution quantum.
+
 ## Persistent Quantum Input Ring, 2026-06-13
 
 The Persistent Text Tick Executor now owns a fixed 128-row CUDA input ring and

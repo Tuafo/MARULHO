@@ -284,6 +284,22 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     graph_report = graph.column_transition_runtime_report()
     assert graph_report["cuda_graph_route_transition"]["active"] is True
     assert graph_report["execution_count"] == 0
+    consolidation_lookup_count = 0
+    original_consolidation_lookup = (
+        graph.model.memory_store.bucket_consolidation_tensor
+    )
+
+    def _tracked_consolidation_lookup(*args, **kwargs):
+        nonlocal consolidation_lookup_count
+        consolidation_lookup_count += 1
+        return original_consolidation_lookup(*args, **kwargs)
+
+    graph.model.memory_store.bucket_consolidation_tensor = (
+        _tracked_consolidation_lookup
+    )
+    empty_revival_tensor = (
+        graph._column_transition_runtime._empty_revived_indices
+    )
 
     generator = torch.Generator(device="cuda").manual_seed(20260613)
     patterns = [
@@ -404,6 +420,10 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_runtime["modulator_stage_copy_count"] == 16
     assert graph_runtime["modulator_stage_skip_count"] == 0
     assert final_report["route_vote_prepared_graph_reuse_count"] == 16
+    assert final_report["graph_consolidation_lookup_skip_count"] == 16
+    assert final_report["graph_empty_revival_tensor_reuse_count"] == 16
+    assert consolidation_lookup_count == 0
+    assert graph.model.competitive.last_revived_indices is empty_revival_tensor
     assert graph_metrics["routing_index_device_update_count"] == 16
     assert graph_metrics["routing_index_buffer_skip_count"] == 16
     assert graph_metrics["routing_index_host_mirror_sync_count"] == 0

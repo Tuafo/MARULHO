@@ -64,6 +64,8 @@ class ColumnTransitionRuntime:
         self.route_vote_clean_cache_reuse_count = 0
         self.route_vote_prepared_graph_reuse_count = 0
         self.graph_host_winner_reuse_count = 0
+        self.graph_consolidation_lookup_skip_count = 0
+        self.graph_empty_revival_tensor_reuse_count = 0
         self._route_vote_ready = False
         self._route_transition_graph_ready = False
         self._prepared_graph_token: int | None = None
@@ -81,6 +83,11 @@ class ColumnTransitionRuntime:
         self._prediction_boost = torch.empty((), device=device)
         self._effective_modulator = torch.empty((), device=device)
         self._zero_consolidation = torch.zeros(comp.n_columns, device=device)
+        self._empty_revived_indices = torch.empty(
+            0,
+            device=device,
+            dtype=torch.long,
+        )
         self._all_columns = torch.arange(comp.n_columns, device=device)
         self._competition_had_positive = torch.ones(
             (),
@@ -670,23 +677,28 @@ class ColumnTransitionRuntime:
         homeostasis_candidates = (
             candidates if homeostasis_scope_ready else self._all_columns
         )
-        consolidation = (
-            trainer.model.memory_store.bucket_consolidation_tensor(
-                comp.n_columns,
-                device=trainer.model.device,
-            )
-            if trainer.memory_warm_started
-            else self._zero_consolidation
-        )
-        previous = (
-            routing_key
-            if trainer._prev_routing_key is None
-            else trainer._prev_routing_key
-        )
         used_cuda_graph = bool(
             self._route_transition_graph_ready
             and self._cuda_graph_runtime is not None
         )
+        if used_cuda_graph:
+            consolidation = None
+            previous = None
+            self.graph_consolidation_lookup_skip_count += 1
+        else:
+            consolidation = (
+                trainer.model.memory_store.bucket_consolidation_tensor(
+                    comp.n_columns,
+                    device=trainer.model.device,
+                )
+                if trainer.memory_warm_started
+                else self._zero_consolidation
+            )
+            previous = (
+                routing_key
+                if trainer._prev_routing_key is None
+                else trainer._prev_routing_key
+            )
         profile_enabled = bool(
             getattr(trainer, "_train_step_profile_enabled", False)
         )
@@ -714,6 +726,8 @@ class ColumnTransitionRuntime:
                 self.route_vote_execution_count += 1
                 self._route_transition_graph_ready = False
             else:
+                assert consolidation is not None
+                assert previous is not None
                 inplace_column_transition_cuda(
                     prototypes=comp.prototypes,
                     prototype_velocity=comp.prototype_velocity,
@@ -799,6 +813,7 @@ class ColumnTransitionRuntime:
             winner_consolidation = float(self._last_winner_consolidation)
             self.winner_consolidation_cached_metric_count += int(compute_metrics)
         elif trainer.memory_warm_started and compute_metrics:
+            assert consolidation is not None
             winner_consolidation = float(
                 consolidation.index_select(0, winners).mean().item()
             )
@@ -822,11 +837,8 @@ class ColumnTransitionRuntime:
         trainer.model.predictive._record_prediction_update_scope(None)
         comp.last_input_plasticity_mode = "skipped_zero_blend"
         comp.input_plasticity_skip_count += 1
-        comp.last_revived_indices = torch.empty(
-            0,
-            device=trainer.model.device,
-            dtype=torch.long,
-        )
+        comp.last_revived_indices = self._empty_revived_indices
+        self.graph_empty_revival_tensor_reuse_count += int(used_cuda_graph)
         comp.last_homeostasis_update_count = int(
             homeostasis_candidates.numel()
         )
@@ -947,6 +959,12 @@ class ColumnTransitionRuntime:
             ),
             "graph_host_winner_reuse_count": int(
                 self.graph_host_winner_reuse_count
+            ),
+            "graph_consolidation_lookup_skip_count": int(
+                self.graph_consolidation_lookup_skip_count
+            ),
+            "graph_empty_revival_tensor_reuse_count": int(
+                self.graph_empty_revival_tensor_reuse_count
             ),
             "winner_consolidation_cpu_metric_count": int(
                 self.winner_consolidation_cpu_metric_count
