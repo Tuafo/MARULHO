@@ -161,6 +161,12 @@ class MarulhoTrainer:
         self._train_step_profile_totals_ms = {}
         self._train_step_profile_count = 0
 
+    def _record_train_step_profile_stage(self, name: str, elapsed_ms: float) -> None:
+        self._train_step_profile_totals_ms[name] = (
+            self._train_step_profile_totals_ms.get(name, 0.0)
+            + float(elapsed_ms)
+        )
+
     def train_step_profile_report(self) -> dict[str, Any]:
         totals = {
             str(name): round(float(value), 6)
@@ -389,8 +395,9 @@ class MarulhoTrainer:
         graph = self._column_transition_runtime._cuda_graph_runtime
         if graph is None or not graph.active:
             return self._text_burst_fallback("persistent_cuda_graph_inactive")
-        if self._train_step_profile_enabled:
-            return self._text_burst_fallback("trainer_profile_enabled")
+        profile_enabled = bool(self._train_step_profile_enabled)
+        profile_started = time.perf_counter() if profile_enabled else 0.0
+        profile_last = profile_started
         if self.token_count < self.config.bootstrap_tokens:
             return self._text_burst_fallback("bootstrap_active")
         if (
@@ -412,6 +419,13 @@ class MarulhoTrainer:
             or len(self._recent_audio_frames) >= 3
         ):
             return self._text_burst_fallback("cross_modal_wake_boundary")
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_precheck",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
 
         start = int(self.token_count)
         end = start + token_count
@@ -444,6 +458,13 @@ class MarulhoTrainer:
         )
         if boundary_plan.fallback_reason is not None:
             return self._text_burst_fallback(boundary_plan.fallback_reason)
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_boundary_plan",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
         sync_interval = max(
             1,
             int(self.config.cuda_graph_host_truth_sync_interval_tokens),
@@ -455,6 +476,13 @@ class MarulhoTrainer:
         ]
         if sync_offsets not in ([], [token_count]):
             return self._text_burst_fallback("host_truth_boundary")
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_host_truth_gate",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
 
         try:
             burst_outputs = self._column_transition_runtime.replay_text_burst(
@@ -462,6 +490,13 @@ class MarulhoTrainer:
             )
         except RuntimeError as exc:
             return self._text_burst_fallback(str(exc))
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_graph_replay",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
         stable_metadata = (
             None
             if memory_metadata is None
@@ -476,6 +511,13 @@ class MarulhoTrainer:
             )
             for index, pattern in enumerate(patterns)
         )
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_pending_metadata",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
 
         runtime = self._column_transition_runtime
         comp = self.model.competitive
@@ -518,6 +560,13 @@ class MarulhoTrainer:
                 count=token_count,
             )
             self._cross_modal_fast_idle_skip_count += token_count
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_event_and_idle",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
         if boundary_plan.drift_refresh_due:
             drift_bucket = None
             global_drift = True
@@ -567,10 +616,28 @@ class MarulhoTrainer:
             self.current_window_min_drift,
             float(self._cached_drift),
         )
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_cpu_maintenance",
+                (profile_now - profile_last) * 1000.0,
+            )
+            profile_last = profile_now
         self._train_step_metrics_skip_count += token_count
         self._text_burst_execution_count += 1
         self._text_burst_token_count += token_count
         self._text_burst_last_fallback_reason = None
+        if profile_enabled:
+            profile_now = time.perf_counter()
+            self._record_train_step_profile_stage(
+                "text_burst_total",
+                (profile_now - profile_started) * 1000.0,
+            )
+            self._record_train_step_profile_stage(
+                "total",
+                (profile_now - profile_started) * 1000.0,
+            )
+            self._train_step_profile_count += token_count
         return True
 
     @torch.no_grad()

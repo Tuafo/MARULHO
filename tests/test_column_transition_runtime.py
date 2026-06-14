@@ -1107,6 +1107,56 @@ def test_text_burst_crosses_telemetry_observation_without_fallback() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_text_burst_profile_keeps_burst_executor_active() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=9,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260614)
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="profile burst warmup",
+        allow_sleep_maintenance=False,
+        return_metrics=False,
+    )
+    trainer.enable_train_step_profile(reset=True)
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(8)
+    ]
+
+    assert trainer.train_text_burst(
+        patterns,
+        raw_windows=[f"profile burst {index}" for index in range(8)],
+    ) is True
+
+    runtime_report = trainer.column_transition_runtime_report()
+    profile = trainer.train_step_profile_report()
+    assert runtime_report["text_burst_execution_count"] == 1
+    assert runtime_report["text_burst_fallback_reasons"] == {}
+    assert profile["count"] == 8
+    assert profile["totals_ms"]["text_burst_graph_replay"] > 0.0
+    assert profile["totals_ms"]["text_burst_total"] > 0.0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_training_owned_text_sequence_matches_sequential_cuda_ticks() -> None:
     config = MarulhoConfig(
         n_columns=32,
