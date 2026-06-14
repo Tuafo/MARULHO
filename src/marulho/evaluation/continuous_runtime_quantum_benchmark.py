@@ -16,7 +16,7 @@ from marulho.service.manager import MarulhoServiceManager
 DEFAULT_SOURCE_TEXT = (
     "Adaptive memory plasticity stabilizes sparse spike routing. "
     "Grounded local observations support prediction error and replay readiness. "
-) * 16
+) * 64
 
 
 def _wait_for_full_warm(
@@ -68,7 +68,7 @@ def _run_arm(
             repeat_sources=True,
             ingestion={
                 "enabled": True,
-                "queue_target_tokens": 128,
+                "queue_target_tokens": max(128, int(target_tokens)),
                 "prewarm_on_startup": True,
                 "prewarm_max_seconds": max(1.0, float(timeout_seconds)),
             },
@@ -152,20 +152,28 @@ def run_continuous_runtime_quantum_ab(
     output_path: Path,
     target_tokens: int = 256,
     timeout_seconds: float = 30.0,
+    baseline_quantum_tokens: int = 8,
+    candidate_quantum_tokens: int = 16,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
+    if baseline_quantum_tokens <= 0:
+        raise ValueError("baseline_quantum_tokens must be positive")
+    if candidate_quantum_tokens <= 0:
+        raise ValueError("candidate_quantum_tokens must be positive")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path = output_path.parent / "continuous-quantum-source.txt"
-    source_path.write_text(DEFAULT_SOURCE_TEXT, encoding="utf-8")
     arm_specs = (
         ("legacy_a", 1, 0.005),
-        ("quantum_a", 8, 0.0),
-        ("quantum_b", 8, 0.0),
+        ("baseline_quantum_a", int(baseline_quantum_tokens), 0.0),
+        ("candidate_quantum_a", int(candidate_quantum_tokens), 0.0),
+        ("candidate_quantum_b", int(candidate_quantum_tokens), 0.0),
+        ("baseline_quantum_b", int(baseline_quantum_tokens), 0.0),
         ("legacy_b", 1, 0.005),
     )
     arms: list[dict[str, Any]] = []
     for name, quantum_tokens, yield_seconds in arm_specs:
+        source_path = output_path.parent / f"{name}-continuous-quantum-source.txt"
+        source_path.write_text(DEFAULT_SOURCE_TEXT, encoding="utf-8")
         arm = _run_arm(
             checkpoint=checkpoint,
             source_path=source_path,
@@ -183,16 +191,28 @@ def run_continuous_runtime_quantum_ab(
         for arm in arms
         if str(arm["name"]).startswith("legacy") and arm.get("success")
     ]
-    quantum_values = [
+    baseline_quantum_values = [
         float(arm["tokens_per_second"])
         for arm in arms
-        if str(arm["name"]).startswith("quantum") and arm.get("success")
+        if str(arm["name"]).startswith("baseline_quantum") and arm.get("success")
+    ]
+    candidate_quantum_values = [
+        float(arm["tokens_per_second"])
+        for arm in arms
+        if str(arm["name"]).startswith("candidate_quantum") and arm.get("success")
     ]
     legacy_mean = (
         float(statistics.fmean(legacy_values)) if legacy_values else 0.0
     )
-    quantum_mean = (
-        float(statistics.fmean(quantum_values)) if quantum_values else 0.0
+    baseline_quantum_mean = (
+        float(statistics.fmean(baseline_quantum_values))
+        if baseline_quantum_values
+        else 0.0
+    )
+    candidate_quantum_mean = (
+        float(statistics.fmean(candidate_quantum_values))
+        if candidate_quantum_values
+        else 0.0
     )
     report = {
         "surface": "continuous_runtime_quantum_ab.v1",
@@ -207,14 +227,28 @@ def run_continuous_runtime_quantum_ab(
         ),
         "target_tokens_per_arm": int(target_tokens),
         "timeout_seconds_per_arm": float(timeout_seconds),
+        "baseline_quantum_tokens": int(baseline_quantum_tokens),
+        "candidate_quantum_tokens": int(candidate_quantum_tokens),
         "arms": arms,
         "legacy_mean_tokens_per_second": legacy_mean,
-        "quantum_mean_tokens_per_second": quantum_mean,
-        "speedup": quantum_mean / max(legacy_mean, 1e-9),
+        "baseline_quantum_mean_tokens_per_second": baseline_quantum_mean,
+        "candidate_quantum_mean_tokens_per_second": candidate_quantum_mean,
+        "legacy_to_candidate_speedup": (
+            candidate_quantum_mean / max(legacy_mean, 1e-9)
+        ),
+        "candidate_over_baseline_quantum_speedup": (
+            candidate_quantum_mean / max(baseline_quantum_mean, 1e-9)
+        ),
+        # Backward-compatible summary keys keep old report consumers pointed at
+        # the candidate quantum arm while the explicit fields separate claims.
+        "quantum_mean_tokens_per_second": candidate_quantum_mean,
+        "speedup": candidate_quantum_mean / max(legacy_mean, 1e-9),
         "success": bool(
             len(legacy_values) == 2
-            and len(quantum_values) == 2
-            and quantum_mean > legacy_mean
+            and len(baseline_quantum_values) == 2
+            and len(candidate_quantum_values) == 2
+            and candidate_quantum_mean > legacy_mean
+            and candidate_quantum_mean >= baseline_quantum_mean
         ),
     }
     write_json_report_with_readme(output_path, report)
@@ -227,12 +261,16 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-tokens", type=int, default=256)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--baseline-quantum-tokens", type=int, default=8)
+    parser.add_argument("--candidate-quantum-tokens", type=int, default=16)
     args = parser.parse_args()
     report = run_continuous_runtime_quantum_ab(
         args.checkpoint,
         output_path=args.output,
         target_tokens=args.target_tokens,
         timeout_seconds=args.timeout_seconds,
+        baseline_quantum_tokens=args.baseline_quantum_tokens,
+        candidate_quantum_tokens=args.candidate_quantum_tokens,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

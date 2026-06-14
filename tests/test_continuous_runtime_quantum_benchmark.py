@@ -15,7 +15,12 @@ def test_continuous_runtime_quantum_ab_reports_reversed_schedule_speedup(
         quantum_tokens = int(kwargs["quantum_tokens"])
         yield_seconds = float(kwargs["yield_seconds"])
         observed.append((quantum_tokens, yield_seconds))
-        tokens_per_second = 800.0 if quantum_tokens == 8 else 180.0
+        if quantum_tokens == 16:
+            tokens_per_second = 900.0
+        elif quantum_tokens == 8:
+            tokens_per_second = 800.0
+        else:
+            tokens_per_second = 180.0
         return {
             "success": True,
             "token_delta": 256,
@@ -41,11 +46,17 @@ def test_continuous_runtime_quantum_ab_reports_reversed_schedule_speedup(
     assert observed == [
         (1, 0.005),
         (8, 0.0),
+        (16, 0.0),
+        (16, 0.0),
         (8, 0.0),
         (1, 0.005),
     ]
     assert report["success"] is True
     assert report["legacy_mean_tokens_per_second"] == 180.0
-    assert report["quantum_mean_tokens_per_second"] == 800.0
-    assert report["speedup"] > 4.0
+    assert report["baseline_quantum_mean_tokens_per_second"] == 800.0
+    assert report["candidate_quantum_mean_tokens_per_second"] == 900.0
+    assert report["quantum_mean_tokens_per_second"] == 900.0
+    assert report["legacy_to_candidate_speedup"] == 5.0
+    assert report["candidate_over_baseline_quantum_speedup"] == 1.125
+    assert report["speedup"] == 5.0
     assert output_path.exists()

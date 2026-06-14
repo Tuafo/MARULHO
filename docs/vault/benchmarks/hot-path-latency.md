@@ -336,6 +336,16 @@ Runtime Control previously forced every background source token through a separa
 
 The quantum path removes host scheduling waste; it does not parallelize or skip SNN token updates. A separate full-warm manual service tick with the default quantum, `reports/continuous_runtime_quantum_20260613/manual-warm-quantum8-rerun.json`, reached `692.507 tokens/sec` versus the prior one-token warm baseline at `586.775`, while lock wait and mutation-mark cost fell. The remaining production gap to sustained thousands per second is inside per-token trainer orchestration and graph preparation, not source starvation or forced scheduler sleep.
 
+## Continuous Quantum Size Recheck, 2026-06-14
+
+The quantum-size sweep separated encoded hot-window evidence from complete live-runtime evidence. On the encoded CUDA hot-window surface, `reports/quantum_size_sweep_20260614/quantum-16.json` measured candidate quantum staging at `613.125 tokens/sec` mean versus `534.134` for per-token copy (`1.148x`) and beat the same-run quantum-8 mean (`580.795`) from `quantum-8.json`. That was not enough to promote the runtime default.
+
+The first live comparison was noisy because it prewarmed only one 128-token tick while measuring 256 tokens, so later arms could pay source collection inside the timing window. The benchmark now prewarms at least the target-token count, uses a longer synthetic source, and gives each arm an isolated source file so stale source-cache state cannot leak across arms.
+
+The fixed complete background runtime check `reports/quantum_size_sweep_20260614/continuous-8-vs-16-fullwarm.json` compared legacy one-token/yield, baseline quantum-8, and candidate quantum-16 with `queue_target_tokens=256`. Baseline quantum-8 measured `638.394 tokens/sec` mean; candidate quantum-16 measured `602.249 tokens/sec` mean (`0.943x` versus baseline) with CUDA selected on the NVIDIA GeForce RTX 3060, active persistent graph replay, zero graph failures, `256` staged-token reuses per candidate arm, and zero staged-input mismatches. The default remains `8`.
+
+The benchmark now reports `baseline_quantum_*` and `candidate_quantum_*` fields so a future quantum-size change must beat the current service-shaped path, not only a narrower encoded loop. The next credible thousands/sec path is a broader persistent tick executor that removes more host-controlled per-token stages; increasing host quantum length alone is rejected.
+
 ## Persistent Quantum Input Ring, 2026-06-13
 
 The Persistent Text Tick Executor now owns a fixed 128-row CUDA input ring and
