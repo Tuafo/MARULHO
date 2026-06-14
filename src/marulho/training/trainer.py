@@ -600,41 +600,45 @@ class MarulhoTrainer:
                 stopped = True
                 break
             end = min(token_count, start + quantum)
-            quantum_patterns = list(patterns[start:end])
-            quantum_windows = [str(value) for value in raw_windows[start:end]]
-            quantum_metric_indices = requested_metrics.intersection(
-                range(start, end)
-            )
-            burst_executed = bool(
-                len(quantum_patterns) == 8
-                and not quantum_metric_indices
-                and self.train_text_burst(
-                    quantum_patterns,
-                    raw_windows=quantum_windows,
-                    memory_metadata=memory_metadata,
+            for chunk_start in range(start, end, 8):
+                chunk_end = min(end, chunk_start + 8)
+                chunk_patterns = list(patterns[chunk_start:chunk_end])
+                chunk_windows = [
+                    str(value) for value in raw_windows[chunk_start:chunk_end]
+                ]
+                chunk_metric_indices = requested_metrics.intersection(
+                    range(chunk_start, chunk_end)
                 )
-            )
-            if not burst_executed:
-                self.flush_text_burst_events(
-                    reason="text_sequence_per_token_boundary"
-                )
-                self.stage_text_input_quantum(quantum_patterns)
-                for offset, (pattern, raw_window) in enumerate(
-                    zip(quantum_patterns, quantum_windows)
-                ):
-                    index = start + offset
-                    return_metrics = index in requested_metrics
-                    metrics = self.train_step(
-                        pattern,
-                        raw_window=raw_window,
+                burst_executed = bool(
+                    len(chunk_patterns) == 8
+                    and not chunk_metric_indices
+                    and self.train_text_burst(
+                        chunk_patterns,
+                        raw_windows=chunk_windows,
                         memory_metadata=memory_metadata,
-                        return_metrics=return_metrics,
                     )
-                    if return_metrics:
-                        metrics_by_index[index] = dict(metrics or {})
-                        if metrics:
-                            last_metrics = dict(metrics)
-            trained += len(quantum_patterns)
+                )
+                if not burst_executed:
+                    self.flush_text_burst_events(
+                        reason="text_sequence_per_token_boundary"
+                    )
+                    self.stage_text_input_quantum(chunk_patterns)
+                    for offset, (pattern, raw_window) in enumerate(
+                        zip(chunk_patterns, chunk_windows)
+                    ):
+                        index = chunk_start + offset
+                        return_metrics = index in requested_metrics
+                        metrics = self.train_step(
+                            pattern,
+                            raw_window=raw_window,
+                            memory_metadata=memory_metadata,
+                            return_metrics=return_metrics,
+                        )
+                        if return_metrics:
+                            metrics_by_index[index] = dict(metrics or {})
+                            if metrics:
+                                last_metrics = dict(metrics)
+                trained += len(chunk_patterns)
             quantum_count += 1
 
         self.flush_text_burst_events(reason="text_sequence_complete")

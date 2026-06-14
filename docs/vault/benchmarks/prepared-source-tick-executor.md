@@ -19,13 +19,17 @@ related_benchmarks:
   - reports/hot_path_cadence_retired_20260614/stress-131072.json
   - reports/sync_free_drift_20260614/stress-32768.json
   - reports/sync_free_drift_20260614/stress-131072.json
+  - reports/wide_sequence_quantum_20260614/stress-32768-q8-current.json
+  - reports/wide_sequence_quantum_20260614/stress-32768-q16.json
+  - reports/wide_sequence_quantum_20260614/stress-32768-q16-repeat.json
+  - reports/wide_sequence_quantum_20260614/stress-131072-q16.json
 ---
 
 # Prepared Source Tick Executor
 
 Runtime Sources treats consumption-only prepared queues as immutable cache
 generations, and training accepts one complete service text tick while
-retaining ordered eight-token quanta and between-quantum stop checks.
+retaining ordered eight-token device bursts and between-quantum stop checks.
 
 ## Sustained Evidence
 
@@ -82,11 +86,27 @@ already fresh; otherwise they compute global drift and report that explicitly.
 - CUDA: RTX 3060, all `131072` transitions, `131056` burst-owned tokens, zero graph/burst failures.
 - Runtime Truth: host-truth syncs fell to `8193`, forced burst-event drains fell to `0`, `2620` drift refreshes were sync-free, and `1310` used global drift because the host winner mirror was stale.
 
+## Wider Training-Owned Sequence Quantum
+
+The maintained service execution quantum is now `16`, but training consumes
+each wider quantum as exact ordered eight-token persistent CUDA bursts. This
+keeps the neural transition and event-drain semantics unchanged while removing
+the old wider-quantum path that fell through to retained per-token
+`train_step`.
+
+- Command: `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/wide_sequence_quantum_20260614/stress-131072-q16.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 900 --sample-interval-seconds 0.5`
+- Throughput: `4247.306 tokens/sec` over `30.860 s`, versus `4045.419` for the previous q8 sync-free drift run (`1.050x`).
+- Latency: mean tick `27.783 ms`, p95 `43.240 ms`.
+- Training: `train_compute=0.200979 ms/token`, down from `0.211096`.
+- CUDA: RTX 3060, all `131072` transitions, `131056` burst-owned tokens, `16382` eight-token burst replays, zero graph/burst failures.
+- Runtime Truth: `quantum_tokens=16`, `8192` training-owned sequence quanta, `8192` event drains at the configured sixteen-token truth boundary, host-truth syncs `8193`, and forced burst-event drains `0`.
+- Short-run guardrail: the first 32768-token q16 run was noisy/slower (`2741.238 tokens/sec`), but the repeat recovered to `3225.467`, slightly above the same-code q8 run at `3180.473`. The long run is the promotion evidence.
+
 ## Remaining Cost
 
-`train_compute=0.211096 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at `65.942 s` for 131072 prepared tokens. The long
-run stop latency was `113.222 ms`.
+`train_compute=0.200979 ms/token` is still dominant. Source prewarm remains an
+explicit startup slow path at `66.710 s` for 131072 prepared tokens. The long
+run stop latency was `113.502 ms`.
 
 ## Rejected Continuation
 

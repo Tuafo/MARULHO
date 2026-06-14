@@ -87,6 +87,14 @@ related_benchmarks: []
 
         The 2026-06-14 Training-Owned Text Sequence gives `MarulhoTrainer` the complete ordered text-tick execution boundary while service retains source orchestration and semantic observation. Runtime Sources separately owns Prepared Source Generations, allowing consumption-only ticks to skip cache reconstruction in O(1). Ordinary service ticks now return Device-Burst Lightweight Metrics from the CUDA result packet; full per-token metrics are reserved for explicit evaluator evidence positions so source concept sampling cannot silently break burst ownership. See [[prepared-source-tick-executor]].
 
+        The maintained service execution quantum is `16`, but this is host
+        orchestration only. `MarulhoTrainer.train_text_sequence` subdivides
+        each wider quantum into exact ordered eight-token device bursts, so the
+        persistent CUDA burst executor, event ring, host-truth boundary, and
+        SNN transition order remain unchanged. This removes the old q16
+        fallback path where wider quanta bypassed burst execution and fell
+        through to per-token `train_step`.
+
         Slow replay-memory admission is no longer a fixed-cadence hot-path write. Every token still runs the promoted column transition, context, binding, cross-modal, surprise, and routing-index buffer policies, but expensive `DualMemoryStore.update()` admission and stream-text episode reconstruction run only on retained/fallback admission or high-surprise strong-capture events. Fixed cadence is counted as deferred maintenance by the cognitive boundary controller, not as a reason to break burst execution. Runtime Truth exposes deferred cadence, archive count, skip count, interval, and last archive reason through `memory_hot_path` and the boundary report.
 
         Drift maintenance is sync-free on burst ticks. The trainer refreshes drift without draining pending CUDA event evidence, uses winner-local drift only when the host winner mirror is already fresh, and reports global-drift refreshes when the mirror is stale. Drift-floor closure is CPU maintenance and no longer forces an event drain. See [[prepared-source-tick-executor]].

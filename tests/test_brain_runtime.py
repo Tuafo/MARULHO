@@ -766,6 +766,30 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             ["window-1", "window-8", "window-16", "window-24"],
         )
 
+    def test_background_training_delegates_wider_quantum_to_training(self) -> None:
+        manager = _SequenceSamplingManager()
+        module = _brain_runtime_from_fixture(manager)
+        chunk = [(f"window-{index}", object()) for index in range(1, 129)]
+
+        trained, metrics, windows, observation = module._train_chunk_in_sub_batches(
+            chunk,
+            stop_event=None,
+            sub_batch_size=16,
+            yield_seconds=0.0,
+        )
+
+        self.assertEqual(trained, 128)
+        self.assertEqual(metrics["memory_index"], 127)
+        self.assertEqual(len(windows), 128)
+        self.assertEqual(len(manager.sequence_calls), 1)
+        self.assertEqual(manager.sequence_calls[0]["pattern_count"], 128)
+        self.assertEqual(manager.sequence_calls[0]["quantum_tokens"], 16)
+        self.assertEqual(
+            manager.sequence_calls[0]["metric_indices"],
+            set(),
+        )
+        self.assertEqual(observation["execution_owner"], "training_text_sequence")
+
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()
         module = _brain_runtime_from_fixture(manager)
@@ -861,7 +885,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(
             snapshot["execution_schedule"],
             {
-                "quantum_tokens": 8,
+                "quantum_tokens": 16,
                 "yield_seconds": 0.0,
                 "stop_check_boundary": "between_quanta",
                 "sequential_token_training": True,

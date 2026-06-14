@@ -187,6 +187,14 @@ cognitive-quality evidence, and grounded fallback gates.
   `4045.419 tokens/sec`, reduced `train_compute` to `0.211096 ms/token`,
   reduced host-truth syncs to the configured cadence (`8193`), and recorded
   zero forced burst-event drains with zero graph/burst failures.
+- The maintained service execution quantum is now `16` tokens, but the
+  persistent CUDA burst executor remains an exact eight-token device boundary
+  inside `MarulhoTrainer.train_text_sequence`. This retires the earlier
+  q16 footgun where a wider service quantum bypassed the burst path and fell
+  through to per-token `train_step`. The 131072-token CUDA service run reached
+  `4247.306 tokens/sec`, `train_compute=0.200979 ms/token`, `8192`
+  training-owned quanta, `16382` eight-token burst replays, all `131072`
+  transitions on CUDA, and zero graph/burst failures.
 
 ## Reversal
 

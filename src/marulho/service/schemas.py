@@ -157,7 +157,7 @@ class TerminusConfigureRequest(BaseModel):
     tick_tokens: int = Field(128, ge=1, le=20000)
     source_concept_observation_tick_interval: int = Field(4, ge=1, le=1024)
     sleep_interval_seconds: float = Field(0.25, ge=0.01, le=60.0)
-    execution_quantum_tokens: int = Field(8, ge=1, le=128)
+    execution_quantum_tokens: int = Field(16, ge=1, le=128)
     execution_yield_seconds: float = Field(0.0, ge=0.0, le=1.0)
     repeat_sources: bool = True
     autonomy: TerminusAutonomyConfig | None = None

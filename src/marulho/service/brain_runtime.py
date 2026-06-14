@@ -25,7 +25,8 @@ from marulho.training.autonomy_acquisition_runner import run_live_acquisition
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
-DEFAULT_EXECUTION_QUANTUM_TOKENS = 8
+DEFAULT_EXECUTION_QUANTUM_TOKENS = 16
+MIN_TRAINING_SEQUENCE_DELEGATION_TOKENS = 8
 DEFAULT_EXECUTION_YIELD_SECONDS = 0.0
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
@@ -422,7 +423,7 @@ class BrainRuntime:
         )
         if (
             callable(train_text_sequence)
-            and batch_size == DEFAULT_EXECUTION_QUANTUM_TOKENS
+            and batch_size >= MIN_TRAINING_SEQUENCE_DELEGATION_TOKENS
             and pause_seconds <= 0.0
         ):
             metric_indices: set[int] = set()

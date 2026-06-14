@@ -15,6 +15,7 @@ from marulho.evaluation.continuous_runtime_quantum_benchmark import (
     _wait_for_full_warm,
 )
 from marulho.reporting.readme_reports import write_json_report_with_readme
+from marulho.service.brain_runtime import DEFAULT_EXECUTION_QUANTUM_TOKENS
 from marulho.service.manager import MarulhoServiceManager
 
 
@@ -223,7 +224,7 @@ def run_continuous_runtime_stress(
     output_path: Path,
     target_tokens: int = 1024,
     tick_tokens: int = 128,
-    quantum_tokens: int = 8,
+    quantum_tokens: int = DEFAULT_EXECUTION_QUANTUM_TOKENS,
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
@@ -461,7 +462,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-tokens", type=int, default=1024)
     parser.add_argument("--tick-tokens", type=int, default=128)
-    parser.add_argument("--quantum-tokens", type=int, default=8)
+    parser.add_argument(
+        "--quantum-tokens",
+        type=int,
+        default=DEFAULT_EXECUTION_QUANTUM_TOKENS,
+    )
     parser.add_argument("--source-concept-observation-tick-interval", type=int, default=4)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--sample-interval-seconds", type=float, default=0.02)

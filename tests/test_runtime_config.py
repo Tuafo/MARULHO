@@ -33,7 +33,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
 
         self.assertEqual(normalized["tick_tokens"], 128)
         self.assertEqual(normalized["source_concept_observation_tick_interval"], 4)
-        self.assertEqual(normalized["execution_quantum_tokens"], 8)
+        self.assertEqual(normalized["execution_quantum_tokens"], 16)
         self.assertEqual(normalized["execution_yield_seconds"], 0.0)
         self.assertEqual(normalized["ingestion"]["queue_target_tokens"], 256)
 

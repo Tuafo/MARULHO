@@ -40,7 +40,7 @@ class TestRuntimeAutonomyCurriculum:
         assert "curriculum" not in preset
         assert preset["autonomy"]["enabled"] is True
         assert preset["autonomy"]["candidate_bank"][0]["catalog_mode"] == "semantic_registry"
-        assert preset["execution_quantum_tokens"] == 8
+        assert preset["execution_quantum_tokens"] == 16
         assert preset["execution_yield_seconds"] == 0.0
         assert preset["source_concept_observation_tick_interval"] == 4
         assert preset["model_overrides"]["memory_capacity"] == 1000
