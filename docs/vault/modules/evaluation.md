@@ -17,6 +17,7 @@ related_benchmarks: []
 
         Evidence standards for speed, readiness, CUDA placement, liveness, and promotion.
         Hot-window benchmark reports may now opt into measured-step trainer-stage profiling, and the persistent text-tick A/B runner summarizes reversed same-process stage deltas so route/index/graph-prep work can be judged by complete encoded ticks instead of noisy service endpoints.
+        Continuous runtime stress reports include slow-path `velocity_environment.v1` snapshots so sustained CUDA throughput comparisons can distinguish architecture regressions from CPU/GPU contention.
 
         ## Should Not Own
 

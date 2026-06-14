@@ -58,6 +58,23 @@ League/Riot/browser/Codex processes. Treat the 4.5k number as the retained
 uncontended best evidence, while current "right now" speed must be measured in
 an uncontended profile.
 
+`continuous_runtime_stress_benchmark` now writes `velocity_environment.v1`
+next to every long-run report. The field is collected before and after the
+measured window, outside the cognitive tick, using best-effort CPU counters and
+`nvidia-smi` GPU state. Its `contention.verdict` is not a correctness verdict;
+it is the comparability signal needed before treating a lower long-run speed as
+an architecture regression.
+
+The proof run at
+`reports/velocity_environment_20260614/stress-4096-env.json` completed `4096`
+sequential tokens at `3867.015 tokens/sec`, selected CUDA on the RTX 3060,
+executed `4096` persistent graph and in-place Triton transitions, and reported
+zero graph/burst failures. `velocity_environment.v1` reported
+`contention.verdict=not_observed`, with CPU max `87%`, GPU max `3%`, and the
+field marked `not_hot_path=true`. This proves the stress report now carries
+run-condition evidence; it is not a new speed promotion over the retained
+`4577.595 tokens/sec` long-run baseline.
+
 The direct route/vote fusion candidate was rejected: the profiled 8192-token
 direct run measured `2381.587 tokens/sec` versus `2408.630` for the same
 profiled boundary before direct selection, and the 32768-token direct clean run

@@ -730,6 +730,19 @@ This file records research anchors for current architecture work. It is not a pr
   https://proceedings.mlr.press/v48/diamos16.html,
   https://arxiv.org/html/2603.16148v1, and
   https://arxiv.org/abs/2602.23999.
+- Sustained velocity environment note, June 2026: PyTorch CUDA Graph guidance
+  explicitly calls out CPU load and operating-system launch timing variance for
+  small GPU workloads, while the retained MARULHO long-run evidence showed the
+  same logical CUDA path ranging from `4577.595` to `3804.642 tokens/sec` under
+  different host conditions. MARULHO therefore adds `velocity_environment.v1` to
+  the continuous stress benchmark, collected outside the measured tick window.
+  It records CPU/GPU contention and probe availability so long-run throughput
+  can be compared honestly before changing architecture. This does not move any
+  probe into the hot path and does not weaken the next implementation direction:
+  a lower-level device-owned multi-tick executor or persistent sequence kernel
+  is still the credible route to higher sustained cognitive velocity. Sources:
+  https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/ and
+  https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html.
 
 ## Engineering Implications
 

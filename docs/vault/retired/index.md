@@ -9,4 +9,4 @@ related_benchmarks: []
 
         # Retired Paths
 
-        - No notes yet.
+        - [Direct Route Vote Fusion](direct-route-vote-fusion.md)

@@ -1,9 +1,11 @@
 from marulho.evaluation.continuous_runtime_stress_benchmark import (
     _collect_tick_events,
     _ensure_runtime_event_history_capacity,
+    _parse_nvidia_smi_gpu_row,
     _runtime_event_history_limit,
     _source_text_for_target,
     _summarize_tick_events,
+    _summarize_velocity_environment,
     main,
     run_continuous_runtime_stress,
 )
@@ -96,6 +98,79 @@ def test_source_text_scales_for_long_full_warm_runs() -> None:
 
     assert len(long) > len(short)
     assert "Adaptive memory plasticity" in long
+
+
+def test_parse_nvidia_smi_gpu_row_reports_numeric_run_conditions() -> None:
+    report = _parse_nvidia_smi_gpu_row(
+        "NVIDIA GeForce RTX 3060, P3, 1140, 5001, 29.50, 25, 9, 44, 1849"
+    )
+
+    assert report["available"] is True
+    assert report["name"] == "NVIDIA GeForce RTX 3060"
+    assert report["pstate"] == "P3"
+    assert report["graphics_clock_mhz"] == 1140
+    assert report["memory_clock_mhz"] == 5001
+    assert report["power_draw_w"] == 29.5
+    assert report["gpu_utilization_percent"] == 25.0
+    assert report["memory_used_mib"] == 1849
+
+
+def test_velocity_environment_summary_marks_contention_as_slow_path_evidence() -> None:
+    report = _summarize_velocity_environment(
+        {
+            "cpu": {
+                "available": True,
+                "percent_processor_time": 96.0,
+            },
+            "gpu": {
+                "available": True,
+                "gpu_utilization_percent": 8.0,
+                "memory_utilization_percent": 11.0,
+            },
+        },
+        {
+            "cpu": {
+                "available": True,
+                "percent_processor_time": 38.0,
+            },
+            "gpu": {
+                "available": True,
+                "gpu_utilization_percent": 22.0,
+                "memory_utilization_percent": 13.0,
+            },
+        },
+    )
+
+    assert report["surface"] == "velocity_environment.v1"
+    assert report["not_hot_path"] is True
+    assert report["contention"]["verdict"] == "contention_observed"
+    assert report["contention"]["cpu_busy"] is True
+    assert report["contention"]["gpu_busy"] is True
+    assert report["contention"]["max_cpu_percent"] == 96.0
+    assert report["contention"]["max_gpu_utilization_percent"] == 22.0
+
+
+def test_velocity_environment_summary_reports_clean_or_unknown_comparability() -> None:
+    clean = _summarize_velocity_environment(
+        {
+            "cpu": {"available": True, "percent_processor_time": 18.0},
+            "gpu": {"available": True, "gpu_utilization_percent": 3.0},
+        },
+        {
+            "cpu": {"available": True, "percent_processor_time": 32.0},
+            "gpu": {"available": True, "gpu_utilization_percent": 14.0},
+        },
+    )
+    unknown = _summarize_velocity_environment(
+        {
+            "cpu": {"available": False},
+            "gpu": {"available": False},
+        },
+        None,
+    )
+
+    assert clean["contention"]["verdict"] == "not_observed"
+    assert unknown["contention"]["verdict"] == "unknown"
 
 
 def test_stress_runner_rejects_invalid_concept_tick_interval(tmp_path) -> None:

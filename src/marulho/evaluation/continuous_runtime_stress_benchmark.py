@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+import csv
 import json
+import os
+import platform
 from pathlib import Path
 import statistics
+import subprocess
 import time
 from typing import Any, Iterable, Mapping
 
@@ -218,6 +222,270 @@ def _ensure_runtime_event_history_capacity(
     }
 
 
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+        if not text or text.lower() in {"n/a", "nan", "[not supported]"}:
+            return None
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    number = _float_or_none(value)
+    if number is None:
+        return None
+    return int(number)
+
+
+def _parse_nvidia_smi_gpu_row(row: str) -> dict[str, Any]:
+    try:
+        values = [cell.strip() for cell in next(csv.reader([row]))]
+    except (csv.Error, StopIteration):
+        return {
+            "available": False,
+            "sample_source": "nvidia-smi",
+            "error": "failed_to_parse_nvidia_smi_csv",
+        }
+    if len(values) < 9:
+        return {
+            "available": False,
+            "sample_source": "nvidia-smi",
+            "error": "missing_nvidia_smi_fields",
+            "field_count": len(values),
+        }
+    return {
+        "available": True,
+        "sample_source": "nvidia-smi",
+        "name": values[0],
+        "pstate": values[1],
+        "graphics_clock_mhz": _int_or_none(values[2]),
+        "memory_clock_mhz": _int_or_none(values[3]),
+        "power_draw_w": _float_or_none(values[4]),
+        "gpu_utilization_percent": _float_or_none(values[5]),
+        "memory_utilization_percent": _float_or_none(values[6]),
+        "temperature_c": _float_or_none(values[7]),
+        "memory_used_mib": _int_or_none(values[8]),
+    }
+
+
+def _collect_nvidia_smi_gpu_snapshot() -> dict[str, Any]:
+    query = (
+        "name,pstate,clocks.current.graphics,clocks.current.memory,"
+        "power.draw,utilization.gpu,utilization.memory,temperature.gpu,"
+        "memory.used"
+    )
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                f"--query-gpu={query}",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "available": False,
+            "sample_source": "nvidia-smi",
+            "error": str(exc),
+        }
+    if result.returncode != 0:
+        return {
+            "available": False,
+            "sample_source": "nvidia-smi",
+            "error": (result.stderr or result.stdout).strip()[:500],
+            "returncode": int(result.returncode),
+        }
+    rows = [line for line in result.stdout.splitlines() if line.strip()]
+    if not rows:
+        return {
+            "available": False,
+            "sample_source": "nvidia-smi",
+            "error": "empty_nvidia_smi_output",
+        }
+    snapshot = _parse_nvidia_smi_gpu_row(rows[0])
+    if len(rows) > 1:
+        snapshot["ignored_gpu_rows"] = len(rows) - 1
+    return snapshot
+
+
+def _collect_windows_cpu_snapshot() -> dict[str, Any]:
+    script = (
+        "$cpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor | "
+        "Where-Object { $_.Name -eq '_Total' } | Select-Object -First 1 "
+        "Name,PercentProcessorTime; "
+        "$sys = Get-CimInstance Win32_PerfFormattedData_PerfOS_System | "
+        "Select-Object -First 1 ProcessorQueueLength,Threads,Processes; "
+        "[pscustomobject]@{"
+        "available=$true;"
+        "percent_processor_time=[double]$cpu.PercentProcessorTime;"
+        "processor_queue_length=[double]$sys.ProcessorQueueLength;"
+        "threads=[int]$sys.Threads;"
+        "processes=[int]$sys.Processes"
+        "} | ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "available": False,
+            "sample_source": "windows_perf_counters",
+            "error": str(exc),
+        }
+    if result.returncode != 0:
+        return {
+            "available": False,
+            "sample_source": "windows_perf_counters",
+            "error": (result.stderr or result.stdout).strip()[:500],
+            "returncode": int(result.returncode),
+        }
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return {
+            "available": False,
+            "sample_source": "windows_perf_counters",
+            "error": f"failed_to_parse_cpu_json: {exc}",
+        }
+    return {
+        "available": bool(data.get("available", True)),
+        "sample_source": "windows_perf_counters",
+        "percent_processor_time": _float_or_none(
+            data.get("percent_processor_time")
+        ),
+        "processor_queue_length": _float_or_none(
+            data.get("processor_queue_length")
+        ),
+        "threads": _int_or_none(data.get("threads")),
+        "processes": _int_or_none(data.get("processes")),
+    }
+
+
+def _collect_cpu_snapshot() -> dict[str, Any]:
+    if platform.system().lower() == "windows":
+        return _collect_windows_cpu_snapshot()
+    load_average: tuple[float, float, float] | None = None
+    try:
+        load_average = tuple(float(value) for value in os.getloadavg())
+    except (AttributeError, OSError):
+        pass
+    return {
+        "available": load_average is not None,
+        "sample_source": "os.getloadavg",
+        "cpu_count": os.cpu_count(),
+        "load_average_1m": None if load_average is None else load_average[0],
+        "load_average_5m": None if load_average is None else load_average[1],
+        "load_average_15m": None if load_average is None else load_average[2],
+    }
+
+
+def _collect_velocity_environment_snapshot() -> dict[str, Any]:
+    return {
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "cpu_count": os.cpu_count(),
+        },
+        "cpu": _collect_cpu_snapshot(),
+        "gpu": _collect_nvidia_smi_gpu_snapshot(),
+    }
+
+
+def _available_metric(
+    snapshot: Mapping[str, Any] | None,
+    section: str,
+    key: str,
+) -> float | None:
+    if not isinstance(snapshot, Mapping):
+        return None
+    payload = snapshot.get(section)
+    if not isinstance(payload, Mapping):
+        return None
+    if not bool(payload.get("available")):
+        return None
+    return _float_or_none(payload.get(key))
+
+
+def _summarize_velocity_environment(
+    before: Mapping[str, Any] | None,
+    after: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    cpu_values = [
+        value
+        for value in (
+            _available_metric(before, "cpu", "percent_processor_time"),
+            _available_metric(after, "cpu", "percent_processor_time"),
+        )
+        if value is not None
+    ]
+    gpu_values = [
+        value
+        for value in (
+            _available_metric(before, "gpu", "gpu_utilization_percent"),
+            _available_metric(after, "gpu", "gpu_utilization_percent"),
+        )
+        if value is not None
+    ]
+    memory_values = [
+        value
+        for value in (
+            _available_metric(before, "gpu", "memory_utilization_percent"),
+            _available_metric(after, "gpu", "memory_utilization_percent"),
+        )
+        if value is not None
+    ]
+    cpu_threshold = 90.0
+    gpu_threshold = 20.0
+    cpu_busy = any(value >= cpu_threshold for value in cpu_values)
+    gpu_busy = any(value >= gpu_threshold for value in gpu_values)
+    unknown = not cpu_values and not gpu_values
+    verdict = (
+        "unknown"
+        if unknown
+        else "contention_observed"
+        if cpu_busy or gpu_busy
+        else "not_observed"
+    )
+    return {
+        "surface": "velocity_environment.v1",
+        "not_hot_path": True,
+        "claim_boundary": (
+            "slow-path benchmark run-condition evidence only; it does not "
+            "measure or change cognitive execution"
+        ),
+        "contention": {
+            "verdict": verdict,
+            "cpu_busy": bool(cpu_busy),
+            "gpu_busy": bool(gpu_busy),
+            "thresholds": {
+                "cpu_percent_busy": cpu_threshold,
+                "gpu_graphics_utilization_percent_busy": gpu_threshold,
+            },
+            "max_cpu_percent": max(cpu_values) if cpu_values else None,
+            "max_gpu_utilization_percent": max(gpu_values) if gpu_values else None,
+            "max_gpu_memory_utilization_percent": (
+                max(memory_values) if memory_values else None
+            ),
+        },
+        "before": dict(before or {}),
+        "after": dict(after or {}),
+    }
+
+
 def run_continuous_runtime_stress(
     checkpoint: Path,
     *,
@@ -300,6 +568,10 @@ def run_continuous_runtime_stress(
         )
         warm_ingestion = dict(warm_snapshot.get("ingestion") or {})
         if not bool(warm_ingestion.get("full_warm_ready")):
+            velocity_environment = _summarize_velocity_environment(
+                _collect_velocity_environment_snapshot(),
+                None,
+            )
             report = {
                 "surface": "continuous_runtime_stress.v1",
                 "success": False,
@@ -335,10 +607,12 @@ def run_continuous_runtime_stress(
                 },
                 "timeout_seconds": float(timeout_seconds),
                 "warm_ingestion": warm_ingestion,
+                "velocity_environment": velocity_environment,
             }
             write_json_report_with_readme(output_path, report)
             return report
 
+        velocity_environment_before = _collect_velocity_environment_snapshot()
         with manager._lock:
             start_token = int(manager._trainer.token_count)
             if bool(profile_trainer_stages):
@@ -379,6 +653,7 @@ def run_continuous_runtime_stress(
         stop_started = time.perf_counter()
         runtime.stop_terminus()
         stop_latency_ms = (time.perf_counter() - stop_started) * 1000.0
+        velocity_environment_after = _collect_velocity_environment_snapshot()
         with manager._lock:
             final_token = int(manager._trainer.token_count)
             final_snapshot = manager._brain_runtime_snapshot_locked()
@@ -399,6 +674,10 @@ def run_continuous_runtime_stress(
         cache_flush = _flush_source_cache_writes(manager)
         token_delta = max(0, final_token - start_token)
         event_summary = _summarize_tick_events(tick_events)
+        velocity_environment = _summarize_velocity_environment(
+            velocity_environment_before,
+            velocity_environment_after,
+        )
         report = {
             "surface": "continuous_runtime_stress.v1",
             "checkpoint": str(checkpoint),
@@ -468,6 +747,7 @@ def run_continuous_runtime_stress(
             "execution_schedule": dict(final_snapshot.get("execution_schedule") or {}),
             "shutdown": dict(final_snapshot.get("shutdown") or {}),
             "cache_flush": cache_flush,
+            "velocity_environment": velocity_environment,
             "runtime_device": device_report,
             "column_transition_runtime": transition_report,
         }
