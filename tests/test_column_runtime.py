@@ -22,7 +22,7 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     )
 
     assert report["surface"] == "column_runtime_metabolism.v1"
-    assert report["summary_role"] == "training_owned_scheduler_evidence_with_cached_vote_execution"
+    assert report["summary_role"] == "training_owned_scheduler_evidence_with_cached_vote_and_deep_sleep_filter_execution"
     assert report["total_columns"] == 12
     assert report["awake_budget"] == 3
     assert report["awake_count"] <= 3
@@ -33,7 +33,7 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert report["runs_all_columns"] is False
     assert report["scheduler"]["runs_all_columns"] is False
     assert report["scheduler"]["promoted_to_execution"] is True
-    assert report["scheduler"]["execution_scope"] == "candidate_scoring_homeostasis_and_predictive_vote_cache"
+    assert report["scheduler"]["execution_scope"] == "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache"
     assert 5 in report["scheduler"]["awake_column_ids"]
     assert report["registry"]["surface"] == "column_registry.v1"
     assert report["registry"]["mutates_runtime_state"] is False

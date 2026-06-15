@@ -68,6 +68,14 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
         == cfg.candidate_predictive_update_start_tokens
     )
     assert (
+        report["runtime_counters"]["candidate_deep_sleep_filter_start_tokens"]
+        == cfg.candidate_deep_sleep_filter_start_tokens
+    )
+    assert (
+        report["runtime_counters"]["candidate_sleep_filter_execution"]["surface"]
+        == "column_candidate_sleep_scheduler.v1"
+    )
+    assert (
         report["runtime_counters"]["predictive_update_execution"]["surface"]
         == "predictive_column_update_scheduler.v1"
     )

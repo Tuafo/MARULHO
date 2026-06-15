@@ -41,6 +41,9 @@ class TestPredictiveColumnState:
         assert report["last_prediction_update_count"] == 0
         assert report["last_prediction_update_fraction"] == 0.0
         assert report["last_prediction_update_runs_all_columns"] is False
+        assert report["last_location_update_mode"] == "not_run"
+        assert report["last_location_update_count"] == 0
+        assert report["last_location_update_runs_all_columns"] is False
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices(self):
@@ -133,6 +136,29 @@ class TestPredictiveColumnState:
         state.update_location([0], routing_key, None)  # No prev key
         # Should not crash, locations unchanged (no movement signal)
 
+    def test_candidate_scoped_update_location_keeps_idle_location_cached(self):
+        state = PredictiveColumnState(n_columns=6, location_dim=3)
+        state.location = torch.ones(6, 3) * 0.1
+        state.velocity = torch.ones(6, 3)
+        location_before = state.location.clone()
+        velocity_before = state.velocity.clone()
+
+        state.update_location(
+            [1],
+            torch.randn(6),
+            torch.randn(6),
+            candidate_indices=torch.tensor([1, 3], dtype=torch.long),
+        )
+
+        assert state.last_location_update_mode == "candidate_subset"
+        assert state.last_location_update_count == 2
+        assert state.last_location_cached_count == 4
+        assert state.last_location_update_runs_all_columns is False
+        assert not torch.allclose(state.location[1], location_before[1])
+        assert torch.allclose(state.velocity[3], velocity_before[3] * 0.9)
+        assert torch.allclose(state.location[[0, 2, 4, 5]], location_before[[0, 2, 4, 5]])
+        assert torch.allclose(state.velocity[[0, 2, 4, 5]], velocity_before[[0, 2, 4, 5]])
+
     def test_prediction_error_computation(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)
         routing_key = torch.randn(16)
@@ -201,6 +227,9 @@ class TestPredictiveColumnState:
         assert report["surface"] == "predictive_column_update_scheduler.v1"
         assert report["updated_column_count"] == 2
         assert report["cached_state_count"] == 4
+        assert report["location_update_mode"] == "not_run"
+        assert report["location_update_count"] == 0
+        assert report["location_update_runs_all_columns"] is False
         assert report["runs_all_columns"] is False
         assert state.prediction_failure_streak[1].item() == 0
         assert state.prediction_failure_streak[3].item() == 8
@@ -708,6 +737,110 @@ class TestPredictiveColumnsInTrainer:
             "training_owned_awake_mask_predictive_vote_cache_skips_non_awake_columns"
         )
 
+    def test_candidate_deep_sleep_filter_skips_only_retrieved_stale_candidates(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            k_routing=3,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            dead_column_steps=5,
+            candidate_deep_sleep_filter_start_tokens=0,
+            candidate_deep_sleep_backfill_factor=2,
+            device="cpu",
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        model.competitive.steps_since_win[:] = torch.tensor([5, 0, 7, 1, 9, 2, 0, 0])
+
+        filtered = trainer._filter_candidate_deep_sleep(
+            torch.tensor([0, 1, 2, 3, 4, 5]),
+            target_count=cfg.k_routing,
+        )
+
+        assert filtered.tolist() == [1, 3, 5]
+        report = model.column_runtime_report(token_count=0)
+        sleep_filter = report["candidate_sleep_filter_execution"]
+        assert sleep_filter["mode"] == "candidate_deep_sleep_filter"
+        assert sleep_filter["input_candidate_count"] == 6
+        assert sleep_filter["output_candidate_count"] == 3
+        assert sleep_filter["filtered_deep_sleep_count"] == 3
+        assert sleep_filter["runs_all_columns"] is False
+        assert sleep_filter["claim_boundary"] == (
+            "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+        )
+
+    def test_trainer_filters_deep_sleep_candidates_before_update_and_vote(self, monkeypatch):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            k_routing=2,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            predictive_dense_transition_mode="legacy",
+            dead_column_steps=3,
+            candidate_homeostasis_start_tokens=0,
+            candidate_predictive_update_start_tokens=0,
+            candidate_deep_sleep_filter_start_tokens=0,
+            candidate_deep_sleep_backfill_factor=2,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            slow_memory_archive_interval_tokens=10**9,
+            device="cpu",
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.last_winner = 1
+        model.competitive.steps_since_win[:] = torch.tensor([3, 0, 3, 0, 0, 0, 0, 0])
+        candidates_seen = {}
+
+        def fake_candidates(routing_key, *, apply_sleep_filter=False):
+            candidates_seen["apply_sleep_filter"] = apply_sleep_filter
+            raw = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+            if apply_sleep_filter:
+                return trainer._filter_candidate_deep_sleep(
+                    raw,
+                    target_count=cfg.k_routing,
+                )
+            return raw[: cfg.k_routing]
+
+        monkeypatch.setattr(trainer, "_routing_candidates", fake_candidates)
+
+        metrics = trainer.train_step(
+            torch.rand(cfg.input_dim),
+            raw_window="candidate sleep filter test",
+            allow_sleep_maintenance=False,
+        )
+
+        assert candidates_seen["apply_sleep_filter"] is True
+        assert metrics["candidate_deep_sleep_filter_mode"] == "candidate_deep_sleep_filter"
+        assert metrics["candidate_deep_sleep_filtered_count"] == 2
+        report = model.column_runtime_report(
+            token_count=trainer.token_count,
+            last_winner=trainer.last_winner,
+        )
+        sleep_filter = report["candidate_sleep_filter_execution"]
+        assert sleep_filter["output_candidate_count"] == cfg.k_routing
+        assert sleep_filter["filtered_deep_sleep_count"] == 2
+        assert report["predictive_update_execution"]["updated_column_count"] == cfg.k_routing
+        assert report["predictive_update_execution"]["location_update_count"] == cfg.k_routing
+        assert report["predictive_update_execution"]["location_cached_count"] == (
+            cfg.n_columns - cfg.k_routing
+        )
+        assert report["predictive_vote_execution"]["updated_column_count"] == cfg.k_routing
+        assert report["execution"]["homeostasis_update_count"] == cfg.k_routing
+        assert report["runs_all_columns"] is False
+
     def test_candidate_homeostasis_start_tokens_must_be_non_negative(self):
         from marulho.config.model_config import MarulhoConfig
 
@@ -719,6 +852,18 @@ class TestPredictiveColumnsInTrainer:
 
         with pytest.raises(ValueError, match="candidate_predictive_update_start_tokens"):
             MarulhoConfig(candidate_predictive_update_start_tokens=-1)
+
+    def test_candidate_deep_sleep_filter_start_tokens_must_be_non_negative(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_deep_sleep_filter_start_tokens"):
+            MarulhoConfig(candidate_deep_sleep_filter_start_tokens=-1)
+
+    def test_candidate_deep_sleep_backfill_factor_must_be_positive(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_deep_sleep_backfill_factor"):
+            MarulhoConfig(candidate_deep_sleep_backfill_factor=0)
 
     def test_predictive_route_vote_mode_must_be_supported(self):
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):

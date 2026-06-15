@@ -504,7 +504,7 @@ def build_column_runtime_report(
     return {
         "surface": "column_runtime_metabolism.v1",
         "artifact_kind": "marulho_column_runtime_metabolism",
-        "summary_role": "training_owned_scheduler_evidence_with_cached_vote_execution",
+        "summary_role": "training_owned_scheduler_evidence_with_cached_vote_and_deep_sleep_filter_execution",
         "source": "core.column_runtime",
         "device": str(device or source_device),
         "token_count": None if token_count is None else int(token_count),
@@ -537,7 +537,7 @@ def build_column_runtime_report(
             "mode": "top_k_surprise_usefulness_cost_latency_first_gate",
             "runs_all_columns": False,
             "promoted_to_execution": True,
-            "execution_scope": "candidate_scoring_homeostasis_and_predictive_vote_cache",
+            "execution_scope": "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache",
             "selection_inputs": [
                 "prediction_error",
                 "confidence_gap",

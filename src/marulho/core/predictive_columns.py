@@ -202,6 +202,11 @@ class PredictiveColumnState:
         self.last_prediction_cached_count = 0
         self.last_prediction_update_runs_all_columns = False
         self.last_prediction_update_fallback_reason: str | None = None
+        self.last_location_update_mode = "not_run"
+        self.last_location_update_count = 0
+        self.last_location_cached_count = 0
+        self.last_location_update_runs_all_columns = False
+        self.last_location_update_fallback_reason: str | None = None
         self.cached_consensus_gain = torch.ones(n_columns, device=self.device)
         self.last_vote_update_mode = "not_run"
         self.last_vote_update_count = 0
@@ -395,6 +400,24 @@ class PredictiveColumnState:
         self.last_prediction_update_runs_all_columns = count >= int(self.n_columns)
         self.last_prediction_update_fallback_reason = fallback_reason
 
+    def _record_location_update_scope(
+        self,
+        candidate_indices: torch.Tensor | None,
+        *,
+        fallback_reason: str | None = None,
+    ) -> None:
+        if candidate_indices is None:
+            count = int(self.n_columns)
+            mode = "all_columns"
+        else:
+            count = int(candidate_indices.numel())
+            mode = "candidate_subset"
+        self.last_location_update_mode = mode
+        self.last_location_update_count = count
+        self.last_location_cached_count = max(0, int(self.n_columns) - count)
+        self.last_location_update_runs_all_columns = count >= int(self.n_columns)
+        self.last_location_update_fallback_reason = fallback_reason
+
     def predict(
         self,
         column_dim: int,
@@ -422,12 +445,22 @@ class PredictiveColumnState:
         winners: list[int],
         routing_key: torch.Tensor,
         prev_routing_key: Optional[torch.Tensor] = None,
+        candidate_indices: torch.Tensor | None = None,
     ) -> None:
         """Update location state via path integration.
 
         The "movement" signal is the transition between consecutive inputs.
         Winner columns integrate this into their location state.
         """
+        candidates = self._candidate_update_indices(candidate_indices)
+        if candidates is not None:
+            winner_tensor = torch.as_tensor(winners, device=self.device, dtype=torch.long)
+            if int(winner_tensor.numel()) > 0:
+                candidates = torch.unique(torch.cat((candidates, winner_tensor)))
+                candidates = candidates[
+                    (candidates >= 0) & (candidates < int(self.n_columns))
+                ]
+        self._record_location_update_scope(candidates)
         if prev_routing_key is not None:
             # Compute movement as difference between consecutive inputs
             # Project to location_dim via simple hash
@@ -438,15 +471,24 @@ class PredictiveColumnState:
 
             # Path integration: update velocity and position for winners
             decay = 0.9
-            self.velocity *= decay
+            if candidates is None:
+                self.velocity *= decay
+            elif int(candidates.numel()) > 0:
+                self.velocity[candidates] *= decay
             for w in winners:
                 self.velocity[w] += 0.1 * movement.to(self.device)
                 self.location[w] += self.velocity[w]
 
         # Normalize locations to prevent drift to infinity
-        loc_norm = self.location.norm(dim=1, keepdim=True).clamp(min=1e-8)
-        scale = torch.where(loc_norm > 5.0, 5.0 / loc_norm, torch.ones_like(loc_norm))
-        self.location *= scale
+        if candidates is None:
+            loc_norm = self.location.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            scale = torch.where(loc_norm > 5.0, 5.0 / loc_norm, torch.ones_like(loc_norm))
+            self.location *= scale
+        elif int(candidates.numel()) > 0:
+            loc = self.location.index_select(0, candidates)
+            loc_norm = loc.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            scale = torch.where(loc_norm > 5.0, 5.0 / loc_norm, torch.ones_like(loc_norm))
+            self.location[candidates] = loc * scale
 
     def compute_prediction_error(
         self,
@@ -688,7 +730,16 @@ class PredictiveColumnState:
                 float(cached) / float(max(1, int(self.n_columns))),
                 6,
             ),
-            "runs_all_columns": bool(self.last_prediction_update_runs_all_columns),
+            "location_update_mode": str(self.last_location_update_mode),
+            "location_update_count": int(self.last_location_update_count),
+            "location_cached_count": int(self.last_location_cached_count),
+            "location_update_runs_all_columns": bool(
+                self.last_location_update_runs_all_columns
+            ),
+            "runs_all_columns": bool(
+                self.last_prediction_update_runs_all_columns
+                or self.last_location_update_runs_all_columns
+            ),
             "fallback_reason": self.last_prediction_update_fallback_reason,
             "tensor_device": str(self.prediction_error.device),
             "claim_boundary": (
@@ -727,6 +778,13 @@ class PredictiveColumnState:
                 self.last_prediction_update_runs_all_columns
             ),
             "last_prediction_update_fallback_reason": self.last_prediction_update_fallback_reason,
+            "last_location_update_mode": self.last_location_update_mode,
+            "last_location_update_count": int(self.last_location_update_count),
+            "last_location_cached_count": int(self.last_location_cached_count),
+            "last_location_update_runs_all_columns": bool(
+                self.last_location_update_runs_all_columns
+            ),
+            "last_location_update_fallback_reason": self.last_location_update_fallback_reason,
             "cached_consensus_gain_device": str(self.cached_consensus_gain.device),
             "last_vote_update_mode": self.last_vote_update_mode,
             "last_vote_update_count": int(self.last_vote_update_count),
@@ -790,6 +848,11 @@ class PredictiveColumnState:
         self.last_prediction_cached_count = 0
         self.last_prediction_update_runs_all_columns = False
         self.last_prediction_update_fallback_reason = None
+        self.last_location_update_mode = "not_run"
+        self.last_location_update_count = 0
+        self.last_location_cached_count = 0
+        self.last_location_update_runs_all_columns = False
+        self.last_location_update_fallback_reason = None
         self.cached_consensus_gain = torch.ones(self.n_columns, device=self.device)
         self.last_vote_update_mode = "not_run"
         self.last_vote_update_count = 0

@@ -252,8 +252,18 @@ def run_hot_window_benchmark(
             "candidate_predictive_update_start_tokens": int(
                 trainer.config.candidate_predictive_update_start_tokens
             ),
+            "candidate_deep_sleep_filter_start_tokens": int(
+                trainer.config.candidate_deep_sleep_filter_start_tokens
+            ),
             "routing_index": trainer.model.hnsw_index.stats(),
             "competitive": trainer.model.competitive.execution_report(),
+            "candidate_sleep_filter_execution": dict(
+                getattr(
+                    trainer.model,
+                    "last_candidate_sleep_filter_execution",
+                    {},
+                )
+            ),
             "predictive": trainer.model.predictive.device_report(),
             "predictive_update_execution": (
                 trainer.model.predictive.prediction_update_execution_report()

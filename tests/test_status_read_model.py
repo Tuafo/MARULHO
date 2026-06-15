@@ -346,7 +346,7 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertFalse(column_runtime["runs_all_columns"])
         self.assertEqual(
             column_runtime["claim_boundary"],
-            "candidate_scoring_homeostasis_predictive_update_and_vote_cache_promoted_sleep_deep_sleep_remain_reported",
+            "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed",
         )
         self.assertEqual(column_runtime["execution"]["mode"], "not_run")
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
@@ -384,8 +384,15 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertTrue(column_runtime["scheduler"]["promoted_to_execution"])
         self.assertEqual(
             column_runtime["scheduler"]["execution_scope"],
-            "candidate_scoring_homeostasis_predictive_update_and_vote_cache",
+            "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache",
         )
+        candidate_sleep_filter = column_runtime["candidate_sleep_filter_execution"]
+        self.assertEqual(
+            candidate_sleep_filter["surface"],
+            "column_candidate_sleep_scheduler.v1",
+        )
+        self.assertEqual(candidate_sleep_filter["mode"], "not_run")
+        self.assertFalse(candidate_sleep_filter["runs_all_columns"])
         self.assertIn("wake_reasons_sample", column_runtime)
         predictive_update = column_runtime["predictive_update_execution"]
         self.assertEqual(
@@ -395,6 +402,8 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(predictive_update["mode"], "not_run")
         self.assertEqual(predictive_update["updated_column_count"], 0)
         self.assertEqual(predictive_update["cached_state_count"], 0)
+        self.assertEqual(predictive_update["location_update_count"], 0)
+        self.assertFalse(predictive_update["location_update_runs_all_columns"])
         self.assertFalse(predictive_update["runs_all_columns"])
         predictive_vote = column_runtime["predictive_vote_execution"]
         self.assertEqual(
@@ -440,6 +449,23 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "cached_state_policy": "cached",
                         "fallback_reason": None,
                     },
+                    "candidate_sleep_filter_execution": {
+                        "surface": "column_candidate_sleep_scheduler.v1",
+                        "mode": "candidate_deep_sleep_filter",
+                        "total_columns": 128,
+                        "awake_budget": 8,
+                        "input_candidate_count": 24,
+                        "output_candidate_count": 7,
+                        "filtered_deep_sleep_count": 3,
+                        "backfill_candidate_count": 17,
+                        "deep_sleep_threshold_steps": 2000,
+                        "start_token": 512,
+                        "backfill_factor": 4,
+                        "runs_all_columns": False,
+                        "fallback_reason": None,
+                        "tensor_device": "cpu",
+                        "claim_boundary": "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan",
+                    },
                     "predictive_vote_execution": {
                         "surface": "predictive_column_vote_scheduler.v1",
                         "mode": "awake_mask_cached_vote",
@@ -461,6 +487,10 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "updated_column_fraction": 0.054688,
                         "cached_state_count": 121,
                         "cached_state_fraction": 0.945312,
+                        "location_update_mode": "candidate_subset",
+                        "location_update_count": 7,
+                        "location_cached_count": 121,
+                        "location_update_runs_all_columns": False,
                         "runs_all_columns": False,
                         "fallback_reason": None,
                         "tensor_device": "cpu",
@@ -483,6 +513,14 @@ class StatusReadModelStatusTests(unittest.TestCase):
             "synthetic_scope_from_training",
         )
         self.assertEqual(
+            projected["candidate_sleep_filter_execution"]["filtered_deep_sleep_count"],
+            3,
+        )
+        self.assertEqual(
+            projected["candidate_sleep_filter_execution"]["output_candidate_count"],
+            7,
+        )
+        self.assertEqual(
             projected["predictive_vote_execution"]["cached_vote_use_count"],
             121,
         )
@@ -490,6 +528,10 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             projected["predictive_update_execution"]["cached_state_count"],
             121,
+        )
+        self.assertEqual(
+            projected["predictive_update_execution"]["location_update_count"],
+            7,
         )
         self.assertFalse(projected["predictive_update_execution"]["runs_all_columns"])
 

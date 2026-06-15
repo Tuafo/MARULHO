@@ -237,6 +237,25 @@ class MarulhoModel:
                 device=self.device,
                 backend=self.config.routing_index_mode,
             )
+        self.last_candidate_sleep_filter_execution = {
+            "surface": "column_candidate_sleep_scheduler.v1",
+            "mode": "not_run",
+            "total_columns": int(self.config.n_columns),
+            "awake_budget": int(min(self.config.k_routing, self.config.n_columns)),
+            "input_candidate_count": 0,
+            "output_candidate_count": 0,
+            "filtered_deep_sleep_count": 0,
+            "backfill_candidate_count": 0,
+            "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
+            "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
+            "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
+            "runs_all_columns": False,
+            "fallback_reason": None,
+            "tensor_device": str(self.device),
+            "claim_boundary": (
+                "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+            ),
+        }
 
         self.W_assembly_project = torch.empty(
             self.config.n_columns,
@@ -322,6 +341,35 @@ class MarulhoModel:
             device=str(self.device),
         )
         execution = self.competitive.execution_report()
+        candidate_sleep_filter_execution = dict(
+            getattr(
+                self,
+                "last_candidate_sleep_filter_execution",
+                {
+                    "surface": "column_candidate_sleep_scheduler.v1",
+                    "mode": "not_run",
+                    "total_columns": int(self.config.n_columns),
+                    "awake_budget": awake_limit,
+                    "input_candidate_count": 0,
+                    "output_candidate_count": 0,
+                    "filtered_deep_sleep_count": 0,
+                    "backfill_candidate_count": 0,
+                    "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
+                    "start_token": int(
+                        self.config.candidate_deep_sleep_filter_start_tokens
+                    ),
+                    "backfill_factor": int(
+                        self.config.candidate_deep_sleep_backfill_factor
+                    ),
+                    "runs_all_columns": False,
+                    "fallback_reason": None,
+                    "tensor_device": str(self.device),
+                    "claim_boundary": (
+                        "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+                    ),
+                },
+            )
+        )
         predictive_update_execution = self.predictive.prediction_update_execution_report()
         predictive_vote_execution = self.predictive.vote_execution_report()
         total_columns = int(report.get("total_columns", 0) or 0)
@@ -342,13 +390,14 @@ class MarulhoModel:
             or bool(report.get("runs_all_columns", False))
         )
         report["execution"] = execution
+        report["candidate_sleep_filter_execution"] = candidate_sleep_filter_execution
         report["predictive_update_execution"] = predictive_update_execution
         report["predictive_vote_execution"] = predictive_vote_execution
         report["runs_all_columns"] = runs_all_columns
         if isinstance(report.get("scheduler"), dict):
             report["scheduler"]["runs_all_columns"] = runs_all_columns
             report["scheduler"]["execution_scope"] = (
-                "candidate_scoring_homeostasis_predictive_update_and_vote_cache"
+                "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache"
             )
             report["scheduler"]["fallback_reason"] = (
                 "one_or_more_specialists_ran_all_columns"

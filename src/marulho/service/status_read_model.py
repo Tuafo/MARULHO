@@ -1116,6 +1116,11 @@ class StatusReadModel:
         report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
         metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
         execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
+        candidate_sleep_filter_execution = (
+            report.get("candidate_sleep_filter_execution")
+            if isinstance(report.get("candidate_sleep_filter_execution"), Mapping)
+            else {}
+        )
         predictive_vote_execution = (
             report.get("predictive_vote_execution")
             if isinstance(report.get("predictive_vote_execution"), Mapping)
@@ -1172,6 +1177,46 @@ class StatusReadModel:
                 "active_column_fraction": float(scheduler.get("active_column_fraction", 0.0) or 0.0),
                 "cached_state_policy": scheduler.get("cached_state_policy"),
                 "fallback_reason": scheduler.get("fallback_reason"),
+            },
+            "candidate_sleep_filter_execution": {
+                "surface": candidate_sleep_filter_execution.get(
+                    "surface",
+                    "column_candidate_sleep_scheduler.v1",
+                ),
+                "mode": candidate_sleep_filter_execution.get("mode"),
+                "total_columns": int(
+                    candidate_sleep_filter_execution.get("total_columns", 0) or 0
+                ),
+                "awake_budget": int(
+                    candidate_sleep_filter_execution.get("awake_budget", 0) or 0
+                ),
+                "input_candidate_count": int(
+                    candidate_sleep_filter_execution.get("input_candidate_count", 0) or 0
+                ),
+                "output_candidate_count": int(
+                    candidate_sleep_filter_execution.get("output_candidate_count", 0) or 0
+                ),
+                "filtered_deep_sleep_count": int(
+                    candidate_sleep_filter_execution.get("filtered_deep_sleep_count", 0) or 0
+                ),
+                "backfill_candidate_count": int(
+                    candidate_sleep_filter_execution.get("backfill_candidate_count", 0) or 0
+                ),
+                "deep_sleep_threshold_steps": int(
+                    candidate_sleep_filter_execution.get("deep_sleep_threshold_steps", 0) or 0
+                ),
+                "start_token": int(
+                    candidate_sleep_filter_execution.get("start_token", 0) or 0
+                ),
+                "backfill_factor": int(
+                    candidate_sleep_filter_execution.get("backfill_factor", 0) or 0
+                ),
+                "runs_all_columns": bool(
+                    candidate_sleep_filter_execution.get("runs_all_columns", False)
+                ),
+                "fallback_reason": candidate_sleep_filter_execution.get("fallback_reason"),
+                "tensor_device": candidate_sleep_filter_execution.get("tensor_device"),
+                "claim_boundary": candidate_sleep_filter_execution.get("claim_boundary"),
             },
             "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
             "wake_reasons_sample": [
@@ -1254,6 +1299,19 @@ class StatusReadModel:
                 "cached_state_fraction": float(
                     predictive_update_execution.get("cached_state_fraction", 0.0) or 0.0
                 ),
+                "location_update_mode": predictive_update_execution.get("location_update_mode"),
+                "location_update_count": int(
+                    predictive_update_execution.get("location_update_count", 0) or 0
+                ),
+                "location_cached_count": int(
+                    predictive_update_execution.get("location_cached_count", 0) or 0
+                ),
+                "location_update_runs_all_columns": bool(
+                    predictive_update_execution.get(
+                        "location_update_runs_all_columns",
+                        False,
+                    )
+                ),
                 "runs_all_columns": bool(
                     predictive_update_execution.get("runs_all_columns", False)
                 ),
@@ -1288,7 +1346,7 @@ class StatusReadModel:
                 "claim_boundary": predictive_vote_execution.get("claim_boundary"),
             },
             "claim_boundary": (
-                "candidate_scoring_homeostasis_predictive_update_and_vote_cache_promoted_sleep_deep_sleep_remain_reported"
+                "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed"
             ),
         }
 

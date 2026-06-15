@@ -114,6 +114,19 @@ class MarulhoTrainer:
         self._routing_index_buffer_skip_count = 0
         self._routing_index_host_mirror_sync_count = 0
         self._routing_index_cpu_mirror_stale = False
+        self._candidate_sleep_filter_execution = (
+            self._build_candidate_sleep_filter_execution(
+                mode="not_run",
+                input_candidate_count=0,
+                output_candidate_count=0,
+                filtered_deep_sleep_count=0,
+                backfill_candidate_count=0,
+                fallback_reason=None,
+            )
+        )
+        self.model.last_candidate_sleep_filter_execution = dict(
+            self._candidate_sleep_filter_execution
+        )
         self._column_transition_runtime = ColumnTransitionRuntime(self)
         self._cognitive_boundary_controller = CognitiveBoundaryController()
         self._slow_memory_archive_count = 0
@@ -1069,14 +1082,179 @@ class MarulhoTrainer:
         self._hnsw_buffer_ids.clear()
         self._hnsw_buffer_vecs.clear()
 
-    def _routing_candidates(self, routing_key: torch.Tensor) -> torch.Tensor | None:
-        candidate_ids, _ = self.model.hnsw_index.search_tensors(
+    def _build_candidate_sleep_filter_execution(
+        self,
+        *,
+        mode: str,
+        input_candidate_count: int,
+        output_candidate_count: int,
+        filtered_deep_sleep_count: int,
+        backfill_candidate_count: int,
+        fallback_reason: str | None,
+    ) -> dict[str, Any]:
+        total_columns = int(self.config.n_columns)
+        return {
+            "surface": "column_candidate_sleep_scheduler.v1",
+            "mode": str(mode),
+            "total_columns": total_columns,
+            "awake_budget": int(min(self.config.k_routing, total_columns)),
+            "input_candidate_count": int(max(0, input_candidate_count)),
+            "output_candidate_count": int(max(0, output_candidate_count)),
+            "filtered_deep_sleep_count": int(max(0, filtered_deep_sleep_count)),
+            "backfill_candidate_count": int(max(0, backfill_candidate_count)),
+            "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
+            "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
+            "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
+            "runs_all_columns": False,
+            "fallback_reason": fallback_reason,
+            "tensor_device": str(self.model.device),
+            "claim_boundary": (
+                "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+            ),
+        }
+
+    def _record_candidate_sleep_filter_execution(
+        self,
+        report: dict[str, Any],
+    ) -> None:
+        self._candidate_sleep_filter_execution = dict(report)
+        self.model.last_candidate_sleep_filter_execution = dict(report)
+
+    def _candidate_sleep_filter_not_due_report(
+        self,
+        candidates: torch.Tensor | None,
+        *,
+        fallback_reason: str,
+    ) -> dict[str, Any]:
+        count = 0 if candidates is None else int(candidates.numel())
+        return self._build_candidate_sleep_filter_execution(
+            mode="not_due",
+            input_candidate_count=count,
+            output_candidate_count=count,
+            filtered_deep_sleep_count=0,
+            backfill_candidate_count=0,
+            fallback_reason=fallback_reason,
+        )
+
+    def _filter_candidate_deep_sleep(
+        self,
+        candidates: torch.Tensor,
+        *,
+        target_count: int,
+    ) -> torch.Tensor:
+        candidate_count = int(candidates.numel())
+        target = max(0, min(int(target_count), int(self.config.n_columns)))
+        if candidate_count <= 0 or target <= 0:
+            report = self._build_candidate_sleep_filter_execution(
+                mode="candidate_deep_sleep_filter_empty",
+                input_candidate_count=candidate_count,
+                output_candidate_count=0,
+                filtered_deep_sleep_count=0,
+                backfill_candidate_count=0,
+                fallback_reason="no_candidates",
+            )
+            self._record_candidate_sleep_filter_execution(report)
+            return candidates[:0]
+
+        if self.model.device.type == "cuda":
+            bounded = candidates[:target]
+            report = self._build_candidate_sleep_filter_execution(
+                mode="candidate_deep_sleep_filter_cuda_fallback",
+                input_candidate_count=candidate_count,
+                output_candidate_count=int(bounded.numel()),
+                filtered_deep_sleep_count=0,
+                backfill_candidate_count=max(0, candidate_count - int(bounded.numel())),
+                fallback_reason="cuda_candidate_deep_sleep_filter_unmeasured_retained_candidate_set",
+            )
+            self._record_candidate_sleep_filter_execution(report)
+            return bounded
+
+        steps = self.model.competitive.steps_since_win[candidates.to(self.model.device).long()]
+        awake_mask = steps < int(self.config.dead_column_steps)
+        awake_candidates = candidates[awake_mask]
+        filtered_count = candidate_count - int(awake_candidates.numel())
+        if int(awake_candidates.numel()) <= 0:
+            bounded = candidates[:target]
+            report = self._build_candidate_sleep_filter_execution(
+                mode="candidate_deep_sleep_filter_fallback",
+                input_candidate_count=candidate_count,
+                output_candidate_count=int(bounded.numel()),
+                filtered_deep_sleep_count=filtered_count,
+                backfill_candidate_count=max(0, candidate_count - int(bounded.numel())),
+                fallback_reason="all_retrieved_candidates_deep_sleep",
+            )
+            self._record_candidate_sleep_filter_execution(report)
+            return bounded
+
+        filtered = awake_candidates[:target]
+        report = self._build_candidate_sleep_filter_execution(
+            mode="candidate_deep_sleep_filter",
+            input_candidate_count=candidate_count,
+            output_candidate_count=int(filtered.numel()),
+            filtered_deep_sleep_count=filtered_count,
+            backfill_candidate_count=max(0, candidate_count - int(filtered.numel())),
+            fallback_reason=(
+                None
+                if int(filtered.numel()) >= min(target, candidate_count)
+                else "insufficient_awake_candidates_after_deep_sleep_filter"
+            ),
+        )
+        self._record_candidate_sleep_filter_execution(report)
+        return filtered
+
+    def _routing_candidates(
+        self,
+        routing_key: torch.Tensor,
+        *,
+        apply_sleep_filter: bool = False,
+    ) -> torch.Tensor | None:
+        target_k = max(1, int(self.config.k_routing))
+        filter_due = bool(
+            apply_sleep_filter
+            and self.token_count
+            >= int(self.config.candidate_deep_sleep_filter_start_tokens)
+        )
+        search_k = target_k
+        if filter_due and self.model.device.type != "cuda":
+            search_k = min(
+                int(self.config.n_columns),
+                target_k * max(1, int(self.config.candidate_deep_sleep_backfill_factor)),
+            )
+        candidate_ids, candidate_distances = self.model.hnsw_index.search_tensors(
             routing_key.unsqueeze(0),
-            k=self.config.k_routing,
+            k=search_k,
         )
         if candidate_ids.dim() != 2 or int(candidate_ids.shape[1]) <= 0:
+            if apply_sleep_filter:
+                report = self._build_candidate_sleep_filter_execution(
+                    mode="candidate_deep_sleep_filter_empty",
+                    input_candidate_count=0,
+                    output_candidate_count=0,
+                    filtered_deep_sleep_count=0,
+                    backfill_candidate_count=0,
+                    fallback_reason="routing_index_returned_no_candidates",
+                )
+                self._record_candidate_sleep_filter_execution(report)
             return None
-        return candidate_ids[0].to(device=self.model.device, dtype=torch.long)
+        candidates = candidate_ids[0].to(device=self.model.device, dtype=torch.long)
+        if (
+            candidate_distances.dim() == 2
+            and int(candidate_distances.shape[1]) == int(candidates.numel())
+        ):
+            distance_row = candidate_distances[0].to(device=self.model.device)
+            candidates = candidates[torch.argsort(distance_row, descending=False)]
+        if not apply_sleep_filter:
+            return candidates[:target_k]
+        if not filter_due:
+            bounded = candidates[:target_k]
+            self._record_candidate_sleep_filter_execution(
+                self._candidate_sleep_filter_not_due_report(
+                    bounded,
+                    fallback_reason="candidate_deep_sleep_filter_not_due",
+                )
+            )
+            return bounded
+        return self._filter_candidate_deep_sleep(candidates, target_count=target_k)
 
 
     def update_word_grounding(
@@ -1952,6 +2130,7 @@ class MarulhoTrainer:
                 winner_id_list,
                 routing_key,
                 self._prev_routing_key,
+                candidate_indices=predictive_update_indices,
             )
             self.model.predictive.update_predictions(
                 winner_id_list,
@@ -2165,7 +2344,21 @@ class MarulhoTrainer:
             sensory_tick=sensory_tick,
         )
         if candidates is None:
-            candidates = self._routing_candidates(routing_key)
+            candidates = self._routing_candidates(
+                routing_key,
+                apply_sleep_filter=True,
+            )
+        else:
+            self._record_candidate_sleep_filter_execution(
+                self._build_candidate_sleep_filter_execution(
+                    mode="candidate_deep_sleep_filter_route_vote_owner_fallback",
+                    input_candidate_count=int(candidates.numel()),
+                    output_candidate_count=int(candidates.numel()),
+                    filtered_deep_sleep_count=0,
+                    backfill_candidate_count=0,
+                    fallback_reason="fused_or_graph_route_vote_preselected_candidates",
+                )
+            )
 
         # Predictive column consensus voting: columns that agree with
         # recent winners get a routing boost (Thousand Brains voting).
@@ -2771,6 +2964,23 @@ class MarulhoTrainer:
         metrics["candidate_predictive_update_due"] = int(
             self.token_count
             >= int(self.config.candidate_predictive_update_start_tokens)
+        )
+        metrics["candidate_deep_sleep_filter_start_tokens"] = int(
+            self.config.candidate_deep_sleep_filter_start_tokens
+        )
+        metrics["candidate_deep_sleep_filter_due"] = int(
+            self.token_count
+            >= int(self.config.candidate_deep_sleep_filter_start_tokens)
+        )
+        metrics["candidate_deep_sleep_filtered_count"] = int(
+            self._candidate_sleep_filter_execution.get(
+                "filtered_deep_sleep_count",
+                0,
+            )
+            or 0
+        )
+        metrics["candidate_deep_sleep_filter_mode"] = str(
+            self._candidate_sleep_filter_execution.get("mode", "not_run")
         )
         if self.model.abstraction_layer is not None and _telemetry_tick:
             _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())

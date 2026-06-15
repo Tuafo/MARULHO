@@ -1,4 +1,4 @@
-"""A/B benchmark for predictive-vote cached column scheduling."""
+"""A/B benchmark for bounded retained column-scheduler work."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import statistics
 import time
+from typing import Sequence
 
 import torch
 
@@ -35,6 +36,15 @@ class SchedulerBenchmarkArm:
     predictive_update_cached_columns: int
     predictive_update_runs_all_columns: bool
     predictive_update_fallback_reason: str | None
+    predictive_location_update_columns: int
+    predictive_location_cached_columns: int
+    predictive_location_runs_all_columns: bool
+    candidate_sleep_filter_mode: str
+    candidate_sleep_filter_input_candidates: int
+    candidate_sleep_filter_output_candidates: int
+    candidate_sleep_filter_deep_sleep_filtered: int
+    candidate_sleep_filter_runs_all_columns: bool
+    candidate_sleep_filter_fallback_reason: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -58,6 +68,7 @@ def _make_config(
     device: str,
     candidate_homeostasis_start_tokens: int,
     candidate_predictive_update_start_tokens: int,
+    candidate_deep_sleep_filter_start_tokens: int,
 ) -> MarulhoConfig:
     return MarulhoConfig(
         n_columns=int(n_columns),
@@ -69,6 +80,7 @@ def _make_config(
         predictive_dense_transition_mode="legacy",
         candidate_homeostasis_start_tokens=int(candidate_homeostasis_start_tokens),
         candidate_predictive_update_start_tokens=int(candidate_predictive_update_start_tokens),
+        candidate_deep_sleep_filter_start_tokens=int(candidate_deep_sleep_filter_start_tokens),
         enable_context_layer=False,
         enable_binding_layer=False,
         enable_cross_modal=False,
@@ -143,6 +155,7 @@ def _run_arm(
         last_winner=trainer.last_winner,
     )
     execution = column_runtime.get("execution", {})
+    sleep_filter = column_runtime.get("candidate_sleep_filter_execution", {})
     elapsed_ms = sum(timings)
     samples = len(timings)
     return SchedulerBenchmarkArm(
@@ -170,6 +183,33 @@ def _run_arm(
             None
             if update.get("fallback_reason") is None
             else str(update.get("fallback_reason"))
+        ),
+        predictive_location_update_columns=int(
+            update.get("location_update_count", 0) or 0
+        ),
+        predictive_location_cached_columns=int(
+            update.get("location_cached_count", 0) or 0
+        ),
+        predictive_location_runs_all_columns=bool(
+            update.get("location_update_runs_all_columns", False)
+        ),
+        candidate_sleep_filter_mode=str(sleep_filter.get("mode")),
+        candidate_sleep_filter_input_candidates=int(
+            sleep_filter.get("input_candidate_count", 0) or 0
+        ),
+        candidate_sleep_filter_output_candidates=int(
+            sleep_filter.get("output_candidate_count", 0) or 0
+        ),
+        candidate_sleep_filter_deep_sleep_filtered=int(
+            sleep_filter.get("filtered_deep_sleep_count", 0) or 0
+        ),
+        candidate_sleep_filter_runs_all_columns=bool(
+            sleep_filter.get("runs_all_columns", False)
+        ),
+        candidate_sleep_filter_fallback_reason=(
+            None
+            if sleep_filter.get("fallback_reason") is None
+            else str(sleep_filter.get("fallback_reason"))
         ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
@@ -203,6 +243,7 @@ def run_benchmark(
         device=device,
         candidate_homeostasis_start_tokens=max(samples + warmup_steps + 1, 10**9),
         candidate_predictive_update_start_tokens=max(samples + warmup_steps + 1, 10**9),
+        candidate_deep_sleep_filter_start_tokens=max(samples + warmup_steps + 1, 10**9),
     )
     scoped_cfg = _make_config(
         n_columns=n_columns,
@@ -211,6 +252,7 @@ def run_benchmark(
         device=device,
         candidate_homeostasis_start_tokens=0,
         candidate_predictive_update_start_tokens=0,
+        candidate_deep_sleep_filter_start_tokens=0,
     )
     resolved_device = scoped_cfg.resolve_device()
     if resolved_device.type == "cuda" and not torch.cuda.is_available():
@@ -246,7 +288,7 @@ def run_benchmark(
     ) * 100.0
     return {
         "surface": "column_scheduler_benchmark.v1",
-        "scope": "complete_train_step_predictive_update_and_vote_awake_mask_ab",
+        "scope": "complete_train_step_deep_sleep_filter_predictive_update_and_vote_awake_mask_ab",
         "torch": torch.__version__,
         "device": str(resolved_device),
         "cuda_device_name": (
@@ -266,9 +308,21 @@ def run_benchmark(
         "awake_count_bounded": scoped.awake_count <= int(k_routing),
         "predictive_vote_bounded": scoped.predictive_vote_updated_columns <= int(k_routing),
         "predictive_update_bounded": scoped.predictive_update_updated_columns <= int(k_routing),
+        "predictive_location_update_bounded": (
+            scoped.predictive_location_update_columns <= int(k_routing)
+            and not scoped.predictive_location_runs_all_columns
+        ),
+        "candidate_sleep_filter_bounded": (
+            scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
+            and not scoped.candidate_sleep_filter_runs_all_columns
+        ),
         "bounded_specialist_work": bool(
             scoped.predictive_vote_updated_columns <= int(k_routing)
             and scoped.predictive_update_updated_columns <= int(k_routing)
+            and scoped.predictive_location_update_columns <= int(k_routing)
+            and not scoped.predictive_location_runs_all_columns
+            and scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
+            and not scoped.candidate_sleep_filter_runs_all_columns
             and not scoped.runs_all_columns
         ),
         "scoped_runs_all_columns": bool(scoped.runs_all_columns),
@@ -276,7 +330,91 @@ def run_benchmark(
         "mean_delta_percent": mean_delta_percent,
         "neutral_or_better_complete_tick": scoped.mean_ms <= all_vote.mean_ms * 1.02,
         "claim_boundary": (
-            "complete_train_step_ab_for_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
+            "complete_train_step_ab_for_candidate_deep_sleep_filter_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
+        ),
+    }
+
+
+def run_scaling_benchmark(
+    *,
+    column_counts: Sequence[int] = (512, 2048, 8192),
+    column_latent_dim: int = 64,
+    k_routing: int = 10,
+    samples: int = 40,
+    warmup_steps: int = 5,
+    seed: int = 20260615,
+    device: str = "cpu",
+) -> dict[str, object]:
+    reports = [
+        run_benchmark(
+            n_columns=int(n_columns),
+            column_latent_dim=column_latent_dim,
+            k_routing=k_routing,
+            samples=samples,
+            warmup_steps=warmup_steps,
+            seed=seed + offset,
+            device=device,
+        )
+        for offset, n_columns in enumerate(column_counts)
+    ]
+    scoped_rows = [
+        {
+            "n_columns": int(report["n_columns"]),
+            "winner_sequence_equal": bool(report["winner_sequence_equal"]),
+            "awake_budget": int(report["k_routing"]),
+            "scoped_runs_all_columns": bool(report["scoped_runs_all_columns"]),
+            "predictive_update_updated_columns": int(
+                report["scoped_cached_vote"]["predictive_update_updated_columns"]
+            ),
+            "predictive_vote_updated_columns": int(
+                report["scoped_cached_vote"]["predictive_vote_updated_columns"]
+            ),
+            "predictive_location_update_columns": int(
+                report["scoped_cached_vote"]["predictive_location_update_columns"]
+            ),
+            "candidate_sleep_filter_output_candidates": int(
+                report["scoped_cached_vote"]["candidate_sleep_filter_output_candidates"]
+            ),
+            "mean_ms": float(report["scoped_cached_vote"]["mean_ms"]),
+            "tokens_per_second": float(
+                report["scoped_cached_vote"]["tokens_per_second"]
+            ),
+            "neutral_or_better_complete_tick": bool(
+                report["neutral_or_better_complete_tick"]
+            ),
+        }
+        for report in reports
+    ]
+    return {
+        "surface": "column_scheduler_scaling_benchmark.v1",
+        "scope": "constant_k_candidate_deep_sleep_filter_predictive_update_and_vote_scaling",
+        "torch": torch.__version__,
+        "device": str(reports[0]["device"]) if reports else str(device),
+        "column_counts": [int(value) for value in column_counts],
+        "column_latent_dim": int(column_latent_dim),
+        "k_routing": int(k_routing),
+        "samples": int(samples),
+        "warmup_steps": int(warmup_steps),
+        "seed": int(seed),
+        "runs": scoped_rows,
+        "all_winner_sequences_equal": all(
+            bool(report["winner_sequence_equal"]) for report in reports
+        ),
+        "awake_count_remains_bounded": all(
+            int(row["predictive_update_updated_columns"]) <= int(k_routing)
+            and int(row["predictive_vote_updated_columns"]) <= int(k_routing)
+            and int(row["predictive_location_update_columns"]) <= int(k_routing)
+            and int(row["candidate_sleep_filter_output_candidates"]) <= int(k_routing)
+            for row in scoped_rows
+        ),
+        "scoped_never_runs_all_columns": all(
+            not bool(row["scoped_runs_all_columns"]) for row in scoped_rows
+        ),
+        "neutral_or_better_all_sizes": all(
+            bool(row["neutral_or_better_complete_tick"]) for row in scoped_rows
+        ),
+        "claim_boundary": (
+            "scaling_sweep_for_constant_k_scheduler_evidence_not_growth_pruning_or_cuda_claim"
         ),
     }
 
@@ -290,18 +428,30 @@ def main() -> int:
     parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--seed", type=int, default=20260615)
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
+    parser.add_argument("--sweep-columns", nargs="*", type=int)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    report = run_benchmark(
-        n_columns=args.n_columns,
-        column_latent_dim=args.column_latent_dim,
-        k_routing=args.k_routing,
-        samples=args.samples,
-        warmup_steps=args.warmup_steps,
-        seed=args.seed,
-        device=args.device,
-    )
+    if args.sweep_columns:
+        report = run_scaling_benchmark(
+            column_counts=args.sweep_columns,
+            column_latent_dim=args.column_latent_dim,
+            k_routing=args.k_routing,
+            samples=args.samples,
+            warmup_steps=args.warmup_steps,
+            seed=args.seed,
+            device=args.device,
+        )
+    else:
+        report = run_benchmark(
+            n_columns=args.n_columns,
+            column_latent_dim=args.column_latent_dim,
+            k_routing=args.k_routing,
+            samples=args.samples,
+            warmup_steps=args.warmup_steps,
+            seed=args.seed,
+            device=args.device,
+        )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
