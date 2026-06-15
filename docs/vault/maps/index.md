@@ -15,5 +15,7 @@ related_benchmarks: []
 - [Hot Path Map](hot-path-map.md)
 - [Language From Spikes Map](language-from-spikes-map.md)
 - [Marulho System Map](marulho-system-map.md)
+- [Next Throughput Goal Map](next-throughput-goal-map.md)
+- [Next Throughput Goal Queue](next-throughput-goal-queue.md)
 - [Replay Plasticity Map](replay-plasticity-map.md)
 - [Runtime Truth Surface Map](runtime-truth-surface-map.md)

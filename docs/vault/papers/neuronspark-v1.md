@@ -21,6 +21,8 @@ related_benchmarks: []
 
         Do not import external runtime code or checkpoints unless a future ADR explicitly accepts that dependency. Prefer local probes, heldout gates, and rollback-aware experiments.
 
+        The useful implementation pressure is not to load NeuronSpark as MARULHO's mind. It is to build MARULHO-owned sparse language neurons, bounded sequence/readout training, grounding verification, and device evidence. NeuronSpark's selective state-space spiking dynamics, adaptive timesteps, and fused Triton PLIF kernels support the direction of fast local spike-language modules.
+
         ## Status
 
         inspiration-only
@@ -30,3 +32,4 @@ related_benchmarks: []
         - [Research notes](../../research-living-brain.md)
         - [Language from Spikes](../concepts/language-from-spikes.md)
         - [CUDA Evidence](../concepts/cuda-evidence.md)
+        - [Next Throughput Goal Map](../maps/next-throughput-goal-map.md)

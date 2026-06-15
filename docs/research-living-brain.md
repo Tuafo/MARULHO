@@ -821,6 +821,38 @@ This file records research anchors for current architecture work. It is not a pr
   speed jump. Sources remain:
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html
   and https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html.
+- Next-throughput goal synthesis, June 2026: recent research and current
+  MARULHO evidence point to seven large work tracks rather than more local
+  wrappers. CUDA Graph guidance says graphs help only when launch/setup overhead
+  is the actual bottleneck, and MARULHO has already rejected direct one-block
+  route/vote fusion and partial-tail parent graphs as defaults. FlashRNN and
+  persistent-RNN work therefore strengthen the next speed direction: a true
+  device-owned multi-tick or persistent sequence executor that reduces the real
+  per-token graph/kernel boundary while preserving sequential state and Runtime
+  Truth cadence. Thousand Brains/Monty and Expert Choice MoE support the second
+  track: a column-society scheduler where total specialists can grow, but awake
+  columns per tick remain bounded by relevance, surprise, cost, and cached
+  votes. NeuronSpark, SpikeGPT, multi-token prediction, and Nemotron data support
+  a third track: MARULHO-owned spike-native language/readout with verified
+  bounded drafts, not external checkpoints or hidden LLM cognition. Predictive
+  Coding Light, Difference Predictive Coding, structural plasticity, modern
+  Hopfield recall, and self-evolving-agent surveys support the remaining tracks:
+  compressed surprise traffic, local learning, reversible growth/pruning,
+  bounded column-local recall/replay, explicit slow-path data acquisition, and
+  control-room Runtime Truth parity. The copy-ready goal queue is recorded in
+  `docs/goals/marulho-next-throughput-goals.md`. Sources:
+  https://arxiv.org/html/2412.07752v2,
+  https://proceedings.mlr.press/v48/diamos16.html,
+  https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html,
+  https://docs.nvidia.com/dl-cuda-graph/troubleshooting/performance-issues.html,
+  https://arxiv.org/html/2412.18354v1,
+  https://papers.nips.cc/paper_files/paper/2022/hash/2f00ecd787b432c1d36f3de9800728eb-Abstract-Conference.html,
+  https://arxiv.org/html/2603.16148v1,
+  https://openreview.net/forum?id=tL89RnzIiCd,
+  https://www.nature.com/articles/s41467-025-64234-z,
+  https://openreview.net/forum?id=iu9dbz2lB9,
+  https://research.nvidia.com/labs/nemotron/Nemotron-3-Ultra/,
+  and https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v3.
 
 ## Engineering Implications
 

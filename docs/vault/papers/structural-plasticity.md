@@ -11,7 +11,7 @@ related_benchmarks: []
 
         ## Claim
 
-        Supports bounded growth/pruning with explicit topology, device, and rollback evidence.
+        Supports bounded growth/pruning with explicit topology, device, usefulness/cost evidence, and rollback evidence.
 
         ## MARULHO Relevance
 
@@ -20,6 +20,8 @@ related_benchmarks: []
         ## Implementation Implication
 
         Do not import external runtime code or checkpoints unless a future ADR explicitly accepts that dependency. Prefer local probes, heldout gates, and rollback-aware experiments.
+
+        Structural plasticity belongs behind repeated-surprise, usefulness, homeostasis, budget, isolated-evaluation, and checkpoint gates. It should grow or prune candidates only when evidence shows existing columns or synapses are not enough, and it must not run topology mutation inside the always-on tick.
 
         ## Status
 
@@ -30,3 +32,4 @@ related_benchmarks: []
         - [Research notes](../../research-living-brain.md)
         - [Language from Spikes](../concepts/language-from-spikes.md)
         - [CUDA Evidence](../concepts/cuda-evidence.md)
+        - [Next Throughput Goal Map](../maps/next-throughput-goal-map.md)
