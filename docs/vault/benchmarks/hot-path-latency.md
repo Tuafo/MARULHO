@@ -175,35 +175,23 @@ preserved winner parity and improved median latency from `7.257` to
 post-fix total-column correctness evidence, but the cost-neutral durable
 scaling gate remains open.
 
-The next scheduler cost audit replaced ordered per-step predictive wake replay
-with an exact vectorized closed-form materializer for skipped non-winner
-predictive updates. It is still candidate-bounded wake work, not an all-column
-sleep scan. The 8192-column, 400-sample CPU A/B at
-`reports/column_scheduler_20260615/cpu-8192-lazy-exact-predictive-fast-long.json`
-preserved `winner_sequence_equal=true`, kept awake/update/location/vote and
-candidate sleep-filter work at `10/8192` with `scoped_runs_all_columns=false`,
-and improved median complete `train_step` latency from `9.2169` to `6.364 ms`;
-mean improved from `11.229319` to `7.3151865 ms`
-(`neutral_or_better_complete_tick=true`). The large sweep at
-`reports/column_scheduler_20260615/cpu-scaling-large-lazy-exact-predictive-fast-final.json`
-preserved winner parity and bounded awake work at `2048`, `8192`, and `16384`
-columns, but short-sweep cost remained noisy at smaller sizes
-(`neutral_or_better_all_sizes=false`).
-
-The requested longer CUDA rerun used the same 131072-token default
-conditional16 stress shape after exact predictive materialization:
-`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-exact-predictive-materialization-long-rerun.json`.
-It reached `5907.750 tokens/sec`, `train_compute=0.140572 ms/token`,
-`prepare_training=0.006368 ms/token`, and `finalize_total=0.005793 ms/token`.
-CUDA selected the RTX 3060, `velocity_environment.v1` reported
-`contention.verdict=not_observed`, and Runtime Truth preserved `8190`
-conditional sequence-loop successes over `131040` tokens, zero sequence/native
-fallbacks or failures, and host-truth cadence `4097/126975`. Relative to the
-documented long baselines, this is `+1.73%` versus same-host `HEAD` at
-`5807.210`, `+0.37%` versus the prior explicit lazy-scheduler rerun at
-`5886.247`, `-0.80%` versus the completion-audit `5955.123`, and `-3.42%`
-versus the post-promotion top `6116.646`. Treat the scheduler throughput answer
-as stable 6k-ish sustained runtime, still not proof of exact top-run parity.
+The next scheduler cost audit tried replacing ordered per-step predictive wake
+replay with a vectorized closed-form materializer for skipped non-winner
+predictive updates. It remained candidate-bounded and improved one 8192-column,
+400-sample CPU A/B at
+`reports/column_scheduler_20260615/cpu-8192-lazy-exact-predictive-fast-long.json`,
+but the longer sweep at
+`reports/column_scheduler_20260615/cpu-scaling-large-lazy-exact-predictive-fast-long-sweep.json`
+failed the parity gate (`all_winner_sequences_equal=false`), and repeated
+seed-20260616 reruns such as
+`reports/column_scheduler_20260615/cpu-8192-lazy-exact-predictive-fast-seed20260616-long-rerun2.json`
+showed one-tick winner shifts near fallback-threshold boundaries. The matching
+131072-token CUDA stress report still reached `5907.750 tokens/sec`, selected
+the RTX 3060, reported no observed contention, and preserved zero
+sequence/native fallbacks or failures, but that report is not a scheduler
+promotion because the CPU cached-state parity gate failed. Retain ordered
+candidate-bounded predictive replay; treat the throughput answer as the prior
+documented stable 6k-ish path, not a vectorized predictive-wake speed claim.
 
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,

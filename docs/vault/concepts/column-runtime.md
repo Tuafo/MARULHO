@@ -29,7 +29,7 @@ The registry, scheduler, voting, growth, and pruning model remains bounded and e
 - pruning/homeostasis evidence from weak, idle, or redundant columns
 - the availability of a bounded single-column associative recall helper
 
-Growth and pruning decisions remain report-only. Several narrower execution slices are promoted: retrieved candidates bound competition and homeostasis after the early-learning window; retained CPU routing can filter deep-sleep candidates from a bounded backfill pool without an all-column scan; CPU predictive updates wake on the same candidate mask after `candidate_predictive_update_start_tokens`; retained predictive voting recomputes reference-frame agreement only for the routed awake mask while non-awake columns keep cached consensus gain; and an eligible CUDA checkpoint can use the trainer-owned in-place steady-state transition for the dense predictive/plasticity cluster. Cached columns carry checkpointed step stamps. When a cached candidate wakes, core/training materializes only that bounded candidate set through missed idle homeostasis, missed fallback threshold-relaxation events, and missed non-winner predictive decay before vote/scoring/update. Predictive wake may use an exact vectorized closed-form replay for skipped non-winner updates, but the scope is still the routed candidate set, not a hot-path all-column scan. Dense assembly remains active where the representation requires it. Runtime Truth reports observed scored count, homeostasis scope, homeostasis/predictive materialization age, candidate deep-sleep filter counts, predictive location/update cached counts, predictive-vote cached count, transition executor, warmup, execution/failure counts, fallback reason, and aggregate `runs_all_columns` truth rather than inferring execution from configured budgets.
+Growth and pruning decisions remain report-only. Several narrower execution slices are promoted: retrieved candidates bound competition and homeostasis after the early-learning window; retained CPU routing can filter deep-sleep candidates from a bounded backfill pool without an all-column scan; CPU predictive updates wake on the same candidate mask after `candidate_predictive_update_start_tokens`; retained predictive voting recomputes reference-frame agreement only for the routed awake mask while non-awake columns keep cached consensus gain; and an eligible CUDA checkpoint can use the trainer-owned in-place steady-state transition for the dense predictive/plasticity cluster. Cached columns carry checkpointed step stamps. When a cached candidate wakes, core/training materializes only that bounded candidate set through missed idle homeostasis, missed fallback threshold-relaxation events, and ordered missed non-winner predictive decay before vote/scoring/update. Dense assembly remains active where the representation requires it. Runtime Truth reports observed scored count, homeostasis scope, homeostasis/predictive materialization age, candidate deep-sleep filter counts, predictive location/update cached counts, predictive-vote cached count, transition executor, warmup, execution/failure counts, fallback reason, and aggregate `runs_all_columns` truth rather than inferring execution from configured budgets.
 
 Column reporting is control-plane work. When source state is on CUDA, Runtime Truth uses one latency-first column-state snapshot for scheduler evidence. A bounded device-export attempt reduced bytes but was slower at current 1024/8192-column sizes, so the active policy favors latency over smaller status payloads. CPU reports still materialize only bounded vote/registry samples. Runtime Truth exposes source device, report compute device, source tensor count, materialized column-state count, snapshot bytes, transfer count, report latency, and the hot-path effect boundary so the optimization cannot be mistaken for a full sleep scheduler or CUDA speedup of cognition.
 
@@ -37,7 +37,7 @@ Column reporting is control-plane work. When source state is on CUDA, Runtime Tr
 
 When that gate is ready, the explicit binding-growth trial endpoint can ask core for a deterministic candidate-scoped hypercube outreach plan. The plan is bounded by an edge budget, hashes the exact baseline adjacency, and remains read-only. This narrows the path from surprise to structural experimentation without making the scheduler, Runtime Truth, or status polling a mutation authority.
 
-`PredictiveColumnState` also records the last predictive location/update scope, lazy predictive materialization scope, and the last predictive-vote execution scope. `candidate_predictive_update_start_tokens` now separates CPU predictive-state wake from structural dead-column retirement: after that gate, location/velocity decay, prediction error, confidence, failure streaks, and high-prediction non-winner decay update only for the routed awake mask while non-candidate state remains cached. If a non-awake column later appears in the routed candidate set, `PredictiveColumnState` advances only that candidate through missed non-winner predictive updates before vote/scoring uses its state. The retained fast path is exact closed-form replay of the skipped non-winner sequence: one initial unclamped prediction, post-clamp prediction sign preservation for weight decay, EMA/confidence recurrence, trailing failure-streak reconstruction, velocity decay count, and final clamped location. `CompetitiveColumnLayer` does the same for missed zero-activity homeostasis and fallback threshold-relaxation events, preserving dense update order without a hot-path all-column tax. The retained trainer route may first request a bounded backfill pool, sort it by retrieval distance, and remove candidate columns already at the deep-sleep threshold; if every retrieved candidate is deep-sleeping, it falls back to the bounded retrieved set and reports the reason. For retained predictive voting, the trainer obtains routing candidates before consensus voting, then recomputes agreement only for the awake mask and reuses cached gains for the other columns. On CUDA predictive updates, synchronized microbenchmarks showed candidate indexing was launch-bound, so the trainer keeps dense predictive updates and reports `cuda_sparse_prediction_update_launch_bound_dense_retained` instead of making a decorative sparse-CUDA claim.
+`PredictiveColumnState` also records the last predictive location/update scope, lazy predictive materialization scope, and the last predictive-vote execution scope. `candidate_predictive_update_start_tokens` now separates CPU predictive-state wake from structural dead-column retirement: after that gate, location/velocity decay, prediction error, confidence, failure streaks, and high-prediction non-winner decay update only for the routed awake mask while non-candidate state remains cached. If a non-awake column later appears in the routed candidate set, `PredictiveColumnState` advances only that candidate through missed non-winner predictive updates before vote/scoring uses its state. Predictive wake currently keeps ordered replay for cached candidates because vectorized closed-form replacements improved cost but failed repeated long winner-parity checks near fallback-threshold boundaries. `CompetitiveColumnLayer` does the same for missed zero-activity homeostasis and fallback threshold-relaxation events, preserving dense update order without a hot-path all-column tax. The retained trainer route may first request a bounded backfill pool, sort it by retrieval distance, and remove candidate columns already at the deep-sleep threshold; if every retrieved candidate is deep-sleeping, it falls back to the bounded retrieved set and reports the reason. For retained predictive voting, the trainer obtains routing candidates before consensus voting, then recomputes agreement only for the awake mask and reuses cached gains for the other columns. On CUDA predictive updates, synchronized microbenchmarks showed candidate indexing was launch-bound, so the trainer keeps dense predictive updates and reports `cuda_sparse_prediction_update_launch_bound_dense_retained` instead of making a decorative sparse-CUDA claim.
 
 `bounded_column_associative_recall` is a core helper for one column's local memory. It uses modern-Hopfield/attention-like top-k retrieval over a capped memory matrix, returns weights and a recalled vector on the caller's device, and never mutates runtime state. It is not a whole-mind memory, language model, or always-on runtime path.
 
@@ -135,29 +135,19 @@ from `7.257` to `6.4019 ms`, but mean latency was `6.27%` slower. This proves
 bounded awake work and restores the old `16384` correctness gate, but it is not
 yet durable total-column scaling completion.
 
-The latest scheduler cost pass replaced per-step predictive wake replay with an
-exact vectorized materializer for skipped non-winner predictive updates. The
-focused long parity test `test_candidate_materialization_matches_long_full_predictive_replay`
-forces clamped/unclamped locations, positive/negative prediction dots, nonzero
-EMA state, and cached failure streaks across `96` missed ticks before waking
-the skipped candidates. The longer 8192-column CPU A/B at
-`reports/column_scheduler_20260615/cpu-8192-lazy-exact-predictive-fast-long.json`
-preserved the exact winner sequence across `400` measured samples, kept
-predictive update, predictive location, predictive vote, and sleep-filter
-output bounded at `10/8192` with `runs_all_columns=false`, and improved complete
-`train_step` latency from `9.2169` to `6.364 ms` median and from `11.229319` to
-`7.3151865 ms` mean. The scaling sweep at
-`reports/column_scheduler_20260615/cpu-scaling-large-lazy-exact-predictive-fast-final.json`
-preserved winner parity at `2048`, `8192`, and `16384` columns and kept awake
-work bounded at `10`, but short-sweep mean cost was still noisy at smaller
-sizes (`neutral_or_better_all_sizes=false`). The fresh 131072-token CUDA stress
-rerun at
-`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-exact-predictive-materialization-long-rerun.json`
-reached `5907.750 tokens/sec`, `train_compute=0.140572 ms/token`, selected the
-RTX 3060, reported no observed contention, and preserved `8190` conditional
-sequence-loop successes over `131040` tokens with zero sequence/native
-fallbacks or failures. This keeps the sustained path in the documented 6k-ish
-band while the exact top-run parity claim remains out of scope.
+The follow-up predictive wake cost attempt replaced per-step replay with a
+closed-form vectorized materializer and initially looked promising on one
+8192-column 400-sample seed, but repeated long evidence rejected it. The longer
+sweep at
+`reports/column_scheduler_20260615/cpu-scaling-large-lazy-exact-predictive-fast-long-sweep.json`
+kept awake work bounded at `10`, but `winner_sequence_equal=false` for the
+8192 arm. Repeated seed-20260616 reruns such as
+`reports/column_scheduler_20260615/cpu-8192-lazy-exact-predictive-fast-seed20260616-long-rerun2.json`
+also showed one-tick winner shifts near fallback-threshold boundaries. The
+fresh CUDA stress run for that work tree still reached `5907.750 tokens/sec`,
+but because the CPU scheduler parity gate failed, vectorized predictive wake is
+retired and ordered candidate-bounded predictive replay remains the retained
+correctness path.
 
 Also on 2026-06-15, the CUDA text path promoted the conditional-WHILE q16 sequence executor below the trainer-owned burst boundary. It does not change column scheduling policy, but it matters for Column Runtime evidence because the same sequential SNN column state is now advanced by a larger native CUDA Graph parent while Runtime Truth reports executor identity, token coverage, fallback/failure counts, host-truth cadence, startup compile/capture cost, and separate repeated-child versus sequence-loop capacities. The retained repeated-child native replay remains the exact native8 fallback and explicit opt-out path.
 

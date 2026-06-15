@@ -473,126 +473,60 @@ class PredictiveColumnState:
         lr = float(self._predictive_materialize_learning_rate)
         decay = 1.0 - 0.5 * lr
 
-        loc = self.location.index_select(0, pending_indices)
-        weights = self._prediction_weights.index_select(0, pending_indices)
-        initial_dot = (loc * weights).sum(dim=1)
-        loc_norm = loc.norm(dim=1, keepdim=True).clamp(min=1e-8)
-        scale = torch.where(
-            loc_norm > 5.0,
-            5.0 / loc_norm,
-            torch.ones_like(loc_norm),
-        )
-        clamped_loc = loc * scale
-        clamped_dot = (clamped_loc * weights).sum(dim=1)
-        high_pred = torch.sigmoid(clamped_dot) > 0.5
+        for offset in range(max_age):
+            active = pending_ages > offset
+            if not bool(active.any().item()):
+                continue
+            active_indices = pending_indices[active]
+            active_steps = pending_last_steps[active] + int(offset)
 
-        steps = torch.arange(max_age, device=self.device, dtype=loc.dtype)
-        steps_long = torch.arange(max_age, device=self.device, dtype=torch.long)
-        active = steps_long.unsqueeze(0) < pending_ages.to(self.device).unsqueeze(1)
-        decay_tensor = torch.as_tensor(decay, dtype=loc.dtype, device=self.device)
-        decay_powers = torch.pow(decay_tensor, steps)
-        prediction_dots = torch.where(
-            high_pred.unsqueeze(1),
-            clamped_dot.unsqueeze(1) * decay_powers.unsqueeze(0),
-            clamped_dot.unsqueeze(1),
-        )
-        prediction_dots[:, 0] = initial_dot
-        predictions = torch.sigmoid(prediction_dots)
-        active_float = active.to(dtype=predictions.dtype)
+            loc = self.location.index_select(0, active_indices)
+            weights = self._prediction_weights.index_select(0, active_indices)
+            prediction = torch.sigmoid((loc * weights).sum(dim=1))
+            raw_error = prediction.abs()
+            failure_mask = raw_error > float(self._failure_streak_threshold)
 
-        ages_float = pending_ages.to(device=self.device, dtype=predictions.dtype)
-        error_alpha = float(self._error_ema_alpha)
-        error_decay = torch.as_tensor(
-            1.0 - error_alpha,
-            dtype=predictions.dtype,
-            device=self.device,
-        )
-        reverse_error_powers = torch.pow(
-            error_decay,
-            torch.clamp(ages_float.unsqueeze(1) - 1.0 - steps.unsqueeze(0), min=0.0),
-        )
-        current_error = self.prediction_error.index_select(0, pending_indices)
-        self.prediction_error[pending_indices] = current_error * torch.pow(
-            error_decay,
-            ages_float,
-        ) + (
-            error_alpha * predictions * reverse_error_powers * active_float
-        ).sum(dim=1)
+            current_streak = self.prediction_failure_streak.index_select(
+                0,
+                active_indices,
+            )
+            self.prediction_failure_streak[active_indices] = torch.where(
+                failure_mask,
+                current_streak + 1,
+                torch.zeros_like(current_streak),
+            )
 
-        confidence_decay = torch.as_tensor(
-            0.95,
-            dtype=predictions.dtype,
-            device=self.device,
-        )
-        reverse_confidence_powers = torch.pow(
-            confidence_decay,
-            torch.clamp(ages_float.unsqueeze(1) - 1.0 - steps.unsqueeze(0), min=0.0),
-        )
-        current_confidence = self.confidence.index_select(0, pending_indices)
-        next_confidence = current_confidence * torch.pow(
-            confidence_decay,
-            ages_float,
-        ) + (
-            0.05
-            * (1.0 - predictions)
-            * reverse_confidence_powers
-            * active_float
-        ).sum(dim=1)
-        self.confidence[pending_indices] = next_confidence.clamp(0.0, 1.0)
+            current_error = self.prediction_error.index_select(0, active_indices)
+            self.prediction_error[active_indices] = (
+                self._error_ema_alpha * raw_error
+                + (1 - self._error_ema_alpha) * current_error
+            )
 
-        failure_matrix = (predictions > float(self._failure_streak_threshold)) & active
-        non_failure_steps = torch.where(
-            active & ~failure_matrix,
-            steps_long.unsqueeze(0),
-            torch.full(
-                (int(pending_indices.numel()), max_age),
-                -1,
-                dtype=torch.long,
-                device=self.device,
-            ),
-        )
-        last_non_failure = non_failure_steps.max(dim=1).values
-        trailing_failures = pending_ages.to(self.device) - last_non_failure - 1
-        current_streak = self.prediction_failure_streak.index_select(
-            0,
-            pending_indices,
-        )
-        next_streak = torch.where(
-            last_non_failure < 0,
-            current_streak + pending_ages.to(current_streak.dtype),
-            trailing_failures.to(current_streak.dtype),
-        )
-        self.prediction_failure_streak[pending_indices] = next_streak
+            current_confidence = self.confidence.index_select(0, active_indices)
+            next_confidence = 0.95 * current_confidence + 0.05 * (1.0 - raw_error)
+            self.confidence[active_indices] = next_confidence.clamp(0.0, 1.0)
 
-        velocity_decay_counts = pending_ages - torch.where(
-            pending_last_steps <= 0,
-            torch.ones_like(pending_ages),
-            torch.zeros_like(pending_ages),
-        )
-        velocity_decay_counts = torch.clamp(velocity_decay_counts, min=0).to(
-            device=self.device,
-            dtype=self.velocity.dtype,
-        )
-        velocity_decay = torch.pow(
-            torch.as_tensor(0.9, dtype=self.velocity.dtype, device=self.device),
-            velocity_decay_counts,
-        )
-        self.velocity[pending_indices] = (
-            self.velocity.index_select(0, pending_indices)
-            * velocity_decay.unsqueeze(1)
-        )
-        self.location[pending_indices] = clamped_loc
-        final_weight_scale = torch.where(
-            high_pred,
-            torch.pow(
-                decay_tensor.to(dtype=weights.dtype),
-                pending_ages.to(device=self.device, dtype=weights.dtype),
-            ),
-            torch.ones_like(high_pred, dtype=weights.dtype, device=self.device),
-        )
-        self._prediction_weights[pending_indices] = (
-            weights * final_weight_scale.unsqueeze(1)
-        )
+            decayed_velocity_mask = active_steps > 0
+            if bool(decayed_velocity_mask.any().item()):
+                velocity_indices = active_indices[decayed_velocity_mask]
+                self.velocity[velocity_indices] *= 0.9
+
+            loc = self.location.index_select(0, active_indices)
+            loc_norm = loc.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            scale = torch.where(
+                loc_norm > 5.0,
+                5.0 / loc_norm,
+                torch.ones_like(loc_norm),
+            )
+            self.location[active_indices] = loc * scale
+
+            loc = self.location.index_select(0, active_indices)
+            weights = self._prediction_weights.index_select(0, active_indices)
+            updated_prediction = torch.sigmoid((loc * weights).sum(dim=1))
+            high_pred = updated_prediction > 0.5
+            if bool(high_pred.any().item()):
+                high_indices = active_indices[high_pred]
+                self._prediction_weights[high_indices] *= decay
 
         self.predictive_last_update_step[pending_indices] = current_step
         if candidates is None or requested_count >= int(self.n_columns):
