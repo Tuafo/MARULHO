@@ -873,7 +873,24 @@ class ColumnTransitionRuntime:
             trainer._prev_routing_key = routing_key.detach().clone()
         trainer.model.predictive.last_dense_transition_mode = "inplace_triton"
         trainer.model.predictive.last_dense_transition_fallback_reason = None
-        trainer.model.predictive._record_prediction_update_scope(None)
+        predictive_scope_ready = trainer.token_count >= int(
+            trainer.config.candidate_predictive_update_start_tokens
+        )
+        predictive_update_fallback_reason = None
+        if not predictive_scope_ready:
+            predictive_update_fallback_reason = "candidate_predictive_update_not_due"
+        elif (
+            trainer.model.device.type == "cuda"
+            and int(candidates.numel()) < comp.n_columns
+        ):
+            predictive_update_fallback_reason = (
+                "cuda_sparse_prediction_update_launch_bound_dense_retained"
+            )
+        trainer.model.predictive._record_prediction_update_scope(
+            None,
+            fallback_reason=predictive_update_fallback_reason,
+        )
+        trainer.model.predictive._record_location_update_scope(None)
         trainer.model.predictive._mark_predictive_update_complete(None)
         comp.last_input_plasticity_mode = "skipped_zero_blend"
         comp.input_plasticity_skip_count += 1

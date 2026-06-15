@@ -2430,6 +2430,7 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
         k_routing=4,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
+        candidate_predictive_update_start_tokens=0,
         plasticity_mode="lite",
         input_weight_blend=0.0,
         device="cuda",
@@ -2494,6 +2495,16 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
     assert after["fused_vote_competition_execution_count"] == 1
     assert after["fused_vote_competition_fallback_count"] == 0
     assert model.predictive.last_dense_transition_mode == "inplace_triton"
+    predictive_report = model.predictive.prediction_update_execution_report()
+    assert predictive_report["mode"] == "all_columns"
+    assert predictive_report["updated_column_count"] == config.n_columns
+    assert predictive_report["location_update_mode"] == "all_columns"
+    assert predictive_report["location_update_count"] == config.n_columns
+    assert predictive_report["location_update_runs_all_columns"] is True
+    assert predictive_report["runs_all_columns"] is True
+    assert predictive_report["fallback_reason"] == (
+        "cuda_sparse_prediction_update_launch_bound_dense_retained"
+    )
 
     routing_key = model.routing_key_from_pattern(
         torch.randn(config.input_dim, device=model.device)
