@@ -77,6 +77,10 @@ class TestStateDict:
         layer = _make_layer()
         layer.thresholds.fill_(0.42)
         layer.win_rate_ema.fill_(0.03)
+        layer.homeostasis_step_count = 17
+        layer.homeostasis_last_update_step[:] = torch.arange(layer.n_columns)
+        layer.threshold_relaxation_history = [False, True, False, True]
+        layer.threshold_relaxation_last_applied_step[:] = torch.arange(layer.n_columns)
         layer.steps_since_win[0] = 999
         snap = layer.state_dict()
 
@@ -84,6 +88,16 @@ class TestStateDict:
         layer2.load_state_dict(snap)
         assert torch.allclose(layer.thresholds, layer2.thresholds)
         assert torch.allclose(layer.win_rate_ema, layer2.win_rate_ema)
+        assert layer2.homeostasis_step_count == 17
+        assert torch.equal(
+            layer.homeostasis_last_update_step,
+            layer2.homeostasis_last_update_step,
+        )
+        assert layer2.threshold_relaxation_history == [False, True, False, True]
+        assert torch.equal(
+            layer.threshold_relaxation_last_applied_step,
+            layer2.threshold_relaxation_last_applied_step,
+        )
         assert layer2.steps_since_win[0].item() == 999
 
     def test_roundtrip_preserves_spike_history_window(self):
@@ -387,6 +401,108 @@ class TestStateDict:
         assert report["homeostasis_update_mode"] == "candidate_subset"
         assert report["homeostasis_update_count"] == 2
         assert report["homeostasis_update_fraction"] == round(2 / 6, 6)
+
+    def test_candidate_compete_materializes_idle_homeostasis_before_scoring(self):
+        torch.manual_seed(42)
+        all_column = _make_layer(
+            n_columns=6,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+            homeostasis_beta=0.5,
+            homeostasis_lr=0.2,
+        )
+        scoped = _make_layer(
+            n_columns=6,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+            homeostasis_beta=0.5,
+            homeostasis_lr=0.2,
+        )
+        scoped.load_state_dict(all_column.state_dict())
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        all_column.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        scoped.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+
+        for _ in range(4):
+            all_column.process(routing_key, torch.tensor([0]), modulator=0.5)
+            scoped.process(
+                routing_key,
+                torch.tensor([0]),
+                modulator=0.5,
+                homeostasis_update_indices=torch.tensor([0]),
+            )
+
+        assert scoped.homeostasis_step_count == all_column.homeostasis_step_count
+        assert scoped.homeostasis_last_update_step[1].item() == 0
+        assert not torch.allclose(scoped.thresholds[1], all_column.thresholds[1])
+
+        scoped.compete(routing_key, candidate_indices=torch.tensor([1, 0]))
+
+        assert torch.allclose(scoped.win_rate_ema[1], all_column.win_rate_ema[1])
+        assert torch.allclose(scoped.thresholds[1], all_column.thresholds[1])
+        assert scoped.homeostasis_last_update_step[1].item() == all_column.homeostasis_step_count
+        report = scoped.execution_report()
+        assert report["homeostasis_materialize_mode"] == "candidate_subset"
+        assert report["homeostasis_materialize_count"] == 1
+        assert report["homeostasis_materialize_max_age"] == 4
+
+    def test_candidate_homeostasis_materializes_missed_threshold_relaxation_order(self):
+        torch.manual_seed(7)
+        all_column = _make_layer(
+            n_columns=4,
+            column_dim=3,
+            input_dim=5,
+            homeostasis_beta=0.5,
+            homeostasis_lr=0.2,
+        )
+        scoped = _make_layer(
+            n_columns=4,
+            column_dim=3,
+            input_dim=5,
+            homeostasis_beta=0.5,
+            homeostasis_lr=0.2,
+        )
+        scoped.load_state_dict(all_column.state_dict())
+        routing_key = torch.rand(3)
+        full_indices = torch.arange(4)
+        scoped_indices = torch.tensor([0])
+
+        for _ in range(3):
+            all_step = all_column._record_threshold_relaxation()
+            all_column._apply_threshold_relaxation(full_indices, step=all_step)
+            all_column.process(
+                routing_key,
+                torch.tensor([0]),
+                modulator=0.0,
+                homeostasis_update_indices=None,
+            )
+
+            scoped_step = scoped._record_threshold_relaxation()
+            scoped._apply_threshold_relaxation(scoped_indices, step=scoped_step)
+            scoped.process(
+                routing_key,
+                torch.tensor([0]),
+                modulator=0.0,
+                homeostasis_update_indices=scoped_indices,
+            )
+
+        assert int(scoped.homeostasis_last_update_step[1].item()) == 0
+
+        scoped.materialize_homeostasis(torch.tensor([1]))
+
+        assert torch.allclose(scoped.thresholds[1], all_column.thresholds[1])
+        assert torch.allclose(scoped.win_rate_ema[1], all_column.win_rate_ema[1])
+        assert int(scoped.threshold_relaxation_last_applied_step[1].item()) == (
+            all_column.homeostasis_step_count
+        )
+        assert int(scoped.homeostasis_last_update_step[1].item()) == (
+            all_column.homeostasis_step_count
+        )
+        assert scoped.last_homeostasis_materialize_mode == "candidate_subset"
+        assert scoped.last_homeostasis_materialize_count == 1
+        assert scoped.last_homeostasis_materialize_max_age == 3
 
     def test_process_marks_stale_columns_without_hot_path_revival(self):
         layer = _make_layer(n_columns=4, column_dim=4, input_dim=8, dead_column_steps=1)

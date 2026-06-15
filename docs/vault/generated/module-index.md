@@ -60,8 +60,8 @@ last_verified: 2026-06-15
 - `src/marulho/training/trainer.py`: 81 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
+- `src/marulho/training/cuda_graph_route_transition.py`: 46 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
-- `src/marulho/training/cuda_graph_route_transition.py`: 40 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
 - `src/marulho/training/column_transition_runtime.py`: 27 nodes

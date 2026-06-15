@@ -135,6 +135,9 @@ class CompetitiveColumnLayer:
         self.last_candidate_count = 0
         self.last_homeostasis_update_count = 0
         self.last_homeostasis_update_mode = "not_run"
+        self.last_homeostasis_materialize_count = 0
+        self.last_homeostasis_materialize_max_age = 0
+        self.last_homeostasis_materialize_mode = "not_run"
         self.last_input_plasticity_mode = "not_run"
         self.input_plasticity_update_count = 0
         self.input_plasticity_skip_count = 0
@@ -145,6 +148,18 @@ class CompetitiveColumnLayer:
             (self.n_columns,),
             self.target_firing_rate,
             device=self.device,
+        )
+        self.homeostasis_step_count = 0
+        self.homeostasis_last_update_step = torch.zeros(
+            self.n_columns,
+            device=self.device,
+            dtype=torch.long,
+        )
+        self.threshold_relaxation_history: list[bool] = []
+        self.threshold_relaxation_last_applied_step = torch.zeros(
+            self.n_columns,
+            device=self.device,
+            dtype=torch.long,
         )
         self.steps_since_win = torch.zeros(self.n_columns, device=self.device, dtype=torch.long)
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
@@ -386,6 +401,149 @@ class CompetitiveColumnLayer:
             return thresholds
         return thresholds + self.local_plasticity.inhibition(candidates)
 
+    def materialize_homeostasis(
+        self,
+        candidate_indices: Optional[torch.Tensor],
+        *,
+        record_noop: bool = True,
+    ) -> None:
+        """Apply deferred idle homeostasis to the requested columns.
+
+        Candidate-scoped homeostasis keeps non-awake columns cached. When a
+        cached column wakes as a routed candidate, this method advances only
+        that bounded set through the zero-activity homeostasis updates it would
+        have received on the all-column path.
+        """
+
+        if self.threshold_relaxation_last_applied_step.device != self.device:
+            self.threshold_relaxation_last_applied_step = (
+                self.threshold_relaxation_last_applied_step.to(self.device)
+            )
+        if candidate_indices is None:
+            indices = torch.arange(self.n_columns, device=self.device)
+            mode = "all_columns"
+        else:
+            indices = candidate_indices.to(self.device, dtype=torch.long).flatten()
+            if int(indices.numel()) > 0:
+                indices = indices[(indices >= 0) & (indices < self.n_columns)]
+                indices = torch.unique(indices)
+            mode = (
+                "candidate_subset"
+                if int(indices.numel()) < self.n_columns
+                else "all_columns"
+            )
+
+        if int(indices.numel()) <= 0:
+            if record_noop:
+                self.last_homeostasis_materialize_count = 0
+                self.last_homeostasis_materialize_max_age = 0
+                self.last_homeostasis_materialize_mode = "empty"
+            return
+
+        current_step = int(self.homeostasis_step_count)
+        last_steps = self.homeostasis_last_update_step.index_select(0, indices)
+        elapsed = (current_step - last_steps).clamp(min=0)
+        pending_mask = elapsed > 0
+        if not bool(pending_mask.any()):
+            if record_noop:
+                self.last_homeostasis_materialize_count = 0
+                self.last_homeostasis_materialize_max_age = 0
+                self.last_homeostasis_materialize_mode = mode
+            return
+
+        pending_indices = indices[pending_mask]
+        remaining = elapsed[pending_mask].detach().clone()
+        pending_last_steps = last_steps[pending_mask].detach().clone()
+        relaxation_last = self.threshold_relaxation_last_applied_step.index_select(
+            0,
+            pending_indices,
+        )
+        win_rate = self.win_rate_ema.index_select(0, pending_indices)
+        thresholds = self.thresholds.index_select(0, pending_indices)
+        decay = 1.0 - float(self.homeostasis_beta)
+        max_age = int(remaining.max().item())
+        for offset in range(max_age):
+            active = remaining > 0
+            if not bool(active.any()):
+                break
+            active_steps = pending_last_steps[active] + int(offset)
+            relax_flags = torch.tensor(
+                [
+                    bool(self.threshold_relaxation_history[int(step.item())])
+                    if int(step.item()) < len(self.threshold_relaxation_history)
+                    else False
+                    for step in active_steps
+                ],
+                dtype=torch.bool,
+                device=self.device,
+            )
+            active_relaxation_last = relaxation_last[active]
+            relax_due = relax_flags & (active_relaxation_last <= active_steps)
+            if bool(relax_due.any().item()):
+                active_thresholds = thresholds[active]
+                active_thresholds[relax_due] = torch.clamp(
+                    active_thresholds[relax_due] * 0.995,
+                    min=self.threshold_min,
+                    max=self.threshold_max,
+                )
+                thresholds[active] = active_thresholds
+                active_relaxation_last[relax_due] = active_steps[relax_due] + 1
+                relaxation_last[active] = active_relaxation_last
+            active_win = win_rate[active] * decay
+            active_thresholds = torch.clamp(
+                thresholds[active]
+                + self.homeostasis_lr
+                * (active_win - self.target_firing_rate),
+                min=self.threshold_min,
+                max=self.threshold_max,
+            )
+            win_rate[active] = active_win
+            thresholds[active] = active_thresholds
+            remaining[active] -= 1
+
+        self.win_rate_ema[pending_indices] = win_rate
+        self.thresholds[pending_indices] = thresholds
+        self.threshold_relaxation_last_applied_step[pending_indices] = relaxation_last
+        self.homeostasis_last_update_step[pending_indices] = current_step
+        self.last_homeostasis_materialize_count = int(pending_indices.numel())
+        self.last_homeostasis_materialize_max_age = max_age
+        self.last_homeostasis_materialize_mode = mode
+
+    def _record_threshold_relaxation(self) -> int:
+        step = int(self.homeostasis_step_count)
+        while len(self.threshold_relaxation_history) <= step:
+            self.threshold_relaxation_history.append(False)
+        self.threshold_relaxation_history[step] = True
+        return step
+
+    def _apply_threshold_relaxation(
+        self,
+        indices: torch.Tensor,
+        *,
+        step: int,
+    ) -> None:
+        if int(indices.numel()) <= 0:
+            return
+        selected = indices.to(self.device, dtype=torch.long).flatten()
+        selected = selected[(selected >= 0) & (selected < int(self.n_columns))]
+        if int(selected.numel()) <= 0:
+            return
+        selected = torch.unique(selected)
+        if self.threshold_relaxation_last_applied_step.device != self.device:
+            self.threshold_relaxation_last_applied_step = (
+                self.threshold_relaxation_last_applied_step.to(self.device)
+            )
+        due_mask = self.threshold_relaxation_last_applied_step[selected] <= int(step)
+        if not bool(due_mask.any().item()):
+            return
+        due = selected[due_mask]
+        self.thresholds[due] = torch.clamp(
+            self.thresholds[due] * 0.995,
+            min=self.threshold_min,
+            max=self.threshold_max,
+        )
+        self.threshold_relaxation_last_applied_step[due] = int(step) + 1
+
     def _combine_similarity_and_input_drive(
         self,
         similarity: torch.Tensor,
@@ -499,13 +657,15 @@ class CompetitiveColumnLayer:
             if gain.dim() != 1 or int(gain.numel()) != self.n_columns:
                 raise ValueError("context_gain must be a 1D tensor with n_columns entries")
             combined = combined * torch.clamp(gain[candidates], min=0.5, max=1.5)
+        self.materialize_homeostasis(candidates)
         act = torch.relu(combined - self._inhibition(candidates))
 
         topk = min(self.n_winners, act.numel())
         values, local_idx = torch.topk(act, k=topk)
 
         if values.max() <= 0:
-            self.thresholds = torch.clamp(self.thresholds * 0.995, min=self.threshold_min, max=self.threshold_max)
+            relaxation_step = self._record_threshold_relaxation()
+            self._apply_threshold_relaxation(candidates, step=relaxation_step)
             best_idx = torch.argmax(combined)
             winner_idx = candidates[best_idx : best_idx + 1]
             strengths = torch.ones(1, device=self.device)
@@ -628,6 +788,16 @@ class CompetitiveColumnLayer:
                     else "all_columns"
                 )
             self.last_homeostasis_update_count = int(homeostasis_indices.numel())
+            self.materialize_homeostasis(homeostasis_indices, record_noop=False)
+            current_homeostasis_step = int(self.homeostasis_step_count)
+            if (
+                current_homeostasis_step < len(self.threshold_relaxation_history)
+                and self.threshold_relaxation_history[current_homeostasis_step]
+            ):
+                self._apply_threshold_relaxation(
+                    homeostasis_indices,
+                    step=current_homeostasis_step,
+                )
 
             activity = torch.zeros(self.n_columns, device=self.device)
             activity[winners] = 1.0 / max(1, winners.numel())
@@ -653,8 +823,12 @@ class CompetitiveColumnLayer:
                     min=self.threshold_min,
                     max=self.threshold_max,
                 )
+                self.homeostasis_last_update_step[homeostasis_indices] = (
+                    int(self.homeostasis_step_count) + 1
+                )
 
             self.update_count += int(winners.numel())
+            self.homeostasis_step_count += 1
         # Invalidate step-level caches (prototypes/weights were updated)
         self._cached_proto_sim = None
         self._cached_raw_drive = None
@@ -697,6 +871,12 @@ class CompetitiveColumnLayer:
         self.input_weights[dead_mask] = revived_weights
         self.thresholds[dead_mask] = self.threshold_min
         self.win_rate_ema[dead_mask] = self.target_firing_rate
+        self.homeostasis_last_update_step[dead_mask] = int(
+            self.homeostasis_step_count
+        )
+        self.threshold_relaxation_last_applied_step[dead_mask] = int(
+            self.homeostasis_step_count
+        )
         self.steps_since_win[dead_mask] = 0
         self.last_revived_indices = torch.nonzero(dead_mask, as_tuple=False).squeeze(1).detach().clone()
         if self.local_plasticity is not None:
@@ -729,6 +909,28 @@ class CompetitiveColumnLayer:
             "prototype_velocity_device": str(self.prototype_velocity.device),
             "thresholds_device": str(self.thresholds.device),
             "win_rate_ema_device": str(self.win_rate_ema.device),
+            "homeostasis_step_count": int(self.homeostasis_step_count),
+            "homeostasis_last_update_step_device": str(
+                self.homeostasis_last_update_step.device
+            ),
+            "threshold_relaxation_event_count": int(
+                sum(1 for item in self.threshold_relaxation_history if item)
+            ),
+            "threshold_relaxation_history_length": int(
+                len(self.threshold_relaxation_history)
+            ),
+            "threshold_relaxation_last_applied_step_device": str(
+                self.threshold_relaxation_last_applied_step.device
+            ),
+            "last_homeostasis_materialize_mode": str(
+                self.last_homeostasis_materialize_mode
+            ),
+            "last_homeostasis_materialize_count": int(
+                self.last_homeostasis_materialize_count
+            ),
+            "last_homeostasis_materialize_max_age": int(
+                self.last_homeostasis_materialize_max_age
+            ),
             "steps_since_win_device": str(self.steps_since_win.device),
             "last_revived_indices_device": str(self.last_revived_indices.device),
             "recent_spike_window_device": str(self.recent_spike_window.device),
@@ -781,6 +983,23 @@ class CompetitiveColumnLayer:
                 float(homeostasis_count)
                 / float(max(1, self.n_columns)),
                 6,
+            ),
+            "homeostasis_materialize_mode": str(
+                self.last_homeostasis_materialize_mode
+            ),
+            "homeostasis_materialize_count": max(
+                0,
+                min(int(self.last_homeostasis_materialize_count), self.n_columns),
+            ),
+            "homeostasis_materialize_max_age": int(
+                max(0, self.last_homeostasis_materialize_max_age)
+            ),
+            "homeostasis_step_count": int(self.homeostasis_step_count),
+            "threshold_relaxation_event_count": int(
+                sum(1 for item in self.threshold_relaxation_history if item)
+            ),
+            "threshold_relaxation_history_length": int(
+                len(self.threshold_relaxation_history)
             ),
             "input_weight_blend": float(self.input_weight_blend),
             "input_plasticity_mode": str(self.last_input_plasticity_mode),
@@ -978,6 +1197,17 @@ class CompetitiveColumnLayer:
             "thresholds": self.thresholds.detach().clone().cpu(),
             "target_firing_rate": float(self.target_firing_rate),
             "win_rate_ema": self.win_rate_ema.detach().clone().cpu(),
+            "homeostasis_step_count": int(self.homeostasis_step_count),
+            "homeostasis_last_update_step": (
+                self.homeostasis_last_update_step.detach().clone().cpu()
+            ),
+            "threshold_relaxation_history": torch.tensor(
+                [1 if item else 0 for item in self.threshold_relaxation_history],
+                dtype=torch.uint8,
+            ),
+            "threshold_relaxation_last_applied_step": (
+                self.threshold_relaxation_last_applied_step.detach().clone().cpu()
+            ),
             "steps_since_win": self.steps_since_win.detach().clone().cpu(),
             "recent_spike_window": self.recent_spike_window.detach().clone().cpu(),
             "recent_spike_window_cursor": int(self.recent_spike_window_cursor),
@@ -1012,6 +1242,51 @@ class CompetitiveColumnLayer:
             snapshot.get("target_firing_rate", 1.0 / max(1, self.n_columns))
         )
         self.update_count = int(snapshot.get("update_count", 0))
+        self.homeostasis_step_count = int(
+            snapshot.get("homeostasis_step_count", self.update_count)
+        )
+        last_homeostasis_step = snapshot.get("homeostasis_last_update_step")
+        if (
+            isinstance(last_homeostasis_step, torch.Tensor)
+            and tuple(last_homeostasis_step.shape) == (self.n_columns,)
+        ):
+            self.homeostasis_last_update_step = last_homeostasis_step.to(
+                self.device,
+                dtype=torch.long,
+            )
+        else:
+            self.homeostasis_last_update_step = torch.full(
+                (self.n_columns,),
+                int(self.homeostasis_step_count),
+                device=self.device,
+                dtype=torch.long,
+            )
+        relaxation_history = snapshot.get("threshold_relaxation_history")
+        if isinstance(relaxation_history, torch.Tensor):
+            self.threshold_relaxation_history = [
+                bool(item)
+                for item in relaxation_history.detach().cpu().flatten().tolist()
+            ]
+        elif isinstance(relaxation_history, list):
+            self.threshold_relaxation_history = [bool(item) for item in relaxation_history]
+        else:
+            self.threshold_relaxation_history = []
+        relaxation_last = snapshot.get("threshold_relaxation_last_applied_step")
+        if (
+            isinstance(relaxation_last, torch.Tensor)
+            and tuple(relaxation_last.shape) == (self.n_columns,)
+        ):
+            self.threshold_relaxation_last_applied_step = relaxation_last.to(
+                self.device,
+                dtype=torch.long,
+            )
+        else:
+            self.threshold_relaxation_last_applied_step = torch.full(
+                (self.n_columns,),
+                int(self.homeostasis_step_count),
+                device=self.device,
+                dtype=torch.long,
+            )
         self.recent_spike_window_cursor = int(
             snapshot.get("recent_spike_window_cursor", 0)
         ) % self.spike_history_window

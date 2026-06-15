@@ -261,6 +261,64 @@ class TestPredictiveColumnState:
         assert torch.all(state._prediction_weights[3] < before[3])
         assert torch.allclose(state._prediction_weights[[0, 2, 4, 5]], before[[0, 2, 4, 5]])
 
+    def test_candidate_vote_materializes_idle_predictive_state_before_scoring(self):
+        torch.manual_seed(123)
+        full = PredictiveColumnState(n_columns=6, location_dim=3)
+        scoped = PredictiveColumnState(n_columns=6, location_dim=3)
+        scoped.load_state_dict(full.state_dict())
+        routing_keys = [torch.randn(6) for _ in range(4)]
+        scoped_candidates = torch.tensor([0], dtype=torch.long)
+        previous = None
+
+        for routing_key in routing_keys:
+            full.compute_prediction_error([0], routing_key)
+            full.update_location([0], routing_key, previous)
+            full.update_predictions([0], learning_rate=0.005)
+
+            scoped.compute_prediction_error(
+                [0],
+                routing_key,
+                candidate_indices=scoped_candidates,
+            )
+            scoped.update_location(
+                [0],
+                routing_key,
+                previous,
+                candidate_indices=scoped_candidates,
+            )
+            scoped.update_predictions(
+                [0],
+                learning_rate=0.005,
+                candidate_indices=scoped_candidates,
+            )
+            previous = routing_key
+
+        assert int(scoped.predictive_last_update_step[1].item()) == 0
+
+        scoped.vote([0], torch.randn(6), candidate_indices=torch.tensor([1]))
+
+        assert torch.allclose(scoped.location[1], full.location[1], atol=1e-6)
+        assert torch.allclose(scoped.velocity[1], full.velocity[1], atol=1e-6)
+        assert torch.allclose(
+            scoped._prediction_weights[1],
+            full._prediction_weights[1],
+            atol=1e-6,
+        )
+        assert torch.allclose(
+            scoped.prediction_error[1],
+            full.prediction_error[1],
+            atol=1e-6,
+        )
+        assert torch.allclose(scoped.confidence[1], full.confidence[1], atol=1e-6)
+        assert torch.equal(
+            scoped.prediction_failure_streak[1],
+            full.prediction_failure_streak[1],
+        )
+        assert int(scoped.predictive_last_update_step[1].item()) == full.predictive_step_count
+        assert scoped.last_predictive_materialize_mode == "candidate_subset"
+        assert scoped.last_predictive_materialize_count == 1
+        assert scoped.last_predictive_materialize_max_age == 4
+
     def test_prediction_failure_streak_tracks_repeated_raw_failures(self):
         state = PredictiveColumnState(n_columns=4, location_dim=2)
         state.location.fill_(1.0)
@@ -379,6 +437,8 @@ class TestPredictiveColumnState:
         state.location += 1.0
         state.confidence.fill_(0.9)
         state.prediction_failure_streak.fill_(4)
+        state.predictive_step_count = 5
+        state.predictive_last_update_step[:] = torch.arange(16)
 
         saved = state.state_dict()
         state2 = PredictiveColumnState(n_columns=16, location_dim=4)
@@ -387,6 +447,11 @@ class TestPredictiveColumnState:
         assert torch.allclose(state.location, state2.location)
         assert torch.allclose(state.confidence, state2.confidence)
         assert torch.equal(state.prediction_failure_streak, state2.prediction_failure_streak)
+        assert state2.predictive_step_count == 5
+        assert torch.equal(
+            state.predictive_last_update_step,
+            state2.predictive_last_update_step,
+        )
 
     def test_legacy_hypothesis_checkpoint_field_is_ignored(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)

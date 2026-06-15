@@ -732,6 +732,7 @@ class MarulhoTrainer:
         pred.last_dense_transition_mode = "inplace_triton"
         pred.last_dense_transition_fallback_reason = None
         pred._record_prediction_update_scope(None)
+        pred._mark_predictive_update_complete(None, step_count=token_count)
 
         updated_count = token_count * int(runtime._winner.numel())
         self._routing_index_device_update_count += updated_count

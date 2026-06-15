@@ -214,6 +214,17 @@ class PredictiveColumnState:
         self.last_vote_cached_count = 0
         self.last_vote_runs_all_columns = False
         self.last_vote_fallback_reason: str | None = None
+        self.last_predictive_materialize_mode = "not_run"
+        self.last_predictive_materialize_count = 0
+        self.last_predictive_materialize_max_age = 0
+        self.predictive_step_count = 0
+        self.predictive_last_update_step = torch.zeros(
+            n_columns,
+            dtype=torch.long,
+            device=self.device,
+        )
+        self._predictive_has_cached_columns = False
+        self._predictive_materialize_learning_rate = 0.005
         self.last_dense_transition_mode = "legacy"
         self.last_dense_transition_fallback_reason: str | None = None
         self.dense_transition_compile_count = 0
@@ -369,6 +380,7 @@ class PredictiveColumnState:
                 self.confidence,
             ) = outputs
         self._record_prediction_update_scope(None)
+        self._mark_predictive_update_complete(None)
         return self.prediction_error
 
     def _candidate_update_indices(
@@ -377,7 +389,169 @@ class PredictiveColumnState:
     ) -> torch.Tensor | None:
         if candidate_indices is None or int(candidate_indices.numel()) == 0:
             return None
-        return candidate_indices.to(device=self.device, dtype=torch.long).flatten()
+        candidates = candidate_indices.to(device=self.device, dtype=torch.long).flatten()
+        if int(candidates.numel()) <= 0:
+            return None
+        candidates = candidates[
+            (candidates >= 0) & (candidates < int(self.n_columns))
+        ]
+        if int(candidates.numel()) <= 0:
+            return None
+        return torch.unique(candidates, sorted=True)
+
+    def materialize_predictive_state(
+        self,
+        candidate_indices: torch.Tensor | None,
+        *,
+        record_noop: bool = True,
+    ) -> None:
+        """Advance cached non-awake predictive columns to the current tick.
+
+        Candidate-scoped prediction updates intentionally skip idle columns.
+        When a cached column wakes as a routed candidate, this method replays
+        only the zero-actual/non-winner predictive updates that column missed:
+        prediction error/confidence EMA, velocity decay, location clamping, and
+        high-prediction weight decay. The work is bounded to the provided
+        candidate set unless an explicit all-column fallback has already chosen
+        to run all columns.
+        """
+
+        if self.predictive_last_update_step.device != self.device:
+            self.predictive_last_update_step = self.predictive_last_update_step.to(
+                self.device
+            )
+
+        candidates = self._candidate_update_indices(candidate_indices)
+        if candidates is None:
+            requested_count = int(self.n_columns)
+            mode = "all_columns"
+        else:
+            requested_count = int(candidates.numel())
+            mode = (
+                "all_columns_candidate_set"
+                if requested_count >= int(self.n_columns)
+                else "candidate_subset"
+            )
+
+        current_step = int(self.predictive_step_count)
+        if (
+            current_step <= 0
+            or not bool(self._predictive_has_cached_columns)
+        ):
+            if record_noop:
+                self.last_predictive_materialize_mode = f"{mode}_noop"
+                self.last_predictive_materialize_count = 0
+                self.last_predictive_materialize_max_age = 0
+            return
+
+        if candidates is None:
+            indices = torch.arange(self.n_columns, device=self.device, dtype=torch.long)
+        else:
+            indices = candidates
+
+        if int(indices.numel()) <= 0:
+            if record_noop:
+                self.last_predictive_materialize_mode = "empty_candidate_set"
+                self.last_predictive_materialize_count = 0
+                self.last_predictive_materialize_max_age = 0
+            return
+
+        last_steps = self.predictive_last_update_step.index_select(0, indices)
+        ages = torch.clamp(current_step - last_steps, min=0)
+        pending_mask = ages > 0
+        if not bool(pending_mask.any().item()):
+            if record_noop:
+                self.last_predictive_materialize_mode = f"{mode}_noop"
+                self.last_predictive_materialize_count = 0
+                self.last_predictive_materialize_max_age = 0
+            return
+
+        pending_indices = indices[pending_mask]
+        pending_ages = ages[pending_mask]
+        pending_last_steps = last_steps[pending_mask]
+        max_age = int(pending_ages.max().item())
+        lr = float(self._predictive_materialize_learning_rate)
+        decay = 1.0 - 0.5 * lr
+
+        for offset in range(max_age):
+            active = pending_ages > offset
+            if not bool(active.any().item()):
+                continue
+            active_indices = pending_indices[active]
+            active_steps = pending_last_steps[active] + int(offset)
+
+            loc = self.location.index_select(0, active_indices)
+            weights = self._prediction_weights.index_select(0, active_indices)
+            prediction = torch.sigmoid((loc * weights).sum(dim=1))
+            raw_error = prediction.abs()
+            failure_mask = raw_error > float(self._failure_streak_threshold)
+
+            current_streak = self.prediction_failure_streak.index_select(
+                0,
+                active_indices,
+            )
+            self.prediction_failure_streak[active_indices] = torch.where(
+                failure_mask,
+                current_streak + 1,
+                torch.zeros_like(current_streak),
+            )
+
+            current_error = self.prediction_error.index_select(0, active_indices)
+            self.prediction_error[active_indices] = (
+                self._error_ema_alpha * raw_error
+                + (1 - self._error_ema_alpha) * current_error
+            )
+
+            current_confidence = self.confidence.index_select(0, active_indices)
+            next_confidence = 0.95 * current_confidence + 0.05 * (1.0 - raw_error)
+            self.confidence[active_indices] = next_confidence.clamp(0.0, 1.0)
+
+            decayed_velocity_mask = active_steps > 0
+            if bool(decayed_velocity_mask.any().item()):
+                velocity_indices = active_indices[decayed_velocity_mask]
+                self.velocity[velocity_indices] *= 0.9
+
+            loc = self.location.index_select(0, active_indices)
+            loc_norm = loc.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            scale = torch.where(
+                loc_norm > 5.0,
+                5.0 / loc_norm,
+                torch.ones_like(loc_norm),
+            )
+            self.location[active_indices] = loc * scale
+
+            loc = self.location.index_select(0, active_indices)
+            weights = self._prediction_weights.index_select(0, active_indices)
+            updated_prediction = torch.sigmoid((loc * weights).sum(dim=1))
+            high_pred = updated_prediction > 0.5
+            if bool(high_pred.any().item()):
+                high_indices = active_indices[high_pred]
+                self._prediction_weights[high_indices] *= decay
+
+        self.predictive_last_update_step[pending_indices] = current_step
+        if candidates is None or requested_count >= int(self.n_columns):
+            self._predictive_has_cached_columns = False
+        if record_noop:
+            self.last_predictive_materialize_mode = mode
+            self.last_predictive_materialize_count = int(pending_indices.numel())
+            self.last_predictive_materialize_max_age = max_age
+
+    def _mark_predictive_update_complete(
+        self,
+        candidate_indices: torch.Tensor | None,
+        *,
+        step_count: int = 1,
+    ) -> None:
+        steps = max(1, int(step_count))
+        next_step = int(self.predictive_step_count) + steps
+        candidates = self._candidate_update_indices(candidate_indices)
+        if candidates is None or int(candidates.numel()) >= int(self.n_columns):
+            self.predictive_last_update_step.fill_(next_step)
+            self._predictive_has_cached_columns = False
+        else:
+            self.predictive_last_update_step[candidates] = next_step
+            self._predictive_has_cached_columns = True
+        self.predictive_step_count = next_step
 
     def _record_prediction_update_scope(
         self,
@@ -460,6 +634,7 @@ class PredictiveColumnState:
                 candidates = candidates[
                     (candidates >= 0) & (candidates < int(self.n_columns))
                 ]
+        self.materialize_predictive_state(candidates)
         self._record_location_update_scope(candidates)
         if prev_routing_key is not None:
             # Compute movement as difference between consecutive inputs
@@ -502,6 +677,7 @@ class PredictiveColumnState:
         This signal modulates STDP learning rate.
         """
         candidates = self._candidate_update_indices(candidate_indices)
+        self.materialize_predictive_state(candidates)
         self._record_prediction_update_scope(candidates)
         prediction = self.predict(actual_activation.shape[0], candidates)
         # Error: columns that predicted they'd win but didn't (or vice versa)
@@ -569,8 +745,10 @@ class PredictiveColumnState:
         non-winners that incorrectly predicted weaken.
         """
         candidates = self._candidate_update_indices(candidate_indices)
+        self.materialize_predictive_state(candidates)
         self._record_prediction_update_scope(candidates)
         lr = float(learning_rate)
+        self._predictive_materialize_learning_rate = lr
         for w in winners:
             # Strengthen prediction weights for winners
             self._prediction_weights[w] += lr * self.location[w]
@@ -590,6 +768,7 @@ class PredictiveColumnState:
                 non_winner_mask = ~(candidates[:, None] == winner_tensor[None, :]).any(dim=1)
             high_pred_non_winners = candidates[non_winner_mask & (prediction > 0.5)]
             self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
+        self._mark_predictive_update_complete(candidates)
 
     def vote(
         self,
@@ -609,14 +788,7 @@ class PredictiveColumnState:
         if self.cached_consensus_gain.device != self.device:
             self.cached_consensus_gain = self.cached_consensus_gain.to(self.device)
 
-        if candidate_indices is None:
-            candidates = None
-        else:
-            candidates = candidate_indices.to(device=self.device, dtype=torch.long).flatten()
-            if int(candidates.numel()) > 0:
-                candidates = candidates[
-                    (candidates >= 0) & (candidates < int(self.n_columns))
-                ]
+        candidates = self._candidate_update_indices(candidate_indices)
 
         if candidate_indices is not None and (candidates is None or int(candidates.numel()) == 0):
             self.last_vote_update_mode = "cached_vote_no_awake_candidates"
@@ -626,6 +798,8 @@ class PredictiveColumnState:
             self.last_vote_runs_all_columns = False
             self.last_vote_fallback_reason = "no_awake_candidates_cached_vote"
             return self.cached_consensus_gain
+
+        self.materialize_predictive_state(candidates)
 
         if not winners:
             if candidates is None:
@@ -736,6 +910,16 @@ class PredictiveColumnState:
             "location_update_runs_all_columns": bool(
                 self.last_location_update_runs_all_columns
             ),
+            "predictive_materialize_mode": str(
+                self.last_predictive_materialize_mode
+            ),
+            "predictive_materialize_count": int(
+                self.last_predictive_materialize_count
+            ),
+            "predictive_materialize_max_age": int(
+                self.last_predictive_materialize_max_age
+            ),
+            "predictive_step_count": int(self.predictive_step_count),
             "runs_all_columns": bool(
                 self.last_prediction_update_runs_all_columns
                 or self.last_location_update_runs_all_columns
@@ -792,6 +976,20 @@ class PredictiveColumnState:
             "last_vote_cached_count": int(self.last_vote_cached_count),
             "last_vote_runs_all_columns": bool(self.last_vote_runs_all_columns),
             "last_vote_fallback_reason": self.last_vote_fallback_reason,
+            "last_predictive_materialize_mode": self.last_predictive_materialize_mode,
+            "last_predictive_materialize_count": int(
+                self.last_predictive_materialize_count
+            ),
+            "last_predictive_materialize_max_age": int(
+                self.last_predictive_materialize_max_age
+            ),
+            "predictive_step_count": int(self.predictive_step_count),
+            "predictive_last_update_step_device": str(
+                self.predictive_last_update_step.device
+            ),
+            "predictive_has_cached_columns": bool(
+                self._predictive_has_cached_columns
+            ),
             "last_dense_transition_mode": self.last_dense_transition_mode,
             "last_dense_transition_fallback_reason": self.last_dense_transition_fallback_reason,
             "dense_transition_compile_count": int(self.dense_transition_compile_count),
@@ -806,6 +1004,13 @@ class PredictiveColumnState:
             "prediction_error": self.prediction_error.detach().clone().cpu(),
             "prediction_failure_streak": self.prediction_failure_streak.detach().clone().cpu(),
             "confidence": self.confidence.detach().clone().cpu(),
+            "predictive_step_count": torch.tensor(
+                int(self.predictive_step_count),
+                dtype=torch.long,
+            ),
+            "predictive_last_update_step": (
+                self.predictive_last_update_step.detach().clone().cpu()
+            ),
         }
 
     def load_state_dict(self, state: dict[str, torch.Tensor]) -> None:
@@ -817,9 +1022,9 @@ class PredictiveColumnState:
             "prediction_error",
             "prediction_failure_streak",
             "confidence",
+            "predictive_last_update_step",
         ):
             tensor_key = key if key != "prediction_weights" else "_prediction_weights"
-            attr_name = tensor_key if not key.startswith("_") else key
             value = state.get(key)
             if isinstance(value, torch.Tensor):
                 target = getattr(self, tensor_key if key != "prediction_weights" else "_prediction_weights")
@@ -829,6 +1034,16 @@ class PredictiveColumnState:
                         tensor_key if key != "prediction_weights" else "_prediction_weights",
                         value.to(self.device),
                     )
+        step_value = state.get("predictive_step_count")
+        if isinstance(step_value, torch.Tensor):
+            self.predictive_step_count = int(step_value.item())
+        elif isinstance(step_value, (int, float)):
+            self.predictive_step_count = int(step_value)
+        else:
+            self.predictive_step_count = 0
+        if "predictive_last_update_step" not in state:
+            self.predictive_last_update_step.fill_(int(self.predictive_step_count))
+        self._predictive_has_cached_columns = False
 
     def reset(self) -> None:
         """Reset all predictive state."""
@@ -860,3 +1075,14 @@ class PredictiveColumnState:
         self.last_vote_cached_count = 0
         self.last_vote_runs_all_columns = False
         self.last_vote_fallback_reason = None
+        self.last_predictive_materialize_mode = "not_run"
+        self.last_predictive_materialize_count = 0
+        self.last_predictive_materialize_max_age = 0
+        self.predictive_step_count = 0
+        self.predictive_last_update_step = torch.zeros(
+            self.n_columns,
+            dtype=torch.long,
+            device=self.device,
+        )
+        self._predictive_has_cached_columns = False
+        self._predictive_materialize_learning_rate = 0.005

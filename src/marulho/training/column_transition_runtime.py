@@ -604,6 +604,7 @@ class ColumnTransitionRuntime:
             and comp._cached_proto_sim is None
             and context_gain is None
         ):
+            comp.materialize_homeostasis(selected)
             try:
                 select_fused_vote_competition_cuda(
                     routing_key=x,
@@ -665,6 +666,7 @@ class ColumnTransitionRuntime:
                 min=0.5,
                 max=1.5,
             )
+        comp.materialize_homeostasis(selected)
         inhibition = comp._inhibition(selected)
         try:
             select_single_winner_cuda(
@@ -872,6 +874,7 @@ class ColumnTransitionRuntime:
         trainer.model.predictive.last_dense_transition_mode = "inplace_triton"
         trainer.model.predictive.last_dense_transition_fallback_reason = None
         trainer.model.predictive._record_prediction_update_scope(None)
+        trainer.model.predictive._mark_predictive_update_complete(None)
         comp.last_input_plasticity_mode = "skipped_zero_blend"
         comp.input_plasticity_skip_count += 1
         comp.last_revived_indices = self._empty_revived_indices
@@ -884,6 +887,10 @@ class ColumnTransitionRuntime:
             if int(homeostasis_candidates.numel()) < comp.n_columns
             else "all_columns"
         )
+        comp.homeostasis_last_update_step[
+            homeostasis_candidates.to(comp.device).long().flatten()
+        ] = int(comp.homeostasis_step_count) + 1
+        comp.homeostasis_step_count += 1
         comp.recent_spike_window_cursor = (
             comp.recent_spike_window_cursor + 1
         ) % comp.spike_history_window

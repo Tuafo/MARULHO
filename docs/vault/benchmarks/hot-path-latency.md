@@ -129,6 +129,23 @@ outlier (`capture_latency_ms=22008.1023`,
 `native_sequence_loop_compile_latency_ms=21544.8843`) that is outside warm
 throughput but should be rechecked before making a cold-start claim.
 
+The follow-up lazy scheduler-materialization run used the same 131072-token
+default conditional16 stress shape after fixing long-run cached-state parity.
+The report at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-lazy-scheduler.json`
+reached `5867.701 tokens/sec`, `train_compute=0.141240 ms/token`,
+`prepare_training=0.006435 ms/token`, and `finalize_total=0.005910 ms/token`.
+It preserved the promoted CUDA sequence counters: `8190` conditional launches
+covering `131040` tokens, zero sequence/native failures or sequence/native
+fallbacks, host-truth cadence `4097/126975`, only the expected text-burst
+fallbacks (`runtime_not_fully_warm` and `sleep_boundary`), and
+`velocity_environment.v1` contention `not_observed`. This is `+1.04%` versus
+the same-host `5807.210` control, `+3.79%` versus the prior column-scheduler
+run at `5653.175`, `-1.47%` versus the completion-audit `5955.123`, and
+`-4.07%` versus the post-promotion top run at `6116.646`. The answer to the
+throughput gate is therefore: same broad 6k-ish long-run band, not exact top-run
+parity.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted
