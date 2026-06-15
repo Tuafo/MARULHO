@@ -236,6 +236,20 @@ cognitive-quality evidence, and grounded fallback gates.
   `0.149719 ms/token`, so the next executor must move below repeated
   child-graph wrapping into C++/CUDA/Triton persistent or hybrid sequence
   ownership.
+- A native32 probe under the maintained q16 execution quantum is invalid as a
+  native coverage benchmark. The run warmed `[32]` parent graphs and exposed
+  `persistent_executor_burst_tokens=32`, but q16 service/training quanta only
+  offered sixteen-token bursts. Runtime Truth correctly reported
+  `native_burst_replay_success_count=0`,
+  `native_burst_replay_fallback_count=8190`,
+  `native_burst_replay_python_loop_token_count=131040`, and backend
+  `python_loop_partial_disabled`. The stress benchmark now rejects native
+  burst capacities that exceed or fail to divide `quantum_tokens`; proving
+  native32 would require changing the execution quantum boundary, which is a
+  separate retired/default-sensitive trade-off rather than the exact fast
+  q16 shape.
+- ADR 0007 captures the follow-on boundary: the next promotable text executor
+  must move below local CUDA Graph wrappers into a lower-level sequence owner.
 - Wider event/truth cadences remain rejected. A sixty-four-token event window
   cut long-run drains from `4096` to `2049`, but measured only
   `4402.958 tokens/sec` in the clean `131072`-token run versus `4771.221`

@@ -832,11 +832,16 @@ This file records research anchors for current architecture work. It is not a pr
   Runtime Truth, halved parent launches on an 8192-token profile, and exposed
   active/default/allowed burst capacity in Runtime Truth, but the clean
   131072-token run reached only `4887.767 tokens/sec` versus the retained
-  eight-token native base at `4992.049`. FlashRNN and persistent-RNN work,
-  Triton persistent-kernel examples, PyTorch persistent grouped-GEMM work, and
-  NeuronSpark fused PLIF kernels all point the same way: a real next executor
-  must own more of the time loop/state update below Python/CUDA Graph replay,
-  likely as C++/CUDA, Triton persistent kernels, or a hybrid. Sources:
+  eight-token native base at `4992.049`. A follow-up native32 attempt under
+  the exact q16 shape warmed `[32]` parent graphs but delivered zero native
+  successes because every sixteen-token quantum was partial relative to the
+  parent graph; benchmark validation now rejects that misaligned probe before
+  startup. FlashRNN and persistent-RNN work, Triton persistent-kernel examples,
+  PyTorch persistent grouped-GEMM work, and NeuronSpark fused PLIF kernels all
+  point the same way: a real next executor must own more of the time loop/state
+  update below Python/CUDA Graph replay, likely as C++/CUDA, Triton persistent
+  kernels, or a hybrid. ADR 0007 records that lower-level executor boundary as
+  the next promotable direction. Sources:
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/handling-dynamic-patterns.html,
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html,
   https://docs.nvidia.com/cuda/cuda-programming-guide/index.html#cuda-graphs,

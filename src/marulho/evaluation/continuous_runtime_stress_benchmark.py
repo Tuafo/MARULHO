@@ -514,8 +514,20 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
-    if native_burst_tokens is not None and int(native_burst_tokens) not in (8, 16, 32):
-        raise ValueError("native_burst_tokens must be one of 8, 16, or 32")
+    if native_burst_tokens is not None:
+        native_burst_token_count = int(native_burst_tokens)
+        if native_burst_token_count not in (8, 16, 32):
+            raise ValueError("native_burst_tokens must be one of 8, 16, or 32")
+        if native_burst_token_count > int(quantum_tokens):
+            raise ValueError(
+                "native_burst_tokens must not exceed quantum_tokens for an exact "
+                "native parent-graph benchmark"
+            )
+        if int(quantum_tokens) % native_burst_token_count != 0:
+            raise ValueError(
+                "native_burst_tokens must divide quantum_tokens for an exact "
+                "native parent-graph benchmark"
+            )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)

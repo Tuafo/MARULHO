@@ -15,7 +15,7 @@ last_verified: 2026-06-15
 - `src/marulho/core/columns.py`: 47 nodes
 - `src/marulho/core/context.py`: 46 nodes
 - `src/marulho/core/native_cuda_graph_replay.cpp`: 38 nodes
-- `src/marulho/core/predictive_columns.py`: 35 nodes
+- `src/marulho/core/predictive_columns.py`: 37 nodes
 - `src/marulho/core/binding.py`: 33 nodes
 - `src/marulho/core/plasticity.py`: 32 nodes
 - `src/marulho/core/sparsity.py`: 32 nodes

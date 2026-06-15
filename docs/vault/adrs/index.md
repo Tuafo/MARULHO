@@ -15,6 +15,7 @@ related_benchmarks: []
 - [ADR 0004: Runtime Facade owns the operator-facing runtime interface](../../adr/0004-runtime-facade-manager-max-removal.md)
 - [ADR 0005: Prefer CUDA for tensor-heavy subcortex runtime work](../../adr/0005-cuda-first-subcortex-runtime.md)
 - [ADR 0006: Persistent Text Tick Executor](../../adr/0006-persistent-text-tick-executor.md)
+- [ADR 0007: Lower-Level Text Sequence Executor Required](../../adr/0007-lower-level-text-sequence-executor-required.md)
 
 ## Related Maps
 

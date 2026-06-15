@@ -8,16 +8,16 @@ last_verified: 2026-06-15
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9461
-- Edges: 1280365
+- Nodes: 9482
+- Edges: 1307382
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3435 nodes
+- `tests`: 3443 nodes
 - `service`: 2580 nodes
-- `evaluation`: 574 nodes
-- `core`: 566 nodes
+- `evaluation`: 584 nodes
+- `core`: 568 nodes
 - `training`: 503 nodes
 - `data`: 377 nodes
 - `semantics`: 334 nodes
@@ -32,22 +32,22 @@ last_verified: 2026-06-15
 
 ## Common Relations
 
-- `calls`: 329832
-- `references`: 296343
-- `uses`: 226263
-- `method`: 205888
-- `contains`: 126546
-- `rationale_for`: 48639
-- `imports`: 23689
-- `inherits`: 13377
-- `imports_from`: 7567
-- `re_exports`: 2204
-- `defines`: 10
+- `calls`: 336945
+- `references`: 302740
+- `uses`: 231063
+- `method`: 210242
+- `contains`: 129385
+- `rationale_for`: 49210
+- `imports`: 24166
+- `inherits`: 13653
+- `imports_from`: 7702
+- `re_exports`: 2249
+- `defines`: 20
 - `extends`: 7
 
 ## Largest Source Files By Node Count
 
-- `tests/test_status_read_model.py`: 378 nodes
+- `tests/test_status_read_model.py`: 379 nodes
 - `src/marulho/service/manager.py`: 346 nodes
 - `src/marulho/service/snn_language_readout_ledger.py`: 310 nodes
 - `src/marulho/service/runtime_facade.py`: 272 nodes

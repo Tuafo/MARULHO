@@ -35,6 +35,9 @@ Use the full north-star spec at `docs/goals/marulho-living-runtime-goal.md` as s
 - A later rerun under contention reached `4489.641 tokens/sec`, so current "right now" speed must be interpreted with `velocity_environment.v1`.
 - Direct one-block Triton route/vote fusion is retired. It passed parity but regressed complete runtime, so the next speed work should not revive it as a local top-k wrapper.
 - Partial native parent graph replay for non-eight-token tails is opt-in diagnostic only. The `tick_tokens=130` experiment regressed and exposed host-truth misalignment.
+- Native16 parent graphs are rejected as default: the clean long run reached `4887.767 tokens/sec`, below the retained `4992.049` native8 ceiling.
+- Native32 is invalid under the exact q16 shape: it warmed `[32]` parent graphs but recorded zero native successes and `131040` Python-loop tokens, so the benchmark now rejects misaligned native-capacity probes.
+- ADR 0007 records the lower-level executor requirement; the next promotable executor must own the sequence loop below the current Python/CUDA Graph replay boundary.
 - The next credible speed path is a true device-owned multi-tick or persistent sequence executor that reduces the real per-token graph/kernel launch boundary while preserving sequential state, Runtime Truth cadence, and rollback gates.
 
 ## Research Anchors

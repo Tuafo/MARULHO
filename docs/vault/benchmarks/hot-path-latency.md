@@ -891,3 +891,33 @@ launches from `1023` to `511`, but moved
 repeated child-graph wrapping into a C++/CUDA, Triton persistent-kernel, or
 hybrid device-owned sequence executor rather than adding another local Python
 wrapper.
+
+### Native32 Parent Graph Under Q16, 2026-06-15
+
+The remaining configured capacity, `--native-burst-tokens 32`, is not a valid
+native parent-graph benchmark under the maintained exact fast shape because
+`execution_quantum_tokens=16` caps the chunks that training offers to the burst
+executor. The probe at
+`reports/native_burst_sequence_20260615/native32-131072-i32.json` still ran the
+full `131072` tokens and warmed `[32]` parent graphs, but Runtime Truth showed
+zero native coverage: `native_burst_replay_attempt_count=8190`,
+`native_burst_replay_success_count=0`,
+`native_burst_replay_fallback_count=8190`,
+`native_burst_replay_python_loop_token_count=131040`, and backend
+`python_loop_partial_disabled`. Host-truth cadence and fail-closed behavior
+remained intact (`4097` syncs, `126975` skips, zero graph/burst failures), but
+the executor that actually ran for burst tokens was the retained Python replay
+loop.
+
+The run also reported `velocity_environment.v1=contention_observed` from GPU
+activity, so its `4454.287 tokens/sec` is not a promotion comparison. The
+evidence is executor coverage, not speed: a warmed parent graph token count is
+not native token coverage unless the native success/token counters move. The
+stress benchmark now rejects native burst capacities that exceed
+`quantum_tokens` or fail to divide `quantum_tokens`, so future exact-capacity
+probes fail before startup instead of producing misleading Python-loop reports.
+Together with the native16 miss, nested graph rejection, native host-loop
+rejection, partial-native rejection, and route/vote wrapper rejection, this is
+the evidence basis for [ADR 0007](../../adr/0007-lower-level-text-sequence-executor-required.md):
+the next promotable text executor must move below the current Python/CUDA Graph
+replay boundary.
