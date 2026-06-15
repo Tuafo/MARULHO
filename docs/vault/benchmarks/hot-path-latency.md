@@ -161,6 +161,20 @@ completion-audit `5955.123`, and `-3.77%` versus the post-promotion top
 `6116.646`. Treat the scheduler throughput answer as stable 6k-ish sustained
 runtime, not proof that the exact top historical run is preserved.
 
+The following CPU scaling audit added an exact no-relaxation/no-clamp
+homeostasis wake fast path but kept predictive lazy wake on ordered replay after
+a vectorized predictive catch-up broke long winner parity. The valid sweep at
+`reports/column_scheduler_20260615/cpu-scaling-large-lazy-fast-homeostasis-final.json`
+preserved winner sequences at `2048`, `8192`, and `16384` columns and kept all
+scoped specialist work at `10` candidates with `runs_all_columns=false`.
+However, `neutral_or_better_all_sizes=false`; scoped means were `11.3276475`,
+`11.382465`, and `11.70441 ms`. The longer `8192` report at
+`reports/column_scheduler_20260615/cpu-8192-lazy-fast-homeostasis-long.json`
+preserved winner parity and improved median latency from `7.257` to
+`6.4019 ms`, but mean latency regressed by `6.27%`. The scheduler now has
+post-fix total-column correctness evidence, but the cost-neutral durable
+scaling gate remains open.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

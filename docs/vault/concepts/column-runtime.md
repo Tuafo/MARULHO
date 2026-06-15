@@ -120,6 +120,21 @@ kept the same 131072-token shape and reached `5886.247 tokens/sec` with
 post-promotion top, so the evidence still says stable 6k-ish sustained
 throughput rather than exact top-run parity.
 
+The next bounded-scaling rerun kept exact predictive wake replay but added an
+exact closed-form homeostasis wake path for no-relaxation/no-clamp windows. The
+CPU sweep at
+`reports/column_scheduler_20260615/cpu-scaling-large-lazy-fast-homeostasis-final.json`
+preserved winner parity at `2048`, `8192`, and `16384` columns while keeping
+predictive update, predictive location, predictive vote, and sleep-filter
+output at `10` candidates with `runs_all_columns=false`. The cost gate is still
+open: scoped means were `11.3276475`, `11.382465`, and `11.70441 ms`, and
+`neutral_or_better_all_sizes=false`. The longer `8192` CPU run at
+`reports/column_scheduler_20260615/cpu-8192-lazy-fast-homeostasis-long.json`
+also preserved winner parity and improved median complete `train_step` latency
+from `7.257` to `6.4019 ms`, but mean latency was `6.27%` slower. This proves
+bounded awake work and restores the old `16384` correctness gate, but it is not
+yet durable total-column scaling completion.
+
 Also on 2026-06-15, the CUDA text path promoted the conditional-WHILE q16 sequence executor below the trainer-owned burst boundary. It does not change column scheduling policy, but it matters for Column Runtime evidence because the same sequential SNN column state is now advanced by a larger native CUDA Graph parent while Runtime Truth reports executor identity, token coverage, fallback/failure counts, host-truth cadence, startup compile/capture cost, and separate repeated-child versus sequence-loop capacities. The retained repeated-child native replay remains the exact native8 fallback and explicit opt-out path.
 
 On 2026-06-11, candidate-scoped competitive homeostasis became the first sleep-aware execution effect. The trainer kept early learning all-column, then after `dead_column_steps` passed the retrieved candidate set into `CompetitiveColumnLayer.process()` so win-rate/threshold homeostasis updated only active candidates. Focused tests passed for frozen non-candidate homeostasis, delayed trainer promotion, learned-chunk diversity, and Runtime Truth execution fields. An 8192-column CPU/CUDA microbenchmark with 10 candidates measured all-column versus scoped process medians of `1.28555` to `1.08545 ms` on CPU and `5.06735` to `4.93965 ms` on CUDA; p95 changed from `4.3084` to `2.3779 ms` on CPU and `10.6108` to `9.195 ms` on CUDA.

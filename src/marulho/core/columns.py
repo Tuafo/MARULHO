@@ -462,6 +462,59 @@ class CompetitiveColumnLayer:
         thresholds = self.thresholds.index_select(0, pending_indices)
         decay = 1.0 - float(self.homeostasis_beta)
         max_age = int(remaining.max().item())
+
+        has_relaxation_event = False
+        if max_age > 0 and any(self.threshold_relaxation_history):
+            start_steps = pending_last_steps.detach().cpu().tolist()
+            end_steps = (pending_last_steps + remaining).detach().cpu().tolist()
+            history_len = len(self.threshold_relaxation_history)
+            for start, end in zip(start_steps, end_steps):
+                start_i = max(0, int(start))
+                end_i = min(history_len, int(end))
+                if start_i < end_i and any(
+                    self.threshold_relaxation_history[start_i:end_i]
+                ):
+                    has_relaxation_event = True
+                    break
+
+        if max_age > 0 and not has_relaxation_event:
+            ages = remaining.to(device=self.device, dtype=win_rate.dtype)
+            if abs(decay - 1.0) <= 1e-12:
+                decayed_win_rate = win_rate
+                win_rate_sum = win_rate * ages
+            else:
+                decay_tensor = torch.as_tensor(
+                    decay,
+                    dtype=win_rate.dtype,
+                    device=self.device,
+                )
+                decay_pow = torch.pow(decay_tensor, ages)
+                decayed_win_rate = win_rate * decay_pow
+                win_rate_sum = (
+                    win_rate
+                    * decay_tensor
+                    * (1.0 - decay_pow)
+                    / (1.0 - decay_tensor)
+                )
+            unclamped_thresholds = thresholds + self.homeostasis_lr * (
+                win_rate_sum - ages * float(self.target_firing_rate)
+            )
+            clamp_safe = (
+                (unclamped_thresholds >= float(self.threshold_min))
+                & (unclamped_thresholds <= float(self.threshold_max))
+            )
+            if bool(clamp_safe.all().item()):
+                self.win_rate_ema[pending_indices] = decayed_win_rate
+                self.thresholds[pending_indices] = unclamped_thresholds
+                self.threshold_relaxation_last_applied_step[pending_indices] = (
+                    relaxation_last
+                )
+                self.homeostasis_last_update_step[pending_indices] = current_step
+                self.last_homeostasis_materialize_count = int(pending_indices.numel())
+                self.last_homeostasis_materialize_max_age = max_age
+                self.last_homeostasis_materialize_mode = mode
+                return
+
         for offset in range(max_age):
             active = remaining > 0
             if not bool(active.any()):
