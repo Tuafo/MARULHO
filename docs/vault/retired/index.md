@@ -10,3 +10,4 @@ related_benchmarks: []
         # Retired Paths
 
         - [Direct Route Vote Fusion](direct-route-vote-fusion.md)
+- [Partial Native Parent Graph](partial-native-parent-graph.md)

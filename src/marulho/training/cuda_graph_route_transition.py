@@ -87,6 +87,9 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_token_count = 0
         self.native_burst_replay_fallback_count = 0
         self.native_burst_replay_failure_count = 0
+        self.native_burst_replay_lazy_compile_count = 0
+        self.native_burst_replay_lazy_compile_failure_count = 0
+        self.native_burst_replay_python_loop_token_count = 0
         self.native_burst_replay_compile_latency_ms = 0.0
         self.native_burst_replay_backend = "python_loop"
         self.native_burst_replay_last_error: str | None = None
@@ -611,8 +614,21 @@ class CudaGraphRouteTransition:
             (graph_name, token_count)
         )
         if repeated_graph_exec is None:
+            repeated_graph_exec = self._ensure_native_burst_graph_exec(
+                graph_name,
+                token_count,
+                graph,
+            )
+        if repeated_graph_exec is None:
             self.native_burst_replay_fallback_count += 1
-            self.native_burst_replay_backend = "python_loop_no_parent_graph"
+            self.native_burst_replay_python_loop_token_count += token_count
+            if (
+                token_count != PERSISTENT_EXECUTOR_BURST_TOKENS
+                and not self._native_partial_burst_replay_requested()
+            ):
+                self.native_burst_replay_backend = "python_loop_partial_disabled"
+            else:
+                self.native_burst_replay_backend = "python_loop_no_parent_graph"
             for _ in range(token_count):
                 graph.replay()
             return
@@ -629,6 +645,46 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_token_count += token_count
         self.native_burst_replay_last_error = None
 
+    def _ensure_native_burst_graph_exec(
+        self,
+        graph_name: str,
+        token_count: int,
+        graph: torch.cuda.CUDAGraph,
+    ) -> Any | None:
+        key = (graph_name, token_count)
+        repeated_graph_exec = self._native_burst_graph_execs.get(key)
+        if repeated_graph_exec is not None:
+            return repeated_graph_exec
+        if token_count != PERSISTENT_EXECUTOR_BURST_TOKENS:
+            if not self._native_partial_burst_replay_requested():
+                return None
+        build_started = time.perf_counter_ns()
+        try:
+            repeated_graph_exec = make_repeated_cuda_graph_exec(
+                graph,
+                token_count,
+            )
+        except Exception as exc:
+            self.native_burst_replay_compile_latency_ms += (
+                time.perf_counter_ns() - build_started
+            ) / 1e6
+            self.native_burst_replay_lazy_compile_failure_count += 1
+            self.native_burst_replay_last_error = f"{type(exc).__name__}: {exc}"
+            self.native_burst_replay_backend = (
+                "python_loop_after_native_partial_parent_graph_unavailable"
+            )
+            return None
+        self.native_burst_replay_compile_latency_ms += (
+            time.perf_counter_ns() - build_started
+        ) / 1e6
+        self._native_burst_graph_execs[key] = repeated_graph_exec
+        if token_count != PERSISTENT_EXECUTOR_BURST_TOKENS:
+            self.native_burst_replay_lazy_compile_count += 1
+            self.native_burst_replay_backend = (
+                "native_repeated_child_graph_partial_ready"
+            )
+        return repeated_graph_exec
+
     def _native_burst_replay_requested(self) -> bool:
         env = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY")
         if env is not None:
@@ -640,6 +696,12 @@ class CudaGraphRouteTransition:
                 True,
             )
         )
+
+    def _native_partial_burst_replay_requested(self) -> bool:
+        env = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_PARTIAL_BURST_REPLAY")
+        if env is not None:
+            return env.strip().lower() not in {"0", "false", "no", "off"}
+        return False
 
     def _warm_native_burst_replay(self) -> None:
         self._native_burst_graph_execs.clear()
@@ -1600,10 +1662,21 @@ class CudaGraphRouteTransition:
                 self._native_burst_replay_requested()
                 and self.native_burst_replay_enabled
             ),
+            "native_partial_burst_replay_enabled": bool(
+                self._native_burst_replay_requested()
+                and self.native_burst_replay_enabled
+                and self._native_partial_burst_replay_requested()
+            ),
             "native_burst_replay_backend": self.native_burst_replay_backend,
             "native_burst_replay_parent_graph_count": int(
                 len(self._native_burst_graph_execs)
             ),
+            "native_burst_replay_parent_graph_token_counts": [
+                int(token_count)
+                for token_count in sorted(
+                    {token_count for _, token_count in self._native_burst_graph_execs}
+                )
+            ],
             "native_burst_replay_attempt_count": int(
                 self.native_burst_replay_attempt_count
             ),
@@ -1618,6 +1691,15 @@ class CudaGraphRouteTransition:
             ),
             "native_burst_replay_failure_count": int(
                 self.native_burst_replay_failure_count
+            ),
+            "native_burst_replay_lazy_compile_count": int(
+                self.native_burst_replay_lazy_compile_count
+            ),
+            "native_burst_replay_lazy_compile_failure_count": int(
+                self.native_burst_replay_lazy_compile_failure_count
+            ),
+            "native_burst_replay_python_loop_token_count": int(
+                self.native_burst_replay_python_loop_token_count
             ),
             "native_burst_replay_compile_latency_ms": float(
                 self.native_burst_replay_compile_latency_ms

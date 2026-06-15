@@ -815,3 +815,33 @@ and measured `train_compute=0.202385 ms/token`. `velocity_environment.v1`
 reported CPU and GPU contention on the long run, so the retained uncontended
 best remains `4577.595 tokens/sec` at
 `reports/host_truth_interval_sweep_20260614/stress-131072-i32.json`.
+
+## Native Parent-Graph Coverage Refresh, 2026-06-15
+
+The maintained exact-burst path was refreshed with the same 131072-token
+service stress shape used for current throughput claims. Under observed CPU/GPU
+contention, `reports/base_comparison_20260615_partial_replay/current-native-131072-i32.json`
+reached `4489.641 tokens/sec` with `train_compute=0.183604 ms/token`,
+`16382` native parent-graph launches, `131056` native-covered burst tokens,
+zero native fallbacks/failures, zero graph/burst failures, and parent graph
+token-count coverage `[8]`. The same shape with native replay disabled reached
+`4012.083 tokens/sec` and `train_compute=0.208029 ms/token` at
+`reports/base_comparison_20260615_partial_replay/disabled-native-131072-i32.json`.
+The earlier uncontended refreshed top remains
+`reports/base_comparison_20260615/current-native-131072-i32.json` at
+`4992.049 tokens/sec`.
+
+A partial-tail experiment on `tick_tokens=130` intentionally exercised
+non-eight-token burst tails. Opt-in native partial replay at
+`reports/partial_native_burst_replay_20260615/native-partial-16640-t130.json`
+proved parent graph token-count coverage `[2, 8]`, `lazy_compile_count=2`, and
+zero native partial fallbacks, but complete runtime measured only
+`2786.829 tokens/sec`. The default partial-disabled comparison at
+`reports/partial_native_burst_replay_20260615/partial-disabled-16640-t130.json`
+measured `2907.600 tokens/sec`, retained `[8]` parent graph coverage, and
+reported `128` partial replay fallbacks covering `256` Python-loop tokens.
+Both runs also exposed `384` `host_truth_boundary` burst fallbacks caused by
+the unaligned 130-token tick width. Partial native parent graphs therefore stay
+opt-in; the production path should preserve aligned 128-token source ticks
+until a startup-warmed or lower-level device-owned multi-tick executor wins
+long complete-runtime evidence.

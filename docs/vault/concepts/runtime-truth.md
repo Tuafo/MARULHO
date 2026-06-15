@@ -29,6 +29,8 @@ related_benchmarks: []
 
         Boundary-Aware Text Burst evidence includes device strong-event ring ownership, captured strong-event count, slim packet drains, full-capacity slot reset skips, and a bounded fallback-reason histogram. These counters identify why a burst stayed on the CUDA path or fell back without adding per-token CUDA synchronization.
 
+        Native burst replay evidence includes parent graph token-count coverage, lazy parent-graph compile counts, native fallback/failure counts, and partial Python-loop token counts. These fields are required before claiming launch-boundary improvements, because exact eight-token bursts can be fully native while unaligned source ticks still force host-truth fallbacks or partial replay fallbacks.
+
         ## Relationships
 
         - [Subcortex](subcortex.md)

@@ -1409,10 +1409,14 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["persistent_executor_burst_tokens"] == 8
     assert graph_report["native_burst_replay_configured"] is True
     assert graph_report["native_burst_replay_enabled"] is True
+    assert graph_report["native_partial_burst_replay_enabled"] is False
     assert graph_report["native_burst_replay_backend"] == "native_repeated_child_graph"
     assert graph_report["native_burst_replay_parent_graph_count"] == 2
+    assert graph_report["native_burst_replay_parent_graph_token_counts"] == [8]
     assert graph_report["native_burst_replay_success_count"] == 4
     assert graph_report["native_burst_replay_token_count"] == 32
+    assert graph_report["native_burst_replay_lazy_compile_count"] == 0
+    assert graph_report["native_burst_replay_python_loop_token_count"] == 0
     assert graph_report["native_burst_replay_fallback_count"] == 0
     assert graph_report["native_burst_replay_failure_count"] == 0
     assert graph_report["burst_replay_count"] == 4
@@ -1427,6 +1431,123 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["quantum_input_stage_count"] == 1
     assert graph_report["quantum_input_staged_token_count"] == 32
     assert graph_report["quantum_input_reuse_count"] == 32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_training_owned_partial_sequence_uses_lazy_native_parent_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MARULHO_CUDA_GRAPH_NATIVE_PARTIAL_BURST_REPLAY", "1")
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=128,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=33,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=256,
+        slow_memory_archive_strong_capture_threshold=10.0,
+        trainer_telemetry_interval_tokens=64,
+        device="cuda",
+    )
+    torch.manual_seed(20260615)
+    sequential = MarulhoTrainer(MarulhoModel(config), config)
+    torch.manual_seed(20260615)
+    sequence = MarulhoTrainer(MarulhoModel(config), config)
+    warm_pattern = torch.rand(config.input_dim, device="cuda")
+    patterns = [
+        torch.rand(config.input_dim, device="cuda")
+        for _ in range(18)
+    ]
+    raw_windows = [
+        f"partial native burst replay {index}"
+        for index in range(18)
+    ]
+    for trainer in (sequential, sequence):
+        trainer.train_step(
+            warm_pattern,
+            raw_window="partial native burst replay warmup",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+    for pattern, raw_window in zip(patterns, raw_windows):
+        sequential.train_step(
+            pattern,
+            raw_window=raw_window,
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+
+    result = sequence.train_text_sequence(
+        patterns,
+        raw_windows=raw_windows,
+        quantum_tokens=16,
+        metric_indices=set(),
+    )
+    torch.cuda.synchronize()
+
+    assert result["trained"] == 18
+    assert result["quantum_count"] == 2
+    for sequential_tensor, sequence_tensor in (
+        (
+            sequential.model.competitive.prototypes,
+            sequence.model.competitive.prototypes,
+        ),
+        (
+            sequential.model.competitive.prototype_velocity,
+            sequence.model.competitive.prototype_velocity,
+        ),
+        (
+            sequential.model.competitive.thresholds,
+            sequence.model.competitive.thresholds,
+        ),
+        (
+            sequential.model.competitive.recent_spike_window,
+            sequence.model.competitive.recent_spike_window,
+        ),
+        (
+            sequential.model.predictive.location,
+            sequence.model.predictive.location,
+        ),
+        (
+            sequential.model.predictive.velocity,
+            sequence.model.predictive.velocity,
+        ),
+        (
+            sequential.model.predictive._prediction_weights,
+            sequence.model.predictive._prediction_weights,
+        ),
+        (
+            sequential.model.predictive.prediction_error,
+            sequence.model.predictive.prediction_error,
+        ),
+    ):
+        assert torch.equal(sequential_tensor, sequence_tensor)
+    assert sequence.token_count == sequential.token_count == 19
+    report = sequence.column_transition_runtime_report()
+    graph_report = report["cuda_graph_route_transition"]
+    assert report["text_burst_execution_count"] == 3
+    assert report["text_burst_token_count"] == 18
+    assert report["text_burst_fallback_count"] == 0
+    assert graph_report["native_partial_burst_replay_enabled"] is True
+    assert graph_report["native_burst_replay_parent_graph_count"] == 3
+    assert graph_report["native_burst_replay_parent_graph_token_counts"] == [2, 8]
+    assert graph_report["native_burst_replay_success_count"] == 3
+    assert graph_report["native_burst_replay_token_count"] == 18
+    assert graph_report["native_burst_replay_lazy_compile_count"] == 1
+    assert graph_report["native_burst_replay_lazy_compile_failure_count"] == 0
+    assert graph_report["native_burst_replay_fallback_count"] == 0
+    assert graph_report["native_burst_replay_python_loop_token_count"] == 0
+    assert graph_report["native_burst_replay_failure_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

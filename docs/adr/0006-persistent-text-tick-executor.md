@@ -234,6 +234,16 @@ cognitive-quality evidence, and grounded fallback gates.
   `native_burst_replay_compile_latency_ms=6202.4909`. This is a startup
   slow-path cost, not measured token throughput, and must remain visible in
   Runtime Truth.
+- Partial native parent graphs for non-eight-token burst tails remain opt-in.
+  A 16640-token stress shape with `tick_tokens=130` proved the opt-in path can
+  cover two-token tails with native parent graphs (`parent_graph_token_counts`
+  `[2, 8]`, `lazy_compile_count=2`, zero native fallbacks), but complete
+  runtime regressed to `2786.829 tokens/sec` versus `2907.600` with the default
+  partial Python replay fallback. The same run exposed the bigger hazard:
+  unaligned tick width forced `384` host-truth burst fallbacks. The maintained
+  fast path therefore keeps exact eight-token native replay plus aligned
+  128-token source ticks, and treats partial native replay as diagnostic input
+  for a future lower-level multi-tick executor.
 
 ## Reversal
 
