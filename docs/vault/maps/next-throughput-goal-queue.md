@@ -24,7 +24,7 @@ Generated: 2026-06-15
 
 This note turns the current throughput and living-brain research direction into copy-ready `/goal` prompts. It follows the Codex goal pattern: one durable objective, a verifiable stopping condition, required context to inspect first, validation commands/artifacts, and constraints that must remain intact.
 
-Each prompt below is intentionally multi-iteration. A completed iteration should commit and report evidence, but the `/goal` itself should remain active until its durable completion condition is actually met, the user redirects it, or the agent is genuinely blocked.
+Each prompt below is intentionally multi-iteration and kept below the 4,000-character `/goal` limit. A completed iteration should commit and report evidence, but the `/goal` itself should remain active until its durable completion condition is actually met, the user redirects it, or the agent is genuinely blocked.
 
 Use the full north-star spec at `docs/goals/marulho-living-runtime-goal.md` as shared context for every goal below. Use `docs/vault/` as the refined Obsidian/Graphify navigation layer; treat `graphify-out/` as an ignored generated cache. Current source, tests, benchmark reports, and Runtime Truth remain more authoritative than stale docs or generated graph output.
 
@@ -63,23 +63,23 @@ Use the full north-star spec at `docs/goals/marulho-living-runtime-goal.md` as s
 ## Goal 1: Device-Owned Multi-Tick Executor v0
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward a true device-owned multi-tick executor for the promoted CUDA text path. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward a true device-owned multi-tick executor for the promoted CUDA text path. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue to the next highest-leverage continuation unless blocked, redirected, or the durable completion condition is met.
 
 Objective: reduce or bypass the remaining per-token host/graph-launch boundary in the promoted text runtime without skipping sequential SNN state updates. Start from the current exact fast shape: 1024 columns, 64 column dim, k=10, text-only CUDA checkpoint, `tick_tokens=128`, `execution_quantum_tokens=16`, host-truth cadence 32, exact eight-token native parent graph replay. The goal is not another local wrapper; it is a larger device-owned sequence boundary or a defensible prototype proving why the next lower-level executor must be C++/CUDA/Triton/hybrid.
 
-Inspect first: `CONTEXT.md`, ADR 0005 and ADR 0006, `docs/retired-paths.md`, `docs/research-living-brain.md`, `docs/vault/benchmarks/hot-path-latency.md`, `docs/vault/modules/training.md`, `docs/vault/concepts/column-runtime.md`, `src/marulho/training/cuda_graph_route_transition.py`, `src/marulho/training/trainer.py`, `src/marulho/training/column_transition_runtime.py`, `src/marulho/core/fused_route_vote_cuda.py`, `src/marulho/core/inplace_column_cuda.py`, `src/marulho/core/native_cuda_graph_replay.cpp`, and the current long-run reports under `reports/base_comparison_20260615/`.
+Inspect first: `CONTEXT.md`, ADR 0006, `docs/retired-paths.md`, `docs/research-living-brain.md`, `docs/vault/benchmarks/hot-path-latency.md`, training vault notes, the CUDA/text executor modules, `native_cuda_graph_replay.cpp`, and current long-run reports under `reports/base_comparison_20260615/`.
 
-Research requirements: use current CUDA Graph, persistent kernel/RNN, FlashRNN, Triton persistent-kernel, NeuronSpark fused PLIF, and PyTorch CUDA Graph guidance before choosing the executor boundary. Document research only if it changes implementation direction.
+Research CUDA Graphs, persistent kernels/RNNs, FlashRNN, Triton persistent kernels, NeuronSpark fused PLIF, and PyTorch CUDA Graph guidance before choosing the executor boundary. Document research only when it changes implementation direction.
 
-Hard constraints: protect the hot path; do not reintroduce direct one-block route/vote fusion or partial-native tail replay as defaults; do not move algorithms into `service`; do not trade throughput for decorative scalar reports; preserve pre-mutation fallback and fail-closed post-launch behavior; keep startup/capture cost visible but outside measured warm throughput.
+Hard constraints: protect the hot path; do not revive direct one-block route/vote fusion or partial-native tail replay as defaults; do not move algorithms into `service`; do not trade throughput for decorative scalar reports; preserve fail-closed fallback; keep startup/capture cost visible but outside warm throughput.
 
 Iteration success criteria: produce a contained implementation or benchmark-grade prototype that either beats `4992.049 tokens/sec` on a clean `131072` token sustained CUDA run or proves with profiling that the next executor must move lower than the current Python/CUDA Graph boundary. Runtime Truth must expose which executor ran, token coverage, failures/fallbacks, device evidence, host-truth cadence, startup compile/capture cost, and whether sequential state parity or bounded cognitive-quality gates passed.
 
 Durable completion condition: complete this goal only when the promoted runtime has a measured device-owned sequence executor that consistently beats the retained sustained ceiling on comparable long CUDA runs, or when profiling and prototype evidence commits a lower-level executor ADR proving no safe local path remains inside the current architecture.
 
-Verification: run focused parity tests for state mutation order, CUDA failure/fallback tests, py_compile, relevant `pytest` tests, and at least one long warm sustained run comparable to `reports/base_comparison_20260615/current-native-131072-i32.json`. Include `velocity_environment.v1` or explain why unavailable.
+Verification: run parity/fallback tests, py_compile, relevant pytest, and at least one long warm sustained run comparable to `current-native-131072-i32.json`. Include `velocity_environment.v1` or explain why unavailable.
 
 Docs: update `CONTEXT.md`, ADR 0006 or a new ADR if the executor boundary is hard to reverse, `docs/research-living-brain.md`, `docs/retired-paths.md` for rejected executor attempts, and `docs/vault/benchmarks/hot-path-latency.md`. Rebuild and validate the vault when docs change.
 
@@ -89,13 +89,13 @@ Commit after each meaningful completed iteration. Stop and report instead of inv
 ## Goal 2: Column-Society Execution Scheduler
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward a Thousand-Brains-style column-society execution scheduler. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward a Thousand-Brains-style column-society execution scheduler. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: move Column Runtime from mostly report-only evidence toward a real scheduler boundary where many columns may exist, but only a small relevant subset wakes per tick. Each column should have role, state, prediction, surprise, usefulness, cost, memory pressure, cached vote, and wake/sleep reason. Awake columns per tick must stay bounded even as total columns grow.
 
-Inspect first: `CONTEXT.md`, `docs/vault/concepts/column-runtime.md`, `docs/vault/maps/runtime-truth-surface-map.md`, `docs/research-living-brain.md`, `docs/retired-paths.md`, `src/marulho/core/column_runtime.py`, `src/marulho/core/predictive_columns.py`, `src/marulho/core/columns.py`, `src/marulho/training/trainer.py`, `src/marulho/training/cognitive_boundary_controller.py`, `src/marulho/service/status_read_model.py`, and column runtime tests/benchmarks.
+Inspect first: `CONTEXT.md`, column/runtime-truth vault notes, `docs/research-living-brain.md`, `docs/retired-paths.md`, `core.column_runtime`, predictive column code, trainer/cognitive boundary code, status projection, and column tests/benchmarks.
 
 Research requirements: use Thousand Brains/Monty/CMP, sparse MoE routing, Expert Choice capacity routing, predictive coding, and neuromorphic metabolism to choose the scheduler contract. Hopfield recall may be used only inside a column as bounded recall, not as a global mind.
 
@@ -115,13 +115,13 @@ Commit after each meaningful completed iteration. Stop and report if scheduler t
 ## Goal 3: Spike-Native Language and Verified Readout v0
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward MARULHO-owned spike-native language/readout. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward MARULHO-owned spike-native language/readout. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: build the next real language-from-spikes step without importing a hidden LLM or external checkpoint as cognition. The target is a bounded MARULHO-owned sparse sequence/readout module that can learn or evaluate next-symbol/readout trajectories from Subcortex evidence, with grounding and Runtime Truth gates. Multi-token/speculative readout may be explored only as a verified draft mechanism: cheap local spike-readout drafts, grounded Subcortex verification, accepted prefix evidence.
 
-Inspect first: `CONTEXT.md`, `docs/vault/concepts/language-from-spikes.md`, `docs/research-living-brain.md`, ADR 0005, SNN language/readout service ledger/executor modules, `src/marulho/semantics/spike_language_neurons.py`, `src/marulho/semantics/language_surface.py`, language/readout tests, and any SNN language capacity mutation/replay gates.
+Inspect first: `CONTEXT.md`, language-from-spikes vault notes, `docs/research-living-brain.md`, ADR 0005, SNN language/readout modules, language surface/neuron code, tests, and capacity mutation/replay gates.
 
 Research requirements: use NeuronSpark, SpikeGPT, SpikingSSMs, Nord-AI as inspiration; use Medusa/MTP/speculative decoding only as a verification pattern; use Nemotron datasets only as optional slow-path training/evaluation data sources, never as hidden runtime cognition.
 
@@ -141,13 +141,13 @@ Commit after each meaningful completed iteration. Stop and report if data, GPU m
 ## Goal 4: Growth/Pruning Promotion Pipeline
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward reversible self-growth and pruning. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward reversible self-growth and pruning. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: turn repeated prediction failure, surprise, uselessness, redundancy, cost, or instability into a checkpoint-backed candidate growth/pruning pipeline. Candidate columns/synapses must prove usefulness before trust, and weak/slow/noisy structures must sleep, weaken, archive, or become prune-eligible without mutating the always-on runtime unsafely.
 
-Inspect first: `CONTEXT.md`, `docs/vault/concepts/column-runtime.md`, `docs/vault/papers/structural-plasticity.md`, `docs/research-living-brain.md`, `docs/retired-paths.md`, `src/marulho/core/predictive_columns.py`, `src/marulho/core/hypercube.py`, `src/marulho/core/plasticity.py`, `src/marulho/training/developmental_runner.py`, `src/marulho/evaluation/binding_growth_trial.py`, structural mutation ledgers, checkpointing, and service read-only trial endpoints.
+Inspect first: `CONTEXT.md`, column/plasticity vault notes, `docs/research-living-brain.md`, `docs/retired-paths.md`, predictive columns, hypercube, plasticity, developmental runner, binding growth trial, mutation ledgers, checkpointing, and service read-only trial endpoints.
 
 Research requirements: use structural plasticity, reward-modulated STDP, homeostatic plasticity, sparse GPU structural plasticity, event-based delay learning, and self-growing neural-network work to design local evidence and budgets. Research does not override MARULHO's operator-reviewed rollback gate.
 
@@ -167,13 +167,13 @@ Commit after each meaningful completed iteration. Stop and report if mutation sa
 ## Goal 5: Local Recall and Replay Windows
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward bounded local recall and replay/consolidation that improves cognition without taxing the live tick. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward bounded local recall and replay/consolidation that improves cognition without taxing the live tick. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: make memory more useful while preserving velocity. Use modern-Hopfield-style recall only as bounded associative recall inside a column or replay window. Keep archival storage CPU-resident unless active replay computation benefits from CUDA. Replay must be selected, measured, and cadenced, not every-token background work.
 
-Inspect first: `CONTEXT.md`, `docs/vault/concepts/column-runtime.md`, `docs/vault/papers/replay-consolidation.md`, `docs/vault/benchmarks/hot-path-latency.md`, `docs/research-living-brain.md`, `src/marulho/core/column_runtime.py`, memory store/consolidation modules, replay runners, `src/marulho/training/trainer.py`, and replay/consolidation tests.
+Inspect first: `CONTEXT.md`, column/replay/benchmark vault notes, `docs/research-living-brain.md`, column runtime, memory/consolidation modules, replay runners, trainer, and replay/consolidation tests.
 
 Research requirements: use modern Hopfield networks, complementary learning systems, continual-learning replay, synaptic tagging/capture, and sparse replay literature. Treat attention-like recall as a local memory operator, not as a transformer mind.
 
@@ -193,9 +193,9 @@ Commit after each meaningful completed iteration. Stop and report if quality evi
 ## Goal 6: Autonomous Research/Data Acquisition Slow Loop
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward an autonomous research and data acquisition slow loop. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward an autonomous research and data acquisition slow loop. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: replace brittle/default source assumptions with an explicit slow-path pipeline that can search, select, cache, inspect, and evaluate useful local data sources for MARULHO training/evaluation. Prioritize licensed, high-signal corpora and MARULHO-relevant tasks. Hugging Face/Nemotron datasets may be researched and sampled, but ingestion must remain explicit and not part of the always-on tick.
 
@@ -219,13 +219,13 @@ Commit after each meaningful completed iteration. Stop and report if licensing, 
 ## Goal 7: Runtime Truth and Control Room Parity
 
 ```text
-/goal Advance MARULHO through repeated evidence-backed work cycles toward Runtime Truth and control-room parity with the promoted high-throughput path. Use $marulho-grill-with-docs as the operating skill.
+/goal Advance MARULHO through repeated evidence-backed iterations toward Runtime Truth and control-room parity with the promoted high-throughput path. Use $marulho-grill-with-docs as the operating skill.
 
-Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian navigation layer. Treat this goal as the active completion contract across multiple iterations. Do not mark it complete after one implementation/report cycle; after each completed iteration, commit, report evidence, then continue to the next highest-leverage continuation inside this same goal unless blocked, redirected by the user, or the durable completion condition below is actually met.
+Use `docs/goals/marulho-living-runtime-goal.md` as north-star context and `docs/vault/` as the refined Graphify/Obsidian layer. This is a multi-iteration goal: do not mark it complete after one slice. After each meaningful iteration, commit, report evidence, then continue unless blocked, redirected, or the durable completion condition is met.
 
 Objective: make the operator-facing control room show the same promoted runtime path that benchmarks prove, without adding hot-path reporting tax. The UI/status layer should expose true current throughput, long-run evidence, executor mode, CUDA/device truth, contention, fallback reasons, host-truth cadence, and startup cost. It must not imply slow UI demos are the real cognitive velocity, and it must not poll in a way that reduces speed.
 
-Inspect first: `CONTEXT.md`, `docs/vault/concepts/runtime-truth.md`, `docs/vault/maps/runtime-truth-surface-map.md`, `docs/vault/benchmarks/hot-path-latency.md`, service Runtime Truth projection modules, status read model, API schemas/tests, MARULHO_UI only if UI parity is part of the work, and current benchmark reports.
+Inspect first: `CONTEXT.md`, runtime-truth/benchmark vault notes, service Runtime Truth projection modules, status read model, API schemas/tests, MARULHO_UI only if UI parity is part of the work, and current benchmark reports.
 
 Research requirements: no major external research is required unless changing CUDA/reporting architecture. Use OpenAI goal guidance for completion criteria and MARULHO Runtime Truth docs for evidence boundaries.
 
