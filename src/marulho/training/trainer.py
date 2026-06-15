@@ -733,7 +733,7 @@ class MarulhoTrainer:
         runtime.graph_empty_revival_tensor_reuse_count += token_count
         runtime.execution_count += token_count
         runtime.last_execution_mode = "cuda_graph_route_transition_burst"
-        runtime.last_selection_mode = "fused_route_vote_triton"
+        runtime.last_selection_mode = "fused_route_vote_cuda"
         comp.last_input_plasticity_mode = "skipped_zero_blend"
         comp.input_plasticity_skip_count += token_count
         comp.last_revived_indices = runtime._empty_revived_indices
@@ -1288,6 +1288,49 @@ class MarulhoTrainer:
             candidates,
             target_count=target_count,
         ).candidates()
+
+    def _route_vote_owner_wake_plan(
+        self,
+        candidates: torch.Tensor,
+    ) -> ColumnWakePlan:
+        snapshot = self._column_transition_runtime.route_sleep_filter_snapshot()
+        filter_enabled = bool(snapshot.get("enabled", False))
+        fallback_reason = snapshot.get("fallback_reason")
+        if filter_enabled:
+            mode = (
+                "candidate_deep_sleep_filter_route_vote_fallback"
+                if fallback_reason
+                else "candidate_deep_sleep_filter_route_vote"
+            )
+            wake_reason = "route_vote_primary_score_not_in_deep_sleep"
+            sleep_reason = "deep_sleep_route_score_masked_before_topk_vote"
+            filtered_count = int(snapshot.get("filtered_deep_sleep_count", 0) or 0)
+            backfill_count = int(snapshot.get("sleep_backfill_count", 0) or 0)
+        else:
+            mode = "candidate_deep_sleep_filter_route_vote_not_due"
+            fallback_reason = (
+                "candidate_deep_sleep_filter_no_column_can_be_deep_sleep_yet"
+                if self.token_count < int(self.config.dead_column_steps)
+                else "candidate_deep_sleep_filter_not_due"
+            )
+            wake_reason = "route_vote_selected_candidate_before_sleep_gate"
+            sleep_reason = None
+            filtered_count = 0
+            backfill_count = 0
+        plan = self._build_column_wake_plan(
+            mode=mode,
+            awake_indices=candidates,
+            input_candidate_count=int(
+                snapshot.get("input_candidate_count", int(candidates.numel())) or 0
+            ),
+            filtered_deep_sleep_count=filtered_count,
+            backfill_candidate_count=backfill_count,
+            fallback_reason=fallback_reason,
+            wake_reason=wake_reason,
+            sleep_reason=sleep_reason,
+        )
+        self._record_column_wake_plan(plan)
+        return plan
 
     def _routing_wake_plan(
         self,
@@ -2504,17 +2547,7 @@ class MarulhoTrainer:
             )
             candidates = None if wake_plan is None else wake_plan.candidates()
         else:
-            wake_plan = self._build_column_wake_plan(
-                mode="candidate_deep_sleep_filter_route_vote_owner_fallback",
-                awake_indices=candidates,
-                input_candidate_count=int(candidates.numel()),
-                filtered_deep_sleep_count=0,
-                backfill_candidate_count=0,
-                fallback_reason="fused_or_graph_route_vote_preselected_candidates",
-                wake_reason="preselected_by_fused_or_graph_route_vote",
-                sleep_reason="route_vote_owner_retains_candidate_set",
-            )
-            self._record_column_wake_plan(wake_plan)
+            wake_plan = self._route_vote_owner_wake_plan(candidates)
 
         # Predictive column consensus voting: columns that agree with
         # recent winners get a routing boost (Thousand Brains voting).
@@ -2585,6 +2618,14 @@ class MarulhoTrainer:
                 predictive_vote_materialized_candidates
             ),
         )
+        if (
+            candidates is not None
+            and wake_plan is not None
+            and str(wake_plan.mode).startswith(
+                "candidate_deep_sleep_filter_route_vote"
+            )
+        ):
+            wake_plan = self._route_vote_owner_wake_plan(candidates)
         def _materialize_winner_ids() -> tuple[list[int], int]:
             nonlocal winner_id_list, winner_id, profile_last
             if winner_id_list is not None and winner_id is not None:

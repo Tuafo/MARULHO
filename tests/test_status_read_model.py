@@ -299,6 +299,13 @@ class StatusReadModelConstructionTests(unittest.TestCase):
 
         self.assertNotIn("SensoryPreviewMixin", source)
 
+    def test_read_model_does_not_own_column_sleep_routing(self) -> None:
+        source = Path("src/marulho/service/status_read_model.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("search_tensors", source)
+        self.assertNotIn("route_sleep_filter", source)
+        self.assertNotIn("steps_since_win", source)
+
 
 class StatusReadModelStatusTests(unittest.TestCase):
     """StatusReadModel.status() produces valid snapshots with correct payload keys."""

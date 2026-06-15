@@ -1,4 +1,4 @@
-"""Benchmark the evaluation-only two-launch Triton route and vote probe."""
+"""Benchmark the production two-launch Triton route and vote kernel."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import time
 import torch
 
 from marulho.core.inplace_column_cuda import select_fused_vote_competition_cuda
+from marulho.core.fused_route_vote_cuda import fused_route_vote_cuda
 from marulho.evaluation.compiled_hot_path_kernel_benchmark import (
     _routing_tensor_cache,
 )
-from marulho.evaluation.fused_route_vote_triton import fused_route_vote_cuda
 from marulho.training.checkpointing import load_trainer_checkpoint
 
 
@@ -114,6 +114,12 @@ def run_fused_route_vote_benchmark(
     fused_strength = torch.empty(1, device=device)
     fused_positive = torch.empty((), dtype=torch.bool, device=device)
     fused_reconstruction_error = torch.empty(1, device=device)
+    route_filter_control = torch.tensor(
+        [0, int(trainer.config.dead_column_steps)],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(8, dtype=torch.long, device=device)
 
     def production_step(key: torch.Tensor) -> torch.Tensor:
         candidates, _ = trainer.model.hnsw_index.search_tensors(
@@ -139,10 +145,13 @@ def run_fused_route_vote_benchmark(
             routing_key=key,
             routing_vectors=routing_vectors,
             routing_ids=routing_ids,
+            steps_since_win=comp.steps_since_win,
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=trainer.model.predictive.location,
             previous_winner=fused_previous,
+            route_filter_control=route_filter_control,
+            route_filter_state_out=route_filter_state,
             scores_out=fused_scores,
             candidates_out=fused_candidates,
             winner_out=fused_winner,

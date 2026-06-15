@@ -39,6 +39,8 @@ When that gate is ready, the explicit binding-growth trial endpoint can ask core
 
 `PredictiveColumnState` also records the last predictive location/update scope, lazy predictive materialization scope, and the last predictive-vote execution scope. `candidate_predictive_update_start_tokens` now separates predictive-state wake from structural dead-column retirement: after that gate, location/velocity decay, prediction error, confidence, failure streaks, and high-prediction non-winner decay update only for the routed awake mask while non-candidate state remains cached on the retained CPU route and promoted fused CUDA route. If a non-awake column later appears in the routed candidate set, `PredictiveColumnState` advances only that candidate through missed non-winner predictive updates before vote/scoring uses its state. The retained CPU route now applies prediction error, location/velocity, prediction-weight decay, and cached-state materialization through one candidate predictive transition rather than re-canonicalizing the same awake set across three split calls. Vote and update can share one candidate materialization in a tick, and a repeated materialization request for the same completed candidate set reports `candidate_subset_completed_noop`. Checkpoint restore recomputes the cached-column flag from predictive step stamps so a restored runtime still wakes stale predictive columns correctly. Predictive wake currently keeps ordered replay for cached candidates because vectorized closed-form replacements improved cost but failed repeated long winner-parity checks near fallback-threshold boundaries. `CompetitiveColumnLayer` does the same for missed zero-activity homeostasis and fallback threshold-relaxation events, preserving dense update order without a hot-path all-column tax. The retained trainer route may first request a bounded backfill pool, sort it by retrieval distance, and remove candidate columns already at the deep-sleep threshold; before `dead_column_steps` is reachable, it skips backfill and reports `candidate_deep_sleep_filter_no_column_can_be_deep_sleep_yet` because no candidate can truthfully be deep-sleep eligible yet. If every retrieved candidate is deep-sleeping, it falls back to the bounded retrieved set and reports the reason. For retained predictive voting, the trainer obtains routing candidates before consensus voting, then recomputes agreement only for the awake mask and reuses cached gains for the other columns. On CUDA predictive updates, eager candidate indexing remains rejected: the 2026-06-15 isolated writeback experiment measured `7.0080195312499995 ms` mean for eager candidate indexing versus `3.080762890625 ms` dense writeback. The promoted fused in-place/graph route updates only the wake-plan candidates inside the existing transition launch, stamps those rows on device, and reports `candidate_predictive_transition_mode=fused_inplace`, active/fallback truth, execution count, and cached-row count. Unsupported gate ordering falls back before claiming sparse predictive updates.
 
+The CUDA route-vote owner now applies the deep-sleep gate before candidate vote/winner selection by masking route-score rows inside `core.fused_route_vote_cuda`. This is not a post-selection status projection: `ColumnTransitionRuntime` stages a two-value device control tensor, the graph/fused route writes an eight-value device state packet, and `MarulhoTrainer` builds the `ColumnWakePlan` from that training-owned route evidence. The state packet is mirrored on a cadence, not every token, so Runtime Truth can expose filtered count and fallback reason without adding a hot-path all-column scan. If fewer than `k` awake route rows exist, the implementation keeps the unfiltered fixed-k route result and reports `insufficient_awake_route_scores_after_deep_sleep_filter`.
+
 `bounded_column_associative_recall` is a core helper for one column's local memory. It uses modern-Hopfield/attention-like top-k retrieval over a capped memory matrix, returns weights and a recalled vector on the caller's device, and never mutates runtime state. It is not a whole-mind memory, language model, or always-on runtime path.
 
 ## Latest Local Evidence
@@ -199,6 +201,20 @@ returned to the documented sustained band at `6141.078 tokens/sec` with
 `0.004710 ms/token` finalize, no observed contention, zero sequence/native
 failures or fallbacks, `130816` fused candidate predictive updates, and
 `132647424` cached predictive rows.
+
+The next scheduler slice fused deep-sleep route filtering into the route-vote
+owner instead of leaving CUDA sleep as a fallback label. The final longer stress
+gate at
+`reports/column_scheduler_20260615/route-vote-sleep-filter-131072-i32-sync-cadence.json`
+processed `131072` tokens at `6135.026 tokens/sec` with
+`train_compute=0.133995 ms/token`, no observed CPU/GPU contention, `8190`
+conditional sequence-loop launches covering `131040` tokens, and zero
+sequence/native fallbacks or failures. Runtime Truth reported
+`route_vote_deep_sleep_filter.v1` enabled on `cuda:0`, filtering `1014` of
+`1024` route rows down to `10` eligible route candidates, no fallback reason,
+one control update, and `129` state syncs. This is effectively the same
+6k-ish throughput band as the `6141.078 tokens/sec` fused predictive baseline,
+but train-compute cost remains higher and should stay on the next speed queue.
 
 The corresponding longer CUDA stress check at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-scheduler-slots.json`

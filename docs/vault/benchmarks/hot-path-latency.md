@@ -1284,3 +1284,41 @@ gate supplied repeated paired clean long runs in both orders, fallback tests for
 unavailable conditional construction, fail-closed launch-failure coverage, and
 an ADR/config decision. Conditional-WHILE q16 is now the maintained eligible
 default, while native8 repeated-child replay remains fallback and opt-out.
+
+### Route-Vote Deep-Sleep Filter In Fused CUDA Route, 2026-06-15
+
+The scheduler slice moved deep-sleep filtering into the fused CUDA route-vote
+owner instead of filtering candidates after graph/fused route-vote had already
+selected a winner. `core.fused_route_vote_cuda` now reads the existing
+route-score rows plus `steps_since_win`, masks deep-sleep rows before route
+top-k vote, writes an eight-field `route_vote_deep_sleep_filter.v1` device state
+packet, and lets training build the `ColumnWakePlan`. There is no extra
+all-column sleep scan; fallback remains explicit when the route rows do not
+contain enough awake candidates.
+
+The first clean long run at
+`reports/column_scheduler_20260615/route-vote-sleep-filter-131072-i32.json`
+proved the execution effect but was slower: `5930.322 tokens/sec` with
+`train_compute=0.139577 ms/token`, no observed contention, and `4097` filter
+state syncs. That sync cadence was too eager because the filter count is Runtime
+Truth evidence, not per-token transition input.
+
+The promoted cadence run at
+`reports/column_scheduler_20260615/route-vote-sleep-filter-131072-i32-sync-cadence.json`
+kept the same `131072`-token, `tick_tokens=128`, q16 conditional-WHILE, host
+truth interval `32` shape and reached `6135.026 tokens/sec` with
+`train_compute=0.133995 ms/token`, no observed CPU/GPU contention, `8190`
+conditional sequence-loop launches over `131040` burst tokens, and zero
+sequence/native fallbacks or failures. Runtime Truth reported
+`route_vote_deep_sleep_filter.v1` enabled on `cuda:0`, input route rows `1024`,
+output candidates `10`, filtered deep-sleep rows `1014`, eligible route rows
+`10`, no fallback reason, one control update, `129` state syncs, and
+`state_dirty=false`.
+
+Compared with the fused candidate-predictive baseline at
+`reports/column_scheduler_20260615/promoted-fused-candidate-predictive-131072-i32.json`
+(`6141.078 tokens/sec`, `train_compute=0.126682 ms/token`), throughput is
+effectively the same 6k-ish band while train compute still regresses by about
+`0.0073 ms/token`. Keep the route-vote sleep filter as the real scheduler
+boundary, but the next speed pass should reduce the remaining route/filter
+bookkeeping rather than add a new all-column sleep decision.

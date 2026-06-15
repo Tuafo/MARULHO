@@ -4,8 +4,10 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from marulho.evaluation.fused_route_vote_triton import fused_route_vote_cuda
-from marulho.core.fused_route_vote_cuda import fused_route_vote_kernel_variant
+from marulho.core.fused_route_vote_cuda import (
+    fused_route_vote_cuda,
+    fused_route_vote_kernel_variant,
+)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -43,6 +45,13 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
     )
     locations = torch.rand(vector_count, location_dim, device=device)
     previous_winner = torch.tensor([7], dtype=torch.long, device=device)
+    steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
+    route_filter_control = torch.tensor(
+        [0, 2000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(8, dtype=torch.long, device=device)
 
     search_key = F.normalize(routing_key.unsqueeze(0), dim=1)
     scores = search_key @ routing_vectors.T
@@ -83,10 +92,13 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
         routing_key=routing_key,
         routing_vectors=routing_vectors,
         routing_ids=routing_ids,
+        steps_since_win=steps_since_win,
         prototypes=prototypes,
         thresholds=thresholds,
         prediction_location=locations,
         previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
         scores_out=scores_out,
         candidates_out=candidates_out,
         winner_out=winner_out,
@@ -108,3 +120,166 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
         rtol=0.0,
         atol=1e-6,
     )
+    assert route_filter_state.tolist()[:3] == [0, 0, 0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_route_vote_masks_deep_sleep_before_candidate_vote() -> None:
+    torch.manual_seed(20260615)
+    device = torch.device("cuda")
+    vector_count = 16
+    column_dim = 8
+    location_dim = 4
+    candidate_count = 4
+    routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
+    routing_vectors = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    routing_ids = torch.arange(vector_count, device=device, dtype=torch.long)
+    scores = routing_key.unsqueeze(0) @ routing_vectors.T
+    unfiltered_positions = torch.topk(scores, k=candidate_count, dim=1).indices[0]
+    deep_sleep_ids = routing_ids[unfiltered_positions[:2]]
+    steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
+    steps_since_win[deep_sleep_ids] = 2000
+    route_filter_control = torch.tensor(
+        [1, 2000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(8, dtype=torch.long, device=device)
+    prototypes = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    thresholds = torch.full((vector_count,), 0.2, device=device)
+    locations = torch.rand(vector_count, location_dim, device=device)
+    previous_winner = torch.tensor([3], dtype=torch.long, device=device)
+    scores_out = torch.empty(vector_count, device=device)
+    candidates_out = torch.empty(
+        candidate_count,
+        dtype=torch.long,
+        device=device,
+    )
+    winner_out = torch.empty(1, dtype=torch.long, device=device)
+    strength_out = torch.empty(1, device=device)
+    had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
+
+    fused_route_vote_cuda(
+        routing_key=routing_key,
+        routing_vectors=routing_vectors,
+        routing_ids=routing_ids,
+        steps_since_win=steps_since_win,
+        prototypes=prototypes,
+        thresholds=thresholds,
+        prediction_location=locations,
+        previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
+        scores_out=scores_out,
+        candidates_out=candidates_out,
+        winner_out=winner_out,
+        strength_out=strength_out,
+        competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
+    )
+    torch.cuda.synchronize()
+
+    expected_awake_positions = torch.topk(
+        scores.masked_fill(steps_since_win.unsqueeze(0) >= 2000, -float("inf")),
+        k=candidate_count,
+        dim=1,
+    ).indices[0]
+    expected_awake_candidates = routing_ids[expected_awake_positions]
+    assert torch.equal(candidates_out, expected_awake_candidates)
+    assert not torch.isin(candidates_out, deep_sleep_ids).any()
+    state = route_filter_state.tolist()
+    assert state[0] == 1
+    assert state[1] == 1
+    assert state[2] == 2
+    assert state[3] == vector_count - 2
+    assert state[4] == 0
+    assert state[5] == vector_count
+    assert state[6] == candidate_count
+    assert state[7] == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_route_vote_backfills_when_awake_routes_are_insufficient() -> None:
+    torch.manual_seed(20260616)
+    device = torch.device("cuda")
+    vector_count = 12
+    column_dim = 8
+    location_dim = 4
+    candidate_count = 5
+    routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
+    routing_vectors = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    routing_ids = torch.arange(vector_count, device=device, dtype=torch.long)
+    scores = routing_key.unsqueeze(0) @ routing_vectors.T
+    awake_ids = torch.tensor([1, 7], dtype=torch.long, device=device)
+    steps_since_win = torch.full(
+        (vector_count,),
+        2000,
+        dtype=torch.long,
+        device=device,
+    )
+    steps_since_win[awake_ids] = 0
+    route_filter_control = torch.tensor(
+        [1, 2000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(8, dtype=torch.long, device=device)
+    prototypes = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    thresholds = torch.full((vector_count,), 0.2, device=device)
+    locations = torch.rand(vector_count, location_dim, device=device)
+    previous_winner = torch.tensor([3], dtype=torch.long, device=device)
+    scores_out = torch.empty(vector_count, device=device)
+    candidates_out = torch.empty(
+        candidate_count,
+        dtype=torch.long,
+        device=device,
+    )
+    winner_out = torch.empty(1, dtype=torch.long, device=device)
+    strength_out = torch.empty(1, device=device)
+    had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
+
+    fused_route_vote_cuda(
+        routing_key=routing_key,
+        routing_vectors=routing_vectors,
+        routing_ids=routing_ids,
+        steps_since_win=steps_since_win,
+        prototypes=prototypes,
+        thresholds=thresholds,
+        prediction_location=locations,
+        previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
+        scores_out=scores_out,
+        candidates_out=candidates_out,
+        winner_out=winner_out,
+        strength_out=strength_out,
+        competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
+    )
+    torch.cuda.synchronize()
+
+    expected = routing_ids[
+        torch.topk(scores, k=candidate_count, dim=1).indices[0]
+    ]
+    assert torch.equal(candidates_out, expected)
+    state = route_filter_state.tolist()
+    assert state[0] == 1
+    assert state[1] == 0
+    assert state[2] == 0
+    assert state[3] == int(awake_ids.numel())
+    assert state[4] == 1
+    assert state[7] == 0

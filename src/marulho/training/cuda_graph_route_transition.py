@@ -527,6 +527,8 @@ class CudaGraphRouteTransition:
                 self._burst_slot,
                 self._route_vectors,
                 self._input_slot,
+                runtime._route_sleep_filter_control,
+                runtime._route_sleep_filter_state,
             )
             snapshots = tuple(tensor.clone() for tensor in mutable)
             stream = torch.cuda.Stream(device=device)
@@ -609,10 +611,13 @@ class CudaGraphRouteTransition:
             routing_key=routing_key,
             routing_vectors=self._route_vectors,
             routing_ids=self._route_ids,
+            steps_since_win=comp.steps_since_win,
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=pred.location,
             previous_winner=runtime._previous_winner,
+            route_filter_control=runtime._route_sleep_filter_control,
+            route_filter_state_out=runtime._route_sleep_filter_state,
             scores_out=runtime._route_scores,
             candidates_out=runtime._route_candidates,
             winner_out=runtime._winner,
@@ -1349,6 +1354,7 @@ class CudaGraphRouteTransition:
             >= int(trainer.config.candidate_homeostasis_start_tokens)
             else "all_columns"
         )
+        self._runtime.prepare_route_sleep_filter_control()
         try:
             self._graphs[graph_name].replay()
         except Exception:
@@ -1363,6 +1369,7 @@ class CudaGraphRouteTransition:
         self.tick_replay_count += 1
         self.replay_count += 1
         self.route_cache_device_update_count += 1
+        self._runtime.mark_route_sleep_filter_state_dirty()
         self._last_graph_name = graph_name
         outputs = self._graph_outputs[graph_name]
         self.surprise_update_count += 1
@@ -1390,6 +1397,8 @@ class CudaGraphRouteTransition:
             self.host_truth_mirror_update_count += 1
             self._last_result = result
             self._last_result_from_host_sync = True
+            if self._route_filter_state_sync_due(sync_interval):
+                self._runtime.sync_route_sleep_filter_state_from_device()
             (
                 reconstruction_error,
                 predicted_error,
@@ -1456,6 +1465,16 @@ class CudaGraphRouteTransition:
                 )
             )
         )
+
+    def _route_filter_state_sync_due(self, sync_interval: int) -> bool:
+        if not self._runtime._route_sleep_filter_state_dirty:
+            return False
+        if int(sync_interval) <= 1:
+            return True
+        if self._runtime.route_vote_deep_sleep_filter_state_sync_count <= 0:
+            return True
+        cadence = max(1, int(sync_interval) * 32)
+        return self.replay_count % cadence == 0
 
     @torch.no_grad()
     def stage_input_quantum(self, patterns: list[torch.Tensor]) -> bool:
@@ -1613,6 +1632,7 @@ class CudaGraphRouteTransition:
             self.modulator_stage_copy_count += 1
         else:
             self.modulator_stage_skip_count += 1
+        self._runtime.prepare_route_sleep_filter_control()
         _profile_mark("text_burst_runtime_control_state")
 
         token_count = len(patterns)
@@ -1635,6 +1655,7 @@ class CudaGraphRouteTransition:
         self.burst_replay_count += 1
         self.burst_replayed_token_count += token_count
         self.route_cache_device_update_count += token_count
+        self._runtime.mark_route_sleep_filter_state_dirty()
         self.surprise_update_count += token_count
         self.previous_flag_device_owned_count += token_count
         self.learning_rate_device_owned_count += token_count
@@ -1719,6 +1740,18 @@ class CudaGraphRouteTransition:
         self.burst_event_slim_result_packet_count += 1
         self._last_result = result
         self._last_result_from_host_sync = True
+        sync_interval = max(
+            1,
+            int(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_host_truth_sync_interval_tokens",
+                    1,
+                )
+            ),
+        )
+        if self._route_filter_state_sync_due(sync_interval):
+            self._runtime.sync_route_sleep_filter_state_from_device()
         surprise = self._trainer.model.surprise
         (
             _reconstruction_error,
@@ -2180,6 +2213,9 @@ class CudaGraphRouteTransition:
                 "fused_route_score_max" if self.active else "retained_dense_scan"
             ),
             "route_vote_kernel_variant": self.route_vote_kernel_variant,
+            "route_vote_deep_sleep_filter": (
+                self._runtime.route_sleep_filter_snapshot()
+            ),
             "fused_reconstruction_error_active": bool(self.active),
             "fused_reconstruction_error_update_count": int(self.tick_replay_count),
             "graph_names": sorted(self._graphs),

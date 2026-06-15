@@ -81,9 +81,27 @@ class ColumnTransitionRuntime:
         self._route_ids: torch.Tensor | None = None
         self._route_scores: torch.Tensor | None = None
         self._route_candidates: torch.Tensor | None = None
-        self._route_reconstruction_error = torch.empty(1, device=trainer.model.device)
         comp = trainer.model.competitive
         device = trainer.model.device
+        self._route_reconstruction_error = torch.empty(1, device=device)
+        self._route_sleep_filter_control = torch.tensor(
+            [0, int(trainer.config.dead_column_steps)],
+            dtype=torch.long,
+            device=device,
+        )
+        self._route_sleep_filter_control_mirror = (
+            0,
+            int(trainer.config.dead_column_steps),
+        )
+        self._route_sleep_filter_state = torch.zeros(
+            8,
+            dtype=torch.long,
+            device=device,
+        )
+        self._route_sleep_filter_state_host = [0] * 8
+        self._route_sleep_filter_state_dirty = False
+        self.route_vote_deep_sleep_filter_control_update_count = 0
+        self.route_vote_deep_sleep_filter_state_sync_count = 0
         self._predictive_step_counter = torch.tensor(
             int(trainer.model.predictive.predictive_step_count),
             dtype=torch.long,
@@ -365,10 +383,13 @@ class ColumnTransitionRuntime:
                 ),
                 routing_vectors=vectors,
                 routing_ids=ids,
+                steps_since_win=self._trainer.model.competitive.steps_since_win,
                 prototypes=self._trainer.model.competitive.prototypes,
                 thresholds=self._trainer.model.competitive.thresholds,
                 prediction_location=self._trainer.model.predictive.location,
                 previous_winner=self._previous_winner,
+                route_filter_control=self._route_sleep_filter_control,
+                route_filter_state_out=self._route_sleep_filter_state,
                 scores_out=self._route_scores,
                 candidates_out=self._route_candidates,
                 winner_out=self._winner,
@@ -407,6 +428,91 @@ class ColumnTransitionRuntime:
             in {"fused_triton_text", "cuda_graph_text"}
         )
 
+    def route_sleep_filter_due(self) -> bool:
+        return bool(
+            self._trainer.token_count
+            >= int(self._trainer.config.candidate_deep_sleep_filter_start_tokens)
+            and self._trainer.token_count
+            >= int(self._trainer.config.dead_column_steps)
+        )
+
+    def prepare_route_sleep_filter_control(self) -> None:
+        enabled = 1 if self.route_sleep_filter_due() else 0
+        threshold = int(self._trainer.config.dead_column_steps)
+        desired = (enabled, threshold)
+        if desired == self._route_sleep_filter_control_mirror:
+            return
+        self._route_sleep_filter_control[0].fill_(enabled)
+        self._route_sleep_filter_control[1].fill_(threshold)
+        self._route_sleep_filter_control_mirror = desired
+        self.route_vote_deep_sleep_filter_control_update_count += 1
+
+    def mark_route_sleep_filter_state_dirty(self) -> None:
+        self._route_sleep_filter_state_dirty = True
+
+    def sync_route_sleep_filter_state_from_device(self) -> dict[str, Any]:
+        self._route_sleep_filter_state_host = [
+            int(value)
+            for value in self._route_sleep_filter_state.detach()
+            .to(device="cpu", dtype=torch.long)
+            .tolist()
+        ]
+        self._route_sleep_filter_state_dirty = False
+        self.route_vote_deep_sleep_filter_state_sync_count += 1
+        return self.route_sleep_filter_snapshot()
+
+    def route_sleep_filter_snapshot(self) -> dict[str, Any]:
+        state = list(self._route_sleep_filter_state_host)
+        enabled = bool(self._route_sleep_filter_control_mirror[0])
+        fallback_code = int(state[4]) if bool(state[0]) else 0
+        fallback_reason = {
+            1: "insufficient_awake_route_scores_after_deep_sleep_filter",
+            2: "all_route_scores_deep_sleep",
+        }.get(fallback_code)
+        route_input_count = (
+            int(self._route_ids.numel())
+            if self._route_ids is not None
+            else int(state[5])
+        )
+        route_output_count = (
+            int(self._route_candidates.numel())
+            if self._route_candidates is not None
+            else int(state[6])
+        )
+        state_enabled = bool(state[0])
+        state_current_for_control = bool(
+            state_enabled == enabled
+            and int(state[5]) == int(route_input_count)
+            and int(state[6]) == int(route_output_count)
+        )
+        return {
+            "surface": "route_vote_deep_sleep_filter.v1",
+            "enabled": enabled,
+            "state_enabled": state_enabled,
+            "state_current_for_control": state_current_for_control,
+            "input_candidate_count": route_input_count,
+            "output_candidate_count": route_output_count,
+            "filtered_deep_sleep_count": int(state[2]) if state_enabled else 0,
+            "eligible_route_count": (
+                int(state[3])
+                if state_enabled
+                else int(route_input_count)
+            ),
+            "sleep_backfill_count": int(state[7]) if state_enabled else 0,
+            "fallback_reason": fallback_reason,
+            "control_update_count": int(
+                self.route_vote_deep_sleep_filter_control_update_count
+            ),
+            "state_sync_count": int(
+                self.route_vote_deep_sleep_filter_state_sync_count
+            ),
+            "state_dirty": bool(self._route_sleep_filter_state_dirty),
+            "tensor_device": str(self._route_sleep_filter_state.device),
+            "claim_boundary": (
+                "training_owned_route_vote_masks_deep_sleep_rows_inside_existing_route_selection"
+            ),
+        }
+
     def route_candidates(
         self,
         routing_key: torch.Tensor,
@@ -422,6 +528,7 @@ class ColumnTransitionRuntime:
         if sensory_tick:
             self.route_vote_sensory_fallback_count += 1
             return None
+        self.prepare_route_sleep_filter_control()
         if (
             self._prepared_graph_token == self._trainer.token_count
             and self._cuda_graph_runtime is not None
@@ -499,6 +606,9 @@ class ColumnTransitionRuntime:
             thresholds=self._trainer.model.competitive.thresholds,
             prediction_location=self._trainer.model.predictive.location,
             previous_winner=self._previous_winner,
+            steps_since_win=self._trainer.model.competitive.steps_since_win,
+            route_filter_control=self._route_sleep_filter_control,
+            route_filter_state_out=self._route_sleep_filter_state,
             scores_out=route_scores,
             candidates_out=route_candidates,
             winner_out=self._winner,
@@ -511,6 +621,7 @@ class ColumnTransitionRuntime:
         comp.last_scored_column_count = int(route_candidates.numel())
         comp.last_execution_mode = "candidate_subset_fused_route_vote"
         self.route_vote_execution_count += 1
+        self.mark_route_sleep_filter_state_dirty()
         self._route_vote_ready = True
         return route_candidates
 
@@ -615,7 +726,7 @@ class ColumnTransitionRuntime:
             self._route_vote_ready = False
             self.selection_execution_count += 1
             self.fused_vote_competition_execution_count += 1
-            self.last_selection_mode = "fused_route_vote_triton"
+            self.last_selection_mode = "fused_route_vote_cuda"
             assert self._route_candidates is not None
             return self._winner, self._strength, self._route_candidates
         comp = self._trainer.model.competitive
@@ -903,6 +1014,8 @@ class ColumnTransitionRuntime:
         else:
             winner_id_list = winners.tolist()
             winner_id = int(winner_id_list[0])
+            if self._route_sleep_filter_state_dirty:
+                self.sync_route_sleep_filter_state_from_device()
         _profile_mark("column_transition_winner_readback")
         if (
             used_cuda_graph
@@ -1109,6 +1222,7 @@ class ColumnTransitionRuntime:
                 self.route_vote_prepared_graph_reuse_count
             ),
             "route_vote_kernel_variant": self.route_vote_kernel_variant,
+            "route_vote_deep_sleep_filter": self.route_sleep_filter_snapshot(),
             "graph_host_winner_reuse_count": int(
                 self.graph_host_winner_reuse_count
             ),

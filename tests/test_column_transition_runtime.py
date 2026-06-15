@@ -278,6 +278,70 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     assert runtime.route_vote_sensory_fallback_count == 1
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+@pytest.mark.parametrize("route_vote_mode", ["fused_triton_text", "cuda_graph_text"])
+def test_route_vote_sleep_filter_updates_trainer_wake_plan(
+    route_vote_mode: str,
+) -> None:
+    torch.manual_seed(20260615)
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode=route_vote_mode,
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        dead_column_steps=1,
+        candidate_deep_sleep_filter_start_tokens=0,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.token_count = 1
+    pattern = torch.rand(config.input_dim, device=trainer.model.device)
+    routing_key = trainer.model.routing_key_from_pattern(pattern)
+    expected, _ = trainer.model.hnsw_index.search_tensors(
+        routing_key.unsqueeze(0),
+        k=config.k_routing,
+    )
+    deep_sleep_ids = expected[0, :2].detach().clone()
+    trainer.model.competitive.steps_since_win.zero_()
+    trainer.model.competitive.steps_since_win[deep_sleep_ids] = int(
+        config.dead_column_steps
+    )
+
+    trainer.train_step(
+        pattern,
+        allow_sleep_maintenance=False,
+    )
+    torch.cuda.synchronize()
+
+    wake_plan = trainer.model.last_column_wake_plan
+    assert wake_plan.mode == "candidate_deep_sleep_filter_route_vote"
+    assert wake_plan.runs_all_columns is False
+    assert wake_plan.awake_count == config.k_routing
+    assert wake_plan.input_candidate_count == config.n_columns
+    assert wake_plan.filtered_deep_sleep_count == 2
+    assert wake_plan.sleep_reason == "deep_sleep_route_score_masked_before_topk_vote"
+    assert not torch.isin(wake_plan.candidates(), deep_sleep_ids).any()
+    route_filter = trainer.column_transition_runtime_report()[
+        "route_vote_deep_sleep_filter"
+    ]
+    assert route_filter["enabled"] is True
+    assert route_filter["state_current_for_control"] is True
+    assert route_filter["filtered_deep_sleep_count"] == 2
+    assert route_filter["state_sync_count"] >= 1
+
+
 def test_cuda_graph_route_transition_reports_pre_mutation_fallback_on_cpu() -> None:
     config = MarulhoConfig(
         n_columns=8,
