@@ -8,8 +8,87 @@ from marulho.core.column_transition import steady_state_column_transition
 from marulho.core.inplace_column_cuda import (
     candidate_predictive_writeback_cuda,
     inplace_column_transition_cuda,
+    warmup_inplace_column_transition_cuda,
 )
 from marulho.core.predictive_columns import dense_predictive_transition
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_inplace_column_transition_all_columns_warmup_uses_direct_membership() -> None:
+    device = torch.device("cuda")
+    generator = torch.Generator(device=device).manual_seed(20260618)
+    n_columns = 8192
+    column_dim = 8
+    location_dim = 8
+
+    prototypes = F.normalize(
+        torch.rand(n_columns, column_dim, generator=generator, device=device).clamp(
+            min=1e-6
+        ),
+        dim=1,
+    )
+    prototype_velocity = torch.zeros_like(prototypes)
+    thresholds = torch.full((n_columns,), 0.5, device=device)
+    win_rate_ema = torch.zeros(n_columns, device=device)
+    steps_since_win = torch.arange(n_columns, dtype=torch.long, device=device)
+    location = torch.zeros(n_columns, location_dim, device=device)
+    location_velocity = torch.zeros_like(location)
+    prediction_weights = torch.zeros_like(location)
+    prediction_error = torch.zeros(n_columns, device=device)
+    prediction_failure_streak = torch.zeros(
+        n_columns,
+        dtype=torch.int32,
+        device=device,
+    )
+    confidence = torch.zeros(n_columns, device=device)
+    recent_spike_window = torch.zeros(4, n_columns, device=device)
+    assembly = torch.empty(n_columns, device=device)
+    prediction_boost_out = torch.empty((), device=device)
+    effective_modulator_out = torch.empty((), device=device)
+    routing_key = F.normalize(
+        torch.rand(column_dim, generator=generator, device=device).clamp(min=1e-6),
+        dim=0,
+    )
+    previous_routing_key = torch.zeros(column_dim, device=device)
+    winners = torch.tensor([0], dtype=torch.long, device=device)
+    candidates = torch.arange(n_columns, dtype=torch.long, device=device)
+    consolidation = torch.zeros(n_columns, device=device)
+    competition_had_positive = torch.ones((), dtype=torch.bool, device=device)
+    recent_spike_row = torch.zeros((), dtype=torch.int32, device=device)
+
+    warmup_inplace_column_transition_cuda(
+        prototypes=prototypes,
+        prototype_velocity=prototype_velocity,
+        thresholds=thresholds,
+        win_rate_ema=win_rate_ema,
+        steps_since_win=steps_since_win,
+        location=location,
+        location_velocity=location_velocity,
+        prediction_weights=prediction_weights,
+        prediction_error=prediction_error,
+        prediction_failure_streak=prediction_failure_streak,
+        confidence=confidence,
+        recent_spike_window=recent_spike_window,
+        assembly=assembly,
+        prediction_boost_out=prediction_boost_out,
+        effective_modulator_out=effective_modulator_out,
+        routing_key=routing_key,
+        previous_routing_key=previous_routing_key,
+        winners=winners,
+        candidates=candidates,
+        consolidation=consolidation,
+        competition_had_positive=competition_had_positive,
+        recent_spike_row=recent_spike_row,
+        prototype_momentum=0.9,
+        homeostasis_beta=0.01,
+        homeostasis_lr=0.01,
+        target_firing_rate=1.0 / n_columns,
+        threshold_min=0.05,
+        threshold_max=0.95,
+        prediction_error_ema_alpha=0.2,
+        prediction_failure_streak_threshold=0.65,
+        prediction_learning_rate=0.005,
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

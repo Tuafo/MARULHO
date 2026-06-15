@@ -244,6 +244,7 @@ if triton is not None:
         column_dim: tl.constexpr,
         location_dim: tl.constexpr,
         candidate_count: tl.constexpr,
+        all_columns_are_candidates: tl.constexpr,
         predictive_candidate_count: tl.constexpr,
         prototype_momentum: tl.constexpr,
         homeostasis_beta: tl.constexpr,
@@ -752,19 +753,22 @@ if triton is not None:
                 (spike_row + 1) % spike_history_window,
             )
 
-        candidate_offsets = tl.arange(0, block_candidates)
-        candidate_mask = candidate_offsets < candidate_count
-        candidate_ids = tl.load(
-            candidates + candidate_offsets,
-            mask=candidate_mask,
-            other=-1,
-        )
-        homeostasis_selected = tl.sum(
-            (
-                column_offsets[:, None] == candidate_ids[None, :]
-            ).to(tl.int32),
-            axis=1,
-        ) > 0
+        if all_columns_are_candidates:
+            homeostasis_selected = column_mask
+        else:
+            candidate_offsets = tl.arange(0, block_candidates)
+            candidate_mask = candidate_offsets < candidate_count
+            candidate_ids = tl.load(
+                candidates + candidate_offsets,
+                mask=candidate_mask,
+                other=-1,
+            )
+            homeostasis_selected = tl.sum(
+                (
+                    column_offsets[:, None] == candidate_ids[None, :]
+                ).to(tl.int32),
+                axis=1,
+            ) > 0
         old_threshold = tl.load(thresholds + column_offsets, mask=column_mask)
         had_positive = tl.load(competition_had_positive) != 0
         fallback_threshold = tl.maximum(
@@ -1261,6 +1265,7 @@ def inplace_column_transition_cuda(
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
         candidate_count=int(candidates.numel()),
+        all_columns_are_candidates=int(int(candidates.numel()) == int(n_columns)),
         predictive_candidate_count=int(predictive_candidate_tensor.numel()),
         prototype_momentum=float(prototype_momentum),
         homeostasis_beta=float(homeostasis_beta),
@@ -1667,6 +1672,7 @@ def warmup_inplace_column_transition_cuda(
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
         candidate_count=int(candidates.numel()),
+        all_columns_are_candidates=int(int(candidates.numel()) == int(n_columns)),
         predictive_candidate_count=int(predictive_candidate_tensor.numel()),
         prototype_momentum=float(prototype_momentum),
         homeostasis_beta=float(homeostasis_beta),

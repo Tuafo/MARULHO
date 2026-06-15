@@ -1322,3 +1322,36 @@ effectively the same 6k-ish band while train compute still regresses by about
 `0.0073 ms/token`. Keep the route-vote sleep filter as the real scheduler
 boundary, but the next speed pass should reduce the remaining route/filter
 bookkeeping rather than add a new all-column sleep decision.
+
+### Real-Path Column Scaling Probe, 2026-06-15
+
+The next probe tested the promoted path on power-of-two column growth rather
+than a CPU synthetic scheduler sweep. The first 8192-column checkpoint attempt
+failed before scheduler evidence because the in-place Triton warmup compiled an
+all-columns candidate membership check as an `8192 x 8192` matrix. The live
+kernel now treats all-columns candidates as a direct mask, and promoted
+candidate-gated checkpoints skip unused dense startup graph and warmup shapes.
+
+The matching promoted real-path control at
+`reports/real_path_column_scaling_20260615/runtime-1024-promoted-131072-i32.json`
+reached `6108.728 tokens/sec` with `train_compute=0.133438 ms/token`.
+Runtime Truth stayed on `cuda_graph_text`, precompiled `[10]`, captured only
+`candidate_subset`, selected `10/1024` route candidates, and reported no
+sequence/native fallback.
+
+The 8192-column real-path run at
+`reports/real_path_column_scaling_20260615/runtime-8192-promoted-131072-i32.json`
+also stayed on the promoted CUDA/text path: `cuda:0`,
+`precompiled_candidate_counts=[10]`, graph names `["candidate_subset"]`,
+`capture_graph_policy=candidate_subset_only_after_homeostasis_gate`,
+`route_vote_deep_sleep_filter.output_candidate_count=10`, zero graph/native
+failures or fallbacks, and `131072` fused route/transition executions. It
+reached `3564.222 tokens/sec` with `train_compute=0.251487 ms/token`.
+
+Conclusion: awake specialist work is real and bounded at 8192, but throughput
+is not preserved. Runtime Truth exposes why: route-vote input rows rose from
+`1024` to `8192`, so the current two-stage route-vote still pays a
+total-route-cache scoring cost before selecting the fixed `k=10` awake mask.
+Do not promote a same-throughput scaling claim from this result. The next speed
+target is a sparse/GPU-owned route-candidate retrieval boundary, not another
+sleep/status projection.

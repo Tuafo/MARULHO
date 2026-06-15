@@ -200,13 +200,16 @@ class ColumnTransitionRuntime:
         self.warmup_attempted = True
         started = time.perf_counter_ns()
         try:
-            candidate_counts = sorted(
-                {
-                    int(comp.n_columns),
-                    min(int(comp.n_columns), max(1, int(trainer.config.k_routing))),
-                }
+            routed_candidate_count = min(
+                int(comp.n_columns),
+                max(1, int(trainer.config.k_routing)),
             )
-            for candidate_count in candidate_counts:
+            candidate_counts = {routed_candidate_count}
+            if int(trainer.token_count) < int(
+                trainer.config.candidate_homeostasis_start_tokens
+            ):
+                candidate_counts.add(int(comp.n_columns))
+            for candidate_count in sorted(candidate_counts):
                 if (
                     self.fused_vote_competition_active
                     and candidate_count

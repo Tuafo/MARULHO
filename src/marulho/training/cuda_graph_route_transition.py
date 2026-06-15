@@ -321,6 +321,15 @@ class CudaGraphRouteTransition:
     ) -> dict[str, torch.Tensor]:
         return self._tick_ops(candidates, write_burst_event=True)
 
+    def _capture_candidate_sets(self) -> tuple[tuple[str, torch.Tensor], ...]:
+        threshold = int(self._trainer.config.candidate_homeostasis_start_tokens)
+        if int(self._trainer.token_count) >= threshold:
+            return (("candidate_subset", self._runtime._route_candidates),)
+        return (
+            ("all_columns", self._runtime._all_columns),
+            ("candidate_subset", self._runtime._route_candidates),
+        )
+
     def _capture(self) -> None:
         trainer = self._trainer
         runtime = self._runtime
@@ -532,10 +541,7 @@ class CudaGraphRouteTransition:
             )
             snapshots = tuple(tensor.clone() for tensor in mutable)
             stream = torch.cuda.Stream(device=device)
-            for name, candidates in (
-                ("all_columns", runtime._all_columns),
-                ("candidate_subset", runtime._route_candidates),
-            ):
+            for name, candidates in self._capture_candidate_sets():
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
@@ -2219,6 +2225,11 @@ class CudaGraphRouteTransition:
             "fused_reconstruction_error_active": bool(self.active),
             "fused_reconstruction_error_update_count": int(self.tick_replay_count),
             "graph_names": sorted(self._graphs),
+            "capture_graph_policy": (
+                "candidate_subset_only_after_homeostasis_gate"
+                if "all_columns" not in self._graphs
+                else "includes_all_columns_until_homeostasis_gate"
+            ),
             "pre_route_graph": False,
             "persistent_tick_graph": bool(self._graphs),
             "tensor_device": (
