@@ -294,6 +294,18 @@ integration candidate, not to live scheduler truth: `ColumnTransitionRuntime`
 still reports dense predictive update/location until the kernel is integrated
 with the transition state boundary and wins complete `train_step` evidence.
 
+A direct live-runtime integration attempt was rejected and removed. The valid
+1024-column direct `inplace_triton` A/B at
+`reports/column_scheduler_20260615/cuda-direct-inplace-predictive-scope-ab.json`
+preserved winners and reduced predictive update scope to `10/1024` with
+`runs_all_columns=false`, but complete step mean/median/p95 regressed from
+`8.607221875/7.88135/14.0249 ms` to
+`27.7788925/14.7495/118.536 ms`. The attempted 8192-column direct run is not
+promotion evidence because all-column warmup hit Triton's tensor-size limit.
+The live CUDA runtime therefore keeps dense predictive update/location until
+candidate materialization and writeback are fused into a lower-overhead runtime
+boundary with complete-step evidence.
+
 The longer CUDA gate the user requested stayed healthy. The 131072-token run at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-age-gate-materialization-cache.json`
 reached `5909.600 tokens/sec`, `train_compute=0.140558 ms/token`,
