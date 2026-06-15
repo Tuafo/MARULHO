@@ -16,6 +16,7 @@ from marulho.core.predictive_columns import (
     PredictiveColumnState,
     dense_predictive_transition,
 )
+from marulho.core.inplace_column_cuda import candidate_predictive_writeback_cuda
 from marulho.training.checkpointing import load_trainer_checkpoint
 
 
@@ -206,21 +207,30 @@ def _run_writeback_experiment(
     warmup_iterations: int,
 ) -> dict[str, object]:
     device = predictive.device
+    total_steps = int(iterations) + int(warmup_iterations)
     k = min(max(1, int(candidate_count)), int(predictive.n_columns))
     candidates = torch.arange(k, device=device, dtype=torch.long)
+    winner_sequence = candidates.index_select(
+        0,
+        torch.remainder(
+            torch.arange(total_steps, device=device, dtype=torch.long),
+            k,
+        ),
+    )
+    winner_ids = [int(value) for value in candidates.detach().cpu().tolist()]
     dense_state = _clone_predictive_state(predictive)
     scoped_state = _clone_predictive_state(predictive)
+    triton_state = _clone_predictive_state(predictive)
 
     def previous_for(index: int) -> torch.Tensor:
         return previous_routing_key if index <= 0 else routing_keys[index - 1]
 
     def winner_for(index: int) -> int:
-        return int(candidates[index % k].item())
+        return winner_ids[index % k]
 
     def dense_step(index: int) -> None:
-        winner = winner_for(index)
         dense_state.apply_dense_transition(
-            torch.tensor([winner], dtype=torch.long, device=device),
+            winner_sequence[index : index + 1],
             routing_keys[index],
             previous_for(index),
             learning_rate=0.005,
@@ -236,9 +246,37 @@ def _run_writeback_experiment(
             candidate_indices=candidates,
         )
 
+    def triton_step(index: int) -> None:
+        candidate_predictive_writeback_cuda(
+            location=triton_state.location,
+            location_velocity=triton_state.velocity,
+            prediction_weights=triton_state._prediction_weights,
+            prediction_error=triton_state.prediction_error,
+            prediction_failure_streak=triton_state.prediction_failure_streak,
+            confidence=triton_state.confidence,
+            routing_key=routing_keys[index],
+            previous_routing_key=previous_for(index),
+            winners=winner_sequence[index : index + 1],
+            candidates=candidates,
+            has_previous_routing_key=True,
+            prediction_error_ema_alpha=triton_state._error_ema_alpha,
+            prediction_failure_streak_threshold=(
+                triton_state._failure_streak_threshold
+            ),
+            prediction_learning_rate=0.005,
+        )
+
+    triton_error: str | None = None
+    triton_available = bool(device.type == "cuda")
     for step in range(int(warmup_iterations)):
         dense_step(step)
         scoped_step(step)
+        if triton_available:
+            try:
+                triton_step(step)
+            except Exception as exc:  # pragma: no cover - backend dependent
+                triton_error = repr(exc)
+                triton_available = False
     if device.type == "cuda":
         torch.cuda.synchronize()
 
@@ -266,9 +304,53 @@ def _run_writeback_experiment(
             else None
         ),
     )
-    parity = _candidate_row_parity(dense_state, scoped_state, candidates)
+    arms = [dense_arm, scoped_arm]
+    parity_by_arm = {
+        "candidate_scoped_eager_writeback": _candidate_row_parity(
+            dense_state,
+            scoped_state,
+            candidates,
+        )
+    }
+    if triton_available:
+        try:
+            triton_arm = _measure_writeback(
+                "candidate_scoped_triton_writeback",
+                triton_step,
+                start_index=int(warmup_iterations),
+                iterations=int(iterations),
+                device=device,
+                updated_column_count=k,
+                total_columns=int(predictive.n_columns),
+                fallback_reason=None,
+            )
+            arms.append(triton_arm)
+            parity_by_arm["candidate_scoped_triton_writeback"] = (
+                _candidate_row_parity(dense_state, triton_state, candidates)
+            )
+        except Exception as exc:  # pragma: no cover - backend dependent
+            triton_error = repr(exc)
     dense_mean = float(dense_arm["latency_ms"]["mean"])
-    scoped_mean = float(scoped_arm["latency_ms"]["mean"])
+    candidate_arms = [arm for arm in arms if not bool(arm["runs_all_columns"])]
+    best_candidate_arm = min(
+        candidate_arms,
+        key=lambda arm: float(arm["latency_ms"]["mean"]),
+    )
+    best_candidate_name = str(best_candidate_arm["name"])
+    best_candidate_mean = float(best_candidate_arm["latency_ms"]["mean"])
+    best_candidate_matches = bool(
+        parity_by_arm.get(best_candidate_name, {}).get(
+            "candidate_rows_match_dense",
+            False,
+        )
+    )
+    candidate_rows_match_dense = all(
+        bool(parity["candidate_rows_match_dense"])
+        for parity in parity_by_arm.values()
+    )
+    promote_candidate = bool(
+        best_candidate_mean <= dense_mean * 1.02 and best_candidate_matches
+    )
     return {
         "scope": "isolated_predictive_state_writeback_candidate_scope_experiment",
         "claim_boundary": (
@@ -280,22 +362,23 @@ def _run_writeback_experiment(
         "candidate_count": int(k),
         "total_columns": int(predictive.n_columns),
         "candidate_fraction": round(float(k) / float(max(1, predictive.n_columns)), 6),
-        "arms": [dense_arm, scoped_arm],
-        "candidate_rows_match_dense": bool(parity["candidate_rows_match_dense"]),
-        "candidate_row_parity": parity,
-        "scoped_neutral_or_better": bool(scoped_mean <= dense_mean * 1.02),
+        "arms": arms,
+        "candidate_rows_match_dense": bool(candidate_rows_match_dense),
+        "candidate_row_parity": parity_by_arm["candidate_scoped_eager_writeback"],
+        "candidate_row_parity_by_arm": parity_by_arm,
+        "best_candidate_arm": best_candidate_arm,
+        "scoped_neutral_or_better": bool(promote_candidate),
         "promotion_decision": (
             "promote_candidate_scoped_writeback_for_further_runtime_testing"
-            if scoped_mean <= dense_mean * 1.02
-            and bool(parity["candidate_rows_match_dense"])
+            if promote_candidate
             else "retain_dense_cuda_predictive_update"
         ),
         "fallback_reason": (
             None
-            if scoped_mean <= dense_mean * 1.02
-            and bool(parity["candidate_rows_match_dense"])
+            if promote_candidate
             else "candidate_scoped_predictive_writeback_not_neutral_or_better"
         ),
+        "triton_error": triton_error,
     }
 
 

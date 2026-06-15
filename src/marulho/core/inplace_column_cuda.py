@@ -649,6 +649,141 @@ if triton is not None:
             tl.store(transition_parameters + 4, 1.0)
 
 
+    @triton.jit(do_not_specialize_on_alignment=["candidates", "winners"])
+    def _candidate_predictive_writeback_kernel(
+        location,
+        location_velocity,
+        prediction_weights,
+        prediction_error,
+        prediction_failure_streak,
+        confidence,
+        routing_key,
+        previous_routing_key,
+        winners,
+        candidates,
+        prediction_error_ema_alpha: tl.constexpr,
+        prediction_failure_streak_threshold: tl.constexpr,
+        prediction_learning_rate: tl.constexpr,
+        has_previous_routing_key: tl.constexpr,
+        routing_dim: tl.constexpr,
+        location_dim: tl.constexpr,
+        candidate_count: tl.constexpr,
+        block_candidates: tl.constexpr,
+        block_location: tl.constexpr,
+    ):
+        candidate_offsets = tl.arange(0, block_candidates)
+        candidate_mask = candidate_offsets < candidate_count
+        candidate_ids = tl.load(
+            candidates + candidate_offsets,
+            mask=candidate_mask,
+            other=0,
+        )
+        winner = tl.load(winners)
+        is_winner = candidate_ids == winner
+
+        location_offsets = tl.arange(0, block_location)
+        location_mask = location_offsets < location_dim
+        routing_mask = location_offsets < routing_dim
+        matrix_mask = candidate_mask[:, None] & location_mask[None, :]
+        row_offsets = candidate_ids[:, None] * location_dim + location_offsets[None, :]
+        location_ptrs = location + row_offsets
+        velocity_ptrs = location_velocity + row_offsets
+        weight_ptrs = prediction_weights + row_offsets
+        current_location = tl.load(location_ptrs, mask=matrix_mask, other=0.0)
+        current_velocity = tl.load(velocity_ptrs, mask=matrix_mask, other=0.0)
+        current_weights = tl.load(weight_ptrs, mask=matrix_mask, other=0.0)
+
+        prediction = 1.0 / (
+            1.0 + tl.exp(-tl.sum(current_location * current_weights, axis=1))
+        )
+        raw_error = tl.abs(prediction - is_winner.to(tl.float32))
+        old_error = tl.load(
+            prediction_error + candidate_ids,
+            mask=candidate_mask,
+            other=0.0,
+        )
+        next_error = (
+            prediction_error_ema_alpha * raw_error
+            + (1.0 - prediction_error_ema_alpha) * old_error
+        )
+        tl.store(prediction_error + candidate_ids, next_error, mask=candidate_mask)
+
+        old_failure_streak = tl.load(
+            prediction_failure_streak + candidate_ids,
+            mask=candidate_mask,
+            other=0,
+        )
+        next_failure_streak = tl.where(
+            raw_error > prediction_failure_streak_threshold,
+            old_failure_streak + 1,
+            0,
+        )
+        tl.store(
+            prediction_failure_streak + candidate_ids,
+            next_failure_streak,
+            mask=candidate_mask,
+        )
+
+        old_confidence = tl.load(
+            confidence + candidate_ids,
+            mask=candidate_mask,
+            other=0.0,
+        )
+        next_confidence = tl.maximum(
+            0.0,
+            tl.minimum(1.0, 0.95 * old_confidence + 0.05 * (1.0 - raw_error)),
+        )
+        tl.store(confidence + candidate_ids, next_confidence, mask=candidate_mask)
+
+        movement = tl.load(
+            routing_key + location_offsets,
+            mask=location_mask & routing_mask,
+            other=0.0,
+        ) - tl.load(
+            previous_routing_key + location_offsets,
+            mask=location_mask & routing_mask,
+            other=0.0,
+        )
+        moved_velocity = 0.9 * current_velocity
+        moved_velocity += is_winner[:, None].to(tl.float32) * 0.1 * movement[None, :]
+        has_previous = has_previous_routing_key != 0
+        next_velocity = tl.where(
+            has_previous,
+            moved_velocity,
+            current_velocity,
+        )
+        next_location = tl.where(
+            has_previous,
+            current_location + is_winner[:, None].to(tl.float32) * moved_velocity,
+            current_location,
+        )
+        location_norm = tl.sqrt(tl.sum(next_location * next_location, axis=1))
+        location_scale = tl.where(
+            location_norm > 5.0,
+            5.0 / tl.maximum(location_norm, 1e-8),
+            1.0,
+        )
+        next_location *= location_scale[:, None]
+        tl.store(location_ptrs, next_location, mask=matrix_mask)
+        tl.store(velocity_ptrs, next_velocity, mask=matrix_mask)
+
+        next_weights = current_weights + (
+            is_winner[:, None].to(tl.float32)
+            * prediction_learning_rate
+            * next_location
+        )
+        updated_prediction = 1.0 / (
+            1.0 + tl.exp(-tl.sum(next_location * next_weights, axis=1))
+        )
+        decay = (~is_winner) & candidate_mask & (updated_prediction > 0.5)
+        next_weights = tl.where(
+            decay[:, None],
+            next_weights * (1.0 - 0.5 * prediction_learning_rate),
+            next_weights,
+        )
+        tl.store(weight_ptrs, next_weights, mask=matrix_mask)
+
+
 def inplace_column_transition_cuda(
     *,
     prototypes: torch.Tensor,
@@ -932,6 +1067,86 @@ def inplace_column_transition_cuda(
         block_location=triton.next_power_of_2(int(location.shape[1])),
         block_candidates=triton.next_power_of_2(int(candidates.numel())),
         num_warps=8,
+    )
+
+
+def candidate_predictive_writeback_cuda(
+    *,
+    location: torch.Tensor,
+    location_velocity: torch.Tensor,
+    prediction_weights: torch.Tensor,
+    prediction_error: torch.Tensor,
+    prediction_failure_streak: torch.Tensor,
+    confidence: torch.Tensor,
+    routing_key: torch.Tensor,
+    previous_routing_key: torch.Tensor,
+    winners: torch.Tensor,
+    candidates: torch.Tensor,
+    has_previous_routing_key: bool,
+    prediction_error_ema_alpha: float,
+    prediction_failure_streak_threshold: float,
+    prediction_learning_rate: float,
+) -> None:
+    """Mutate predictive state for a routed CUDA candidate set in one launch."""
+
+    if triton is None:
+        raise RuntimeError("Triton is not installed")
+    if not location.is_cuda:
+        raise ValueError("candidate predictive writeback requires CUDA tensors")
+    tensors = (
+        location,
+        location_velocity,
+        prediction_weights,
+        prediction_error,
+        prediction_failure_streak,
+        confidence,
+        routing_key,
+        previous_routing_key,
+        winners,
+        candidates,
+    )
+    if any(tensor.device != location.device for tensor in tensors):
+        raise ValueError("all candidate predictive tensors must share one CUDA device")
+    if int(winners.numel()) != 1:
+        raise ValueError("candidate predictive writeback requires exactly one winner")
+    if int(candidates.numel()) <= 0:
+        raise ValueError("candidate predictive writeback requires candidates")
+    if candidates.dtype != torch.long or winners.dtype != torch.long:
+        raise ValueError("winners and candidates must use torch.long")
+    if location.shape != location_velocity.shape:
+        raise ValueError("location and location_velocity shapes must match")
+    if location.shape != prediction_weights.shape:
+        raise ValueError("location and prediction_weights shapes must match")
+    n_columns, location_dim = location.shape
+    if int(prediction_error.numel()) != int(n_columns):
+        raise ValueError("prediction_error must have one value per column")
+    if int(prediction_failure_streak.numel()) != int(n_columns):
+        raise ValueError("prediction_failure_streak must have one value per column")
+    if int(confidence.numel()) != int(n_columns):
+        raise ValueError("confidence must have one value per column")
+
+    ensure_windows_triton_compiler()
+    _candidate_predictive_writeback_kernel[(1,)](
+        location,
+        location_velocity,
+        prediction_weights,
+        prediction_error,
+        prediction_failure_streak,
+        confidence,
+        routing_key,
+        previous_routing_key,
+        winners,
+        candidates,
+        prediction_error_ema_alpha=float(prediction_error_ema_alpha),
+        prediction_failure_streak_threshold=float(prediction_failure_streak_threshold),
+        prediction_learning_rate=float(prediction_learning_rate),
+        has_previous_routing_key=int(bool(has_previous_routing_key)),
+        routing_dim=int(routing_key.numel()),
+        location_dim=int(location_dim),
+        candidate_count=int(candidates.numel()),
+        block_candidates=triton.next_power_of_2(int(candidates.numel())),
+        block_location=triton.next_power_of_2(int(location_dim)),
+        num_warps=1,
     )
 
 

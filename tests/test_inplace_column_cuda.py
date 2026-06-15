@@ -5,7 +5,11 @@ import torch
 import torch.nn.functional as F
 
 from marulho.core.column_transition import steady_state_column_transition
-from marulho.core.inplace_column_cuda import inplace_column_transition_cuda
+from marulho.core.inplace_column_cuda import (
+    candidate_predictive_writeback_cuda,
+    inplace_column_transition_cuda,
+)
+from marulho.core.predictive_columns import dense_predictive_transition
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -332,3 +336,133 @@ def test_inplace_column_transition_cuda_matches_functional_oracle(
         atol=2e-5,
         rtol=2e-5,
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_candidate_predictive_writeback_cuda_matches_dense_candidate_rows() -> None:
+    device = torch.device("cuda")
+    generator = torch.Generator(device=device).manual_seed(20260616)
+    n_columns = 32
+    location_dim = 8
+    routing_dim = 16
+    candidates = torch.tensor([2, 5, 9, 13, 21, 27], dtype=torch.long, device=device)
+    winners = torch.tensor([9], dtype=torch.long, device=device)
+    location = torch.randn(
+        n_columns,
+        location_dim,
+        generator=generator,
+        device=device,
+    ) * 0.1
+    velocity = torch.randn(
+        n_columns,
+        location_dim,
+        generator=generator,
+        device=device,
+    ) * 0.01
+    weights = torch.randn(
+        n_columns,
+        location_dim,
+        generator=generator,
+        device=device,
+    ) * 0.01
+    prediction_error = torch.rand(
+        n_columns,
+        generator=generator,
+        device=device,
+    ) * 0.2
+    failure_streak = torch.arange(
+        n_columns,
+        dtype=torch.int32,
+        device=device,
+    ) % 5
+    confidence = torch.rand(
+        n_columns,
+        generator=generator,
+        device=device,
+    )
+    routing_key = torch.randn(
+        routing_dim,
+        generator=generator,
+        device=device,
+    )
+    previous_routing_key = torch.randn(
+        routing_dim,
+        generator=generator,
+        device=device,
+    )
+
+    expected = dense_predictive_transition(
+        location,
+        velocity,
+        weights,
+        prediction_error,
+        failure_streak,
+        confidence,
+        routing_key,
+        previous_routing_key,
+        winners,
+        has_previous_routing_key=True,
+        error_ema_alpha=0.2,
+        failure_streak_threshold=0.65,
+        learning_rate=0.005,
+    )
+    actual = [
+        location.clone(),
+        velocity.clone(),
+        weights.clone(),
+        prediction_error.clone(),
+        failure_streak.clone(),
+        confidence.clone(),
+    ]
+    original = [tensor.clone() for tensor in actual]
+
+    candidate_predictive_writeback_cuda(
+        location=actual[0],
+        location_velocity=actual[1],
+        prediction_weights=actual[2],
+        prediction_error=actual[3],
+        prediction_failure_streak=actual[4],
+        confidence=actual[5],
+        routing_key=routing_key,
+        previous_routing_key=previous_routing_key,
+        winners=winners,
+        candidates=candidates,
+        has_previous_routing_key=True,
+        prediction_error_ema_alpha=0.2,
+        prediction_failure_streak_threshold=0.65,
+        prediction_learning_rate=0.005,
+    )
+    torch.cuda.synchronize()
+
+    for actual_tensor, expected_tensor in zip(actual[:4], expected[:4]):
+        assert torch.allclose(
+            actual_tensor.index_select(0, candidates),
+            expected_tensor.index_select(0, candidates),
+            atol=2e-5,
+            rtol=2e-5,
+        )
+    assert torch.equal(
+        actual[4].index_select(0, candidates),
+        expected[4].index_select(0, candidates),
+    )
+    assert torch.allclose(
+        actual[5].index_select(0, candidates),
+        expected[5].index_select(0, candidates),
+        atol=2e-5,
+        rtol=2e-5,
+    )
+
+    candidate_mask = torch.zeros(n_columns, dtype=torch.bool, device=device)
+    candidate_mask[candidates] = True
+    non_candidates = torch.arange(n_columns, device=device)[~candidate_mask]
+    for actual_tensor, original_tensor in zip(actual, original):
+        if actual_tensor.dtype.is_floating_point:
+            assert torch.allclose(
+                actual_tensor.index_select(0, non_candidates),
+                original_tensor.index_select(0, non_candidates),
+            )
+        else:
+            assert torch.equal(
+                actual_tensor.index_select(0, non_candidates),
+                original_tensor.index_select(0, non_candidates),
+            )

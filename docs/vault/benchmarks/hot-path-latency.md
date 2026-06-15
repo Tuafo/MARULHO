@@ -272,16 +272,27 @@ mean/median were `17.98001875/17.09485 ms`. This confirms the CUDA rule for
 now: keep the dense GPU predictive transition until a fused or lower-launch
 sparse CUDA path beats dense complete-runtime evidence.
 
-The direct CUDA predictive-writeback experiment at
+The direct CUDA predictive-writeback experiments tested that lower-level
+question in isolation on a synthetic 8192-column CUDA checkpoint. The first run
+at
 `reports/column_scheduler_20260615/cuda-8192-predictive-writeback-scope-experiment.json`
-tested that lower-level question in isolation on a synthetic 8192-column CUDA
-checkpoint. Dense all-column predictive writeback measured mean/median/p95
-`3.0670796875/2.7036/4.8754 ms`. Eager candidate-indexed writeback updated only
-`10/8192` rows and matched dense candidate rows exactly, but measured
-`6.7971921875/6.40065/10.229 ms`, so
-`scoped_neutral_or_better=false` and `promotion_decision=retain_dense_cuda_predictive_update`.
-This rejects the simple sparse-indexing CUDA route; a promotable CUDA scheduler
-must fuse the predictive update or move below the small-launch boundary.
+rejected eager candidate indexing: it updated only `10/8192` rows and matched
+dense candidate rows exactly, but mean/median/p95 regressed from dense
+`3.0670796875/2.7036/4.8754 ms` to `6.7971921875/6.40065/10.229 ms`.
+
+The follow-up three-arm run at
+`reports/column_scheduler_20260615/cuda-8192-predictive-writeback-scope-triton-experiment.json`
+kept dense writeback at `3.080762890625/2.74815/4.378 ms`, eager candidate
+indexing at `7.0080195312499995/6.5332/10.4585 ms`, and the new fused Triton
+candidate writeback at `0.1748/0.1383/0.3041 ms`. The Triton candidate rows matched
+dense with maximum absolute deltas of `2.384185791015625e-07` for location,
+`1.4901161193847656e-08` for velocity, `2.2351741790771484e-08` for prediction
+weights, `1.7881393432617188e-07` for prediction error, and
+`5.960464477539063e-08` for confidence; prediction failure streaks matched
+exactly. This promotes the fused Triton candidate writeback to the next runtime
+integration candidate, not to live scheduler truth: `ColumnTransitionRuntime`
+still reports dense predictive update/location until the kernel is integrated
+with the transition state boundary and wins complete `train_step` evidence.
 
 The longer CUDA gate the user requested stayed healthy. The 131072-token run at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-age-gate-materialization-cache.json`
