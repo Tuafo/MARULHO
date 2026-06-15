@@ -319,6 +319,81 @@ class TestPredictiveColumnState:
         assert scoped.last_predictive_materialize_count == 1
         assert scoped.last_predictive_materialize_max_age == 4
 
+    def test_candidate_materialization_matches_long_full_predictive_replay(self):
+        torch.manual_seed(20260615)
+        full = PredictiveColumnState(n_columns=12, location_dim=4)
+        scoped = PredictiveColumnState(n_columns=12, location_dim=4)
+
+        location = torch.randn(12, 4)
+        location[1] *= 8.0
+        location[2] *= -7.0
+        weights = torch.randn(12, 4)
+        weights[1] = location[1].sign() * 2.0
+        weights[2] = -location[2].sign() * 2.0
+
+        full.location.copy_(location)
+        full.velocity.copy_(torch.randn(12, 4))
+        full._prediction_weights.copy_(weights)
+        full.prediction_error.copy_(torch.linspace(0.05, 0.35, 12))
+        full.confidence.copy_(torch.linspace(0.2, 0.8, 12))
+        full.prediction_failure_streak.copy_(torch.arange(12) % 5)
+        scoped.load_state_dict(full.state_dict())
+
+        scoped_candidates = torch.tensor([0], dtype=torch.long)
+        previous = None
+        for _ in range(96):
+            routing_key = torch.randn(12)
+            full.compute_prediction_error([0], routing_key)
+            full.update_location([0], routing_key, previous)
+            full.update_predictions([0], learning_rate=0.005)
+
+            scoped.compute_prediction_error(
+                [0],
+                routing_key,
+                candidate_indices=scoped_candidates,
+            )
+            scoped.update_location(
+                [0],
+                routing_key,
+                previous,
+                candidate_indices=scoped_candidates,
+            )
+            scoped.update_predictions(
+                [0],
+                learning_rate=0.005,
+                candidate_indices=scoped_candidates,
+            )
+            previous = routing_key
+
+        skipped = torch.arange(1, 12, dtype=torch.long)
+        scoped.materialize_predictive_state(skipped)
+
+        assert torch.allclose(scoped.location[skipped], full.location[skipped], atol=1e-6)
+        assert torch.allclose(scoped.velocity[skipped], full.velocity[skipped], atol=1e-6)
+        assert torch.allclose(
+            scoped._prediction_weights[skipped],
+            full._prediction_weights[skipped],
+            atol=1e-6,
+        )
+        assert torch.allclose(
+            scoped.prediction_error[skipped],
+            full.prediction_error[skipped],
+            atol=1e-6,
+        )
+        assert torch.allclose(
+            scoped.confidence[skipped],
+            full.confidence[skipped],
+            atol=1e-6,
+        )
+        assert torch.equal(
+            scoped.prediction_failure_streak[skipped],
+            full.prediction_failure_streak[skipped],
+        )
+        assert torch.equal(
+            scoped.predictive_last_update_step[skipped],
+            torch.full_like(skipped, full.predictive_step_count),
+        )
+
     def test_prediction_failure_streak_tracks_repeated_raw_failures(self):
         state = PredictiveColumnState(n_columns=4, location_dim=2)
         state.location.fill_(1.0)
