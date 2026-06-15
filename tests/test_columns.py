@@ -401,6 +401,11 @@ class TestStateDict:
         assert report["homeostasis_update_mode"] == "candidate_subset"
         assert report["homeostasis_update_count"] == 2
         assert report["homeostasis_update_fraction"] == round(2 / 6, 6)
+        assert report["state_transition_mode"] == "dense_all_columns_process"
+        assert report["state_transition_column_count"] == 6
+        assert report["state_transition_runs_all_columns"] is True
+        assert report["runs_all_columns"] is True
+        assert report["fallback_reason"] == "state_transition_dense_all_columns_retained"
 
     def test_candidate_compete_materializes_idle_homeostasis_before_scoring(self):
         torch.manual_seed(42)

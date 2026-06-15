@@ -1355,3 +1355,34 @@ total-route-cache scoring cost before selecting the fixed `k=10` awake mask.
 Do not promote a same-throughput scaling claim from this result. The next speed
 target is a sparse/GPU-owned route-candidate retrieval boundary, not another
 sleep/status projection.
+
+### Scheduler Truth Surface Long Run, 2026-06-15
+
+The follow-up truth-surface run kept the same 131072-token, q16 real path and
+made state-transition scope explicit in Runtime Truth. The 1024-column rerun at
+`reports/scheduler_truth_surface_20260615/runtime-1024-truth-131072-i32.json`
+stayed in the same 6k-ish band at `6152.495 tokens/sec` with
+`train_compute=0.133843 ms/token`; route-vote still scored `1024` rows before
+selecting `10`, and state transition reported `1024` columns with
+`state_transition_runs_all_columns=true`.
+
+The matching 8192-column rerun at
+`reports/scheduler_truth_surface_20260615/runtime-8192-truth-131072-i32.json`
+reached `3526.002 tokens/sec` with `train_compute=0.253295 ms/token`;
+route-vote scored `8192` rows before selecting `10`, and state transition
+reported `8192` columns with `state_transition_runs_all_columns=true`. The
+explicit fallback reason is
+`dense_state_transition_retained_until_lazy_column_state`.
+
+| Columns | Tokens/sec | Train compute ms/token | Route rows scored | Awake output | State transition columns | `runs_all_columns` cause | Environment |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| 1024 | `6152.495` | `0.133843` | `1024` | `10` | `1024` | dense state transition | contention observed |
+| 8192 | `3526.002` | `0.253295` | `8192` | `10` | `8192` | dense state transition | not observed |
+
+This closes the evidence gap without promoting a fake scheduler claim:
+candidate wake is bounded, but total-column scaling is still blocked by
+route-score rows and dense column-state transition. The next implementation
+target is a fused or lazy transition contract that replaces dense
+`steps_since_win`, spike-window, assembly, threshold/win-rate, and predictive
+state touches with candidate-owned or lazily materialized state while preserving
+checkpoint correctness.

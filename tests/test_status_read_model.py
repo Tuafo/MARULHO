@@ -358,6 +358,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(column_runtime["execution"]["mode"], "not_run")
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
         self.assertFalse(column_runtime["execution"]["runs_all_columns"])
+        self.assertEqual(
+            column_runtime["execution"]["state_transition_mode"],
+            "not_run",
+        )
+        self.assertEqual(
+            column_runtime["execution"]["state_transition_column_count"],
+            0,
+        )
+        self.assertFalse(
+            column_runtime["execution"]["state_transition_runs_all_columns"]
+        )
         self.assertEqual(column_runtime["execution"]["homeostasis_update_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_fraction"], 0.0)
         self.assertEqual(column_runtime["execution"]["input_weight_blend"], 0.0)
@@ -372,7 +383,7 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             column_runtime["execution"]["claim_boundary"],
-            "observed_competitive_scoring_scope_only_not_full_column_sleep_scheduler",
+            "observed_competitive_scoring_and_state_transition_scope",
         )
         self.assertEqual(column_runtime["metabolism"]["source_tensor_device"], "cpu")
         self.assertEqual(column_runtime["metabolism"]["report_compute_device"], "cpu")
@@ -534,6 +545,29 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "tensor_device": "cpu",
                         "claim_boundary": "training_owned_awake_mask_predictive_update_cache_skips_non_awake_columns",
                     },
+                    "execution": {
+                        "mode": "candidate_subset_fused_vote_competition",
+                        "total_columns": 128,
+                        "candidate_count": 7,
+                        "scored_column_count": 7,
+                        "runs_all_columns": True,
+                        "state_transition_mode": "dense_all_columns_cuda_graph_route_transition",
+                        "state_transition_column_count": 128,
+                        "state_transition_runs_all_columns": True,
+                        "scored_column_fraction": 0.054688,
+                        "homeostasis_update_mode": "candidate_subset",
+                        "homeostasis_update_count": 7,
+                        "homeostasis_update_fraction": 0.054688,
+                        "input_weight_blend": 0.0,
+                        "input_plasticity_mode": "skipped_zero_blend",
+                        "input_plasticity_update_count": 0,
+                        "input_plasticity_skip_count": 1,
+                        "dormant_input_plasticity_skipped": True,
+                        "sparse_candidate_execution_observed": False,
+                        "tensor_device": "cpu",
+                        "fallback_reason": "state_transition_dense_all_columns_retained",
+                        "claim_boundary": "observed_competitive_scoring_and_state_transition_scope",
+                    },
                 }
             }
         )
@@ -596,6 +630,13 @@ class StatusReadModelStatusTests(unittest.TestCase):
             7,
         )
         self.assertFalse(projected["predictive_update_execution"]["runs_all_columns"])
+        self.assertEqual(
+            projected["execution"]["state_transition_mode"],
+            "dense_all_columns_cuda_graph_route_transition",
+        )
+        self.assertEqual(projected["execution"]["state_transition_column_count"], 128)
+        self.assertTrue(projected["execution"]["state_transition_runs_all_columns"])
+        self.assertTrue(projected["execution"]["runs_all_columns"])
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()

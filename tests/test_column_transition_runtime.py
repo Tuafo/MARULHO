@@ -340,6 +340,18 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     assert route_filter["state_current_for_control"] is True
     assert route_filter["filtered_deep_sleep_count"] == 2
     assert route_filter["state_sync_count"] >= 1
+    transition_report = trainer.column_transition_runtime_report()
+    assert transition_report["state_transition_runs_all_columns"] is True
+    assert (
+        transition_report["state_transition_fallback_reason"]
+        == "dense_state_transition_retained_until_lazy_column_state"
+    )
+    runtime_truth = trainer.model.column_runtime_report(
+        token_count=trainer.token_count,
+        last_winner=trainer.last_winner,
+    )
+    assert runtime_truth["runs_all_columns"] is True
+    assert runtime_truth["execution"]["state_transition_runs_all_columns"] is True
 
 
 def test_cuda_graph_route_transition_reports_pre_mutation_fallback_on_cpu() -> None:

@@ -138,6 +138,8 @@ class CompetitiveColumnLayer:
         self.last_homeostasis_materialize_count = 0
         self.last_homeostasis_materialize_max_age = 0
         self.last_homeostasis_materialize_mode = "not_run"
+        self.last_state_transition_mode = "not_run"
+        self.last_state_transition_column_count = 0
         self.last_input_plasticity_mode = "not_run"
         self.input_plasticity_update_count = 0
         self.input_plasticity_skip_count = 0
@@ -826,6 +828,8 @@ class CompetitiveColumnLayer:
 
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
         if update_global_state:
+            self.last_state_transition_mode = "dense_all_columns_process"
+            self.last_state_transition_column_count = int(self.n_columns)
             self.steps_since_win += 1
             self.steps_since_win[winners] = 0
             if homeostasis_update_indices is None:
@@ -1010,22 +1014,41 @@ class CompetitiveColumnLayer:
             0,
             min(int(self.last_homeostasis_update_count), self.n_columns),
         )
+        state_transition_count = max(
+            0,
+            min(int(self.last_state_transition_column_count), self.n_columns),
+        )
+        state_transition_runs_all_columns = bool(
+            self.last_state_transition_mode != "not_run"
+            and state_transition_count >= self.n_columns
+        )
         runs_all_columns = bool(
-            self.last_execution_mode != "not_run"
-            and (
-                scored >= self.n_columns
-                or (
-                    self.last_homeostasis_update_mode != "not_run"
-                    and homeostasis_count >= self.n_columns
+            (
+                self.last_execution_mode != "not_run"
+                and (
+                    scored >= self.n_columns
+                    or (
+                        self.last_homeostasis_update_mode != "not_run"
+                        and homeostasis_count >= self.n_columns
+                    )
                 )
             )
+            or state_transition_runs_all_columns
         )
+        fallback_reason = None
+        if self.last_execution_mode == "all_columns_candidate_set":
+            fallback_reason = "candidate_set_covers_all_columns"
+        elif state_transition_runs_all_columns and scored < self.n_columns:
+            fallback_reason = "state_transition_dense_all_columns_retained"
         return {
             "mode": str(self.last_execution_mode),
             "total_columns": int(self.n_columns),
             "candidate_count": candidates,
             "scored_column_count": scored,
             "runs_all_columns": runs_all_columns,
+            "state_transition_mode": str(self.last_state_transition_mode),
+            "state_transition_column_count": state_transition_count,
+            "state_transition_runs_all_columns": state_transition_runs_all_columns,
             "scored_column_fraction": round(
                 float(scored) / float(max(1, self.n_columns)),
                 6,
@@ -1064,15 +1087,12 @@ class CompetitiveColumnLayer:
             "sparse_candidate_execution_observed": bool(
                 self.last_execution_mode.startswith("candidate_subset")
                 and 0 < scored < self.n_columns
+                and not state_transition_runs_all_columns
             ),
             "tensor_device": str(self.device),
-            "fallback_reason": (
-                "candidate_set_covers_all_columns"
-                if self.last_execution_mode == "all_columns_candidate_set"
-                else None
-            ),
+            "fallback_reason": fallback_reason,
             "claim_boundary": (
-                "observed_competitive_scoring_scope_only_not_full_column_sleep_scheduler"
+                "observed_competitive_scoring_and_state_transition_scope"
             ),
         }
 

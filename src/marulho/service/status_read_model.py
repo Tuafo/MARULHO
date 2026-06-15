@@ -1313,6 +1313,13 @@ class StatusReadModel:
                 "candidate_count": int(execution.get("candidate_count", 0) or 0),
                 "scored_column_count": int(execution.get("scored_column_count", 0) or 0),
                 "runs_all_columns": bool(execution.get("runs_all_columns", False)),
+                "state_transition_mode": execution.get("state_transition_mode"),
+                "state_transition_column_count": int(
+                    execution.get("state_transition_column_count", 0) or 0
+                ),
+                "state_transition_runs_all_columns": bool(
+                    execution.get("state_transition_runs_all_columns", False)
+                ),
                 "scored_column_fraction": float(execution.get("scored_column_fraction", 0.0) or 0.0),
                 "homeostasis_update_mode": execution.get("homeostasis_update_mode"),
                 "homeostasis_update_count": int(execution.get("homeostasis_update_count", 0) or 0),

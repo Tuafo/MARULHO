@@ -741,6 +741,10 @@ class MarulhoTrainer:
             runtime._route_candidates.numel()
         )
         comp.last_homeostasis_update_mode = "candidate_subset"
+        comp.last_state_transition_mode = (
+            "dense_all_columns_cuda_graph_route_transition_burst"
+        )
+        comp.last_state_transition_column_count = int(comp.n_columns)
         pred.last_dense_transition_mode = "inplace_triton"
         pred.last_dense_transition_fallback_reason = None
         candidate_predictive_graph = bool(

@@ -1110,6 +1110,12 @@ class ColumnTransitionRuntime:
             if int(homeostasis_candidates.numel()) < comp.n_columns
             else "all_columns"
         )
+        comp.last_state_transition_mode = (
+            "dense_all_columns_cuda_graph_route_transition"
+            if used_cuda_graph
+            else "dense_all_columns_inplace_triton"
+        )
+        comp.last_state_transition_column_count = int(comp.n_columns)
         comp.homeostasis_last_update_step[
             homeostasis_candidates.to(comp.device).long().flatten()
         ] = int(comp.homeostasis_step_count) + 1
@@ -1172,6 +1178,23 @@ class ColumnTransitionRuntime:
         )
 
     def report(self) -> dict[str, Any]:
+        comp = self._trainer.model.competitive
+        state_transition_mode = str(
+            getattr(comp, "last_state_transition_mode", "not_run")
+        )
+        state_transition_count = int(
+            max(
+                0,
+                min(
+                    int(getattr(comp, "last_state_transition_column_count", 0)),
+                    int(comp.n_columns),
+                ),
+            )
+        )
+        state_transition_runs_all_columns = bool(
+            state_transition_mode != "not_run"
+            and state_transition_count >= int(comp.n_columns)
+        )
         return {
             "surface": "column_transition_runtime.v1",
             "requested_mode": self.requested_mode,
@@ -1187,6 +1210,14 @@ class ColumnTransitionRuntime:
             "execution_count": int(self.execution_count),
             "failure_count": int(self.failure_count),
             "last_execution_mode": self.last_execution_mode,
+            "state_transition_mode": state_transition_mode,
+            "state_transition_column_count": state_transition_count,
+            "state_transition_runs_all_columns": state_transition_runs_all_columns,
+            "state_transition_fallback_reason": (
+                "dense_state_transition_retained_until_lazy_column_state"
+                if state_transition_runs_all_columns
+                else None
+            ),
             "selection_execution_count": int(self.selection_execution_count),
             "selection_failure_count": int(self.selection_failure_count),
             "last_selection_mode": self.last_selection_mode,

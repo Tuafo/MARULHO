@@ -41,7 +41,8 @@ flowchart TD
 ## Column Scheduler Boundary
 
 Runtime Truth must keep route input rows, awake output candidates, graph capture
-policy, fallback reason, and `runs_all_columns` truth separate. The promoted
-CUDA/text path can truthfully report `10` awake columns while still exposing an
-8192-row route-score input tax; service may project that evidence but must not
-construct its own scheduler decision.
+policy, state-transition scope, fallback reason, and `runs_all_columns` truth
+separate. The promoted CUDA/text path can truthfully report `10` awake columns
+while still exposing an 8192-row route-score input tax and an 8192-column dense
+state transition. Service may project that evidence but must not construct its
+own scheduler decision.
