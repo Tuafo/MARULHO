@@ -103,6 +103,7 @@ class MarulhoConfig:
     threshold_max: float = 1.5
     dead_column_steps: int = 2000
     candidate_homeostasis_start_tokens: int = 512
+    candidate_predictive_update_start_tokens: int = 512
     dead_column_noise: float = 0.05
 
     silhouette_min: float = 0.20
@@ -346,6 +347,8 @@ class MarulhoConfig:
             raise ValueError("dead_column_steps must be positive")
         if self.candidate_homeostasis_start_tokens < 0:
             raise ValueError("candidate_homeostasis_start_tokens must be non-negative")
+        if self.candidate_predictive_update_start_tokens < 0:
+            raise ValueError("candidate_predictive_update_start_tokens must be non-negative")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:

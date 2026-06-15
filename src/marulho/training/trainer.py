@@ -1886,7 +1886,7 @@ class MarulhoTrainer:
         )
 
         predictive_scope_ready = self.token_count >= int(
-            self.config.dead_column_steps
+            self.config.candidate_predictive_update_start_tokens
         )
         homeostasis_scope_ready = self.token_count >= int(
             self.config.candidate_homeostasis_start_tokens
@@ -1924,10 +1924,16 @@ class MarulhoTrainer:
                 learning_rate=0.005,
                 transition_mode=dense_transition_mode,
             )
-            if transition_runtime_fallback is not None:
-                self.model.predictive.last_dense_transition_fallback_reason = (
-                    transition_runtime_fallback
+            if predictive_scope_cuda_fallback:
+                self.model.predictive.last_prediction_update_fallback_reason = (
+                    "cuda_sparse_prediction_update_launch_bound_dense_retained"
                 )
+            elif not predictive_scope_ready:
+                self.model.predictive.last_prediction_update_fallback_reason = (
+                    "candidate_predictive_update_not_due"
+                )
+            if transition_runtime_fallback is not None:
+                self.model.predictive.last_dense_transition_fallback_reason = transition_runtime_fallback
         else:
             pred_error_mod = self.model.predictive.compute_prediction_error(
                 winner_id_list,
@@ -1955,6 +1961,10 @@ class MarulhoTrainer:
             if predictive_scope_cuda_fallback:
                 self.model.predictive.last_prediction_update_fallback_reason = (
                     "cuda_sparse_prediction_update_launch_bound_dense_retained"
+                )
+            elif not predictive_scope_ready:
+                self.model.predictive.last_prediction_update_fallback_reason = (
+                    "candidate_predictive_update_not_due"
                 )
         self._prev_routing_key = routing_key.detach().clone()
 
@@ -2754,6 +2764,13 @@ class MarulhoTrainer:
         metrics["candidate_homeostasis_due"] = int(
             self.token_count
             >= int(self.config.candidate_homeostasis_start_tokens)
+        )
+        metrics["candidate_predictive_update_start_tokens"] = int(
+            self.config.candidate_predictive_update_start_tokens
+        )
+        metrics["candidate_predictive_update_due"] = int(
+            self.token_count
+            >= int(self.config.candidate_predictive_update_start_tokens)
         )
         if self.model.abstraction_layer is not None and _telemetry_tick:
             _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())

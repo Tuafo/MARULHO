@@ -751,22 +751,34 @@ class CompetitiveColumnLayer:
         """Return the last observed competitive-column execution boundary."""
         scored = max(0, min(int(self.last_scored_column_count), self.n_columns))
         candidates = max(0, min(int(self.last_candidate_count), self.n_columns))
+        homeostasis_count = max(
+            0,
+            min(int(self.last_homeostasis_update_count), self.n_columns),
+        )
+        runs_all_columns = bool(
+            self.last_execution_mode != "not_run"
+            and (
+                scored >= self.n_columns
+                or (
+                    self.last_homeostasis_update_mode != "not_run"
+                    and homeostasis_count >= self.n_columns
+                )
+            )
+        )
         return {
             "mode": str(self.last_execution_mode),
             "total_columns": int(self.n_columns),
             "candidate_count": candidates,
             "scored_column_count": scored,
+            "runs_all_columns": runs_all_columns,
             "scored_column_fraction": round(
                 float(scored) / float(max(1, self.n_columns)),
                 6,
             ),
             "homeostasis_update_mode": str(self.last_homeostasis_update_mode),
-            "homeostasis_update_count": max(
-                0,
-                min(int(self.last_homeostasis_update_count), self.n_columns),
-            ),
+            "homeostasis_update_count": homeostasis_count,
             "homeostasis_update_fraction": round(
-                float(max(0, min(int(self.last_homeostasis_update_count), self.n_columns)))
+                float(homeostasis_count)
                 / float(max(1, self.n_columns)),
                 6,
             ),

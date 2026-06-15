@@ -249,9 +249,16 @@ def run_hot_window_benchmark(
             "candidate_homeostasis_start_tokens": int(
                 trainer.config.candidate_homeostasis_start_tokens
             ),
+            "candidate_predictive_update_start_tokens": int(
+                trainer.config.candidate_predictive_update_start_tokens
+            ),
             "routing_index": trainer.model.hnsw_index.stats(),
             "competitive": trainer.model.competitive.execution_report(),
             "predictive": trainer.model.predictive.device_report(),
+            "predictive_update_execution": (
+                trainer.model.predictive.prediction_update_execution_report()
+            ),
+            "predictive_vote_execution": trainer.model.predictive.vote_execution_report(),
             "column_transition_runtime": (
                 trainer.column_transition_runtime_report()
             ),

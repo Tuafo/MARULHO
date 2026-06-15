@@ -106,7 +106,7 @@ class LearnedChunkingTests(unittest.TestCase):
         self.assertEqual(predictive_report["last_prediction_update_mode"], "all_columns")
         self.assertEqual(predictive_report["last_prediction_update_count"], trainer.config.n_columns)
 
-        trainer.token_count = trainer.config.dead_column_steps
+        trainer.token_count = trainer.config.candidate_predictive_update_start_tokens
         trainer.train_step(pattern, raw_window="river")
         execution = trainer.model.competitive.execution_report()
 

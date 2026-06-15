@@ -37,9 +37,10 @@ class TestPredictiveColumnState:
         assert report["prediction_error_device"] == str(state.prediction_error.device)
         assert report["prediction_failure_streak_device"] == str(state.prediction_failure_streak.device)
         assert report["prediction_failure_streak_available"] is True
-        assert report["last_prediction_update_mode"] == "all_columns"
-        assert report["last_prediction_update_count"] == 8
-        assert report["last_prediction_update_fraction"] == 1.0
+        assert report["last_prediction_update_mode"] == "not_run"
+        assert report["last_prediction_update_count"] == 0
+        assert report["last_prediction_update_fraction"] == 0.0
+        assert report["last_prediction_update_runs_all_columns"] is False
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices(self):
@@ -196,6 +197,11 @@ class TestPredictiveColumnState:
         assert state.last_prediction_update_mode == "candidate_subset"
         assert state.last_prediction_update_count == 2
         assert state.last_prediction_update_fraction == pytest.approx(2 / 6)
+        report = state.prediction_update_execution_report()
+        assert report["surface"] == "predictive_column_update_scheduler.v1"
+        assert report["updated_column_count"] == 2
+        assert report["cached_state_count"] == 4
+        assert report["runs_all_columns"] is False
         assert state.prediction_failure_streak[1].item() == 0
         assert state.prediction_failure_streak[3].item() == 8
         assert torch.equal(
@@ -601,7 +607,8 @@ class TestPredictiveColumnsInTrainer:
             column_latent_dim=8,
             bootstrap_tokens=0,
             memory_capacity=32,
-            dead_column_steps=2,
+            dead_column_steps=100,
+            candidate_predictive_update_start_tokens=2,
         )
         model = MarulhoModel(cfg)
         trainer = MarulhoTrainer(model, cfg)
@@ -612,7 +619,7 @@ class TestPredictiveColumnsInTrainer:
         assert model.predictive.last_prediction_update_mode == "all_columns"
         assert model.predictive.last_prediction_update_count == cfg.n_columns
 
-        trainer.token_count = cfg.dead_column_steps
+        trainer.token_count = cfg.candidate_predictive_update_start_tokens
         trainer.train_step(pattern, raw_window="scoped")
         assert model.predictive.last_prediction_update_mode == "candidate_subset"
         assert model.predictive.last_prediction_update_count == cfg.k_routing
@@ -630,6 +637,7 @@ class TestPredictiveColumnsInTrainer:
             memory_capacity=32,
             dead_column_steps=100,
             candidate_homeostasis_start_tokens=1,
+            candidate_predictive_update_start_tokens=100,
         )
         model = MarulhoModel(cfg)
         trainer = MarulhoTrainer(model, cfg)
@@ -643,6 +651,36 @@ class TestPredictiveColumnsInTrainer:
         assert competitive["homeostasis_update_count"] == cfg.k_routing
         assert model.predictive.last_prediction_update_mode == "all_columns"
         assert model.predictive.last_prediction_update_count == cfg.n_columns
+        assert model.predictive.last_prediction_update_fallback_reason == (
+            "candidate_predictive_update_not_due"
+        )
+
+    def test_candidate_predictive_update_can_start_before_dead_column_scope(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            dead_column_steps=100,
+            candidate_predictive_update_start_tokens=1,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = cfg.candidate_predictive_update_start_tokens
+
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="scoped prediction")
+        report = model.predictive.prediction_update_execution_report()
+
+        assert report["mode"] == "candidate_subset"
+        assert report["updated_column_count"] == cfg.k_routing
+        assert report["cached_state_count"] == cfg.n_columns - cfg.k_routing
+        assert report["runs_all_columns"] is False
+        assert report["fallback_reason"] is None
 
     def test_trainer_scopes_predictive_vote_to_awake_candidates(self):
         from marulho.config.model_config import MarulhoConfig
@@ -676,6 +714,12 @@ class TestPredictiveColumnsInTrainer:
         with pytest.raises(ValueError, match="candidate_homeostasis_start_tokens"):
             MarulhoConfig(candidate_homeostasis_start_tokens=-1)
 
+    def test_candidate_predictive_update_start_tokens_must_be_non_negative(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_predictive_update_start_tokens"):
+            MarulhoConfig(candidate_predictive_update_start_tokens=-1)
+
     def test_predictive_route_vote_mode_must_be_supported(self):
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):
             MarulhoConfig(predictive_route_vote_mode="always")  # type: ignore[arg-type]
@@ -692,6 +736,7 @@ class TestPredictiveColumnsInTrainer:
             bootstrap_tokens=0,
             memory_capacity=32,
             dead_column_steps=1,
+            candidate_predictive_update_start_tokens=1,
             device="cuda",
         )
         model = MarulhoModel(cfg)
@@ -705,6 +750,10 @@ class TestPredictiveColumnsInTrainer:
 
         assert report["last_prediction_update_mode"] == "all_columns"
         assert report["last_prediction_update_count"] == cfg.n_columns
+        assert report["last_prediction_update_runs_all_columns"] is True
+        assert report["last_prediction_update_fallback_reason"] == (
+            "cuda_sparse_prediction_update_launch_bound_dense_retained"
+        )
         assert report["last_dense_transition_mode"] == "compiled"
         assert report["dense_transition_compile_count"] == 1
         assert report["last_dense_transition_fallback_reason"] is None

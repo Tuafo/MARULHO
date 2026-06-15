@@ -305,7 +305,7 @@ class MarulhoModel:
         token_count: int | None = None,
         last_winner: int | None = None,
     ) -> dict[str, Any]:
-        """Return report-only many-column scheduler and voting evidence."""
+        """Return many-column scheduler, execution-scope, and voting evidence."""
         awake_limit = min(int(self.config.k_routing), int(self.config.n_columns))
         report = build_column_runtime_report(
             n_columns=int(self.config.n_columns),
@@ -321,8 +321,40 @@ class MarulhoModel:
             token_count=token_count,
             device=str(self.device),
         )
-        report["execution"] = self.competitive.execution_report()
-        report["predictive_vote_execution"] = self.predictive.vote_execution_report()
+        execution = self.competitive.execution_report()
+        predictive_update_execution = self.predictive.prediction_update_execution_report()
+        predictive_vote_execution = self.predictive.vote_execution_report()
+        total_columns = int(report.get("total_columns", 0) or 0)
+        competitive_runs_all = bool(execution.get("runs_all_columns", False))
+        if total_columns > 0:
+            competitive_runs_all = competitive_runs_all or (
+                int(execution.get("scored_column_count", 0) or 0) >= total_columns
+                and execution.get("mode") not in {None, "not_run"}
+            )
+            competitive_runs_all = competitive_runs_all or (
+                int(execution.get("homeostasis_update_count", 0) or 0) >= total_columns
+                and execution.get("homeostasis_update_mode") not in {None, "not_run"}
+            )
+        runs_all_columns = bool(
+            competitive_runs_all
+            or predictive_update_execution.get("runs_all_columns", False)
+            or predictive_vote_execution.get("runs_all_columns", False)
+            or bool(report.get("runs_all_columns", False))
+        )
+        report["execution"] = execution
+        report["predictive_update_execution"] = predictive_update_execution
+        report["predictive_vote_execution"] = predictive_vote_execution
+        report["runs_all_columns"] = runs_all_columns
+        if isinstance(report.get("scheduler"), dict):
+            report["scheduler"]["runs_all_columns"] = runs_all_columns
+            report["scheduler"]["execution_scope"] = (
+                "candidate_scoring_homeostasis_predictive_update_and_vote_cache"
+            )
+            report["scheduler"]["fallback_reason"] = (
+                "one_or_more_specialists_ran_all_columns"
+                if runs_all_columns
+                else report["scheduler"].get("fallback_reason")
+            )
         return report
 
     def runtime_scope_report(

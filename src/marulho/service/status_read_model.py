@@ -1121,6 +1121,11 @@ class StatusReadModel:
             if isinstance(report.get("predictive_vote_execution"), Mapping)
             else {}
         )
+        predictive_update_execution = (
+            report.get("predictive_update_execution")
+            if isinstance(report.get("predictive_update_execution"), Mapping)
+            else {}
+        )
         registry = report.get("registry") if isinstance(report.get("registry"), Mapping) else {}
         scheduler = report.get("scheduler") if isinstance(report.get("scheduler"), Mapping) else {}
         recall = (
@@ -1203,6 +1208,7 @@ class StatusReadModel:
                 "total_columns": int(execution.get("total_columns", 0) or 0),
                 "candidate_count": int(execution.get("candidate_count", 0) or 0),
                 "scored_column_count": int(execution.get("scored_column_count", 0) or 0),
+                "runs_all_columns": bool(execution.get("runs_all_columns", False)),
                 "scored_column_fraction": float(execution.get("scored_column_fraction", 0.0) or 0.0),
                 "homeostasis_update_mode": execution.get("homeostasis_update_mode"),
                 "homeostasis_update_count": int(execution.get("homeostasis_update_count", 0) or 0),
@@ -1228,6 +1234,32 @@ class StatusReadModel:
                 "tensor_device": execution.get("tensor_device"),
                 "fallback_reason": execution.get("fallback_reason"),
                 "claim_boundary": execution.get("claim_boundary"),
+            },
+            "predictive_update_execution": {
+                "surface": predictive_update_execution.get(
+                    "surface",
+                    "predictive_column_update_scheduler.v1",
+                ),
+                "mode": predictive_update_execution.get("mode"),
+                "total_columns": int(predictive_update_execution.get("total_columns", 0) or 0),
+                "updated_column_count": int(
+                    predictive_update_execution.get("updated_column_count", 0) or 0
+                ),
+                "updated_column_fraction": float(
+                    predictive_update_execution.get("updated_column_fraction", 0.0) or 0.0
+                ),
+                "cached_state_count": int(
+                    predictive_update_execution.get("cached_state_count", 0) or 0
+                ),
+                "cached_state_fraction": float(
+                    predictive_update_execution.get("cached_state_fraction", 0.0) or 0.0
+                ),
+                "runs_all_columns": bool(
+                    predictive_update_execution.get("runs_all_columns", False)
+                ),
+                "fallback_reason": predictive_update_execution.get("fallback_reason"),
+                "tensor_device": predictive_update_execution.get("tensor_device"),
+                "claim_boundary": predictive_update_execution.get("claim_boundary"),
             },
             "predictive_vote_execution": {
                 "surface": predictive_vote_execution.get(
@@ -1256,7 +1288,7 @@ class StatusReadModel:
                 "claim_boundary": predictive_vote_execution.get("claim_boundary"),
             },
             "claim_boundary": (
-                "candidate_scoring_homeostasis_and_predictive_vote_cache_promoted_sleep_deep_sleep_remain_reported"
+                "candidate_scoring_homeostasis_predictive_update_and_vote_cache_promoted_sleep_deep_sleep_remain_reported"
             ),
         }
 

@@ -30,6 +30,11 @@ class SchedulerBenchmarkArm:
     predictive_vote_cached_columns: int
     predictive_vote_runs_all_columns: bool
     predictive_vote_fallback_reason: str | None
+    predictive_update_mode: str
+    predictive_update_updated_columns: int
+    predictive_update_cached_columns: int
+    predictive_update_runs_all_columns: bool
+    predictive_update_fallback_reason: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -51,6 +56,8 @@ def _make_config(
     column_latent_dim: int,
     k_routing: int,
     device: str,
+    candidate_homeostasis_start_tokens: int,
+    candidate_predictive_update_start_tokens: int,
 ) -> MarulhoConfig:
     return MarulhoConfig(
         n_columns=int(n_columns),
@@ -60,6 +67,8 @@ def _make_config(
         memory_capacity=max(64, int(n_columns) * 2),
         routing_index_mode="torch_topk",
         predictive_dense_transition_mode="legacy",
+        candidate_homeostasis_start_tokens=int(candidate_homeostasis_start_tokens),
+        candidate_predictive_update_start_tokens=int(candidate_predictive_update_start_tokens),
         enable_context_layer=False,
         enable_binding_layer=False,
         enable_cross_modal=False,
@@ -128,6 +137,7 @@ def _run_arm(
             winner_ids.append(int(winner))
 
     vote = trainer.model.predictive.vote_execution_report()
+    update = trainer.model.predictive.prediction_update_execution_report()
     column_runtime = trainer.model.column_runtime_report(
         token_count=trainer.token_count,
         last_winner=trainer.last_winner,
@@ -151,6 +161,15 @@ def _run_arm(
             None
             if vote.get("fallback_reason") is None
             else str(vote.get("fallback_reason"))
+        ),
+        predictive_update_mode=str(update.get("mode")),
+        predictive_update_updated_columns=int(update.get("updated_column_count", 0) or 0),
+        predictive_update_cached_columns=int(update.get("cached_state_count", 0) or 0),
+        predictive_update_runs_all_columns=bool(update.get("runs_all_columns", False)),
+        predictive_update_fallback_reason=(
+            None
+            if update.get("fallback_reason") is None
+            else str(update.get("fallback_reason"))
         ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
@@ -177,34 +196,44 @@ def run_benchmark(
     if k_routing <= 0 or k_routing > n_columns:
         raise ValueError("k_routing must be in [1, n_columns]")
 
-    cfg = _make_config(
+    all_column_cfg = _make_config(
         n_columns=n_columns,
         column_latent_dim=column_latent_dim,
         k_routing=k_routing,
         device=device,
+        candidate_homeostasis_start_tokens=max(samples + warmup_steps + 1, 10**9),
+        candidate_predictive_update_start_tokens=max(samples + warmup_steps + 1, 10**9),
     )
-    resolved_device = cfg.resolve_device()
+    scoped_cfg = _make_config(
+        n_columns=n_columns,
+        column_latent_dim=column_latent_dim,
+        k_routing=k_routing,
+        device=device,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+    )
+    resolved_device = scoped_cfg.resolve_device()
     if resolved_device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable")
 
     generator = torch.Generator(device=resolved_device).manual_seed(int(seed))
     patterns = [
-        torch.rand(cfg.input_dim, generator=generator, device=resolved_device)
+        torch.rand(scoped_cfg.input_dim, generator=generator, device=resolved_device)
         for _ in range(samples + warmup_steps)
     ]
 
     all_vote = _run_arm(
-        cfg=cfg,
+        cfg=all_column_cfg,
         patterns=patterns,
-        raw_prefix="all-column vote",
+        raw_prefix="all-column vote and prediction update",
         force_all_column_vote=True,
         seed=seed,
         warmup_steps=warmup_steps,
     )
     scoped = _run_arm(
-        cfg=cfg,
+        cfg=scoped_cfg,
         patterns=patterns,
-        raw_prefix="scoped cached vote",
+        raw_prefix="scoped cached vote and prediction update",
         force_all_column_vote=False,
         seed=seed,
         warmup_steps=warmup_steps,
@@ -217,7 +246,7 @@ def run_benchmark(
     ) * 100.0
     return {
         "surface": "column_scheduler_benchmark.v1",
-        "scope": "complete_train_step_predictive_vote_awake_mask_ab",
+        "scope": "complete_train_step_predictive_update_and_vote_awake_mask_ab",
         "torch": torch.__version__,
         "device": str(resolved_device),
         "cuda_device_name": (
@@ -236,12 +265,18 @@ def run_benchmark(
         "winner_sequence_equal": all_vote.winner_ids == scoped.winner_ids,
         "awake_count_bounded": scoped.awake_count <= int(k_routing),
         "predictive_vote_bounded": scoped.predictive_vote_updated_columns <= int(k_routing),
-        "scoped_runs_all_columns": bool(scoped.predictive_vote_runs_all_columns),
+        "predictive_update_bounded": scoped.predictive_update_updated_columns <= int(k_routing),
+        "bounded_specialist_work": bool(
+            scoped.predictive_vote_updated_columns <= int(k_routing)
+            and scoped.predictive_update_updated_columns <= int(k_routing)
+            and not scoped.runs_all_columns
+        ),
+        "scoped_runs_all_columns": bool(scoped.runs_all_columns),
         "median_delta_percent": median_delta_percent,
         "mean_delta_percent": mean_delta_percent,
         "neutral_or_better_complete_tick": scoped.mean_ms <= all_vote.mean_ms * 1.02,
         "claim_boundary": (
-            "complete_train_step_ab_for_predictive_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
+            "complete_train_step_ab_for_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
         ),
     }
 

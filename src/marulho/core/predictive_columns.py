@@ -196,9 +196,11 @@ class PredictiveColumnState:
         # Column confidence (how well predictions have matched reality)
         self.confidence = torch.ones(n_columns, device=self.device) * 0.5
 
-        self.last_prediction_update_mode = "all_columns"
-        self.last_prediction_update_count = int(n_columns)
-        self.last_prediction_update_fraction = 1.0
+        self.last_prediction_update_mode = "not_run"
+        self.last_prediction_update_count = 0
+        self.last_prediction_update_fraction = 0.0
+        self.last_prediction_cached_count = 0
+        self.last_prediction_update_runs_all_columns = False
         self.last_prediction_update_fallback_reason: str | None = None
         self.cached_consensus_gain = torch.ones(n_columns, device=self.device)
         self.last_vote_update_mode = "not_run"
@@ -375,6 +377,8 @@ class PredictiveColumnState:
     def _record_prediction_update_scope(
         self,
         candidate_indices: torch.Tensor | None,
+        *,
+        fallback_reason: str | None = None,
     ) -> None:
         if candidate_indices is None:
             count = int(self.n_columns)
@@ -387,7 +391,9 @@ class PredictiveColumnState:
         self.last_prediction_update_fraction = (
             float(count) / float(self.n_columns) if self.n_columns > 0 else 0.0
         )
-        self.last_prediction_update_fallback_reason = None
+        self.last_prediction_cached_count = max(0, int(self.n_columns) - count)
+        self.last_prediction_update_runs_all_columns = count >= int(self.n_columns)
+        self.last_prediction_update_fallback_reason = fallback_reason
 
     def predict(
         self,
@@ -659,6 +665,37 @@ class PredictiveColumnState:
             ),
         }
 
+    def prediction_update_execution_report(self) -> dict[str, object]:
+        """Return the last observed predictive-state update scheduler boundary."""
+
+        updated = max(0, min(int(self.last_prediction_update_count), int(self.n_columns)))
+        cached = (
+            0
+            if self.last_prediction_update_mode == "not_run"
+            else max(0, min(int(self.last_prediction_cached_count), int(self.n_columns)))
+        )
+        return {
+            "surface": "predictive_column_update_scheduler.v1",
+            "mode": str(self.last_prediction_update_mode),
+            "total_columns": int(self.n_columns),
+            "updated_column_count": updated,
+            "updated_column_fraction": round(
+                float(updated) / float(max(1, int(self.n_columns))),
+                6,
+            ),
+            "cached_state_count": cached,
+            "cached_state_fraction": round(
+                float(cached) / float(max(1, int(self.n_columns))),
+                6,
+            ),
+            "runs_all_columns": bool(self.last_prediction_update_runs_all_columns),
+            "fallback_reason": self.last_prediction_update_fallback_reason,
+            "tensor_device": str(self.prediction_error.device),
+            "claim_boundary": (
+                "training_owned_awake_mask_predictive_update_cache_skips_non_awake_columns"
+            ),
+        }
+
     def prediction_error_modulation(self) -> torch.Tensor:
         """Get STDP learning rate modulation from prediction error.
 
@@ -685,6 +722,10 @@ class PredictiveColumnState:
             "last_prediction_update_mode": self.last_prediction_update_mode,
             "last_prediction_update_count": int(self.last_prediction_update_count),
             "last_prediction_update_fraction": float(self.last_prediction_update_fraction),
+            "last_prediction_cached_count": int(self.last_prediction_cached_count),
+            "last_prediction_update_runs_all_columns": bool(
+                self.last_prediction_update_runs_all_columns
+            ),
             "last_prediction_update_fallback_reason": self.last_prediction_update_fallback_reason,
             "cached_consensus_gain_device": str(self.cached_consensus_gain.device),
             "last_vote_update_mode": self.last_vote_update_mode,
@@ -743,6 +784,12 @@ class PredictiveColumnState:
         self.prediction_error.zero_()
         self.prediction_failure_streak.zero_()
         self.confidence.fill_(0.5)
+        self.last_prediction_update_mode = "not_run"
+        self.last_prediction_update_count = 0
+        self.last_prediction_update_fraction = 0.0
+        self.last_prediction_cached_count = 0
+        self.last_prediction_update_runs_all_columns = False
+        self.last_prediction_update_fallback_reason = None
         self.cached_consensus_gain = torch.ones(self.n_columns, device=self.device)
         self.last_vote_update_mode = "not_run"
         self.last_vote_update_count = 0

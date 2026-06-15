@@ -63,6 +63,18 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
         report["runtime_counters"]["candidate_homeostasis_start_tokens"]
         == cfg.candidate_homeostasis_start_tokens
     )
+    assert (
+        report["runtime_counters"]["candidate_predictive_update_start_tokens"]
+        == cfg.candidate_predictive_update_start_tokens
+    )
+    assert (
+        report["runtime_counters"]["predictive_update_execution"]["surface"]
+        == "predictive_column_update_scheduler.v1"
+    )
+    assert (
+        report["runtime_counters"]["predictive_vote_execution"]["surface"]
+        == "predictive_column_vote_scheduler.v1"
+    )
     assert report["runtime_counters"]["competitive"]["input_plasticity_mode"] in {
         "lite_active",
         "skipped_zero_blend",

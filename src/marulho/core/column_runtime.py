@@ -1,10 +1,10 @@
-"""Report-only column registry, scheduling, and voting evidence.
+"""Column registry, scheduling, and voting evidence.
 
 This module is the first control-plane slice for a many-column runtime. It
-does not change which tensors execute in the hot path and it never mutates
-topology. It summarizes existing column tensors into awake/cached/sleep states
-so Runtime Truth can show whether MARULHO is moving toward sparse column
-metabolism before execution scheduling is promoted.
+never mutates topology. It summarizes existing column tensors into
+awake/cached/sleep states, while the training/model layer attaches the live
+execution-scope evidence that proves whether specialist work actually stayed
+bounded on the last tick.
 """
 
 from __future__ import annotations
@@ -216,7 +216,7 @@ def build_column_runtime_report(
         return {
             "surface": "column_runtime_metabolism.v1",
             "artifact_kind": "marulho_column_runtime_metabolism",
-            "summary_role": "report_only_scheduler_evidence_not_execution_scheduler",
+            "summary_role": "training_owned_scheduler_evidence_without_columns",
             "total_columns": 0,
             "awake_budget": 0,
             "awake_count": 0,

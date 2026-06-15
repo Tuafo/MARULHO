@@ -346,10 +346,11 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertFalse(column_runtime["runs_all_columns"])
         self.assertEqual(
             column_runtime["claim_boundary"],
-            "candidate_scoring_homeostasis_and_predictive_vote_cache_promoted_sleep_deep_sleep_remain_reported",
+            "candidate_scoring_homeostasis_predictive_update_and_vote_cache_promoted_sleep_deep_sleep_remain_reported",
         )
         self.assertEqual(column_runtime["execution"]["mode"], "not_run")
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
+        self.assertFalse(column_runtime["execution"]["runs_all_columns"])
         self.assertEqual(column_runtime["execution"]["homeostasis_update_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_fraction"], 0.0)
         self.assertEqual(column_runtime["execution"]["input_weight_blend"], 0.0)
@@ -383,9 +384,18 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertTrue(column_runtime["scheduler"]["promoted_to_execution"])
         self.assertEqual(
             column_runtime["scheduler"]["execution_scope"],
-            "candidate_scoring_homeostasis_and_predictive_vote_cache",
+            "candidate_scoring_homeostasis_predictive_update_and_vote_cache",
         )
         self.assertIn("wake_reasons_sample", column_runtime)
+        predictive_update = column_runtime["predictive_update_execution"]
+        self.assertEqual(
+            predictive_update["surface"],
+            "predictive_column_update_scheduler.v1",
+        )
+        self.assertEqual(predictive_update["mode"], "not_run")
+        self.assertEqual(predictive_update["updated_column_count"], 0)
+        self.assertEqual(predictive_update["cached_state_count"], 0)
+        self.assertFalse(predictive_update["runs_all_columns"])
         predictive_vote = column_runtime["predictive_vote_execution"]
         self.assertEqual(
             predictive_vote["surface"],
@@ -443,6 +453,19 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "tensor_device": "cpu",
                         "claim_boundary": "training_owned_awake_mask_predictive_vote_cache_skips_non_awake_columns",
                     },
+                    "predictive_update_execution": {
+                        "surface": "predictive_column_update_scheduler.v1",
+                        "mode": "candidate_subset",
+                        "total_columns": 128,
+                        "updated_column_count": 7,
+                        "updated_column_fraction": 0.054688,
+                        "cached_state_count": 121,
+                        "cached_state_fraction": 0.945312,
+                        "runs_all_columns": False,
+                        "fallback_reason": None,
+                        "tensor_device": "cpu",
+                        "claim_boundary": "training_owned_awake_mask_predictive_update_cache_skips_non_awake_columns",
+                    },
                 }
             }
         )
@@ -464,6 +487,11 @@ class StatusReadModelStatusTests(unittest.TestCase):
             121,
         )
         self.assertFalse(projected["predictive_vote_execution"]["runs_all_columns"])
+        self.assertEqual(
+            projected["predictive_update_execution"]["cached_state_count"],
+            121,
+        )
+        self.assertFalse(projected["predictive_update_execution"]["runs_all_columns"])
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()
