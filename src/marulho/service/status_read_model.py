@@ -1177,11 +1177,23 @@ class StatusReadModel:
             ),
             "scheduler": {
                 "mode": scheduler.get("mode"),
+                "wake_plan_mode": scheduler.get("wake_plan_mode"),
+                "projected_from_wake_plan": bool(
+                    scheduler.get("projected_from_wake_plan", False)
+                ),
                 "promoted_to_execution": bool(scheduler.get("promoted_to_execution", False)),
                 "execution_scope": scheduler.get("execution_scope"),
                 "active_column_fraction": float(scheduler.get("active_column_fraction", 0.0) or 0.0),
                 "cached_state_policy": scheduler.get("cached_state_policy"),
                 "fallback_reason": scheduler.get("fallback_reason"),
+                "execution_consumers": [
+                    str(value)
+                    for value in (
+                        scheduler.get("execution_consumers", [])
+                        if isinstance(scheduler.get("execution_consumers"), list)
+                        else []
+                    )
+                ],
             },
             "candidate_sleep_filter_execution": {
                 "surface": candidate_sleep_filter_execution.get(

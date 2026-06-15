@@ -208,6 +208,12 @@ def build_column_runtime_report(
     registry_sample_limit: int = 16,
     token_count: int | None = None,
     device: str | None = None,
+    execution_awake_indices: Sequence[int] | torch.Tensor | None = None,
+    execution_wake_reason: str | None = None,
+    execution_sleep_reason: str | None = None,
+    execution_scheduler_mode: str | None = None,
+    execution_fallback_reason: str | None = None,
+    execution_consumers: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
     total_columns = max(0, int(n_columns))
@@ -260,6 +266,12 @@ def build_column_runtime_report(
     win_rate = win_rate_raw.clamp(min=0.0)
     last_ids = _ids_to_list(last_winner_ids, n_columns=total_columns)
     last_id_set = set(last_ids)
+    execution_awake_mask_provided = execution_awake_indices is not None
+    execution_awake_ids = (
+        _ids_to_list(execution_awake_indices, n_columns=total_columns)
+        if execution_awake_mask_provided
+        else []
+    )
 
     streak_source_device = None
     streak_tensor = None
@@ -297,11 +309,22 @@ def build_column_runtime_report(
         + 0.10 * recent
     )
     top_count = min(max(1, awake_budget), total_columns)
-    awake_indices = (
-        torch.topk(scheduler_score, k=top_count).indices
-        if awake_budget > 0
-        else torch.empty(0, dtype=torch.long, device=source_device)
-    )
+    if execution_awake_mask_provided:
+        awake_indices = (
+            torch.as_tensor(
+                execution_awake_ids[:awake_budget],
+                dtype=torch.long,
+                device=source_device,
+            )
+            if execution_awake_ids
+            else torch.empty(0, dtype=torch.long, device=source_device)
+        )
+    else:
+        awake_indices = (
+            torch.topk(scheduler_score, k=top_count).indices
+            if awake_budget > 0
+            else torch.empty(0, dtype=torch.long, device=source_device)
+        )
     awake_set = {int(idx) for idx in awake_indices.detach().cpu().tolist()}
 
     deep_sleep_mask = steps >= float(deep_sleep_after_steps)
@@ -316,7 +339,11 @@ def build_column_runtime_report(
     disagreement = torch.abs(scheduler_score - score_mean)
     vote_ids = list(awake_indices.detach().cpu().tolist())
     cached_ids = torch.nonzero(cached_vote_mask, as_tuple=False).flatten()
-    if int(cached_ids.numel()) > 0:
+    emit_cached_vote_samples = not (
+        execution_awake_mask_provided
+        and str(execution_scheduler_mode or "") in {"not_run"}
+    )
+    if int(cached_ids.numel()) > 0 and emit_cached_vote_samples:
         cached_order = cached_ids[torch.argsort(conf[cached_ids], descending=True)]
         vote_ids.extend(int(idx) for idx in cached_order[: max(0, awake_budget - len(vote_ids))].detach().cpu().tolist())
     vote_ids_tensor = (
@@ -383,17 +410,32 @@ def build_column_runtime_report(
     sample_ids_cpu = sample_candidates.detach().cpu().to(dtype=torch.long)
     vote_ids_cpu = vote_ids_tensor.detach().cpu().to(dtype=torch.long)
     memory_budget = None if memory_budget_per_column is None else max(0, int(memory_budget_per_column))
+    memory_pressure_source = (
+        "memory_budget_available_usage_not_tracked_per_column"
+        if memory_budget is not None
+        else "not_tracked_per_column"
+    )
     votes: list[dict[str, Any]] = []
     for idx in vote_ids_cpu.tolist():
         column_id = int(idx)
         export_offset = export_offset_by_id[column_id]
         awake = column_id in awake_set
+        cached_vote = bool(export_table[11, export_offset].item())
+        prediction_error_value = round(float(export_table[0, export_offset].item()), 6)
+        confidence_value = round(float(export_table[1, export_offset].item()), 6)
+        surprise_value = round(float(export_table[2, export_offset].item()), 6)
         sleep_state = "awake" if awake else "cached_vote"
-        wake_reason = "recent_or_surprising_column" if awake else "cached_stable_vote"
+        wake_reason = (
+            str(execution_wake_reason or "training_wake_plan_awake")
+            if awake and execution_awake_mask_provided
+            else "recent_or_surprising_column"
+            if awake
+            else "cached_stable_vote"
+        )
         role = _column_role_from_export(
             column_id=column_id,
             awake=awake,
-            cached_vote=bool(export_table[11, export_offset].item()),
+            cached_vote=cached_vote,
             sleeping=bool(export_table[9, export_offset].item()),
             deep_sleep=bool(export_table[10, export_offset].item()),
             high_surprise=bool(export_table[12, export_offset].item()),
@@ -404,19 +446,33 @@ def build_column_runtime_report(
                 "column_id": column_id,
                 "state": sleep_state,
                 "role": role,
-                "confidence": round(float(export_table[1, export_offset].item()), 6),
-                "prediction_error": round(float(export_table[0, export_offset].item()), 6),
+                "confidence": confidence_value,
+                "prediction": {
+                    "confidence": confidence_value,
+                    "error": prediction_error_value,
+                },
+                "prediction_error": prediction_error_value,
+                "surprise": surprise_value,
                 "usefulness": round(float(export_table[3, export_offset].item()), 6),
                 "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
+                "memory_pressure": None,
+                "memory_pressure_source": memory_pressure_source,
+                "cached_vote": cached_vote,
                 "disagreement": round(float(export_table[8, export_offset].item()), 6),
                 "evidence": {
-                    "prediction_error": round(float(export_table[0, export_offset].item()), 6),
+                    "prediction_error": prediction_error_value,
                     "confidence_gap": round(float(export_table[7, export_offset].item()), 6),
                     "win_rate_ema": round(float(export_table[5, export_offset].item()), 6),
                     "steps_since_win": int(export_table[6, export_offset].item()),
                 },
                 "wake_reason": wake_reason,
-                "sleep_reason": None if awake else "stable_low_surprise_cached_vote",
+                "sleep_reason": (
+                    None
+                    if awake
+                    else str(execution_sleep_reason)
+                    if execution_sleep_reason is not None
+                    else "stable_low_surprise_cached_vote"
+                ),
                 "mutates_column": False,
             }
         )
@@ -427,6 +483,9 @@ def build_column_runtime_report(
         deep_sleep = bool(export_table[10, export_offset].item())
         cached_vote = bool(export_table[11, export_offset].item())
         high_surprise_state = bool(export_table[12, export_offset].item())
+        prediction_error_value = round(float(export_table[0, export_offset].item()), 6)
+        confidence_value = round(float(export_table[1, export_offset].item()), 6)
+        surprise_value = round(float(export_table[2, export_offset].item()), 6)
         registry_sample.append(
             {
                 "column_id": column_id,
@@ -451,11 +510,18 @@ def build_column_runtime_report(
                     else "idle"
                 ),
                 "local_state": {
-                    "prediction_error": round(float(export_table[0, export_offset].item()), 6),
-                    "confidence": round(float(export_table[1, export_offset].item()), 6),
-                    "surprise": round(float(export_table[2, export_offset].item()), 6),
+                    "prediction": {
+                        "confidence": confidence_value,
+                        "error": prediction_error_value,
+                    },
+                    "prediction_error": prediction_error_value,
+                    "confidence": confidence_value,
+                    "surprise": surprise_value,
                     "usefulness": round(float(export_table[3, export_offset].item()), 6),
                     "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
+                    "memory_pressure": None,
+                    "memory_pressure_source": memory_pressure_source,
+                    "cached_vote": cached_vote,
                     "win_rate_ema": round(float(export_table[5, export_offset].item()), 6),
                     "steps_since_win": int(export_table[6, export_offset].item()),
                     "last_run_token": (
@@ -534,18 +600,35 @@ def build_column_runtime_report(
         "cached_votes_allowed": True,
         "runs_all_columns": False,
         "scheduler": {
-            "mode": "top_k_surprise_usefulness_cost_latency_first_gate",
+            "mode": (
+                "training_wake_plan_projection"
+                if execution_awake_mask_provided
+                else "top_k_surprise_usefulness_cost_latency_first_gate"
+            ),
+            "wake_plan_mode": (
+                None
+                if execution_scheduler_mode is None
+                else str(execution_scheduler_mode)
+            ),
+            "projected_from_wake_plan": bool(execution_awake_mask_provided),
             "runs_all_columns": False,
             "promoted_to_execution": True,
             "execution_scope": "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache",
-            "selection_inputs": [
-                "prediction_error",
-                "confidence_gap",
-                "usefulness",
-                "recent_winner",
-            ],
+            "selection_inputs": (
+                ["training_owned_column_wake_plan"]
+                if execution_awake_mask_provided
+                else [
+                    "prediction_error",
+                    "confidence_gap",
+                    "usefulness",
+                    "recent_winner",
+                ]
+            ),
             "awake_column_ids": [int(idx) for idx in awake_indices.detach().cpu().tolist()],
             "cached_vote_column_ids": [int(idx) for idx in cached_ids[:awake_budget].detach().cpu().tolist()],
+            "execution_consumers": [
+                str(value) for value in (execution_consumers or [])
+            ],
             "sleeping_column_ids_sample": _tensor_to_int_list(
                 torch.nonzero(sleep_mask, as_tuple=False).flatten(),
                 min(awake_budget, 16),
@@ -556,7 +639,13 @@ def build_column_runtime_report(
             ),
             "active_column_fraction": round(float(len(awake_set)) / float(max(1, total_columns)), 6),
             "cached_state_policy": "stable_low_surprise_columns_may_vote_without_wake",
-            "fallback_reason": None if awake_budget < total_columns else "awake_budget_reaches_total_columns",
+            "fallback_reason": (
+                execution_fallback_reason
+                if execution_awake_mask_provided
+                else None
+                if awake_budget < total_columns
+                else "awake_budget_reaches_total_columns"
+            ),
         },
         "registry": {
             "surface": "column_registry.v1",

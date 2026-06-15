@@ -57,6 +57,66 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert report["metabolism"]["device_transfer_count"] == 0
     assert report["metabolism"]["hot_path_effect"] == "none_latency_first_runtime_truth_snapshot"
     assert report["metabolism"]["claim_boundary"] == "latency_first_column_status_snapshot_not_hot_path_execution"
+    assert all("prediction" in vote for vote in report["votes"])
+    assert all("surprise" in vote for vote in report["votes"])
+    assert all("memory_pressure_source" in vote for vote in report["votes"])
+    assert all("cached_vote" in vote for vote in report["votes"])
+    assert all(
+        "memory_pressure_source" in row["local_state"]
+        for row in report["registry"]["columns_sample"]
+    )
+
+
+def test_model_column_runtime_projects_training_wake_plan_not_report_topk() -> None:
+    from marulho.config.model_config import MarulhoConfig
+    from marulho.training.column_scheduler import ColumnWakePlan
+    from marulho.training.model import MarulhoModel
+
+    cfg = MarulhoConfig(
+        n_columns=6,
+        column_latent_dim=4,
+        k_routing=2,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        device="cpu",
+    )
+    model = MarulhoModel(cfg)
+    model.predictive.prediction_error[:] = torch.tensor([0.99, 0.1, 0.95, 0.2, 0.0, 0.0])
+    model.predictive.confidence[:] = torch.tensor([0.1, 0.8, 0.1, 0.7, 0.9, 0.9])
+    model.competitive.steps_since_win[:] = torch.zeros(cfg.n_columns)
+    model.last_column_wake_plan = ColumnWakePlan(
+        mode="candidate_deep_sleep_filter",
+        total_columns=cfg.n_columns,
+        awake_budget=cfg.k_routing,
+        awake_indices=torch.tensor([1, 3], dtype=torch.long),
+        input_candidate_count=4,
+        filtered_deep_sleep_count=2,
+        backfill_candidate_count=2,
+        deep_sleep_threshold_steps=cfg.dead_column_steps,
+        start_token=cfg.candidate_deep_sleep_filter_start_tokens,
+        backfill_factor=cfg.candidate_deep_sleep_backfill_factor,
+        wake_reason="retrieved_candidate_not_in_deep_sleep",
+        sleep_reason="deep_sleep_candidate_filtered_from_awake_mask",
+        fallback_reason=None,
+        tensor_device="cpu",
+    )
+
+    report = model.column_runtime_report(token_count=10, last_winner=1)
+
+    assert report["scheduler"]["mode"] == "training_wake_plan_projection"
+    assert report["scheduler"]["wake_plan_mode"] == "candidate_deep_sleep_filter"
+    assert report["scheduler"]["projected_from_wake_plan"] is True
+    assert report["scheduler"]["awake_column_ids"] == [1, 3]
+    assert report["awake_count"] == 2
+    assert report["active_count"] == 2
+    assert report["candidate_count"] == 2
+    assert report["column_wake_plan"]["awake_column_ids_sample"] == [1, 3]
+    awake_votes = [vote for vote in report["votes"] if vote["state"] == "awake"]
+    assert [vote["column_id"] for vote in awake_votes] == [1, 3]
+    assert all(
+        vote["wake_reason"] == "retrieved_candidate_not_in_deep_sleep"
+        for vote in awake_votes
+    )
 
 
 def test_column_runtime_growth_gate_needs_repeated_surprise() -> None:

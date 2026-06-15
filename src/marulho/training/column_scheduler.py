@@ -11,6 +11,13 @@ import torch
 WAKE_PLAN_CLAIM_BOUNDARY = (
     "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan"
 )
+WAKE_PLAN_EXECUTION_CONSUMERS = (
+    "predictive_vote",
+    "competitive_scoring",
+    "predictive_update",
+    "predictive_location_update",
+    "competitive_homeostasis",
+)
 
 
 def _bounded_id_sample(indices: torch.Tensor, limit: int = 16) -> list[int]:
@@ -119,12 +126,6 @@ class ColumnWakePlan:
             "fallback_reason": self.fallback_reason,
             "tensor_device": str(self.tensor_device),
             "awake_column_ids_sample": _bounded_id_sample(self.awake_indices),
-            "execution_consumers": [
-                "predictive_vote",
-                "competitive_scoring",
-                "predictive_update",
-                "predictive_location_update",
-                "competitive_homeostasis",
-            ],
+            "execution_consumers": list(WAKE_PLAN_EXECUTION_CONSUMERS),
             "claim_boundary": self.claim_boundary,
         }

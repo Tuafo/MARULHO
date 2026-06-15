@@ -167,6 +167,19 @@ not a CPU speed claim. The implementation removed eager per-tick legacy report
 dict materialization and used a slotted wake-plan object before the final
 evidence run.
 
+The follow-up Runtime Truth projection audit tightened that ownership boundary:
+live `column_runtime` now projects the training-owned `ColumnWakePlan` awake
+IDs, wake/sleep/fallback reasons, and consumer list instead of recomputing a
+second report-local top-k mask. The standalone report helper may still use the
+top-k scheduler score only when no execution plan is supplied. Per-column report
+rows now expose role, state, prediction, surprise, usefulness, estimated cost,
+memory-pressure truth, cached-vote state, and wake/sleep reason; memory pressure
+is reported as `not_tracked_per_column` until a real per-column usage meter
+exists. Focused tests prove service remains read-only projection and does not
+own scheduler decisions. The current benchmark evidence keeps awake work bounded
+but does not prove complete-runtime neutrality, so this is a truth-boundary
+correction rather than a scheduler speed promotion.
+
 The corresponding longer CUDA stress check at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-scheduler-slots.json`
 reached `5822.624 tokens/sec`, with `train_compute=0.142080 ms/token`,

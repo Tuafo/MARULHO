@@ -218,6 +218,37 @@ a scheduler ownership/Runtime Truth promotion rather than a speed promotion.
 Treat `6k-ish` as a noisy sustained-runtime band and compare the stage
 `ms/token` values before claiming improvement.
 
+The follow-up Column Runtime Truth Projection audit changed the live
+`column_runtime` projection so top-level awake counts, awake IDs, vote samples,
+wake/sleep reasons, fallback reason, and service evidence come from the
+training-owned `ColumnWakePlan` instead of a second report-local top-k mask.
+Focused verification passed with `10 passed` across column runtime, status, and
+scheduler benchmark tests, and `54 passed` in `tests\test_predictive_columns.py`.
+The CPU reports prove bounded work but not speed neutrality: the 2048-column
+A/B at
+`reports/column_scheduler_20260615/cpu-2048-wake-plan-runtime-truth-projection.json`
+preserved exact winners and `runs_all_columns=false`, but scoped mean complete
+step was `14.2402075 ms` versus `6.7495825 ms`; the 512/2048/8192 scaling sweep
+at
+`reports/column_scheduler_20260615/cpu-scaling-wake-plan-runtime-truth-projection.json`
+kept awake count at `10` while `neutral_or_better_all_sizes=false`. The latest
+8192 rerun at
+`reports/column_scheduler_20260615/cpu-8192-wake-plan-runtime-truth-projection.json`
+kept bounded specialist work at `10/8192`, but `winner_sequence_equal=false`
+and scoped mean was `10.63430875 ms` versus `8.33335625 ms`, so it is not a
+promotion gate. The valid 131072-token CUDA comparison is
+`reports/column_scheduler_20260615/current-conditional16-131072-i32-after-wake-plan-truth-projection.json`:
+it reached `4975.507 tokens/sec`, `train_compute=0.159667 ms/token`,
+`prepare_training=0.009256 ms/token`, and `finalize_total=0.008210 ms/token`,
+with RTX 3060 CUDA selected, no observed contention, `8190` conditional loop
+successes over `131040` tokens, and zero sequence/native failures or fallbacks.
+This is below the recent `5.8k-6.1k` sustained band, so throughput parity is not
+proven. The excluded
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-truth-projection.json`
+run used `--sequence-executor default`, selected the native repeated-child
+fallback instead of conditional-WHILE, and observed contention; do not compare
+that run to the 6k-ish baseline.
+
 The fused retained CPU candidate-transition cleanup moved prediction-error,
 location/velocity, prediction-weight, and cached predictive materialization
 work behind one candidate-scoped core call instead of three split calls over the

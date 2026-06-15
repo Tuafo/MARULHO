@@ -186,7 +186,7 @@ _Avoid_: candidate-scoping homeostasis before stale evidence can exist, freezing
 **Candidate Deep-Sleep Filter** — the trainer-owned retained CPU route boundary where the HNSW/tensor retrieval path may request a bounded backfill pool, sort candidates by returned distance, then remove only candidates whose `steps_since_win` has reached `dead_column_steps`. Before `token_count >= dead_column_steps`, no column can be deep-sleep eligible, so the scheduler requests only the target awake budget and reports `candidate_deep_sleep_filter_no_column_can_be_deep_sleep_yet` rather than paying a backfill pool that cannot filter anything. It does not scan all columns to decide sleep, and it does not mutate pruning or retirement state. If CUDA graph/fused route-vote has already selected candidates, Runtime Truth reports a route-owner fallback instead of filtering after winner selection. The filter reports input/output candidate counts, deep-sleep filtered count, backfill count, fallback reason, tensor device, and `runs_all_columns=false`.
 _Avoid_: tying predictive-update wake to structural dead-column retirement, hiding CUDA fallback, claiming sparse CUDA acceleration without benchmark evidence, treating cached non-candidate prediction state as fresh evidence, or replacing exact predictive wake replay with an approximate closed-form/vectorized shortcut that lacks long winner-parity evidence
 
-**Column Wake Plan** — the trainer-owned scheduler object that turns the retrieved candidate set into the one awake mask for the retained tick. It replaces scattered raw candidate-tensor ownership with one bounded plan consumed by predictive vote, competitive scoring, predictive update/location update, and candidate homeostasis. It records total columns, awake budget/count, input/backfill/filter counts, wake reason, sleep reason, fallback reason, tensor device, bounded truth, and `runs_all_columns` truth; `service` may project it but must not build or reinterpret it. The plan is live scheduler state, not checkpoint-backed growth/pruning authority.
+**Column Wake Plan** — the trainer-owned scheduler object that turns the retrieved candidate set into the one awake mask for the retained tick. It replaces scattered raw candidate-tensor ownership with one bounded plan consumed by predictive vote, competitive scoring, predictive update/location update, and candidate homeostasis. It records total columns, awake budget/count, input/backfill/filter counts, wake reason, sleep reason, fallback reason, tensor device, bounded truth, and `runs_all_columns` truth; `service` may project it but must not build or reinterpret it. Live Runtime Truth projections must use this plan's awake IDs and reasons when it exists; the older report-local top-k scheduler score is only standalone/offline evidence when no execution plan is available. Per-column memory pressure remains explicit unknown evidence (`not_tracked_per_column`) until a real per-column usage meter exists. The plan is live scheduler state, not checkpoint-backed growth/pruning authority.
 _Avoid_: materializing large JSON wake-plan reports in the hot path, letting status reads infer an awake mask, filtering after CUDA graph/fused route-vote has already selected a winner, or treating a bounded wake plan as proof that dense CUDA predictive updates have become sparse
 
 The 2026-06-15 wake-plan slice proved bounded ownership, not a speed win. The
@@ -198,6 +198,16 @@ and using a slotted plan reached `5822.624 tokens/sec` with
 `finalize_total=0.005888 ms/token`, preserving the conditional16 executor
 counters and the broad 6k-ish sustained band without matching the historical
 top run.
+
+The follow-up Runtime Truth projection audit made the top-level awake mask,
+vote samples, wake reasons, and service projection come from the training-owned
+`ColumnWakePlan` instead of recomputing a second report-local top-k mask. It is
+not a speed promotion: the valid 131072-token conditional-WHILE CUDA rerun
+reached `4975.507 tokens/sec` with `train_compute=0.159667 ms/token`,
+`prepare_training=0.009256 ms/token`, `finalize_total=0.008210 ms/token`, zero
+sequence/native failures or fallbacks, and no observed contention, which is
+below the recent `5.8k-6.1k` sustained band. Treat this slice as a truth-boundary
+correction until complete-runtime benchmarks prove neutral-or-better cost.
 
 **Predictive Vote Cache Wake** — the retained training-owned consensus-vote path where routing first selects a bounded awake candidate set, `PredictiveColumnState.vote()` recomputes reference-frame agreement only for those candidates, and non-awake columns keep cached consensus-gain state. Runtime Truth reports updated columns, cached-vote use, fallback reason, tensor device, and whether the vote scanned all columns. This is a real scheduler execution effect, but it does not authorize sleep/deep-sleep mutation, growth, pruning, or service-owned scheduling.
 _Avoid_: recomputing all predictive votes after candidates are known, calling cached votes real sleep if other execution still touches the column, or moving vote selection into `service`

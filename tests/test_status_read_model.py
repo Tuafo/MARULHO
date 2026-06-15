@@ -448,12 +448,15 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         {"wake_reason": "cached_stable_vote"},
                     ],
                     "scheduler": {
-                        "mode": "test_scheduler",
+                        "mode": "training_wake_plan_projection",
+                        "wake_plan_mode": "candidate_deep_sleep_filter",
+                        "projected_from_wake_plan": True,
                         "promoted_to_execution": True,
                         "execution_scope": "synthetic_scope_from_training",
                         "active_column_fraction": 0.039,
                         "cached_state_policy": "cached",
                         "fallback_reason": None,
+                        "execution_consumers": ["predictive_vote", "competitive_scoring"],
                     },
                     "candidate_sleep_filter_execution": {
                         "surface": "column_candidate_sleep_scheduler.v1",
@@ -539,6 +542,19 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             projected["scheduler"]["execution_scope"],
             "synthetic_scope_from_training",
+        )
+        self.assertEqual(
+            projected["scheduler"]["mode"],
+            "training_wake_plan_projection",
+        )
+        self.assertEqual(
+            projected["scheduler"]["wake_plan_mode"],
+            "candidate_deep_sleep_filter",
+        )
+        self.assertTrue(projected["scheduler"]["projected_from_wake_plan"])
+        self.assertEqual(
+            projected["scheduler"]["execution_consumers"],
+            ["predictive_vote", "competitive_scoring"],
         )
         self.assertEqual(
             projected["candidate_sleep_filter_execution"]["filtered_deep_sleep_count"],

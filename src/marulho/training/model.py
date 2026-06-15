@@ -29,7 +29,7 @@ from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
 from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from marulho.training.bootstrap import PredictiveBootstrap
-from marulho.training.column_scheduler import ColumnWakePlan
+from marulho.training.column_scheduler import ColumnWakePlan, WAKE_PLAN_EXECUTION_CONSUMERS
 
 
 
@@ -348,6 +348,47 @@ class MarulhoModel:
     ) -> dict[str, Any]:
         """Return many-column scheduler, execution-scope, and voting evidence."""
         awake_limit = min(int(self.config.k_routing), int(self.config.n_columns))
+        stored_wake_plan = getattr(self, "last_column_wake_plan", None)
+        execution_awake_indices: torch.Tensor | list[int] | None = None
+        execution_wake_reason: str | None = None
+        execution_sleep_reason: str | None = None
+        execution_scheduler_mode: str | None = None
+        execution_fallback_reason: str | None = None
+        execution_consumers: list[str] = []
+        if isinstance(stored_wake_plan, ColumnWakePlan):
+            execution_awake_indices = stored_wake_plan.candidates()
+            execution_wake_reason = stored_wake_plan.wake_reason
+            execution_sleep_reason = stored_wake_plan.sleep_reason
+            execution_scheduler_mode = stored_wake_plan.mode
+            execution_fallback_reason = stored_wake_plan.fallback_reason
+            execution_consumers = list(WAKE_PLAN_EXECUTION_CONSUMERS)
+        elif isinstance(stored_wake_plan, dict):
+            execution_scheduler_mode = str(stored_wake_plan.get("mode", "not_run"))
+            raw_awake_sample = stored_wake_plan.get("awake_column_ids_sample", [])
+            if execution_scheduler_mode == "not_run":
+                execution_awake_indices = []
+            elif isinstance(raw_awake_sample, list):
+                execution_awake_indices = [int(value) for value in raw_awake_sample]
+            execution_wake_reason = (
+                None
+                if stored_wake_plan.get("wake_reason") is None
+                else str(stored_wake_plan.get("wake_reason"))
+            )
+            execution_sleep_reason = (
+                None
+                if stored_wake_plan.get("sleep_reason") is None
+                else str(stored_wake_plan.get("sleep_reason"))
+            )
+            execution_fallback_reason = (
+                None
+                if stored_wake_plan.get("fallback_reason") is None
+                else str(stored_wake_plan.get("fallback_reason"))
+            )
+            execution_consumers = [
+                str(value)
+                for value in stored_wake_plan.get("execution_consumers", [])
+                if isinstance(value, str)
+            ]
         report = build_column_runtime_report(
             n_columns=int(self.config.n_columns),
             prediction_error=getattr(self.predictive, "prediction_error", None),
@@ -361,11 +402,16 @@ class MarulhoModel:
             deep_sleep_after_steps=max(awake_limit + 1, int(self.config.dead_column_steps)),
             token_count=token_count,
             device=str(self.device),
+            execution_awake_indices=execution_awake_indices,
+            execution_wake_reason=execution_wake_reason,
+            execution_sleep_reason=execution_sleep_reason,
+            execution_scheduler_mode=execution_scheduler_mode,
+            execution_fallback_reason=execution_fallback_reason,
+            execution_consumers=execution_consumers,
         )
         execution = self.competitive.execution_report()
         predictive_update_execution = self.predictive.prediction_update_execution_report()
         predictive_vote_execution = self.predictive.vote_execution_report()
-        stored_wake_plan = getattr(self, "last_column_wake_plan", None)
         if isinstance(stored_wake_plan, ColumnWakePlan):
             column_wake_plan = stored_wake_plan.to_report()
             candidate_sleep_filter_execution = stored_wake_plan.to_execution_report()
