@@ -21,6 +21,7 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert report["scope"] == "complete_train_step_deep_sleep_filter_predictive_update_and_vote_awake_mask_ab"
     assert report["winner_sequence_equal"] is True
     assert report["awake_count_bounded"] is True
+    assert report["column_wake_plan_bounded"] is True
     assert report["predictive_vote_bounded"] is True
     assert report["predictive_update_bounded"] is True
     assert report["predictive_location_update_bounded"] is True
@@ -38,6 +39,10 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert scoped["predictive_location_runs_all_columns"] is False
     assert scoped["candidate_sleep_filter_output_candidates"] == 4
     assert scoped["candidate_sleep_filter_runs_all_columns"] is False
+    assert scoped["column_wake_plan_awake_count"] == 4
+    assert scoped["column_wake_plan_bounded"] is True
+    assert scoped["column_wake_plan_runs_all_columns"] is False
+    assert scoped["column_wake_plan_wake_reason"] == "retrieved_candidate_not_in_deep_sleep"
     assert scoped["runs_all_columns"] is False
     assert all_vote["predictive_vote_updated_columns"] == 16
     assert all_vote["predictive_vote_runs_all_columns"] is True
@@ -67,3 +72,5 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     assert all("winner_sequence_equal" in row for row in report["runs"])
     assert {row["candidate_sleep_filter_output_candidates"] for row in report["runs"]} == {4}
     assert {row["predictive_location_update_columns"] for row in report["runs"]} == {4}
+    assert {row["column_wake_plan_awake_count"] for row in report["runs"]} == {4}
+    assert all(row["column_wake_plan_bounded"] for row in report["runs"])

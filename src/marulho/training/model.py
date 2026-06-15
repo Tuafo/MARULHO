@@ -29,6 +29,7 @@ from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
 from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from marulho.training.bootstrap import PredictiveBootstrap
+from marulho.training.column_scheduler import ColumnWakePlan
 
 
 
@@ -256,6 +257,27 @@ class MarulhoModel:
                 "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
             ),
         }
+        self.last_column_wake_plan = {
+            "surface": "column_wake_plan.v1",
+            "mode": "not_run",
+            "total_columns": int(self.config.n_columns),
+            "awake_budget": int(min(self.config.k_routing, self.config.n_columns)),
+            "awake_count": 0,
+            "input_candidate_count": 0,
+            "filtered_deep_sleep_count": 0,
+            "backfill_candidate_count": 0,
+            "bounded": True,
+            "runs_all_columns": False,
+            "wake_reason": "not_run",
+            "sleep_reason": None,
+            "fallback_reason": None,
+            "tensor_device": str(self.device),
+            "awake_column_ids_sample": [],
+            "execution_consumers": [],
+            "claim_boundary": (
+                "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan"
+            ),
+        }
 
         self.W_assembly_project = torch.empty(
             self.config.n_columns,
@@ -341,37 +363,67 @@ class MarulhoModel:
             device=str(self.device),
         )
         execution = self.competitive.execution_report()
-        candidate_sleep_filter_execution = dict(
-            getattr(
-                self,
-                "last_candidate_sleep_filter_execution",
-                {
-                    "surface": "column_candidate_sleep_scheduler.v1",
+        predictive_update_execution = self.predictive.prediction_update_execution_report()
+        predictive_vote_execution = self.predictive.vote_execution_report()
+        stored_wake_plan = getattr(self, "last_column_wake_plan", None)
+        if isinstance(stored_wake_plan, ColumnWakePlan):
+            column_wake_plan = stored_wake_plan.to_report()
+            candidate_sleep_filter_execution = stored_wake_plan.to_execution_report()
+        else:
+            column_wake_plan = dict(
+                stored_wake_plan
+                if isinstance(stored_wake_plan, dict)
+                else {
+                    "surface": "column_wake_plan.v1",
                     "mode": "not_run",
                     "total_columns": int(self.config.n_columns),
                     "awake_budget": awake_limit,
+                    "awake_count": 0,
                     "input_candidate_count": 0,
-                    "output_candidate_count": 0,
                     "filtered_deep_sleep_count": 0,
                     "backfill_candidate_count": 0,
-                    "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
-                    "start_token": int(
-                        self.config.candidate_deep_sleep_filter_start_tokens
-                    ),
-                    "backfill_factor": int(
-                        self.config.candidate_deep_sleep_backfill_factor
-                    ),
+                    "bounded": True,
                     "runs_all_columns": False,
+                    "wake_reason": "not_run",
+                    "sleep_reason": None,
                     "fallback_reason": None,
                     "tensor_device": str(self.device),
+                    "awake_column_ids_sample": [],
+                    "execution_consumers": [],
                     "claim_boundary": (
-                        "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+                        "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan"
                     ),
-                },
+                }
             )
-        )
-        predictive_update_execution = self.predictive.prediction_update_execution_report()
-        predictive_vote_execution = self.predictive.vote_execution_report()
+            candidate_sleep_filter_execution = dict(
+                getattr(
+                    self,
+                    "last_candidate_sleep_filter_execution",
+                    {
+                        "surface": "column_candidate_sleep_scheduler.v1",
+                        "mode": "not_run",
+                        "total_columns": int(self.config.n_columns),
+                        "awake_budget": awake_limit,
+                        "input_candidate_count": 0,
+                        "output_candidate_count": 0,
+                        "filtered_deep_sleep_count": 0,
+                        "backfill_candidate_count": 0,
+                        "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
+                        "start_token": int(
+                            self.config.candidate_deep_sleep_filter_start_tokens
+                        ),
+                        "backfill_factor": int(
+                            self.config.candidate_deep_sleep_backfill_factor
+                        ),
+                        "runs_all_columns": False,
+                        "fallback_reason": None,
+                        "tensor_device": str(self.device),
+                        "claim_boundary": (
+                            "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
+                        ),
+                    },
+                )
+            )
         total_columns = int(report.get("total_columns", 0) or 0)
         competitive_runs_all = bool(execution.get("runs_all_columns", False))
         if total_columns > 0:
@@ -391,6 +443,7 @@ class MarulhoModel:
         )
         report["execution"] = execution
         report["candidate_sleep_filter_execution"] = candidate_sleep_filter_execution
+        report["column_wake_plan"] = column_wake_plan
         report["predictive_update_execution"] = predictive_update_execution
         report["predictive_vote_execution"] = predictive_vote_execution
         report["runs_all_columns"] = runs_all_columns

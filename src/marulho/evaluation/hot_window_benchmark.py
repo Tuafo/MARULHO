@@ -257,11 +257,18 @@ def run_hot_window_benchmark(
             ),
             "routing_index": trainer.model.hnsw_index.stats(),
             "competitive": trainer.model.competitive.execution_report(),
-            "candidate_sleep_filter_execution": dict(
-                getattr(
-                    trainer.model,
-                    "last_candidate_sleep_filter_execution",
-                    {},
+            "candidate_sleep_filter_execution": (
+                getattr(trainer.model.last_column_wake_plan, "to_execution_report")()
+                if hasattr(
+                    getattr(trainer.model, "last_column_wake_plan", None),
+                    "to_execution_report",
+                )
+                else dict(
+                    getattr(
+                        trainer.model,
+                        "last_candidate_sleep_filter_execution",
+                        {},
+                    )
                 )
             ),
             "predictive": trainer.model.predictive.device_report(),

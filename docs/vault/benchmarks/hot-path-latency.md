@@ -193,6 +193,31 @@ promotion because the CPU cached-state parity gate failed. Retain ordered
 candidate-bounded predictive replay; treat the throughput answer as the prior
 documented stable 6k-ish path, not a vectorized predictive-wake speed claim.
 
+The following scheduler-ownership audit introduced a training-owned
+`column_wake_plan` boundary so the retained route carries one awake mask and
+wake/sleep/fallback reason through predictive vote, competition, predictive
+update/location update, and homeostasis. The first implementation built the
+legacy sleep-filter report dict every tick and measured
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-scheduler.json`
+at `5808.990 tokens/sec`, `train_compute=0.142889 ms/token`,
+`prepare_training=0.006470 ms/token`, and
+`finalize_total=0.005898 ms/token`. After moving legacy report materialization
+to Runtime Truth/report time and making the wake-plan object slotted, the same
+131072-token CUDA shape at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-scheduler-slots.json`
+reached `5822.624 tokens/sec`, `train_compute=0.142080 ms/token`,
+`prepare_training=0.006576 ms/token`, and
+`finalize_total=0.005888 ms/token`. Both runs preserved RTX 3060 CUDA execution,
+`8190` conditional loop successes over `131040` tokens, zero sequence/native
+fallbacks or failures, host-truth cadence `4097/126975`, and no observed
+contention. The retained CPU 8192-column A/B
+`reports/column_scheduler_20260615/cpu-8192-wake-plan-scheduler-slots.json`
+preserved exact winners and bounded all reported specialist work at `10/8192`,
+but scoped mean latency was `12.24272625 ms` versus `7.4809125 ms`, so this is
+a scheduler ownership/Runtime Truth promotion rather than a speed promotion.
+Treat `6k-ish` as a noisy sustained-runtime band and compare the stage
+`ms/token` values before claiming improvement.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

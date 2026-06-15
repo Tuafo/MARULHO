@@ -45,6 +45,12 @@ class SchedulerBenchmarkArm:
     candidate_sleep_filter_deep_sleep_filtered: int
     candidate_sleep_filter_runs_all_columns: bool
     candidate_sleep_filter_fallback_reason: str | None
+    column_wake_plan_mode: str
+    column_wake_plan_awake_count: int
+    column_wake_plan_bounded: bool
+    column_wake_plan_runs_all_columns: bool
+    column_wake_plan_wake_reason: str | None
+    column_wake_plan_fallback_reason: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -156,6 +162,7 @@ def _run_arm(
     )
     execution = column_runtime.get("execution", {})
     sleep_filter = column_runtime.get("candidate_sleep_filter_execution", {})
+    wake_plan = column_runtime.get("column_wake_plan", {})
     elapsed_ms = sum(timings)
     samples = len(timings)
     return SchedulerBenchmarkArm(
@@ -210,6 +217,22 @@ def _run_arm(
             None
             if sleep_filter.get("fallback_reason") is None
             else str(sleep_filter.get("fallback_reason"))
+        ),
+        column_wake_plan_mode=str(wake_plan.get("mode")),
+        column_wake_plan_awake_count=int(wake_plan.get("awake_count", 0) or 0),
+        column_wake_plan_bounded=bool(wake_plan.get("bounded", False)),
+        column_wake_plan_runs_all_columns=bool(
+            wake_plan.get("runs_all_columns", False)
+        ),
+        column_wake_plan_wake_reason=(
+            None
+            if wake_plan.get("wake_reason") is None
+            else str(wake_plan.get("wake_reason"))
+        ),
+        column_wake_plan_fallback_reason=(
+            None
+            if wake_plan.get("fallback_reason") is None
+            else str(wake_plan.get("fallback_reason"))
         ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
@@ -306,6 +329,11 @@ def run_benchmark(
         "scoped_cached_vote": asdict(scoped),
         "winner_sequence_equal": all_vote.winner_ids == scoped.winner_ids,
         "awake_count_bounded": scoped.awake_count <= int(k_routing),
+        "column_wake_plan_bounded": bool(
+            scoped.column_wake_plan_bounded
+            and scoped.column_wake_plan_awake_count <= int(k_routing)
+            and not scoped.column_wake_plan_runs_all_columns
+        ),
         "predictive_vote_bounded": scoped.predictive_vote_updated_columns <= int(k_routing),
         "predictive_update_bounded": scoped.predictive_update_updated_columns <= int(k_routing),
         "predictive_location_update_bounded": (
@@ -320,6 +348,9 @@ def run_benchmark(
             scoped.predictive_vote_updated_columns <= int(k_routing)
             and scoped.predictive_update_updated_columns <= int(k_routing)
             and scoped.predictive_location_update_columns <= int(k_routing)
+            and scoped.column_wake_plan_bounded
+            and scoped.column_wake_plan_awake_count <= int(k_routing)
+            and not scoped.column_wake_plan_runs_all_columns
             and not scoped.predictive_location_runs_all_columns
             and scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
             and not scoped.candidate_sleep_filter_runs_all_columns
@@ -375,6 +406,12 @@ def run_scaling_benchmark(
             "candidate_sleep_filter_output_candidates": int(
                 report["scoped_cached_vote"]["candidate_sleep_filter_output_candidates"]
             ),
+            "column_wake_plan_awake_count": int(
+                report["scoped_cached_vote"]["column_wake_plan_awake_count"]
+            ),
+            "column_wake_plan_bounded": bool(
+                report["scoped_cached_vote"]["column_wake_plan_bounded"]
+            ),
             "mean_ms": float(report["scoped_cached_vote"]["mean_ms"]),
             "tokens_per_second": float(
                 report["scoped_cached_vote"]["tokens_per_second"]
@@ -405,6 +442,8 @@ def run_scaling_benchmark(
             and int(row["predictive_vote_updated_columns"]) <= int(k_routing)
             and int(row["predictive_location_update_columns"]) <= int(k_routing)
             and int(row["candidate_sleep_filter_output_candidates"]) <= int(k_routing)
+            and int(row["column_wake_plan_awake_count"]) <= int(k_routing)
+            and bool(row["column_wake_plan_bounded"])
             for row in scoped_rows
         ),
         "scoped_never_runs_all_columns": all(

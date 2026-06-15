@@ -1121,6 +1121,11 @@ class StatusReadModel:
             if isinstance(report.get("candidate_sleep_filter_execution"), Mapping)
             else {}
         )
+        column_wake_plan = (
+            report.get("column_wake_plan")
+            if isinstance(report.get("column_wake_plan"), Mapping)
+            else {}
+        )
         predictive_vote_execution = (
             report.get("predictive_vote_execution")
             if isinstance(report.get("predictive_vote_execution"), Mapping)
@@ -1217,6 +1222,48 @@ class StatusReadModel:
                 "fallback_reason": candidate_sleep_filter_execution.get("fallback_reason"),
                 "tensor_device": candidate_sleep_filter_execution.get("tensor_device"),
                 "claim_boundary": candidate_sleep_filter_execution.get("claim_boundary"),
+            },
+            "column_wake_plan": {
+                "surface": column_wake_plan.get("surface", "column_wake_plan.v1"),
+                "mode": column_wake_plan.get("mode"),
+                "total_columns": int(column_wake_plan.get("total_columns", 0) or 0),
+                "awake_budget": int(column_wake_plan.get("awake_budget", 0) or 0),
+                "awake_count": int(column_wake_plan.get("awake_count", 0) or 0),
+                "input_candidate_count": int(
+                    column_wake_plan.get("input_candidate_count", 0) or 0
+                ),
+                "filtered_deep_sleep_count": int(
+                    column_wake_plan.get("filtered_deep_sleep_count", 0) or 0
+                ),
+                "backfill_candidate_count": int(
+                    column_wake_plan.get("backfill_candidate_count", 0) or 0
+                ),
+                "bounded": bool(column_wake_plan.get("bounded", False)),
+                "runs_all_columns": bool(column_wake_plan.get("runs_all_columns", False)),
+                "wake_reason": column_wake_plan.get("wake_reason"),
+                "sleep_reason": column_wake_plan.get("sleep_reason"),
+                "fallback_reason": column_wake_plan.get("fallback_reason"),
+                "tensor_device": column_wake_plan.get("tensor_device"),
+                "awake_column_ids_sample": [
+                    int(value)
+                    for value in (
+                        column_wake_plan.get("awake_column_ids_sample", [])
+                        if isinstance(
+                            column_wake_plan.get("awake_column_ids_sample"),
+                            list,
+                        )
+                        else []
+                    )
+                ],
+                "execution_consumers": [
+                    str(value)
+                    for value in (
+                        column_wake_plan.get("execution_consumers", [])
+                        if isinstance(column_wake_plan.get("execution_consumers"), list)
+                        else []
+                    )
+                ],
+                "claim_boundary": column_wake_plan.get("claim_boundary"),
             },
             "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
             "wake_reasons_sample": [

@@ -944,17 +944,26 @@ class TestPredictiveColumnsInTrainer:
         model.competitive.steps_since_win[:] = torch.tensor([3, 0, 3, 0, 0, 0, 0, 0])
         candidates_seen = {}
 
-        def fake_candidates(routing_key, *, apply_sleep_filter=False):
+        def fake_wake_plan(routing_key, *, apply_sleep_filter=False):
             candidates_seen["apply_sleep_filter"] = apply_sleep_filter
             raw = torch.tensor([0, 1, 2, 3], dtype=torch.long)
             if apply_sleep_filter:
-                return trainer._filter_candidate_deep_sleep(
+                return trainer._filter_candidate_deep_sleep_plan(
                     raw,
                     target_count=cfg.k_routing,
                 )
-            return raw[: cfg.k_routing]
+            return trainer._build_column_wake_plan(
+                mode="candidate_routing",
+                awake_indices=raw[: cfg.k_routing],
+                input_candidate_count=cfg.k_routing,
+                filtered_deep_sleep_count=0,
+                backfill_candidate_count=0,
+                fallback_reason=None,
+                wake_reason="retrieved_candidate",
+                sleep_reason=None,
+            )
 
-        monkeypatch.setattr(trainer, "_routing_candidates", fake_candidates)
+        monkeypatch.setattr(trainer, "_routing_wake_plan", fake_wake_plan)
 
         metrics = trainer.train_step(
             torch.rand(cfg.input_dim),
@@ -972,6 +981,18 @@ class TestPredictiveColumnsInTrainer:
         sleep_filter = report["candidate_sleep_filter_execution"]
         assert sleep_filter["output_candidate_count"] == cfg.k_routing
         assert sleep_filter["filtered_deep_sleep_count"] == 2
+        wake_plan = report["column_wake_plan"]
+        assert wake_plan["surface"] == "column_wake_plan.v1"
+        assert wake_plan["mode"] == "candidate_deep_sleep_filter"
+        assert wake_plan["awake_count"] == cfg.k_routing
+        assert wake_plan["awake_column_ids_sample"] == [1, 3]
+        assert wake_plan["bounded"] is True
+        assert wake_plan["runs_all_columns"] is False
+        assert wake_plan["wake_reason"] == "retrieved_candidate_not_in_deep_sleep"
+        assert wake_plan["sleep_reason"] == "deep_sleep_candidate_filtered_from_awake_mask"
+        assert wake_plan["claim_boundary"] == (
+            "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan"
+        )
         assert report["predictive_update_execution"]["updated_column_count"] == cfg.k_routing
         assert report["predictive_update_execution"]["location_update_count"] == cfg.k_routing
         assert report["predictive_update_execution"]["location_cached_count"] == (

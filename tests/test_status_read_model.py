@@ -393,6 +393,12 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertEqual(candidate_sleep_filter["mode"], "not_run")
         self.assertFalse(candidate_sleep_filter["runs_all_columns"])
+        column_wake_plan = column_runtime["column_wake_plan"]
+        self.assertEqual(column_wake_plan["surface"], "column_wake_plan.v1")
+        self.assertEqual(column_wake_plan["mode"], "not_run")
+        self.assertEqual(column_wake_plan["awake_count"], 0)
+        self.assertTrue(column_wake_plan["bounded"])
+        self.assertFalse(column_wake_plan["runs_all_columns"])
         self.assertIn("wake_reasons_sample", column_runtime)
         predictive_update = column_runtime["predictive_update_execution"]
         self.assertEqual(
@@ -466,6 +472,28 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "tensor_device": "cpu",
                         "claim_boundary": "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan",
                     },
+                    "column_wake_plan": {
+                        "surface": "column_wake_plan.v1",
+                        "mode": "candidate_deep_sleep_filter",
+                        "total_columns": 128,
+                        "awake_budget": 8,
+                        "awake_count": 7,
+                        "input_candidate_count": 24,
+                        "filtered_deep_sleep_count": 3,
+                        "backfill_candidate_count": 17,
+                        "bounded": True,
+                        "runs_all_columns": False,
+                        "wake_reason": "retrieved_candidate_not_in_deep_sleep",
+                        "sleep_reason": "deep_sleep_candidate_filtered_from_awake_mask",
+                        "fallback_reason": None,
+                        "tensor_device": "cpu",
+                        "awake_column_ids_sample": [1, 4, 7],
+                        "execution_consumers": [
+                            "predictive_vote",
+                            "competitive_scoring",
+                        ],
+                        "claim_boundary": "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan",
+                    },
                     "predictive_vote_execution": {
                         "surface": "predictive_column_vote_scheduler.v1",
                         "mode": "awake_mask_cached_vote",
@@ -520,6 +548,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
             projected["candidate_sleep_filter_execution"]["output_candidate_count"],
             7,
         )
+        self.assertEqual(projected["column_wake_plan"]["awake_count"], 7)
+        self.assertEqual(
+            projected["column_wake_plan"]["awake_column_ids_sample"],
+            [1, 4, 7],
+        )
+        self.assertEqual(
+            projected["column_wake_plan"]["wake_reason"],
+            "retrieved_candidate_not_in_deep_sleep",
+        )
+        self.assertTrue(projected["column_wake_plan"]["bounded"])
+        self.assertFalse(projected["column_wake_plan"]["runs_all_columns"])
         self.assertEqual(
             projected["predictive_vote_execution"]["cached_vote_use_count"],
             121,
