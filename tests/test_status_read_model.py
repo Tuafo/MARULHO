@@ -336,13 +336,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(column_runtime["surface"], "column_runtime_metabolism.v1")
         self.assertEqual(
             column_runtime["summary_role"],
-            "compact_runtime_truth_column_metabolism_not_execution_scheduler",
+            "compact_runtime_truth_column_metabolism_and_training_scheduler",
         )
         self.assertLessEqual(column_runtime["awake_count"], column_runtime["awake_budget"])
+        self.assertEqual(column_runtime["active_count"], column_runtime["awake_count"])
+        self.assertEqual(column_runtime["candidate_count"], column_runtime["awake_count"])
+        self.assertGreaterEqual(column_runtime["idle_count"], 0)
+        self.assertEqual(column_runtime["retired_count"], 0)
         self.assertFalse(column_runtime["runs_all_columns"])
         self.assertEqual(
             column_runtime["claim_boundary"],
-            "candidate_scoring_promoted_scheduler_sleep_and_cached_votes_remain_report_only",
+            "candidate_scoring_homeostasis_and_predictive_vote_cache_promoted_sleep_deep_sleep_remain_reported",
         )
         self.assertEqual(column_runtime["execution"]["mode"], "not_run")
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
@@ -379,13 +383,87 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertTrue(column_runtime["scheduler"]["promoted_to_execution"])
         self.assertEqual(
             column_runtime["scheduler"]["execution_scope"],
-            "candidate_scoring_and_candidate_homeostasis_only",
+            "candidate_scoring_homeostasis_and_predictive_vote_cache",
         )
+        self.assertIn("wake_reasons_sample", column_runtime)
+        predictive_vote = column_runtime["predictive_vote_execution"]
+        self.assertEqual(
+            predictive_vote["surface"],
+            "predictive_column_vote_scheduler.v1",
+        )
+        self.assertEqual(predictive_vote["mode"], "not_run")
+        self.assertEqual(predictive_vote["updated_column_count"], 0)
+        self.assertEqual(predictive_vote["cached_vote_use_count"], 0)
+        self.assertFalse(predictive_vote["runs_all_columns"])
         self.assertTrue(column_runtime["growth_gate"]["repeated_surprise_available"])
         self.assertTrue(column_runtime["local_associative_recall"]["available"])
         self.assertFalse(
             column_runtime["local_associative_recall"]["enabled_in_runtime_tick"]
         )
+
+    def test_column_runtime_truth_projects_scheduler_evidence_without_recomputing(self) -> None:
+        model, _, _, _ = _build_read_model()
+        projected = model._column_runtime_evidence(
+            runtime_scope={
+                "column_runtime": {
+                    "surface": "column_runtime_metabolism.v1",
+                    "total_columns": 128,
+                    "awake_budget": 8,
+                    "awake_count": 5,
+                    "active_count": 5,
+                    "candidate_count": 7,
+                    "idle_count": 112,
+                    "cached_vote_count": 3,
+                    "sleeping_count": 4,
+                    "deep_sleeping_count": 1,
+                    "retired_count": 6,
+                    "runs_all_columns": False,
+                    "votes": [
+                        {"wake_reason": "recent_or_surprising_column"},
+                        {"wake_reason": "cached_stable_vote"},
+                    ],
+                    "scheduler": {
+                        "mode": "test_scheduler",
+                        "promoted_to_execution": True,
+                        "execution_scope": "synthetic_scope_from_training",
+                        "active_column_fraction": 0.039,
+                        "cached_state_policy": "cached",
+                        "fallback_reason": None,
+                    },
+                    "predictive_vote_execution": {
+                        "surface": "predictive_column_vote_scheduler.v1",
+                        "mode": "awake_mask_cached_vote",
+                        "total_columns": 128,
+                        "updated_column_count": 7,
+                        "updated_column_fraction": 0.054688,
+                        "cached_vote_use_count": 121,
+                        "cached_vote_fraction": 0.945312,
+                        "runs_all_columns": False,
+                        "fallback_reason": None,
+                        "tensor_device": "cpu",
+                        "claim_boundary": "training_owned_awake_mask_predictive_vote_cache_skips_non_awake_columns",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(projected["total_columns"], 128)
+        self.assertEqual(projected["candidate_count"], 7)
+        self.assertEqual(projected["idle_count"], 112)
+        self.assertEqual(projected["retired_count"], 6)
+        self.assertEqual(
+            projected["wake_reasons_sample"],
+            ["recent_or_surprising_column", "cached_stable_vote"],
+        )
+        self.assertEqual(
+            projected["scheduler"]["execution_scope"],
+            "synthetic_scope_from_training",
+        )
+        self.assertEqual(
+            projected["predictive_vote_execution"]["cached_vote_use_count"],
+            121,
+        )
+        self.assertFalse(projected["predictive_vote_execution"]["runs_all_columns"])
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()

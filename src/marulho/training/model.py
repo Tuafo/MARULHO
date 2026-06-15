@@ -322,6 +322,7 @@ class MarulhoModel:
             device=str(self.device),
         )
         report["execution"] = self.competitive.execution_report()
+        report["predictive_vote_execution"] = self.predictive.vote_execution_report()
         return report
 
     def runtime_scope_report(

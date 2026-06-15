@@ -488,11 +488,23 @@ def build_column_runtime_report(
     device_transfer_count = int(original_source_device.type != "cpu")
     if streak_source_device is not None and streak_source_device.type != "cpu":
         device_transfer_count = max(device_transfer_count, 1)
+    active_count = int(len(awake_set))
+    cached_vote_count = int(cached_vote_mask.sum().item())
+    sleeping_count = int(sleep_mask.sum().item())
+    deep_sleeping_count = int(deep_sleep_mask.sum().item())
+    idle_count = max(
+        0,
+        total_columns
+        - active_count
+        - cached_vote_count
+        - sleeping_count
+        - deep_sleeping_count,
+    )
 
     return {
         "surface": "column_runtime_metabolism.v1",
         "artifact_kind": "marulho_column_runtime_metabolism",
-        "summary_role": "report_only_scheduler_evidence_not_execution_scheduler",
+        "summary_role": "training_owned_scheduler_evidence_with_cached_vote_execution",
         "source": "core.column_runtime",
         "device": str(device or source_device),
         "token_count": None if token_count is None else int(token_count),
@@ -510,18 +522,22 @@ def build_column_runtime_report(
         },
         "total_columns": total_columns,
         "awake_budget": awake_budget,
-        "awake_count": int(len(awake_set)),
-        "awake_fraction": round(float(len(awake_set)) / float(max(1, total_columns)), 6),
-        "cached_vote_count": int(cached_vote_mask.sum().item()),
-        "sleeping_count": int(sleep_mask.sum().item()),
-        "deep_sleeping_count": int(deep_sleep_mask.sum().item()),
+        "awake_count": active_count,
+        "active_count": active_count,
+        "candidate_count": active_count,
+        "idle_count": idle_count,
+        "retired_count": 0,
+        "awake_fraction": round(float(active_count) / float(max(1, total_columns)), 6),
+        "cached_vote_count": cached_vote_count,
+        "sleeping_count": sleeping_count,
+        "deep_sleeping_count": deep_sleeping_count,
         "cached_votes_allowed": True,
         "runs_all_columns": False,
         "scheduler": {
             "mode": "top_k_surprise_usefulness_cost_latency_first_gate",
             "runs_all_columns": False,
             "promoted_to_execution": True,
-            "execution_scope": "candidate_scoring_and_candidate_homeostasis_only",
+            "execution_scope": "candidate_scoring_homeostasis_and_predictive_vote_cache",
             "selection_inputs": [
                 "prediction_error",
                 "confidence_gap",

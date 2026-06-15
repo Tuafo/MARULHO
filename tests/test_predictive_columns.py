@@ -283,6 +283,51 @@ class TestPredictiveColumnState:
         # Columns near the winner should get higher gain
         assert gain[1].item() > gain[6].item()
 
+    def test_candidate_scoped_voting_updates_awake_columns_and_caches_idle_votes(self):
+        scoped = PredictiveColumnState(n_columns=8, location_dim=4)
+        full = PredictiveColumnState(n_columns=8, location_dim=4)
+        full.location.copy_(scoped.location)
+        full._prediction_weights.copy_(scoped._prediction_weights)
+        candidates = torch.tensor([1, 3, 5], dtype=torch.long)
+        routing_key = torch.randn(8)
+
+        full_gain = full.vote([0], routing_key)
+        scoped_gain = scoped.vote([0], routing_key, candidate_indices=candidates)
+        report = scoped.vote_execution_report()
+
+        assert torch.allclose(scoped_gain[candidates], full_gain[candidates])
+        idle = torch.tensor([2, 4, 6, 7], dtype=torch.long)
+        assert torch.allclose(scoped_gain[idle], torch.ones_like(scoped_gain[idle]))
+        assert report["mode"] == "awake_mask_cached_vote"
+        assert report["updated_column_count"] == 3
+        assert report["cached_vote_use_count"] == 5
+        assert report["runs_all_columns"] is False
+        assert report["fallback_reason"] is None
+
+    def test_candidate_scoped_voting_falls_back_truthfully_for_empty_or_full_awake_masks(self):
+        state = PredictiveColumnState(n_columns=4, location_dim=2)
+        cached = torch.tensor([1.1, 0.9, 1.0, 1.2])
+        state.cached_consensus_gain.copy_(cached)
+
+        empty_gain = state.vote([0], torch.randn(4), candidate_indices=torch.empty(0, dtype=torch.long))
+        empty_report = state.vote_execution_report()
+
+        assert torch.equal(empty_gain, cached)
+        assert empty_report["mode"] == "cached_vote_no_awake_candidates"
+        assert empty_report["updated_column_count"] == 0
+        assert empty_report["cached_vote_use_count"] == 4
+        assert empty_report["runs_all_columns"] is False
+        assert empty_report["fallback_reason"] == "no_awake_candidates_cached_vote"
+
+        state.vote([0], torch.randn(4), candidate_indices=torch.arange(4))
+        full_report = state.vote_execution_report()
+
+        assert full_report["mode"] == "all_columns_candidate_set"
+        assert full_report["updated_column_count"] == 4
+        assert full_report["cached_vote_use_count"] == 0
+        assert full_report["runs_all_columns"] is True
+        assert full_report["fallback_reason"] == "candidate_set_covers_all_columns"
+
     def test_prediction_error_modulation(self):
         state = PredictiveColumnState(n_columns=8, location_dim=4)
         state.prediction_error = torch.tensor([0.0, 0.1, 0.5, 0.9, 0.0, 0.0, 0.0, 0.0])
@@ -598,6 +643,32 @@ class TestPredictiveColumnsInTrainer:
         assert competitive["homeostasis_update_count"] == cfg.k_routing
         assert model.predictive.last_prediction_update_mode == "all_columns"
         assert model.predictive.last_prediction_update_count == cfg.n_columns
+
+    def test_trainer_scopes_predictive_vote_to_awake_candidates(self):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="first winner")
+        trainer.train_step(torch.randn(cfg.input_dim), raw_window="scoped vote")
+        report = model.predictive.vote_execution_report()
+
+        assert report["mode"] == "awake_mask_cached_vote"
+        assert report["updated_column_count"] == cfg.k_routing
+        assert report["cached_vote_use_count"] == cfg.n_columns - cfg.k_routing
+        assert report["runs_all_columns"] is False
+        assert report["claim_boundary"] == (
+            "training_owned_awake_mask_predictive_vote_cache_skips_non_awake_columns"
+        )
 
     def test_candidate_homeostasis_start_tokens_must_be_non_negative(self):
         from marulho.config.model_config import MarulhoConfig

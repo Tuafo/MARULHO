@@ -2150,14 +2150,25 @@ class MarulhoTrainer:
                 else:
                     context_gain = curiosity_gain
 
+        candidates = self._column_transition_runtime.route_candidates(
+            routing_key,
+            sensory_tick=sensory_tick,
+        )
+        if candidates is None:
+            candidates = self._routing_candidates(routing_key)
+
         # Predictive column consensus voting: columns that agree with
-        # recent winners get a routing boost (Thousand Brains voting)
+        # recent winners get a routing boost (Thousand Brains voting).
+        # The retained path updates only the routed awake mask; non-awake
+        # columns keep cached vote state and are not scanned for this tick.
         if (
             self.last_winner is not None
             and not self._column_transition_runtime.handles_predictive_vote
         ):
             consensus_gain = self.model.predictive.vote(
-                [self.last_winner], routing_key
+                [self.last_winner],
+                routing_key,
+                candidate_indices=candidates,
             )
             if context_gain is not None:
                 context_gain = torch.clamp(context_gain * consensus_gain, min=0.5, max=1.5)
@@ -2169,13 +2180,6 @@ class MarulhoTrainer:
                 profile_now - profile_last
             ) * 1000.0
             profile_last = profile_now
-
-        candidates = self._column_transition_runtime.route_candidates(
-            routing_key,
-            sensory_tick=sensory_tick,
-        )
-        if candidates is None:
-            candidates = self._routing_candidates(routing_key)
 
         if self._column_transition_runtime.active:
             winners, strengths, _ = self._column_transition_runtime.select_winner(

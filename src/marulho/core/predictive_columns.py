@@ -200,6 +200,13 @@ class PredictiveColumnState:
         self.last_prediction_update_count = int(n_columns)
         self.last_prediction_update_fraction = 1.0
         self.last_prediction_update_fallback_reason: str | None = None
+        self.cached_consensus_gain = torch.ones(n_columns, device=self.device)
+        self.last_vote_update_mode = "not_run"
+        self.last_vote_update_count = 0
+        self.last_vote_update_fraction = 0.0
+        self.last_vote_cached_count = 0
+        self.last_vote_runs_all_columns = False
+        self.last_vote_fallback_reason: str | None = None
         self.last_dense_transition_mode = "legacy"
         self.last_dense_transition_fallback_reason: str | None = None
         self.dense_transition_compile_count = 0
@@ -540,31 +547,117 @@ class PredictiveColumnState:
         self,
         winners: list[int],
         top_k_activations: torch.Tensor,
+        candidate_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Inter-column voting to reach consensus.
 
         Winner columns broadcast their "hypothesis" (confidence-weighted
         activation). Other columns with compatible hypotheses get boosted.
 
-        Returns a consensus gain vector [n_columns] that modulates
-        the next competitive step.
+        Returns a consensus gain vector [n_columns] that modulates the next
+        competitive step. When candidate_indices is provided, only those awake
+        columns recompute their vote; the remaining entries are cached state.
         """
-        # Compute agreement: columns whose location is similar to winners
-        # get a consensus boost (they're "in the same reference frame")
+        if self.cached_consensus_gain.device != self.device:
+            self.cached_consensus_gain = self.cached_consensus_gain.to(self.device)
+
+        if candidate_indices is None:
+            candidates = None
+        else:
+            candidates = candidate_indices.to(device=self.device, dtype=torch.long).flatten()
+            if int(candidates.numel()) > 0:
+                candidates = candidates[
+                    (candidates >= 0) & (candidates < int(self.n_columns))
+                ]
+
+        if candidate_indices is not None and (candidates is None or int(candidates.numel()) == 0):
+            self.last_vote_update_mode = "cached_vote_no_awake_candidates"
+            self.last_vote_update_count = 0
+            self.last_vote_update_fraction = 0.0
+            self.last_vote_cached_count = int(self.n_columns)
+            self.last_vote_runs_all_columns = False
+            self.last_vote_fallback_reason = "no_awake_candidates_cached_vote"
+            return self.cached_consensus_gain
+
         if not winners:
-            return torch.ones(self.n_columns, device=self.device)
+            if candidates is None:
+                self.cached_consensus_gain.fill_(1.0)
+                count = int(self.n_columns)
+                self.last_vote_update_mode = "identity_all_columns_no_winners"
+                self.last_vote_runs_all_columns = True
+                self.last_vote_fallback_reason = "no_previous_winner"
+            else:
+                self.cached_consensus_gain[candidates] = 1.0
+                count = int(candidates.numel())
+                self.last_vote_update_mode = "identity_awake_mask_no_winners"
+                self.last_vote_runs_all_columns = False
+                self.last_vote_fallback_reason = "no_previous_winner"
+            self.last_vote_update_count = count
+            self.last_vote_update_fraction = float(count) / float(max(1, self.n_columns))
+            self.last_vote_cached_count = max(0, int(self.n_columns) - count)
+            return self.cached_consensus_gain
 
         winner_locs = self.location[winners]
         # Cosine similarity between each column's location and winner centroid
         centroid = winner_locs.mean(dim=0)  # [location_dim]
         centroid_norm = centroid.norm().clamp(min=1e-8)
 
-        loc_norms = self.location.norm(dim=1, keepdim=True).clamp(min=1e-8)
-        similarities = (self.location @ centroid) / (loc_norms.squeeze() * centroid_norm)
+        locations = self.location if candidates is None else self.location.index_select(0, candidates)
+        loc_norms = locations.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        similarities = (locations @ centroid) / (loc_norms.squeeze() * centroid_norm)
 
         # Convert to gain: similar locations get boost, dissimilar get suppression
         consensus_gain = 1.0 + 0.3 * similarities.clamp(-1, 1)
-        return consensus_gain
+        if candidates is None:
+            self.cached_consensus_gain = consensus_gain
+            count = int(self.n_columns)
+            self.last_vote_update_mode = "all_columns"
+            self.last_vote_runs_all_columns = True
+            self.last_vote_fallback_reason = None
+        else:
+            self.cached_consensus_gain[candidates] = consensus_gain
+            count = int(candidates.numel())
+            self.last_vote_update_mode = (
+                "awake_mask_cached_vote"
+                if count < int(self.n_columns)
+                else "all_columns_candidate_set"
+            )
+            self.last_vote_runs_all_columns = count >= int(self.n_columns)
+            self.last_vote_fallback_reason = (
+                "candidate_set_covers_all_columns"
+                if count >= int(self.n_columns)
+                else None
+            )
+        self.last_vote_update_count = count
+        self.last_vote_update_fraction = float(count) / float(max(1, self.n_columns))
+        self.last_vote_cached_count = max(0, int(self.n_columns) - count)
+        return self.cached_consensus_gain
+
+    def vote_execution_report(self) -> dict[str, object]:
+        """Return the last observed predictive-vote scheduler boundary."""
+        updated = max(0, min(int(self.last_vote_update_count), int(self.n_columns)))
+        cached = max(0, min(int(self.last_vote_cached_count), int(self.n_columns)))
+        return {
+            "surface": "predictive_column_vote_scheduler.v1",
+            "mode": str(self.last_vote_update_mode),
+            "total_columns": int(self.n_columns),
+            "updated_column_count": updated,
+            "updated_column_fraction": round(
+                float(updated) / float(max(1, int(self.n_columns))),
+                6,
+            ),
+            "cached_vote_use_count": cached,
+            "cached_vote_fraction": round(
+                float(cached) / float(max(1, int(self.n_columns))),
+                6,
+            ),
+            "runs_all_columns": bool(self.last_vote_runs_all_columns),
+            "fallback_reason": self.last_vote_fallback_reason,
+            "tensor_device": str(self.cached_consensus_gain.device),
+            "claim_boundary": (
+                "training_owned_awake_mask_predictive_vote_cache_skips_non_awake_columns"
+            ),
+        }
 
     def prediction_error_modulation(self) -> torch.Tensor:
         """Get STDP learning rate modulation from prediction error.
@@ -593,6 +686,13 @@ class PredictiveColumnState:
             "last_prediction_update_count": int(self.last_prediction_update_count),
             "last_prediction_update_fraction": float(self.last_prediction_update_fraction),
             "last_prediction_update_fallback_reason": self.last_prediction_update_fallback_reason,
+            "cached_consensus_gain_device": str(self.cached_consensus_gain.device),
+            "last_vote_update_mode": self.last_vote_update_mode,
+            "last_vote_update_count": int(self.last_vote_update_count),
+            "last_vote_update_fraction": float(self.last_vote_update_fraction),
+            "last_vote_cached_count": int(self.last_vote_cached_count),
+            "last_vote_runs_all_columns": bool(self.last_vote_runs_all_columns),
+            "last_vote_fallback_reason": self.last_vote_fallback_reason,
             "last_dense_transition_mode": self.last_dense_transition_mode,
             "last_dense_transition_fallback_reason": self.last_dense_transition_fallback_reason,
             "dense_transition_compile_count": int(self.dense_transition_compile_count),
@@ -643,3 +743,10 @@ class PredictiveColumnState:
         self.prediction_error.zero_()
         self.prediction_failure_streak.zero_()
         self.confidence.fill_(0.5)
+        self.cached_consensus_gain = torch.ones(self.n_columns, device=self.device)
+        self.last_vote_update_mode = "not_run"
+        self.last_vote_update_count = 0
+        self.last_vote_update_fraction = 0.0
+        self.last_vote_cached_count = 0
+        self.last_vote_runs_all_columns = False
+        self.last_vote_fallback_reason = None

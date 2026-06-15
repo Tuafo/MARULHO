@@ -1116,6 +1116,11 @@ class StatusReadModel:
         report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
         metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
         execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
+        predictive_vote_execution = (
+            report.get("predictive_vote_execution")
+            if isinstance(report.get("predictive_vote_execution"), Mapping)
+            else {}
+        )
         registry = report.get("registry") if isinstance(report.get("registry"), Mapping) else {}
         scheduler = report.get("scheduler") if isinstance(report.get("scheduler"), Mapping) else {}
         recall = (
@@ -1123,15 +1128,20 @@ class StatusReadModel:
             if isinstance(report.get("local_associative_recall"), Mapping)
             else {}
         )
+        votes = report.get("votes") if isinstance(report.get("votes"), list) else []
         return {
             "surface": report.get("surface", "column_runtime_metabolism.v1"),
-            "summary_role": "compact_runtime_truth_column_metabolism_not_execution_scheduler",
+            "summary_role": "compact_runtime_truth_column_metabolism_and_training_scheduler",
             "total_columns": int(report.get("total_columns", 0) or 0),
             "awake_budget": int(report.get("awake_budget", 0) or 0),
             "awake_count": int(report.get("awake_count", 0) or 0),
+            "active_count": int(report.get("active_count", report.get("awake_count", 0)) or 0),
+            "candidate_count": int(report.get("candidate_count", report.get("awake_count", 0)) or 0),
+            "idle_count": int(report.get("idle_count", 0) or 0),
             "cached_vote_count": int(report.get("cached_vote_count", 0) or 0),
             "sleeping_count": int(report.get("sleeping_count", 0) or 0),
             "deep_sleeping_count": int(report.get("deep_sleeping_count", 0) or 0),
+            "retired_count": int(report.get("retired_count", 0) or 0),
             "metabolism": {
                 "source_tensor_device": metabolism.get("source_tensor_device"),
                 "report_compute_device": metabolism.get("report_compute_device"),
@@ -1159,6 +1169,11 @@ class StatusReadModel:
                 "fallback_reason": scheduler.get("fallback_reason"),
             },
             "vote_count": len(report.get("votes", [])) if isinstance(report.get("votes"), list) else 0,
+            "wake_reasons_sample": [
+                str(item.get("wake_reason"))
+                for item in votes[:8]
+                if isinstance(item, Mapping) and item.get("wake_reason") is not None
+            ],
             "registry": {
                 "surface": registry.get("surface"),
                 "sample_count": len(registry.get("columns_sample", []))
@@ -1214,8 +1229,34 @@ class StatusReadModel:
                 "fallback_reason": execution.get("fallback_reason"),
                 "claim_boundary": execution.get("claim_boundary"),
             },
+            "predictive_vote_execution": {
+                "surface": predictive_vote_execution.get(
+                    "surface",
+                    "predictive_column_vote_scheduler.v1",
+                ),
+                "mode": predictive_vote_execution.get("mode"),
+                "total_columns": int(predictive_vote_execution.get("total_columns", 0) or 0),
+                "updated_column_count": int(
+                    predictive_vote_execution.get("updated_column_count", 0) or 0
+                ),
+                "updated_column_fraction": float(
+                    predictive_vote_execution.get("updated_column_fraction", 0.0) or 0.0
+                ),
+                "cached_vote_use_count": int(
+                    predictive_vote_execution.get("cached_vote_use_count", 0) or 0
+                ),
+                "cached_vote_fraction": float(
+                    predictive_vote_execution.get("cached_vote_fraction", 0.0) or 0.0
+                ),
+                "runs_all_columns": bool(
+                    predictive_vote_execution.get("runs_all_columns", False)
+                ),
+                "fallback_reason": predictive_vote_execution.get("fallback_reason"),
+                "tensor_device": predictive_vote_execution.get("tensor_device"),
+                "claim_boundary": predictive_vote_execution.get("claim_boundary"),
+            },
             "claim_boundary": (
-                "candidate_scoring_promoted_scheduler_sleep_and_cached_votes_remain_report_only"
+                "candidate_scoring_homeostasis_and_predictive_vote_cache_promoted_sleep_deep_sleep_remain_reported"
             ),
         }
 
