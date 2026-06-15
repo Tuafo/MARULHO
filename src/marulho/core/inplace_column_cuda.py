@@ -217,6 +217,9 @@ if triton is not None:
         previous_routing_key,
         winners,
         candidates,
+        predictive_candidates,
+        predictive_last_update_step,
+        predictive_step_counter,
         consolidation,
         transition_parameters,
         base_modulator,
@@ -233,6 +236,7 @@ if triton is not None:
         persist_previous_routing_key: tl.constexpr,
         advance_recent_spike_row: tl.constexpr,
         update_routing_vectors: tl.constexpr,
+        update_predictive_candidates: tl.constexpr,
         spike_history_window: tl.constexpr,
         burst_event_capacity: tl.constexpr,
         result_width: tl.constexpr,
@@ -240,6 +244,7 @@ if triton is not None:
         column_dim: tl.constexpr,
         location_dim: tl.constexpr,
         candidate_count: tl.constexpr,
+        predictive_candidate_count: tl.constexpr,
         prototype_momentum: tl.constexpr,
         homeostasis_beta: tl.constexpr,
         homeostasis_lr: tl.constexpr,
@@ -268,142 +273,310 @@ if triton is not None:
 
         location_offsets = tl.arange(0, block_location)
         location_mask = location_offsets < location_dim
-        location_ptrs = (
-            location
-            + column_offsets[:, None] * location_dim
-            + location_offsets[None, :]
-        )
-        location_velocity_ptrs = (
-            location_velocity
-            + column_offsets[:, None] * location_dim
-            + location_offsets[None, :]
-        )
-        prediction_weight_ptrs = (
-            prediction_weights
-            + column_offsets[:, None] * location_dim
-            + location_offsets[None, :]
-        )
-        matrix_mask = column_mask[:, None] & location_mask[None, :]
-        current_location = tl.load(location_ptrs, mask=matrix_mask, other=0.0)
-        current_location_velocity = tl.load(
-            location_velocity_ptrs,
-            mask=matrix_mask,
-            other=0.0,
-        )
-        current_prediction_weights = tl.load(
-            prediction_weight_ptrs,
-            mask=matrix_mask,
-            other=0.0,
-        )
-
-        prediction_logit = tl.sum(
-            current_location * current_prediction_weights,
-            axis=1,
-        )
-        prediction = 1.0 / (1.0 + tl.exp(-prediction_logit))
-        actual = is_winner.to(tl.float32)
-        raw_error = tl.abs(prediction - actual)
-        old_error = tl.load(prediction_error + column_offsets, mask=column_mask)
-        next_error = (
-            prediction_error_ema_alpha * raw_error
-            + (1.0 - prediction_error_ema_alpha) * old_error
-        )
-        tl.store(prediction_error + column_offsets, next_error, mask=column_mask)
-
-        old_failure_streak = tl.load(
-            prediction_failure_streak + column_offsets,
-            mask=column_mask,
-        )
-        next_failure_streak = tl.where(
-            raw_error > prediction_failure_streak_threshold,
-            old_failure_streak + 1,
-            0,
-        )
-        tl.store(
-            prediction_failure_streak + column_offsets,
-            next_failure_streak,
-            mask=column_mask,
-        )
-        old_confidence = tl.load(confidence + column_offsets, mask=column_mask)
-        next_confidence = tl.maximum(
-            0.0,
-            tl.minimum(
-                1.0,
-                0.95 * old_confidence + 0.05 * (1.0 - raw_error),
-            ),
-        )
-        tl.store(confidence + column_offsets, next_confidence, mask=column_mask)
-
-        movement = tl.load(
-            routing_key + location_offsets,
-            mask=location_mask,
-            other=0.0,
-        ) - tl.load(
-            previous_routing_key + location_offsets,
-            mask=location_mask,
-            other=0.0,
-        )
-        moved_location_velocity = 0.9 * current_location_velocity
-        moved_location_velocity += (
-            is_winner[:, None].to(tl.float32)
-            * 0.1
-            * movement[None, :]
-        )
+        movement_mask = location_mask & (location_offsets < column_dim)
         has_previous = has_previous_routing_key != 0
-        next_location_velocity = tl.where(
-            has_previous,
-            moved_location_velocity,
-            current_location_velocity,
-        )
-        next_location = tl.where(
-            has_previous,
-            current_location
-            + is_winner[:, None].to(tl.float32) * moved_location_velocity,
-            current_location,
-        )
 
-        location_norm = tl.sqrt(tl.sum(next_location * next_location, axis=1))
-        location_scale = tl.where(
-            location_norm > 5.0,
-            5.0 / tl.maximum(location_norm, 1e-8),
-            1.0,
-        )
-        next_location *= location_scale[:, None]
-        tl.store(location_ptrs, next_location, mask=matrix_mask)
-        tl.store(
-            location_velocity_ptrs,
-            next_location_velocity,
-            mask=matrix_mask,
-        )
+        if update_predictive_candidates:
+            predictive_offsets = tl.arange(0, block_candidates)
+            predictive_mask = predictive_offsets < predictive_candidate_count
+            predictive_ids = tl.load(
+                predictive_candidates + predictive_offsets,
+                mask=predictive_mask,
+                other=0,
+            )
+            predictive_is_winner = predictive_ids == winner
+            predictive_row_offsets = (
+                predictive_ids[:, None] * location_dim
+                + location_offsets[None, :]
+            )
+            predictive_matrix_mask = (
+                predictive_mask[:, None] & location_mask[None, :]
+            )
+            location_ptrs = location + predictive_row_offsets
+            location_velocity_ptrs = location_velocity + predictive_row_offsets
+            prediction_weight_ptrs = prediction_weights + predictive_row_offsets
+            current_location = tl.load(
+                location_ptrs,
+                mask=predictive_matrix_mask,
+                other=0.0,
+            )
+            current_location_velocity = tl.load(
+                location_velocity_ptrs,
+                mask=predictive_matrix_mask,
+                other=0.0,
+            )
+            current_prediction_weights = tl.load(
+                prediction_weight_ptrs,
+                mask=predictive_matrix_mask,
+                other=0.0,
+            )
+            prediction_logit = tl.sum(
+                current_location * current_prediction_weights,
+                axis=1,
+            )
+            prediction = 1.0 / (1.0 + tl.exp(-prediction_logit))
+            raw_error = tl.abs(prediction - predictive_is_winner.to(tl.float32))
+            old_error = tl.load(
+                prediction_error + predictive_ids,
+                mask=predictive_mask,
+                other=0.0,
+            )
+            next_error = (
+                prediction_error_ema_alpha * raw_error
+                + (1.0 - prediction_error_ema_alpha) * old_error
+            )
+            tl.store(
+                prediction_error + predictive_ids,
+                next_error,
+                mask=predictive_mask,
+            )
 
-        next_prediction_weights = current_prediction_weights + (
-            is_winner[:, None].to(tl.float32)
-            * prediction_learning_rate
-            * next_location
-        )
-        updated_prediction_logit = tl.sum(
-            next_location * next_prediction_weights,
-            axis=1,
-        )
-        updated_prediction = 1.0 / (
-            1.0 + tl.exp(-updated_prediction_logit)
-        )
-        decay = (~is_winner) & (updated_prediction > 0.5)
-        next_prediction_weights = tl.where(
-            decay[:, None],
-            next_prediction_weights * (1.0 - 0.5 * prediction_learning_rate),
-            next_prediction_weights,
-        )
-        tl.store(
-            prediction_weight_ptrs,
-            next_prediction_weights,
-            mask=matrix_mask,
-        )
+            old_failure_streak = tl.load(
+                prediction_failure_streak + predictive_ids,
+                mask=predictive_mask,
+                other=0,
+            )
+            next_failure_streak = tl.where(
+                raw_error > prediction_failure_streak_threshold,
+                old_failure_streak + 1,
+                0,
+            )
+            tl.store(
+                prediction_failure_streak + predictive_ids,
+                next_failure_streak,
+                mask=predictive_mask,
+            )
+            old_confidence = tl.load(
+                confidence + predictive_ids,
+                mask=predictive_mask,
+                other=0.0,
+            )
+            next_confidence = tl.maximum(
+                0.0,
+                tl.minimum(
+                    1.0,
+                    0.95 * old_confidence + 0.05 * (1.0 - raw_error),
+                ),
+            )
+            tl.store(
+                confidence + predictive_ids,
+                next_confidence,
+                mask=predictive_mask,
+            )
 
-        prediction_boost = tl.sum(
-            tl.where(is_winner & column_mask, next_error, 0.0),
-            axis=0,
-        )
+            movement = tl.load(
+                routing_key + location_offsets,
+                mask=movement_mask,
+                other=0.0,
+            ) - tl.load(
+                previous_routing_key + location_offsets,
+                mask=movement_mask,
+                other=0.0,
+            )
+            moved_location_velocity = 0.9 * current_location_velocity
+            moved_location_velocity += (
+                predictive_is_winner[:, None].to(tl.float32)
+                * 0.1
+                * movement[None, :]
+            )
+            next_location_velocity = tl.where(
+                has_previous,
+                moved_location_velocity,
+                current_location_velocity,
+            )
+            next_location = tl.where(
+                has_previous,
+                current_location
+                + predictive_is_winner[:, None].to(tl.float32)
+                * moved_location_velocity,
+                current_location,
+            )
+            location_norm = tl.sqrt(tl.sum(next_location * next_location, axis=1))
+            location_scale = tl.where(
+                location_norm > 5.0,
+                5.0 / tl.maximum(location_norm, 1e-8),
+                1.0,
+            )
+            next_location *= location_scale[:, None]
+            tl.store(location_ptrs, next_location, mask=predictive_matrix_mask)
+            tl.store(
+                location_velocity_ptrs,
+                next_location_velocity,
+                mask=predictive_matrix_mask,
+            )
+
+            next_prediction_weights = current_prediction_weights + (
+                predictive_is_winner[:, None].to(tl.float32)
+                * prediction_learning_rate
+                * next_location
+            )
+            updated_prediction_logit = tl.sum(
+                next_location * next_prediction_weights,
+                axis=1,
+            )
+            updated_prediction = 1.0 / (
+                1.0 + tl.exp(-updated_prediction_logit)
+            )
+            decay = (~predictive_is_winner) & predictive_mask & (
+                updated_prediction > 0.5
+            )
+            next_prediction_weights = tl.where(
+                decay[:, None],
+                next_prediction_weights * (1.0 - 0.5 * prediction_learning_rate),
+                next_prediction_weights,
+            )
+            tl.store(
+                prediction_weight_ptrs,
+                next_prediction_weights,
+                mask=predictive_matrix_mask,
+            )
+            next_predictive_step = tl.load(predictive_step_counter) + 1
+            tl.store(
+                predictive_last_update_step + predictive_ids,
+                next_predictive_step,
+                mask=predictive_mask,
+            )
+            tl.store(predictive_step_counter, next_predictive_step)
+            prediction_boost = tl.sum(
+                tl.where(predictive_is_winner & predictive_mask, next_error, 0.0),
+                axis=0,
+            )
+        else:
+            location_ptrs = (
+                location
+                + column_offsets[:, None] * location_dim
+                + location_offsets[None, :]
+            )
+            location_velocity_ptrs = (
+                location_velocity
+                + column_offsets[:, None] * location_dim
+                + location_offsets[None, :]
+            )
+            prediction_weight_ptrs = (
+                prediction_weights
+                + column_offsets[:, None] * location_dim
+                + location_offsets[None, :]
+            )
+            matrix_mask = column_mask[:, None] & location_mask[None, :]
+            current_location = tl.load(location_ptrs, mask=matrix_mask, other=0.0)
+            current_location_velocity = tl.load(
+                location_velocity_ptrs,
+                mask=matrix_mask,
+                other=0.0,
+            )
+            current_prediction_weights = tl.load(
+                prediction_weight_ptrs,
+                mask=matrix_mask,
+                other=0.0,
+            )
+
+            prediction_logit = tl.sum(
+                current_location * current_prediction_weights,
+                axis=1,
+            )
+            prediction = 1.0 / (1.0 + tl.exp(-prediction_logit))
+            actual = is_winner.to(tl.float32)
+            raw_error = tl.abs(prediction - actual)
+            old_error = tl.load(prediction_error + column_offsets, mask=column_mask)
+            next_error = (
+                prediction_error_ema_alpha * raw_error
+                + (1.0 - prediction_error_ema_alpha) * old_error
+            )
+            tl.store(prediction_error + column_offsets, next_error, mask=column_mask)
+
+            old_failure_streak = tl.load(
+                prediction_failure_streak + column_offsets,
+                mask=column_mask,
+            )
+            next_failure_streak = tl.where(
+                raw_error > prediction_failure_streak_threshold,
+                old_failure_streak + 1,
+                0,
+            )
+            tl.store(
+                prediction_failure_streak + column_offsets,
+                next_failure_streak,
+                mask=column_mask,
+            )
+            old_confidence = tl.load(confidence + column_offsets, mask=column_mask)
+            next_confidence = tl.maximum(
+                0.0,
+                tl.minimum(
+                    1.0,
+                    0.95 * old_confidence + 0.05 * (1.0 - raw_error),
+                ),
+            )
+            tl.store(confidence + column_offsets, next_confidence, mask=column_mask)
+
+            movement = tl.load(
+                routing_key + location_offsets,
+                mask=movement_mask,
+                other=0.0,
+            ) - tl.load(
+                previous_routing_key + location_offsets,
+                mask=movement_mask,
+                other=0.0,
+            )
+            moved_location_velocity = 0.9 * current_location_velocity
+            moved_location_velocity += (
+                is_winner[:, None].to(tl.float32)
+                * 0.1
+                * movement[None, :]
+            )
+            next_location_velocity = tl.where(
+                has_previous,
+                moved_location_velocity,
+                current_location_velocity,
+            )
+            next_location = tl.where(
+                has_previous,
+                current_location
+                + is_winner[:, None].to(tl.float32) * moved_location_velocity,
+                current_location,
+            )
+
+            location_norm = tl.sqrt(tl.sum(next_location * next_location, axis=1))
+            location_scale = tl.where(
+                location_norm > 5.0,
+                5.0 / tl.maximum(location_norm, 1e-8),
+                1.0,
+            )
+            next_location *= location_scale[:, None]
+            tl.store(location_ptrs, next_location, mask=matrix_mask)
+            tl.store(
+                location_velocity_ptrs,
+                next_location_velocity,
+                mask=matrix_mask,
+            )
+
+            next_prediction_weights = current_prediction_weights + (
+                is_winner[:, None].to(tl.float32)
+                * prediction_learning_rate
+                * next_location
+            )
+            updated_prediction_logit = tl.sum(
+                next_location * next_prediction_weights,
+                axis=1,
+            )
+            updated_prediction = 1.0 / (
+                1.0 + tl.exp(-updated_prediction_logit)
+            )
+            decay = (~is_winner) & (updated_prediction > 0.5)
+            next_prediction_weights = tl.where(
+                decay[:, None],
+                next_prediction_weights * (1.0 - 0.5 * prediction_learning_rate),
+                next_prediction_weights,
+            )
+            tl.store(
+                prediction_weight_ptrs,
+                next_prediction_weights,
+                mask=matrix_mask,
+            )
+
+            prediction_boost = tl.sum(
+                tl.where(is_winner & column_mask, next_error, 0.0),
+                axis=0,
+            )
         prediction_boost = tl.maximum(0.5, tl.minimum(2.0, prediction_boost))
         winner_consolidation = tl.sum(
             tl.where(
@@ -808,6 +981,9 @@ def inplace_column_transition_cuda(
     winners: torch.Tensor,
     candidates: torch.Tensor,
     consolidation: torch.Tensor,
+    predictive_candidates: torch.Tensor | None = None,
+    predictive_last_update_step: torch.Tensor | None = None,
+    predictive_step_counter: torch.Tensor | None = None,
     transition_parameters: torch.Tensor | None = None,
     base_modulator: float,
     dopamine: float,
@@ -896,6 +1072,18 @@ def inplace_column_transition_cuda(
     )
     burst_slot_tensor = burst_slot if burst_slot is not None else recent_spike_row
 
+    use_predictive_candidates = predictive_candidates is not None
+    predictive_candidate_tensor = (
+        candidates if predictive_candidates is None else predictive_candidates
+    )
+    predictive_last_step_tensor = (
+        steps_since_win
+        if predictive_last_update_step is None
+        else predictive_last_update_step
+    )
+    predictive_step_tensor = (
+        recent_spike_row if predictive_step_counter is None else predictive_step_counter
+    )
     tensors = (
         prototypes,
         prototype_velocity,
@@ -917,6 +1105,9 @@ def inplace_column_transition_cuda(
         previous_routing_key,
         winners,
         candidates,
+        predictive_candidate_tensor,
+        predictive_last_step_tensor,
+        predictive_step_tensor,
         consolidation,
         effective_modulator_out
         if transition_parameters is None
@@ -935,6 +1126,21 @@ def inplace_column_transition_cuda(
         raise ValueError("all in-place transition tensors must share one CUDA device")
     if int(winners.numel()) != 1:
         raise ValueError("in-place transition currently requires exactly one winner")
+    if use_predictive_candidates:
+        if predictive_last_update_step is None or predictive_step_counter is None:
+            raise ValueError(
+                "predictive_last_update_step and predictive_step_counter are required for predictive candidates"
+            )
+        if predictive_candidate_tensor.dtype != torch.long:
+            raise ValueError("predictive_candidates must use torch.long")
+        if int(predictive_candidate_tensor.numel()) <= 0:
+            raise ValueError("predictive candidate transition requires candidates")
+        if int(predictive_last_step_tensor.numel()) != int(prototypes.shape[0]):
+            raise ValueError(
+                "predictive_last_update_step must have one value per column"
+            )
+        if int(predictive_step_tensor.numel()) != 1:
+            raise ValueError("predictive_step_counter must contain one value")
     if location.shape != location_velocity.shape:
         raise ValueError("location and location_velocity shapes must match")
     if location.shape != prediction_weights.shape:
@@ -1026,6 +1232,9 @@ def inplace_column_transition_cuda(
         previous_routing_key,
         winners,
         candidates,
+        predictive_candidate_tensor,
+        predictive_last_step_tensor,
+        predictive_step_tensor,
         consolidation,
         parameter_tensor,
         float(base_modulator),
@@ -1042,6 +1251,7 @@ def inplace_column_transition_cuda(
         persist_previous_routing_key=int(bool(persist_previous_routing_key)),
         advance_recent_spike_row=int(bool(advance_recent_spike_row)),
         update_routing_vectors=int(bool(update_routing_vectors)),
+        update_predictive_candidates=int(bool(use_predictive_candidates)),
         spike_history_window=int(spike_history_window),
         burst_event_capacity=int(
             burst_result_tensor.shape[0] if use_burst_event_packet else 1
@@ -1051,6 +1261,7 @@ def inplace_column_transition_cuda(
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
         candidate_count=int(candidates.numel()),
+        predictive_candidate_count=int(predictive_candidate_tensor.numel()),
         prototype_momentum=float(prototype_momentum),
         homeostasis_beta=float(homeostasis_beta),
         homeostasis_lr=float(homeostasis_lr),
@@ -1375,6 +1586,9 @@ def warmup_inplace_column_transition_cuda(
     prediction_error_ema_alpha: float,
     prediction_failure_streak_threshold: float,
     prediction_learning_rate: float,
+    predictive_candidates: torch.Tensor | None = None,
+    predictive_last_update_step: torch.Tensor | None = None,
+    predictive_step_counter: torch.Tensor | None = None,
 ) -> None:
     """Compile one candidate shape without launching or mutating state."""
 
@@ -1383,6 +1597,18 @@ def warmup_inplace_column_transition_cuda(
     if not prototypes.is_cuda:
         raise ValueError("in-place column transition warmup requires CUDA tensors")
     n_columns, column_dim = prototypes.shape
+    use_predictive_candidates = predictive_candidates is not None
+    predictive_candidate_tensor = (
+        candidates if predictive_candidates is None else predictive_candidates
+    )
+    predictive_last_step_tensor = (
+        steps_since_win
+        if predictive_last_update_step is None
+        else predictive_last_update_step
+    )
+    predictive_step_tensor = (
+        recent_spike_row if predictive_step_counter is None else predictive_step_counter
+    )
     ensure_windows_triton_compiler()
     _inplace_column_transition_kernel.warmup(
         prototypes,
@@ -1414,6 +1640,9 @@ def warmup_inplace_column_transition_cuda(
         previous_routing_key,
         winners,
         candidates,
+        predictive_candidate_tensor,
+        predictive_last_step_tensor,
+        predictive_step_tensor,
         consolidation,
         effective_modulator_out,
         0.0,
@@ -1430,6 +1659,7 @@ def warmup_inplace_column_transition_cuda(
         persist_previous_routing_key=0,
         advance_recent_spike_row=0,
         update_routing_vectors=0,
+        update_predictive_candidates=int(bool(use_predictive_candidates)),
         spike_history_window=1,
         burst_event_capacity=1,
         result_width=1,
@@ -1437,6 +1667,7 @@ def warmup_inplace_column_transition_cuda(
         column_dim=int(column_dim),
         location_dim=int(location.shape[1]),
         candidate_count=int(candidates.numel()),
+        predictive_candidate_count=int(predictive_candidate_tensor.numel()),
         prototype_momentum=float(prototype_momentum),
         homeostasis_beta=float(homeostasis_beta),
         homeostasis_lr=float(homeostasis_lr),

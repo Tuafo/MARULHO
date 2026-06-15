@@ -743,8 +743,28 @@ class MarulhoTrainer:
         comp.last_homeostasis_update_mode = "candidate_subset"
         pred.last_dense_transition_mode = "inplace_triton"
         pred.last_dense_transition_fallback_reason = None
-        pred._record_prediction_update_scope(None)
-        pred._mark_predictive_update_complete(None, step_count=token_count)
+        candidate_predictive_graph = bool(
+            runtime.candidate_predictive_transition_active
+            and start
+            >= int(self.config.candidate_homeostasis_start_tokens)
+            and runtime._route_candidates is not None
+        )
+        if candidate_predictive_graph:
+            candidates = runtime._route_candidates
+            pred._record_prediction_update_scope(candidates)
+            pred._record_location_update_scope(candidates)
+            pred.predictive_step_count += int(token_count)
+            pred._predictive_has_cached_columns = True
+            pred._last_predictive_completed_candidates = None
+            pred._last_predictive_completed_step = int(pred.predictive_step_count)
+            runtime.candidate_predictive_transition_execution_count += int(token_count)
+            runtime.candidate_predictive_transition_cached_count += int(token_count) * max(
+                0,
+                int(comp.n_columns) - int(candidates.numel()),
+            )
+        else:
+            pred._record_prediction_update_scope(None)
+            pred._mark_predictive_update_complete(None, step_count=token_count)
 
         updated_count = token_count * int(runtime._winner.numel())
         self._routing_index_device_update_count += updated_count

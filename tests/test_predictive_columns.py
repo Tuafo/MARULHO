@@ -1384,6 +1384,11 @@ class TestPredictiveColumnsInTrainer:
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):
             MarulhoConfig(predictive_route_vote_mode="always")  # type: ignore[arg-type]
 
+    def test_cuda_candidate_predictive_transition_mode_is_not_user_configurable(self):
+        assert not hasattr(MarulhoConfig(), "cuda_candidate_predictive_transition_mode")
+        with pytest.raises(TypeError, match="cuda_candidate_predictive_transition_mode"):
+            MarulhoConfig(cuda_candidate_predictive_transition_mode="dense_retained")  # type: ignore[arg-type]
+
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_trainer_reports_cuda_predictive_scope_fallback(self):
         from marulho.config.model_config import MarulhoConfig

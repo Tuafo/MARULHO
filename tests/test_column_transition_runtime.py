@@ -79,6 +79,51 @@ def test_fused_route_vote_reports_pre_mutation_fallback_on_cpu() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_inplace_candidate_predictive_transition_reports_bounded_scope() -> None:
+    config = MarulhoConfig(
+        n_columns=64,
+        column_latent_dim=8,
+        k_routing=4,
+        memory_capacity=128,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        input_weight_blend=0.0,
+        bootstrap_tokens=0,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_cross_modal=False,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    assert trainer.column_transition_runtime_report()[
+        "candidate_predictive_transition_active"
+    ] is True
+
+    pattern = torch.rand(config.input_dim, device=trainer.model.device)
+    trainer.train_step(
+        pattern,
+        raw_window="candidate predictive fused runtime test",
+        allow_sleep_maintenance=False,
+    )
+
+    update = trainer.model.predictive.prediction_update_execution_report()
+    runtime = trainer.column_transition_runtime_report()
+    assert update["mode"] == "candidate_subset"
+    assert update["updated_column_count"] == config.k_routing
+    assert update["cached_state_count"] == config.n_columns - config.k_routing
+    assert update["runs_all_columns"] is False
+    assert update["fallback_reason"] is None
+    assert runtime["candidate_predictive_transition_execution_count"] == 1
+    assert (
+        runtime["candidate_predictive_transition_cached_count"]
+        == config.n_columns - config.k_routing
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 @pytest.mark.parametrize(
     ("combined_values", "inhibition_values", "expected_winner", "expected_positive"),
     [
@@ -441,6 +486,99 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_metrics["routing_index_cpu_mirror_stale"] == 1
     assert graph._hnsw_buffer_ids == []
     assert graph._hnsw_buffer_vecs == []
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_candidate_predictive_transition_matches_non_graph_path() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="fused_triton_text",
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    torch.manual_seed(20260618)
+    retained = MarulhoTrainer(MarulhoModel(config), config)
+    graph_config = replace(
+        config,
+        predictive_route_vote_mode="cuda_graph_text",
+        cuda_graph_host_truth_sync_interval_tokens=1,
+    )
+    torch.manual_seed(20260618)
+    graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
+    assert graph.column_transition_runtime_report()["cuda_graph_route_transition"]["active"]
+
+    generator = torch.Generator(device="cuda").manual_seed(20260619)
+    patterns = [
+        torch.rand(config.input_dim, generator=generator, device="cuda")
+        for _ in range(6)
+    ]
+    for index, pattern in enumerate(patterns):
+        cpu_rng = torch.random.get_rng_state()
+        cuda_rng = torch.cuda.get_rng_state()
+        retained.train_step(
+            pattern,
+            raw_window=f"candidate graph parity {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+        torch.random.set_rng_state(cpu_rng)
+        torch.cuda.set_rng_state(cuda_rng)
+        graph.train_step(
+            pattern,
+            raw_window=f"candidate graph parity {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+        assert retained.last_winner == graph.last_winner
+
+    for retained_tensor, graph_tensor in (
+        (retained.model.competitive.prototypes, graph.model.competitive.prototypes),
+        (retained.model.competitive.thresholds, graph.model.competitive.thresholds),
+        (retained.model.competitive.win_rate_ema, graph.model.competitive.win_rate_ema),
+        (retained.model.predictive.location, graph.model.predictive.location),
+        (retained.model.predictive.velocity, graph.model.predictive.velocity),
+        (
+            retained.model.predictive._prediction_weights,
+            graph.model.predictive._prediction_weights,
+        ),
+        (
+            retained.model.predictive.prediction_error,
+            graph.model.predictive.prediction_error,
+        ),
+        (retained.model.predictive.confidence, graph.model.predictive.confidence),
+    ):
+        assert torch.allclose(retained_tensor, graph_tensor, rtol=0.0, atol=1e-7)
+    assert torch.equal(
+        retained.model.predictive.prediction_failure_streak,
+        graph.model.predictive.prediction_failure_streak,
+    )
+    assert torch.equal(
+        retained.model.predictive.predictive_last_update_step,
+        graph.model.predictive.predictive_last_update_step,
+    )
+    assert (
+        retained.model.predictive.predictive_step_count
+        == graph.model.predictive.predictive_step_count
+    )
+    update = graph.model.predictive.prediction_update_execution_report()
+    runtime = graph.column_transition_runtime_report()
+    assert update["mode"] == "candidate_subset"
+    assert update["updated_column_count"] == config.k_routing
+    assert update["runs_all_columns"] is False
+    assert runtime["candidate_predictive_transition_execution_count"] == len(patterns)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

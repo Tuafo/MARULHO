@@ -140,6 +140,8 @@ class CudaGraphRouteTransition:
         self._cached_modulator_value = 0.0
         self._learning_rate_update_count: torch.Tensor | None = None
         self._learning_rate_update_count_mirror: int | None = None
+        self._predictive_step_counter: torch.Tensor | None = None
+        self._predictive_step_count_mirror: int | None = None
         self._input_patterns: torch.Tensor | None = None
         self._input_slot: torch.Tensor | None = None
         self._input_slot_mirror = 0
@@ -417,6 +419,12 @@ class CudaGraphRouteTransition:
                 device=device,
             )
             self._learning_rate_update_count_mirror = int(comp.update_count)
+            self._predictive_step_counter = torch.tensor(
+                int(pred.predictive_step_count),
+                dtype=torch.long,
+                device=device,
+            )
+            self._predictive_step_count_mirror = int(pred.predictive_step_count)
             surprise = trainer.model.surprise
             self._neuromodulator_state = torch.tensor(
                 [
@@ -508,6 +516,7 @@ class CudaGraphRouteTransition:
                 self._previous_routing_key,
                 self._parameters,
                 self._learning_rate_update_count,
+                self._predictive_step_counter,
                 self._neuromodulator_state,
                 self._result,
                 self._burst_result_ring,
@@ -1041,6 +1050,7 @@ class CudaGraphRouteTransition:
         assert self._route_vectors is not None
         assert self._route_position_by_column is not None
         assert self._consolidation is not None
+        assert self._predictive_step_counter is not None
         if write_burst_event:
             assert self._burst_result_ring is not None
             assert self._burst_routing_ring is not None
@@ -1092,6 +1102,30 @@ class CudaGraphRouteTransition:
             winners=runtime._winner,
             candidates=candidates,
             consolidation=self._consolidation,
+            predictive_candidates=(
+                candidates
+                if (
+                    runtime.candidate_predictive_transition_active
+                    and int(candidates.numel()) < int(comp.n_columns)
+                )
+                else None
+            ),
+            predictive_last_update_step=(
+                pred.predictive_last_update_step
+                if (
+                    runtime.candidate_predictive_transition_active
+                    and int(candidates.numel()) < int(comp.n_columns)
+                )
+                else None
+            ),
+            predictive_step_counter=(
+                self._predictive_step_counter
+                if (
+                    runtime.candidate_predictive_transition_active
+                    and int(candidates.numel()) < int(comp.n_columns)
+                )
+                else None
+            ),
             transition_parameters=self._parameters,
             base_modulator=0.0,
             dopamine=0.0,
@@ -1248,6 +1282,8 @@ class CudaGraphRouteTransition:
         assert self._previous_routing_key is not None
         assert self._learning_rate_update_count is not None
         assert self._learning_rate_update_count_mirror is not None
+        assert self._predictive_step_counter is not None
+        assert self._predictive_step_count_mirror is not None
         trainer = self._trainer
         comp = trainer.model.competitive
         has_previous = trainer._prev_routing_key is not None
@@ -1263,6 +1299,10 @@ class CudaGraphRouteTransition:
             self._learning_rate_update_count.fill_(float(comp.update_count))
             self._learning_rate_update_count_mirror = int(comp.update_count)
             self.learning_rate_host_resync_count += 1
+        pred = trainer.model.predictive
+        if int(pred.predictive_step_count) != int(self._predictive_step_count_mirror):
+            self._predictive_step_counter.fill_(int(pred.predictive_step_count))
+            self._predictive_step_count_mirror = int(pred.predictive_step_count)
         surprise = trainer.model.surprise
         modulator_revision = int(
             getattr(surprise, "modulator_revision", 0)
@@ -1316,6 +1356,7 @@ class CudaGraphRouteTransition:
             raise
         _profile_mark("cuda_graph_prepare_replay")
         self._learning_rate_update_count_mirror += 1
+        self._predictive_step_count_mirror += 1
         self._input_slot_mirror = (
             self._input_slot_mirror + 1
         ) % MAX_QUANTUM_INPUT_TOKENS
@@ -1540,6 +1581,8 @@ class CudaGraphRouteTransition:
         assert self._previous_routing_key is not None
         assert self._learning_rate_update_count is not None
         assert self._learning_rate_update_count_mirror is not None
+        assert self._predictive_step_counter is not None
+        assert self._predictive_step_count_mirror is not None
         comp = trainer.model.competitive
         if (
             trainer._prev_routing_key is not None
@@ -1551,6 +1594,10 @@ class CudaGraphRouteTransition:
             self._learning_rate_update_count.fill_(float(comp.update_count))
             self._learning_rate_update_count_mirror = int(comp.update_count)
             self.learning_rate_host_resync_count += 1
+        pred = trainer.model.predictive
+        if int(pred.predictive_step_count) != int(self._predictive_step_count_mirror):
+            self._predictive_step_counter.fill_(int(pred.predictive_step_count))
+            self._predictive_step_count_mirror = int(pred.predictive_step_count)
         surprise = trainer.model.surprise
         modulator_revision = int(getattr(surprise, "modulator_revision", 0))
         if self._cached_modulator_revision != modulator_revision:
@@ -1578,6 +1625,7 @@ class CudaGraphRouteTransition:
 
         self._consume_staged_inputs(token_count)
         self._learning_rate_update_count_mirror += token_count
+        self._predictive_step_count_mirror += token_count
         self._input_slot_mirror = (
             self._input_slot_mirror + token_count
         ) % MAX_QUANTUM_INPUT_TOKENS

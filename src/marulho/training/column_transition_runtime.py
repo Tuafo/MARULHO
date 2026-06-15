@@ -68,6 +68,11 @@ class ColumnTransitionRuntime:
         self.graph_host_winner_reuse_count = 0
         self.graph_consolidation_lookup_skip_count = 0
         self.graph_empty_revival_tensor_reuse_count = 0
+        self.candidate_predictive_transition_mode = "fused_inplace"
+        self.candidate_predictive_transition_active = False
+        self.candidate_predictive_transition_fallback_reason: str | None = None
+        self.candidate_predictive_transition_execution_count = 0
+        self.candidate_predictive_transition_cached_count = 0
         self._route_vote_ready = False
         self._route_transition_graph_ready = False
         self._prepared_graph_token: int | None = None
@@ -79,6 +84,11 @@ class ColumnTransitionRuntime:
         self._route_reconstruction_error = torch.empty(1, device=trainer.model.device)
         comp = trainer.model.competitive
         device = trainer.model.device
+        self._predictive_step_counter = torch.tensor(
+            int(trainer.model.predictive.predictive_step_count),
+            dtype=torch.long,
+            device=device,
+        )
         self._assembly = torch.empty(comp.n_columns, device=device)
         self._winner = torch.empty(1, dtype=torch.long, device=device)
         self._strength = torch.ones(1, device=device)
@@ -160,6 +170,14 @@ class ColumnTransitionRuntime:
             and trainer.model.abstraction_layer is None
             and trainer.model.binding_layer is None
         )
+        if int(trainer.config.candidate_predictive_update_start_tokens) > int(
+            trainer.config.candidate_homeostasis_start_tokens
+        ):
+            self.candidate_predictive_transition_fallback_reason = (
+                "fused_inplace_requires_predictive_gate_no_later_than_graph_candidate_gate"
+            )
+        else:
+            self.candidate_predictive_transition_active = True
 
         self.warmup_attempted = True
         started = time.perf_counter_ns()
@@ -231,6 +249,34 @@ class ColumnTransitionRuntime:
                         device=device,
                     ),
                     consolidation=self._zero_consolidation,
+                    predictive_candidates=(
+                        torch.empty(
+                            candidate_count,
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        if (
+                            self.candidate_predictive_transition_active
+                            and candidate_count < int(comp.n_columns)
+                        )
+                        else None
+                    ),
+                    predictive_last_update_step=(
+                        trainer.model.predictive.predictive_last_update_step
+                        if (
+                            self.candidate_predictive_transition_active
+                            and candidate_count < int(comp.n_columns)
+                        )
+                        else None
+                    ),
+                    predictive_step_counter=(
+                        self._predictive_step_counter
+                        if (
+                            self.candidate_predictive_transition_active
+                            and candidate_count < int(comp.n_columns)
+                        )
+                        else None
+                    ),
                     competition_had_positive=self._competition_had_positive,
                     recent_spike_row=self._recent_spike_row,
                     prototype_momentum=comp.prototype_momentum,
@@ -710,6 +756,14 @@ class ColumnTransitionRuntime:
         comp = trainer.model.competitive
         if candidates is None:
             candidates = self._all_columns
+        predictive_scope_ready = trainer.token_count >= int(
+            trainer.config.candidate_predictive_update_start_tokens
+        )
+        use_candidate_predictive_transition = bool(
+            self.candidate_predictive_transition_active
+            and predictive_scope_ready
+            and int(candidates.numel()) < comp.n_columns
+        )
         homeostasis_scope_ready = trainer.token_count >= int(
             trainer.config.candidate_homeostasis_start_tokens
         )
@@ -747,6 +801,10 @@ class ColumnTransitionRuntime:
             else {}
         )
         profile_last = time.perf_counter() if profile_enabled else 0.0
+        if use_candidate_predictive_transition and not used_cuda_graph:
+            self._predictive_step_counter.fill_(
+                int(trainer.model.predictive.predictive_step_count)
+            )
 
         def _profile_mark(name: str) -> None:
             nonlocal profile_last
@@ -790,6 +848,19 @@ class ColumnTransitionRuntime:
                     winners=winners,
                     candidates=homeostasis_candidates,
                     consolidation=consolidation,
+                    predictive_candidates=(
+                        candidates if use_candidate_predictive_transition else None
+                    ),
+                    predictive_last_update_step=(
+                        trainer.model.predictive.predictive_last_update_step
+                        if use_candidate_predictive_transition
+                        else None
+                    ),
+                    predictive_step_counter=(
+                        self._predictive_step_counter
+                        if use_candidate_predictive_transition
+                        else None
+                    ),
                     base_modulator=float(modulator),
                     dopamine=float(trainer.model.surprise.dopamine),
                     serotonin=float(trainer.model.surprise.serotonin),
@@ -873,12 +944,11 @@ class ColumnTransitionRuntime:
             trainer._prev_routing_key = routing_key.detach().clone()
         trainer.model.predictive.last_dense_transition_mode = "inplace_triton"
         trainer.model.predictive.last_dense_transition_fallback_reason = None
-        predictive_scope_ready = trainer.token_count >= int(
-            trainer.config.candidate_predictive_update_start_tokens
-        )
         predictive_update_fallback_reason = None
         if not predictive_scope_ready:
             predictive_update_fallback_reason = "candidate_predictive_update_not_due"
+        elif use_candidate_predictive_transition:
+            predictive_update_fallback_reason = None
         elif (
             trainer.model.device.type == "cuda"
             and int(candidates.numel()) < comp.n_columns
@@ -886,12 +956,32 @@ class ColumnTransitionRuntime:
             predictive_update_fallback_reason = (
                 "cuda_sparse_prediction_update_launch_bound_dense_retained"
             )
-        trainer.model.predictive._record_prediction_update_scope(
-            None,
-            fallback_reason=predictive_update_fallback_reason,
-        )
-        trainer.model.predictive._record_location_update_scope(None)
-        trainer.model.predictive._mark_predictive_update_complete(None)
+        if use_candidate_predictive_transition:
+            # The kernel has already advanced candidate row stamps on device.
+            next_step = int(trainer.model.predictive.predictive_step_count) + 1
+            trainer.model.predictive._record_prediction_update_scope(
+                candidates,
+                fallback_reason=None,
+            )
+            trainer.model.predictive._record_location_update_scope(candidates)
+            trainer.model.predictive.predictive_step_count = next_step
+            trainer.model.predictive._predictive_has_cached_columns = True
+            trainer.model.predictive._last_predictive_completed_candidates = (
+                candidates.detach().clone()
+            )
+            trainer.model.predictive._last_predictive_completed_step = next_step
+            self.candidate_predictive_transition_execution_count += 1
+            self.candidate_predictive_transition_cached_count += max(
+                0,
+                int(comp.n_columns) - int(candidates.numel()),
+            )
+        else:
+            trainer.model.predictive._record_prediction_update_scope(
+                None,
+                fallback_reason=predictive_update_fallback_reason,
+            )
+            trainer.model.predictive._record_location_update_scope(None)
+            trainer.model.predictive._mark_predictive_update_complete(None)
         comp.last_input_plasticity_mode = "skipped_zero_blend"
         comp.input_plasticity_skip_count += 1
         comp.last_revived_indices = self._empty_revived_indices
@@ -1027,6 +1117,21 @@ class ColumnTransitionRuntime:
             ),
             "graph_empty_revival_tensor_reuse_count": int(
                 self.graph_empty_revival_tensor_reuse_count
+            ),
+            "candidate_predictive_transition_mode": (
+                self.candidate_predictive_transition_mode
+            ),
+            "candidate_predictive_transition_active": bool(
+                self.candidate_predictive_transition_active
+            ),
+            "candidate_predictive_transition_fallback_reason": (
+                self.candidate_predictive_transition_fallback_reason
+            ),
+            "candidate_predictive_transition_execution_count": int(
+                self.candidate_predictive_transition_execution_count
+            ),
+            "candidate_predictive_transition_cached_count": int(
+                self.candidate_predictive_transition_cached_count
             ),
             "winner_consolidation_cpu_metric_count": int(
                 self.winner_consolidation_cpu_metric_count
