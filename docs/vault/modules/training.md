@@ -96,8 +96,11 @@ related_benchmarks: []
         Runtime Truth exposes whether native replay is configured, loaded,
         enabled, which backend ran, parent-graph count, launch attempts,
         successes, covered tokens, fallbacks, failures, and compile/build
-        latency. The retained Python replay loop remains the explicit fallback
-        before mutation. The in-place transition kernel writes the slim result
+        latency. It also exposes sequence-loop sequential-state parity and
+        bounded-quality gate status fields so executor speed reports carry the
+        validation boundary. The retained Python replay loop remains the
+        explicit fallback before mutation. The in-place transition kernel writes
+        the slim result
         packet and strong-event flag directly into the Device Strong-Event Ring,
         loading and copying
         assembly/routing rows only for threshold crossings; training drains

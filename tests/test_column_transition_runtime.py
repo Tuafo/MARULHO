@@ -1547,6 +1547,21 @@ def test_training_owned_sequence_can_use_conditional_while_executor() -> None:
     assert graph_report["native_sequence_executor_requested"] == (
         "cuda_graph_conditional_while"
     )
+    assert (
+        graph_report[
+            "native_sequence_loop_sequential_state_parity_gate_status"
+        ]
+        == "passed_focused_cuda_state_parity"
+    )
+    assert (
+        graph_report["native_sequence_loop_sequential_state_parity_gate_passed"]
+        is True
+    )
+    assert (
+        graph_report["native_sequence_loop_bounded_quality_gate_status"]
+        == "passed_retained_one_tick_graph_body_quality_boundary"
+    )
+    assert graph_report["native_sequence_loop_bounded_quality_gate_passed"] is True
     assert graph_report["native_sequence_loop_loaded"] is True
     assert graph_report["native_sequence_loop_backend"] == (
         "cuda_graph_conditional_while"
@@ -1673,6 +1688,21 @@ def test_conditional_while_unavailable_falls_back_before_mutation(
         "cuda_graph_conditional_while"
     )
     assert graph_report["native_sequence_loop_loaded"] is False
+    assert (
+        graph_report[
+            "native_sequence_loop_sequential_state_parity_gate_status"
+        ]
+        == "not_exercised_fallback_before_mutation"
+    )
+    assert (
+        graph_report["native_sequence_loop_sequential_state_parity_gate_passed"]
+        is False
+    )
+    assert (
+        graph_report["native_sequence_loop_bounded_quality_gate_status"]
+        == "not_exercised_fallback_before_mutation"
+    )
+    assert graph_report["native_sequence_loop_bounded_quality_gate_passed"] is False
     assert graph_report["native_sequence_loop_success_count"] == 0
     assert graph_report["native_sequence_loop_token_count"] == 0
     assert graph_report["native_sequence_loop_fallback_count"] == 1

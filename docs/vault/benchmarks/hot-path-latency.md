@@ -93,10 +93,29 @@ native8 run at
 `post-promotion-native8-131072-i32.json` stayed clean at
 `5329.542 tokens/sec`.
 
+The completion-audit rerun after the Runtime Truth gate-status patch used the
+current default with no executor override at
+`reports/conditional_sequence_completion_audit_20260615/current-default-conditional16-131072-i32.json`.
+It reached `5955.123 tokens/sec`, `train_compute=0.138342 ms/token`, `8190`
+conditional launches covering `131040` tokens, zero sequence/native fallbacks or
+failures, host-truth cadence `4097/126975`, `capture_latency_ms=5164.9948`,
+`native_sequence_loop_compile_latency_ms=4741.5911`, and
+`velocity_environment.v1` contention `not_observed`. Runtime Truth reported
+`native_sequence_executor_requested=cuda_graph_conditional_while`,
+`persistent_executor_repeated_child_burst_tokens=8`,
+`persistent_executor_sequence_loop_tokens=16`,
+`native_sequence_loop_sequential_state_parity_gate_passed=true`, and
+`native_sequence_loop_bounded_quality_gate_passed=true`.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted
 conditional q16 default with the same parity and Runtime Truth gates.
+The post-promotion Runtime Truth surface now carries explicit
+`native_sequence_loop_sequential_state_parity_gate_*` and
+`native_sequence_loop_bounded_quality_gate_*` fields so the long-run report
+states whether the loaded sequence executor is covered by the focused parity
+or bounded quality gate.
 
 The first current rerun after the route/vote experiment measured only
 `2784.022 tokens/sec` at

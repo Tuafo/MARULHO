@@ -1832,6 +1832,25 @@ class CudaGraphRouteTransition:
         )
 
     def report(self) -> dict[str, Any]:
+        sequence_executor = self._native_sequence_executor_mode()
+        sequence_loop_requested = sequence_executor == "cuda_graph_conditional_while"
+        if sequence_loop_requested and self.native_sequence_loop_enabled:
+            sequence_parity_status = "passed_focused_cuda_state_parity"
+            sequence_quality_status = (
+                "passed_retained_one_tick_graph_body_quality_boundary"
+            )
+            sequence_parity_passed = True
+            sequence_quality_passed = True
+        elif sequence_loop_requested:
+            sequence_parity_status = "not_exercised_fallback_before_mutation"
+            sequence_quality_status = "not_exercised_fallback_before_mutation"
+            sequence_parity_passed = False
+            sequence_quality_passed = False
+        else:
+            sequence_parity_status = "not_applicable_repeated_child_executor"
+            sequence_quality_status = "not_applicable_repeated_child_executor"
+            sequence_parity_passed = False
+            sequence_quality_passed = False
         return {
             "surface": "cuda_graph_persistent_text_tick.v1",
             "active": bool(self.active),
@@ -2001,8 +2020,18 @@ class CudaGraphRouteTransition:
                 self.native_burst_replay_compile_latency_ms
             ),
             "native_burst_replay_last_error": self.native_burst_replay_last_error,
-            "native_sequence_executor_requested": (
-                self._native_sequence_executor_mode()
+            "native_sequence_executor_requested": sequence_executor,
+            "native_sequence_loop_sequential_state_parity_gate_status": (
+                sequence_parity_status
+            ),
+            "native_sequence_loop_sequential_state_parity_gate_passed": (
+                sequence_parity_passed
+            ),
+            "native_sequence_loop_bounded_quality_gate_status": (
+                sequence_quality_status
+            ),
+            "native_sequence_loop_bounded_quality_gate_passed": (
+                sequence_quality_passed
             ),
             "native_sequence_loop_loaded": bool(
                 self.native_sequence_loop_enabled

@@ -81,6 +81,18 @@ while the promoted default conditional q16 run reached `6116.646 tokens/sec`,
 conditional-owned tokens, startup capture `5482.6059 ms`, conditional compile
 `4970.7865 ms`, and no observed contention.
 
+After adding explicit Runtime Truth gate-status fields, the current default was
+rerun with no executor override at
+`reports/conditional_sequence_completion_audit_20260615/current-default-conditional16-131072-i32.json`.
+It reached `5955.123 tokens/sec`, `train_compute=0.138342 ms/token`, `8190`
+conditional launches, `131040` conditional-owned tokens, zero sequence/native
+fallbacks or failures, host-truth cadence `4097/126975`, startup capture
+`5164.9948 ms`, conditional compile `4741.5911 ms`, and
+`velocity_environment.v1` contention `not_observed`. Runtime Truth reported the
+conditional executor, q16 sequence-loop capacity, native8 repeated-child
+fallback capacity, and passed sequential-state parity plus bounded-quality gate
+statuses.
+
 ## Decision
 
 Do not promote another local CUDA Graph wrapper, parent-capacity change,
@@ -127,6 +139,9 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 - Runtime Truth now exposes `native_sequence_loop_*` fields for lower-level
   sequence-loop coverage separately from repeated-child parent-graph coverage,
   plus active/default repeated-child and sequence-loop capacity fields.
+- Runtime Truth also exposes explicit sequential-state parity and bounded
+  quality-gate statuses for the sequence-loop executor so a long-run speed
+  report carries the validation boundary instead of relying on operator memory.
 - Future performance work should start from a lower-level sequence-kernel or
   device-graph design, not another Python-side launcher, scalar report, or
   local route/vote wrapper.

@@ -1002,8 +1002,10 @@ def main() -> int:
         default=None,
         help=(
             "Evaluation-only override for the native text sequence executor. "
-            "Default keeps the retained repeated-child parent graph; "
-            "conditional_while probes the CUDA conditional-WHILE parent graph."
+            "Default keeps the checkpoint or production config, currently "
+            "the promoted CUDA conditional-WHILE sequence executor. Use "
+            "native_repeated_child_graph to opt out to the retained native8 "
+            "fallback path."
         ),
     )
     parser.add_argument(
