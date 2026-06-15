@@ -89,7 +89,13 @@ related_benchmarks: []
         capacity aligned with the execution quantum; a warmed parent graph is
         not native coverage when q16 chunking forces `python_loop_partial_disabled`.
         ADR 0007 records the next executor boundary as lower-level sequence
-        ownership below the current Python/CUDA Graph replay wrapper.
+        ownership below the current Python/CUDA Graph replay wrapper. The
+        first accepted prototype is the opt-in `conditional_while` CUDA Graph
+        sequence executor: it wraps the retained one-tick graph in a native
+        conditional-WHILE parent graph, preserves ordered state mutation, and
+        reports `native_sequence_loop_*` Runtime Truth. It is not the default
+        until repeated same-session long-run gates and fallback tests justify a
+        promotion decision.
         Runtime Truth exposes whether native replay is configured, loaded,
         enabled, which backend ran, parent-graph count, launch attempts,
         successes, covered tokens, fallbacks, failures, and compile/build

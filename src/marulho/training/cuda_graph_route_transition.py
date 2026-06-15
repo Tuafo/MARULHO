@@ -18,6 +18,11 @@ from marulho.core.native_cuda_graph_replay import (
     native_cuda_graph_replay_error,
     replay_repeated_cuda_graph_exec,
 )
+from marulho.core.native_cuda_graph_sequence import (
+    make_conditional_loop_cuda_graph_exec,
+    native_cuda_graph_sequence_error,
+    replay_conditional_loop_cuda_graph_exec,
+)
 
 
 MAX_QUANTUM_INPUT_TOKENS = 128
@@ -94,12 +99,24 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_compile_latency_ms = 0.0
         self.native_burst_replay_backend = "python_loop"
         self.native_burst_replay_last_error: str | None = None
+        self.native_sequence_loop_enabled = False
+        self.native_sequence_loop_attempt_count = 0
+        self.native_sequence_loop_success_count = 0
+        self.native_sequence_loop_token_count = 0
+        self.native_sequence_loop_fallback_count = 0
+        self.native_sequence_loop_failure_count = 0
+        self.native_sequence_loop_lazy_compile_count = 0
+        self.native_sequence_loop_lazy_compile_failure_count = 0
+        self.native_sequence_loop_compile_latency_ms = 0.0
+        self.native_sequence_loop_backend = "disabled"
+        self.native_sequence_loop_last_error: str | None = None
         self._burst_token_capacity = self._resolve_burst_token_capacity()
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._burst_graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._burst_graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._native_burst_graph_execs: dict[tuple[str, int], Any] = {}
+        self._native_sequence_graph_execs: dict[tuple[str, int], Any] = {}
         self._route_vectors: torch.Tensor | None = None
         self._route_ids: torch.Tensor | None = None
         self._route_position_by_column: torch.Tensor | None = None
@@ -547,6 +564,7 @@ class CudaGraphRouteTransition:
             self._burst_graphs.clear()
             self._burst_graph_outputs.clear()
             self._native_burst_graph_execs.clear()
+            self._native_sequence_graph_execs.clear()
         finally:
             self.capture_latency_ms = (
                 time.perf_counter_ns() - started
@@ -596,6 +614,13 @@ class CudaGraphRouteTransition:
             return
 
         self.native_burst_replay_attempt_count += 1
+        if (
+            self._native_sequence_loop_requested()
+            and self.native_sequence_loop_enabled
+            and self._replay_native_sequence_loop(graph_name, token_count, graph)
+        ):
+            return
+
         if not self.native_burst_replay_enabled:
             started = time.perf_counter_ns()
             load_error = native_cuda_graph_replay_error()
@@ -647,6 +672,52 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_token_count += token_count
         self.native_burst_replay_last_error = None
 
+    def _replay_native_sequence_loop(
+        self,
+        graph_name: str,
+        token_count: int,
+        graph: torch.cuda.CUDAGraph,
+    ) -> bool:
+        self.native_sequence_loop_attempt_count += 1
+        sequence_graph_exec = self._native_sequence_graph_execs.get(
+            (graph_name, token_count)
+        )
+        if sequence_graph_exec is None:
+            sequence_graph_exec = self._ensure_native_sequence_loop_graph_exec(
+                graph_name,
+                token_count,
+                graph,
+            )
+        if sequence_graph_exec is None:
+            self.native_sequence_loop_fallback_count += 1
+            return False
+        try:
+            replay_conditional_loop_cuda_graph_exec(sequence_graph_exec)
+            self.native_burst_replay_backend = "cuda_graph_conditional_while"
+            self.native_sequence_loop_backend = "cuda_graph_conditional_while"
+        except Exception as exc:
+            self.native_burst_replay_failure_count += 1
+            self.native_sequence_loop_failure_count += 1
+            self.native_burst_replay_last_error = f"{type(exc).__name__}: {exc}"
+            self.native_sequence_loop_last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+            self.native_burst_replay_backend = (
+                "cuda_graph_conditional_while_failed"
+            )
+            self.native_sequence_loop_backend = (
+                "cuda_graph_conditional_while_failed"
+            )
+            raise
+        self.native_burst_replay_enabled = True
+        self.native_burst_replay_success_count += 1
+        self.native_burst_replay_token_count += token_count
+        self.native_burst_replay_last_error = None
+        self.native_sequence_loop_success_count += 1
+        self.native_sequence_loop_token_count += token_count
+        self.native_sequence_loop_last_error = None
+        return True
+
     def _ensure_native_burst_graph_exec(
         self,
         graph_name: str,
@@ -686,6 +757,48 @@ class CudaGraphRouteTransition:
                 "native_repeated_child_graph_partial_ready"
             )
         return repeated_graph_exec
+
+    def _ensure_native_sequence_loop_graph_exec(
+        self,
+        graph_name: str,
+        token_count: int,
+        graph: torch.cuda.CUDAGraph,
+    ) -> Any | None:
+        key = (graph_name, token_count)
+        sequence_graph_exec = self._native_sequence_graph_execs.get(key)
+        if sequence_graph_exec is not None:
+            return sequence_graph_exec
+        if token_count != self._burst_token_capacity:
+            if not self._native_partial_burst_replay_requested():
+                return None
+        build_started = time.perf_counter_ns()
+        try:
+            sequence_graph_exec = make_conditional_loop_cuda_graph_exec(
+                graph,
+                token_count,
+            )
+        except Exception as exc:
+            latency_ms = (time.perf_counter_ns() - build_started) / 1e6
+            self.native_burst_replay_compile_latency_ms += latency_ms
+            self.native_sequence_loop_compile_latency_ms += latency_ms
+            self.native_sequence_loop_lazy_compile_failure_count += 1
+            self.native_sequence_loop_last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+            self.native_sequence_loop_backend = (
+                "native_repeated_child_graph_after_conditional_partial_unavailable"
+            )
+            return None
+        latency_ms = (time.perf_counter_ns() - build_started) / 1e6
+        self.native_burst_replay_compile_latency_ms += latency_ms
+        self.native_sequence_loop_compile_latency_ms += latency_ms
+        self._native_sequence_graph_execs[key] = sequence_graph_exec
+        if token_count != self._burst_token_capacity:
+            self.native_sequence_loop_lazy_compile_count += 1
+            self.native_sequence_loop_backend = (
+                "cuda_graph_conditional_while_partial_ready"
+            )
+        return sequence_graph_exec
 
     def _resolve_burst_token_capacity(self) -> int:
         raw = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS")
@@ -733,11 +846,61 @@ class CudaGraphRouteTransition:
             return env.strip().lower() not in {"0", "false", "no", "off"}
         return False
 
+    def _native_sequence_executor_mode(self) -> str:
+        env = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR")
+        if env is not None:
+            raw = env
+        else:
+            raw = str(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_sequence_executor",
+                    "native_repeated_child_graph",
+                )
+            )
+        value = raw.strip().lower().replace("-", "_")
+        if value in {
+            "conditional_while",
+            "cuda_graph_conditional_while",
+            "conditional_loop",
+        }:
+            return "cuda_graph_conditional_while"
+        if value in {
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+            "default",
+            "native8",
+            "repeated_child",
+            "native_repeated_child_graph",
+        }:
+            return "native_repeated_child_graph"
+        return f"unknown:{value}"
+
+    def _native_sequence_loop_requested(self) -> bool:
+        return (
+            self._native_sequence_executor_mode()
+            == "cuda_graph_conditional_while"
+        )
+
     def _warm_native_burst_replay(self) -> None:
         self._native_burst_graph_execs.clear()
+        self._native_sequence_graph_execs.clear()
+        self.native_sequence_loop_enabled = False
         if not self._native_burst_replay_requested():
             self.native_burst_replay_backend = "python_loop_disabled"
+            self.native_sequence_loop_backend = "disabled"
             return
+        if (
+            self._native_sequence_loop_requested()
+            and self._warm_native_sequence_loop()
+        ):
+            return
+        self._warm_repeated_child_burst_replay()
+
+    def _warm_repeated_child_burst_replay(self) -> None:
         started = time.perf_counter_ns()
         load_error = native_cuda_graph_replay_error()
         self.native_burst_replay_compile_latency_ms += (
@@ -774,6 +937,54 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_enabled = True
         self.native_burst_replay_backend = "native_repeated_child_graph_ready"
         self.native_burst_replay_last_error = None
+
+    def _warm_native_sequence_loop(self) -> bool:
+        started = time.perf_counter_ns()
+        load_error = native_cuda_graph_sequence_error()
+        latency_ms = (time.perf_counter_ns() - started) / 1e6
+        self.native_burst_replay_compile_latency_ms += latency_ms
+        self.native_sequence_loop_compile_latency_ms += latency_ms
+        if load_error is not None:
+            self.native_sequence_loop_enabled = False
+            self.native_sequence_loop_last_error = load_error
+            self.native_sequence_loop_backend = (
+                "native_repeated_child_graph_after_conditional_unavailable"
+            )
+            self.native_sequence_loop_fallback_count += 1
+            return False
+        build_started = time.perf_counter_ns()
+        try:
+            for graph_name, graph in self._burst_graphs.items():
+                self._native_sequence_graph_execs[
+                    (graph_name, self._burst_token_capacity)
+                ] = make_conditional_loop_cuda_graph_exec(
+                    graph,
+                    self._burst_token_capacity,
+                )
+        except Exception as exc:
+            latency_ms = (time.perf_counter_ns() - build_started) / 1e6
+            self.native_burst_replay_compile_latency_ms += latency_ms
+            self.native_sequence_loop_compile_latency_ms += latency_ms
+            self._native_sequence_graph_execs.clear()
+            self.native_sequence_loop_enabled = False
+            self.native_sequence_loop_last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+            self.native_sequence_loop_backend = (
+                "native_repeated_child_graph_after_conditional_parent_unavailable"
+            )
+            self.native_sequence_loop_fallback_count += 1
+            return False
+        latency_ms = (time.perf_counter_ns() - build_started) / 1e6
+        self.native_burst_replay_compile_latency_ms += latency_ms
+        self.native_sequence_loop_compile_latency_ms += latency_ms
+        self.native_burst_replay_enabled = True
+        self.native_burst_replay_backend = "cuda_graph_conditional_while_ready"
+        self.native_burst_replay_last_error = None
+        self.native_sequence_loop_enabled = True
+        self.native_sequence_loop_backend = "cuda_graph_conditional_while_ready"
+        self.native_sequence_loop_last_error = None
+        return True
 
     def _launch_transition(
         self,
@@ -1741,6 +1952,50 @@ class CudaGraphRouteTransition:
                 self.native_burst_replay_compile_latency_ms
             ),
             "native_burst_replay_last_error": self.native_burst_replay_last_error,
+            "native_sequence_executor_requested": (
+                self._native_sequence_executor_mode()
+            ),
+            "native_sequence_loop_loaded": bool(
+                self.native_sequence_loop_enabled
+            ),
+            "native_sequence_loop_backend": self.native_sequence_loop_backend,
+            "native_sequence_loop_parent_graph_count": int(
+                len(self._native_sequence_graph_execs)
+            ),
+            "native_sequence_loop_parent_graph_token_counts": [
+                int(token_count)
+                for token_count in sorted(
+                    {
+                        token_count
+                        for _, token_count in self._native_sequence_graph_execs
+                    }
+                )
+            ],
+            "native_sequence_loop_attempt_count": int(
+                self.native_sequence_loop_attempt_count
+            ),
+            "native_sequence_loop_success_count": int(
+                self.native_sequence_loop_success_count
+            ),
+            "native_sequence_loop_token_count": int(
+                self.native_sequence_loop_token_count
+            ),
+            "native_sequence_loop_fallback_count": int(
+                self.native_sequence_loop_fallback_count
+            ),
+            "native_sequence_loop_failure_count": int(
+                self.native_sequence_loop_failure_count
+            ),
+            "native_sequence_loop_lazy_compile_count": int(
+                self.native_sequence_loop_lazy_compile_count
+            ),
+            "native_sequence_loop_lazy_compile_failure_count": int(
+                self.native_sequence_loop_lazy_compile_failure_count
+            ),
+            "native_sequence_loop_compile_latency_ms": float(
+                self.native_sequence_loop_compile_latency_ms
+            ),
+            "native_sequence_loop_last_error": self.native_sequence_loop_last_error,
             "burst_replay_count": int(self.burst_replay_count),
             "burst_replayed_token_count": int(
                 self.burst_replayed_token_count

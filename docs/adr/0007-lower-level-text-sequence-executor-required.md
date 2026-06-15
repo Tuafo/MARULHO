@@ -45,6 +45,30 @@ point to moving recurrent sequence ownership into a purpose-built C++/CUDA,
 Triton, or hybrid executor rather than adding another host-side wrapper around
 the same one-tick graph body.
 
+On 2026-06-15, MARULHO added an opt-in CUDA conditional-WHILE parent graph
+prototype selected by `cuda_graph_sequence_executor=conditional_while`,
+`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=conditional_while`, or the stress
+benchmark `--sequence-executor conditional_while`. It keeps the retained
+one-tick PyTorch CUDA Graph body, but moves the burst loop into a CUDA Graph
+conditional node and a tiny device counter kernel. The executor preserves the
+existing pre-mutation fallback and fail-closed launch behavior because failed
+conditional parent construction returns to retained repeated-child replay, while
+post-launch errors still raise.
+
+The first clean long evidence makes it a promotion candidate rather than another
+rejected local wrapper. With the same text-only checkpoint and q16 shape,
+`reports/conditional_sequence_20260615/native8-rerun-131072-i32.json` measured
+the retained native8 executor at `5035.537 tokens/sec`, zero native failures,
+and `velocity_environment.v1` contention `not_observed`. The opt-in
+conditional-WHILE q8 run at
+`reports/conditional_sequence_20260615/conditional-while-131072-i32.json`
+measured `5277.975 tokens/sec`, and the opt-in conditional-WHILE q16 run at
+`reports/conditional_sequence_20260615/conditional-while16-131072-i32.json`
+measured `5559.473 tokens/sec`. The q16 conditional run covered `131040`
+tokens with `8190` conditional parent launches, parent token counts `[16]`,
+zero sequence/native fallbacks, zero sequence/native failures, host-truth
+cadence `4097/126975`, and clean `velocity_environment.v1` evidence.
+
 ## Decision
 
 Do not promote another local CUDA Graph wrapper, parent-capacity change,
@@ -57,6 +81,13 @@ may remain for controlled rejection evidence, but they must fail closed or fail
 early when they cannot exercise the requested executor. In particular, native
 parent graph capacity probes must not exceed or fail to divide the execution
 quantum.
+
+The conditional-WHILE executor is the first accepted lower-level prototype that
+meets the directional requirement and beats the sustained native8 ceiling in a
+clean long run. It is not yet the default. Promotion requires repeated clean
+paired long runs in both orders, stronger CUDA parity/fallback tests, and an
+explicit default-change decision because the winning shape also changes the
+effective burst capacity to `16`.
 
 The next promotable executor must be lower level than the current
 Python/CUDA Graph replay boundary. A candidate design must own a bounded
@@ -73,10 +104,13 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 ## Consequences
 
 - The native8 parent graph remains the sustained production ceiling until a
-  lower-level executor beats it on comparable long CUDA runs.
+  lower-level executor passes repeated promotion gates. The conditional-WHILE
+  prototype has one winning clean gate but remains opt-in.
 - Native16 remains a rejected safe prototype, not a default.
 - Native32 is rejected under q16 unless a separate execution-quantum decision is
   made; the stress benchmark rejects misaligned capacity probes before startup.
+- Runtime Truth now exposes `native_sequence_loop_*` fields for lower-level
+  sequence-loop coverage separately from repeated-child parent-graph coverage.
 - Future performance work should start from a lower-level sequence-kernel or
   device-graph design, not another Python-side launcher, scalar report, or
   local route/vote wrapper.
@@ -86,8 +120,8 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 
 ## Reversal
 
-This decision can be revisited only if a local wrapper under the existing q16
-architecture produces repeated clean 131072-token CUDA wins over
-`4992.049 tokens/sec`, preserves exact sequential state and fail-closed
-fallback, and exposes complete Runtime Truth evidence. Short, contended, or
-counter-only wins are not enough.
+This decision can be revisited only if a lower-level executor under the existing
+q16 architecture produces repeated clean 131072-token CUDA wins over the retained
+native8 path, preserves exact sequential state and fail-closed fallback, and
+exposes complete Runtime Truth evidence. Short, contended, or counter-only wins
+are not enough.

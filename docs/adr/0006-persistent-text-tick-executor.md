@@ -248,6 +248,18 @@ cognitive-quality evidence, and grounded fallback gates.
   native32 would require changing the execution quantum boundary, which is a
   separate retired/default-sensitive trade-off rather than the exact fast
   q16 shape.
+- A CUDA conditional-WHILE parent graph prototype is now available as an opt-in
+  lower-level sequence executor. It keeps the proven one-tick graph body but
+  moves burst-loop control into a CUDA conditional node plus a device counter
+  kernel. The clean 131072-token q16/native16 probe at
+  `reports/conditional_sequence_20260615/conditional-while16-131072-i32.json`
+  measured `5559.473 tokens/sec`, `train_compute=0.146978 ms/token`,
+  `8190` conditional parent launches, `131040` conditional-owned tokens, zero
+  sequence/native fallbacks, zero sequence/native failures, host-truth cadence
+  `4097/126975`, and `velocity_environment.v1` contention `not_observed`.
+  This beats the retained same-session native8 rerun at `5035.537 tokens/sec`,
+  but remains opt-in pending repeated paired gates, fallback tests, and a
+  promotion decision.
 - ADR 0007 captures the follow-on boundary: the next promotable text executor
   must move below local CUDA Graph wrappers into a lower-level sequence owner.
 - Wider event/truth cadences remain rejected. A sixty-four-token event window
@@ -286,4 +298,6 @@ while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
 preserve the retained execution paths. Keep `cuda_graph_native_burst_tokens=8`
 or `MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS=8` for the maintained native parent
 capacity; `16` and `32` remain benchmark/prototype capacities until a clean
-long-run gate promotes them.
+long-run gate promotes them. Keep
+`cuda_graph_sequence_executor=native_repeated_child_graph` unless explicitly
+opting into `conditional_while` for benchmark/prototype evidence.

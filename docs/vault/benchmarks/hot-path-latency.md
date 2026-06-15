@@ -921,3 +921,51 @@ rejection, partial-native rejection, and route/vote wrapper rejection, this is
 the evidence basis for [ADR 0007](../../adr/0007-lower-level-text-sequence-executor-required.md):
 the next promotable text executor must move below the current Python/CUDA Graph
 replay boundary.
+
+### Conditional-WHILE Sequence Executor Prototype, 2026-06-15
+
+The first lower-level CUDA sequence executor prototype now exists behind
+`cuda_graph_sequence_executor=conditional_while`,
+`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=conditional_while`, and
+`continuous_runtime_stress_benchmark --sequence-executor conditional_while`.
+It is not another repeated-child capacity wrapper: the native extension builds a
+CUDA Graph conditional `WHILE` parent around the retained one-tick child graph
+and uses a tiny device counter kernel to decide whether the loop body runs
+again. Failed construction falls back before mutation to retained repeated-child
+replay; launch failures remain fail-closed.
+
+The clean same-session comparison on the RTX 3060 used the same checkpoint,
+`tick_tokens=128`, `quantum_tokens=16`, host-truth cadence `32`, and
+`131072` target tokens:
+
+- `reports/conditional_sequence_20260615/native8-rerun-131072-i32.json`:
+  retained native8 repeated-child replay reached `5035.537 tokens/sec`,
+  `train_compute=0.165231 ms/token`, zero native failures, parent token counts
+  `[8]`, `16382` parent launches, `131056` native-owned tokens, and
+  `velocity_environment.v1` contention `not_observed`.
+- `reports/conditional_sequence_20260615/conditional-while-131072-i32.json`:
+  conditional-WHILE q8 reached `5277.975 tokens/sec`,
+  `train_compute=0.156673 ms/token`, parent token counts `[8]`, `16382`
+  conditional parent launches, `131056` conditional-owned tokens, zero
+  sequence/native fallbacks, zero sequence/native failures, and no observed
+  contention.
+- `reports/conditional_sequence_20260615/conditional-while16-131072-i32.json`:
+  conditional-WHILE q16 reached `5559.473 tokens/sec`,
+  `train_compute=0.146978 ms/token`, parent token counts `[16]`, `8190`
+  conditional parent launches, `131040` conditional-owned tokens, zero
+  sequence/native fallbacks, zero sequence/native failures, host-truth cadence
+  `4097/126975`, and no observed contention.
+
+Startup remains visible and outside warm throughput. The q16 conditional run
+reported `capture_latency_ms=6864.9883` and
+`native_sequence_loop_compile_latency_ms=6450.2083`. Runtime Truth exposes the
+new `native_sequence_loop_*` fields separately from
+`native_burst_replay_parent_graph_*`, so coverage claims must use
+`native_sequence_loop_success_count`, `native_sequence_loop_token_count`,
+fallback/failure counters, parent token counts, and host-truth cadence.
+
+This is promotion-candidate evidence. Promotion still requires repeated paired
+clean long runs in both orders, fallback tests for unavailable/failed
+conditional construction, fail-closed launch-failure coverage, and an ADR/config
+decision before changing the maintained default from native8 repeated-child
+replay.

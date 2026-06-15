@@ -500,6 +500,7 @@ def run_continuous_runtime_stress(
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
     native_burst_tokens: int | None = None,
+    sequence_executor: str | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -528,6 +529,24 @@ def run_continuous_runtime_stress(
                 "native_burst_tokens must divide quantum_tokens for an exact "
                 "native parent-graph benchmark"
             )
+    if sequence_executor is not None:
+        normalized_sequence_executor = (
+            str(sequence_executor).strip().lower().replace("-", "_")
+        )
+        if normalized_sequence_executor not in {
+            "native_repeated_child_graph",
+            "repeated_child",
+            "native8",
+            "default",
+            "conditional_while",
+            "cuda_graph_conditional_while",
+        }:
+            raise ValueError(
+                "sequence_executor must be native_repeated_child_graph "
+                "or conditional_while"
+            )
+    else:
+        normalized_sequence_executor = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -539,6 +558,9 @@ def run_continuous_runtime_stress(
     previous_native_burst_tokens_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"
     )
+    previous_sequence_executor_env = os.environ.get(
+        "MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"
+    )
     if native_burst_replay is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
@@ -546,6 +568,10 @@ def run_continuous_runtime_stress(
     if native_burst_tokens is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = str(
             int(native_burst_tokens)
+        )
+    if normalized_sequence_executor is not None:
+        os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
+            normalized_sequence_executor
         )
     manager = MarulhoServiceManager(
         checkpoint,
@@ -592,6 +618,18 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_native_burst_tokens"] = {
                 "from": previous_native_burst_tokens,
                 "to": int(native_burst_tokens),
+            }
+        if normalized_sequence_executor is not None:
+            with manager._lock:
+                previous_sequence_executor = str(
+                    manager._trainer.config.cuda_graph_sequence_executor
+                )
+                manager._trainer.config.cuda_graph_sequence_executor = (
+                    normalized_sequence_executor
+                )
+            config_overrides["cuda_graph_sequence_executor"] = {
+                "from": previous_sequence_executor,
+                "to": normalized_sequence_executor,
             }
         runtime.configure_terminus(
             source_bank=[
@@ -655,6 +693,9 @@ def run_continuous_runtime_stress(
                     ),
                     "cuda_graph_native_burst_tokens": int(
                         manager._trainer.config.cuda_graph_native_burst_tokens
+                    ),
+                    "cuda_graph_sequence_executor": str(
+                        manager._trainer.config.cuda_graph_sequence_executor
                     ),
                 },
                 "checkpoint_metadata": {
@@ -780,6 +821,9 @@ def run_continuous_runtime_stress(
                 "cuda_graph_native_burst_tokens": int(
                     manager._trainer.config.cuda_graph_native_burst_tokens
                 ),
+                "cuda_graph_sequence_executor": str(
+                    manager._trainer.config.cuda_graph_sequence_executor
+                ),
             },
             "checkpoint_metadata": {
                 "config_migrations": list(
@@ -834,6 +878,13 @@ def run_continuous_runtime_stress(
             else:
                 os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = (
                     previous_native_burst_tokens_env
+                )
+        if normalized_sequence_executor is not None:
+            if previous_sequence_executor_env is None:
+                os.environ.pop("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR", None)
+            else:
+                os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
+                    previous_sequence_executor_env
                 )
 
 
@@ -891,6 +942,23 @@ def main() -> int:
             "production config, currently eight tokens."
         ),
     )
+    parser.add_argument(
+        "--sequence-executor",
+        choices=(
+            "native_repeated_child_graph",
+            "repeated_child",
+            "native8",
+            "default",
+            "conditional_while",
+            "cuda_graph_conditional_while",
+        ),
+        default=None,
+        help=(
+            "Evaluation-only override for the native text sequence executor. "
+            "Default keeps the retained repeated-child parent graph; "
+            "conditional_while probes the CUDA conditional-WHILE parent graph."
+        ),
+    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -905,6 +973,7 @@ def main() -> int:
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
         native_burst_replay=False if args.disable_native_burst_replay else None,
         native_burst_tokens=args.native_burst_tokens,
+        sequence_executor=args.sequence_executor,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

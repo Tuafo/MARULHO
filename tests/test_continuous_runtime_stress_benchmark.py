@@ -246,6 +246,8 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
             "32",
             "--native-burst-tokens",
             "16",
+            "--sequence-executor",
+            "conditional_while",
         ],
     )
 
@@ -253,6 +255,7 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
     assert captured["profile_trainer_stages"] is True
     assert captured["host_truth_sync_interval_tokens"] == 32
     assert captured["native_burst_tokens"] == 16
+    assert captured["sequence_executor"] == "conditional_while"
 
 
 def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
@@ -298,3 +301,16 @@ def test_stress_runner_rejects_native_burst_tokens_that_do_not_divide_quantum(
         assert "divide quantum_tokens" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected native burst divisibility rejection")
+
+
+def test_stress_runner_rejects_unknown_sequence_executor(tmp_path) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            sequence_executor="python-wrapper",
+        )
+    except ValueError as exc:
+        assert "sequence_executor" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected unknown sequence executor rejection")

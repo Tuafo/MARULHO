@@ -189,6 +189,7 @@ class MarulhoConfig:
     cuda_graph_sequence_input_staging: bool = True
     cuda_graph_native_burst_replay: bool = True
     cuda_graph_native_burst_tokens: int = 8
+    cuda_graph_sequence_executor: str = "native_repeated_child_graph"
 
     enable_cross_modal: bool = False
     cross_modal_dim_visual: int = 256
@@ -327,6 +328,15 @@ class MarulhoConfig:
             raise ValueError("cuda_graph_host_truth_sync_interval_tokens must be positive")
         if self.cuda_graph_native_burst_tokens not in (8, 16, 32):
             raise ValueError("cuda_graph_native_burst_tokens must be one of 8, 16, or 32")
+        if self.cuda_graph_sequence_executor not in (
+            "native_repeated_child_graph",
+            "conditional_while",
+            "cuda_graph_conditional_while",
+        ):
+            raise ValueError(
+                "cuda_graph_sequence_executor must be native_repeated_child_graph "
+                "or conditional_while"
+            )
         if self.cross_modal_text_idle_probe_interval_tokens <= 0:
             raise ValueError("cross_modal_text_idle_probe_interval_tokens must be positive")
         if self.dead_column_steps <= 0:
