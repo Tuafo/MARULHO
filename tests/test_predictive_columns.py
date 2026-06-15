@@ -403,6 +403,157 @@ class TestPredictiveColumnState:
         assert state.last_predictive_materialize_max_age == 1
         assert int(state.predictive_last_update_step[1].item()) == 2
 
+    def test_candidate_transition_reuses_vote_materialization_evidence(self):
+        torch.manual_seed(20260615)
+        duplicate_check = PredictiveColumnState(n_columns=6, location_dim=3)
+        reused = PredictiveColumnState(n_columns=6, location_dim=3)
+
+        duplicate_check.update_candidate_prediction_transition(
+            [0],
+            torch.randn(6),
+            None,
+            learning_rate=0.005,
+            candidate_indices=torch.tensor([0], dtype=torch.long),
+        )
+        reused.load_state_dict(duplicate_check.state_dict())
+        routing_key = torch.randn(6)
+        previous = torch.randn(6)
+        candidate = torch.tensor([1], dtype=torch.long)
+
+        duplicate_check.materialize_predictive_state(candidate)
+        reused.materialize_predictive_state(candidate)
+        assert duplicate_check.last_predictive_materialize_count == 1
+        assert reused.last_predictive_materialize_count == 1
+
+        duplicate_check.update_candidate_prediction_transition(
+            [1],
+            routing_key,
+            previous,
+            learning_rate=0.005,
+            candidate_indices=candidate,
+        )
+        reused.update_candidate_prediction_transition(
+            [1],
+            routing_key,
+            previous,
+            learning_rate=0.005,
+            candidate_indices=candidate,
+            assume_materialized=True,
+        )
+
+        assert torch.allclose(reused.location, duplicate_check.location, atol=1e-6)
+        assert torch.allclose(reused.velocity, duplicate_check.velocity, atol=1e-6)
+        assert torch.allclose(
+            reused._prediction_weights,
+            duplicate_check._prediction_weights,
+            atol=1e-6,
+        )
+        assert torch.allclose(
+            reused.prediction_error,
+            duplicate_check.prediction_error,
+            atol=1e-6,
+        )
+        assert torch.equal(
+            reused.prediction_failure_streak,
+            duplicate_check.prediction_failure_streak,
+        )
+        assert torch.allclose(reused.confidence, duplicate_check.confidence, atol=1e-6)
+        assert torch.equal(
+            reused.predictive_last_update_step,
+            duplicate_check.predictive_last_update_step,
+        )
+        assert reused.predictive_step_count == duplicate_check.predictive_step_count
+        assert duplicate_check.last_predictive_materialize_count == 0
+        assert reused.last_predictive_materialize_count == 1
+        assert reused.last_predictive_materialize_max_age == 1
+
+    def test_completed_candidate_transition_skips_redundant_materialization(self):
+        torch.manual_seed(20260615)
+        state = PredictiveColumnState(n_columns=6, location_dim=3)
+        candidate = torch.tensor([3, 1], dtype=torch.long)
+
+        state.update_candidate_prediction_transition(
+            [1],
+            torch.randn(6),
+            None,
+            learning_rate=0.005,
+            candidate_indices=candidate,
+        )
+        before_location = state.location.clone()
+        before_velocity = state.velocity.clone()
+        before_weights = state._prediction_weights.clone()
+        before_error = state.prediction_error.clone()
+        before_confidence = state.confidence.clone()
+        before_streak = state.prediction_failure_streak.clone()
+
+        state.materialize_predictive_state(candidate)
+
+        assert state.last_predictive_materialize_mode == "candidate_subset_completed_noop"
+        assert state.last_predictive_materialize_count == 0
+        assert state.last_predictive_materialize_max_age == 0
+        assert torch.allclose(state.location, before_location, atol=1e-6)
+        assert torch.allclose(state.velocity, before_velocity, atol=1e-6)
+        assert torch.allclose(state._prediction_weights, before_weights, atol=1e-6)
+        assert torch.allclose(state.prediction_error, before_error, atol=1e-6)
+        assert torch.allclose(state.confidence, before_confidence, atol=1e-6)
+        assert torch.equal(state.prediction_failure_streak, before_streak)
+
+        state.materialize_predictive_state(torch.tensor([2], dtype=torch.long))
+
+        assert state.last_predictive_materialize_mode == "candidate_subset"
+        assert state.last_predictive_materialize_count == 1
+        assert state.last_predictive_materialize_max_age == 1
+
+    def test_checkpoint_restore_preserves_cached_predictive_wake_replay(self):
+        torch.manual_seed(20260615)
+        original = PredictiveColumnState(n_columns=6, location_dim=3)
+        full = PredictiveColumnState(n_columns=6, location_dim=3)
+        restored = PredictiveColumnState(n_columns=6, location_dim=3)
+
+        full.load_state_dict(original.state_dict())
+        restored.load_state_dict(original.state_dict())
+        candidate = torch.tensor([0], dtype=torch.long)
+        previous = None
+
+        for _ in range(4):
+            routing_key = torch.randn(6)
+            full.compute_prediction_error([0], routing_key)
+            full.update_location([0], routing_key, previous)
+            full.update_predictions([0], learning_rate=0.005)
+            original.update_candidate_prediction_transition(
+                [0],
+                routing_key,
+                previous,
+                learning_rate=0.005,
+                candidate_indices=candidate,
+            )
+            previous = routing_key
+
+        restored.load_state_dict(original.state_dict())
+        assert restored._predictive_has_cached_columns is True
+        restored.materialize_predictive_state(torch.tensor([1], dtype=torch.long))
+
+        assert restored.last_predictive_materialize_mode == "candidate_subset"
+        assert restored.last_predictive_materialize_count == 1
+        assert restored.last_predictive_materialize_max_age == 4
+        assert torch.allclose(restored.location[1], full.location[1], atol=1e-6)
+        assert torch.allclose(restored.velocity[1], full.velocity[1], atol=1e-6)
+        assert torch.allclose(
+            restored._prediction_weights[1],
+            full._prediction_weights[1],
+            atol=1e-6,
+        )
+        assert torch.allclose(
+            restored.prediction_error[1],
+            full.prediction_error[1],
+            atol=1e-6,
+        )
+        assert torch.equal(
+            restored.prediction_failure_streak[1],
+            full.prediction_failure_streak[1],
+        )
+        assert torch.allclose(restored.confidence[1], full.confidence[1], atol=1e-6)
+
     def test_candidate_vote_materializes_idle_predictive_state_before_scoring(self):
         torch.manual_seed(123)
         full = PredictiveColumnState(n_columns=6, location_dim=3)
@@ -1056,6 +1207,67 @@ class TestPredictiveColumnsInTrainer:
         assert sleep_filter["claim_boundary"] == (
             "training_owned_candidate_deep_sleep_filter_skips_deep_sleep_candidates_without_all_column_scan"
         )
+
+    def test_trainer_defers_deep_sleep_backfill_until_columns_can_age(
+        self,
+        monkeypatch,
+    ):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=4,
+            k_routing=4,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            routing_index_mode="torch_topk",
+            dead_column_steps=100,
+            candidate_deep_sleep_filter_start_tokens=0,
+            candidate_deep_sleep_backfill_factor=3,
+            device="cpu",
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        requested_k: list[int] = []
+
+        def fake_search_tensors(query, *, k):
+            requested_k.append(int(k))
+            ids = torch.arange(int(k), dtype=torch.long).unsqueeze(0)
+            distances = torch.arange(int(k), dtype=torch.float32).unsqueeze(0)
+            return ids, distances
+
+        monkeypatch.setattr(model.hnsw_index, "search_tensors", fake_search_tensors)
+
+        trainer.token_count = cfg.dead_column_steps - 1
+        early = trainer._routing_wake_plan(
+            torch.randn(cfg.column_latent_dim),
+            apply_sleep_filter=True,
+        )
+
+        assert requested_k[-1] == cfg.k_routing
+        assert early is not None
+        assert early.mode == "not_due"
+        assert early.awake_count == cfg.k_routing
+        assert early.fallback_reason == (
+            "candidate_deep_sleep_filter_no_column_can_be_deep_sleep_yet"
+        )
+        assert early.wake_reason == "retrieved_candidate_before_deep_sleep_age_gate"
+
+        trainer.token_count = cfg.dead_column_steps
+        ready = trainer._routing_wake_plan(
+            torch.randn(cfg.column_latent_dim),
+            apply_sleep_filter=True,
+        )
+
+        assert requested_k[-1] == cfg.k_routing * cfg.candidate_deep_sleep_backfill_factor
+        assert ready is not None
+        assert ready.mode == "candidate_deep_sleep_filter"
+        assert ready.input_candidate_count == (
+            cfg.k_routing * cfg.candidate_deep_sleep_backfill_factor
+        )
+        assert ready.awake_count == cfg.k_routing
 
     def test_trainer_filters_deep_sleep_candidates_before_update_and_vote(self, monkeypatch):
         from marulho.config.model_config import MarulhoConfig

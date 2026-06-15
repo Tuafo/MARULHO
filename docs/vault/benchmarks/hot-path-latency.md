@@ -239,6 +239,50 @@ CUDA therefore remains in the documented broad 6k-ish band, while the retained
 CPU scoped path is faster than its prior scoped implementation but still has an
 open complete-step cost gate.
 
+The next retained scheduler cleanup removed a bounded deep-sleep backfill that
+could not filter anything before `dead_column_steps`, reused the predictive
+vote materialization in the following candidate transition, exposed
+`candidate_subset_completed_noop` for repeated same-tick candidate
+materialization, and fixed checkpoint restore so cached predictive wake truth is
+derived from saved step stamps. Focused verification passed:
+`python -m pytest tests\test_predictive_columns.py tests\test_column_scheduler_benchmark.py -q`
+reported `56 passed`, and
+`python -m pytest tests\test_column_runtime.py tests\test_adr_runtime_state_ownership.py tests\test_column_scheduler_benchmark.py -q`
+reported `17 passed`.
+
+The CPU A/B at
+`reports/column_scheduler_20260615/cpu-8192-age-gate-single-materialization-completed-cache.json`
+preserved exact winners and kept scoped predictive vote, predictive update,
+predictive location, candidate sleep filter, and wake-plan work bounded at
+`10/8192` with `runs_all_columns=false`. It did not pass the cost gate:
+same-run all-column mean/median were `6.57934625/6.1021 ms`, while scoped
+mean/median were `11.2669375/8.43225 ms`. The scaling sweep at
+`reports/column_scheduler_20260615/cpu-scaling-age-gate-single-materialization-completed-cache.json`
+kept awake work bounded at `10` for `512`, `2048`, and `8192` columns and
+reported `scoped_never_runs_all_columns=true`, but
+`neutral_or_better_all_sizes=false`.
+
+The CUDA A/B at
+`reports/column_scheduler_20260615/cuda-8192-age-gate-single-materialization-completed-cache.json`
+kept predictive vote bounded at `10/8192`, but Runtime Truth correctly reported
+`runs_all_columns=true` because predictive update/location stayed dense with
+fallback reason `cuda_sparse_prediction_update_launch_bound_dense_retained`.
+Same-run all-column mean/median were `14.55886625/13.3442 ms`, while scoped
+mean/median were `17.98001875/17.09485 ms`. This confirms the CUDA rule for
+now: keep the dense GPU predictive transition until a fused or lower-launch
+sparse CUDA path beats dense complete-runtime evidence.
+
+The longer CUDA gate the user requested stayed healthy. The 131072-token run at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-age-gate-materialization-cache.json`
+reached `5909.600 tokens/sec`, `train_compute=0.140558 ms/token`,
+`prepare_training=0.006582 ms/token`, and
+`finalize_total=0.005748 ms/token`, with RTX 3060 CUDA selected, no observed
+contention, `8190` conditional loop successes over `131040` tokens, zero
+sequence/native fallbacks or failures, and host-truth cadence `4097/126975`.
+Compared with the previous fused-candidate run (`5889.241 tokens/sec`,
+`train_compute=0.140840 ms/token`), this is neutral/stable long-run evidence,
+not proof that the retained CPU scheduler A/B is solved.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

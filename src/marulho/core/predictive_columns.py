@@ -225,6 +225,8 @@ class PredictiveColumnState:
         )
         self._predictive_has_cached_columns = False
         self._predictive_materialize_learning_rate = 0.005
+        self._last_predictive_completed_candidates: torch.Tensor | None = None
+        self._last_predictive_completed_step = 0
         self.last_dense_transition_mode = "legacy"
         self.last_dense_transition_fallback_reason: str | None = None
         self.dense_transition_compile_count = 0
@@ -456,6 +458,20 @@ class PredictiveColumnState:
                 self.last_predictive_materialize_max_age = 0
             return
 
+        if (
+            candidates is not None
+            and self._last_predictive_completed_candidates is not None
+            and int(self._last_predictive_completed_step) == current_step
+            and int(self._last_predictive_completed_candidates.numel())
+            == int(candidates.numel())
+            and bool(torch.equal(self._last_predictive_completed_candidates, candidates))
+        ):
+            if record_noop:
+                self.last_predictive_materialize_mode = f"{mode}_completed_noop"
+                self.last_predictive_materialize_count = 0
+                self.last_predictive_materialize_max_age = 0
+            return
+
         last_steps = self.predictive_last_update_step.index_select(0, indices)
         ages = torch.clamp(current_step - last_steps, min=0)
         pending_mask = ages > 0
@@ -548,9 +564,13 @@ class PredictiveColumnState:
         if candidates is None or int(candidates.numel()) >= int(self.n_columns):
             self.predictive_last_update_step.fill_(next_step)
             self._predictive_has_cached_columns = False
+            self._last_predictive_completed_candidates = None
+            self._last_predictive_completed_step = next_step
         else:
             self.predictive_last_update_step[candidates] = next_step
             self._predictive_has_cached_columns = True
+            self._last_predictive_completed_candidates = candidates.detach().clone()
+            self._last_predictive_completed_step = next_step
         self.predictive_step_count = next_step
 
     def _record_prediction_update_scope(
@@ -778,6 +798,7 @@ class PredictiveColumnState:
         *,
         learning_rate: float = 0.005,
         candidate_indices: torch.Tensor | None = None,
+        assume_materialized: bool = False,
     ) -> torch.Tensor:
         """Apply one candidate-scoped predictive transition with one wake set."""
 
@@ -823,7 +844,8 @@ class PredictiveColumnState:
                 )
                 return pred_error
 
-        self.materialize_predictive_state(candidates)
+        if not bool(assume_materialized):
+            self.materialize_predictive_state(candidates)
 
         self._record_prediction_update_scope(candidates)
         prediction = torch.sigmoid(
@@ -1183,7 +1205,14 @@ class PredictiveColumnState:
             self.predictive_step_count = 0
         if "predictive_last_update_step" not in state:
             self.predictive_last_update_step.fill_(int(self.predictive_step_count))
-        self._predictive_has_cached_columns = False
+        self._predictive_has_cached_columns = bool(
+            (
+                self.predictive_last_update_step
+                < int(self.predictive_step_count)
+            ).any().item()
+        )
+        self._last_predictive_completed_candidates = None
+        self._last_predictive_completed_step = int(self.predictive_step_count)
 
     def reset(self) -> None:
         """Reset all predictive state."""
@@ -1226,3 +1255,5 @@ class PredictiveColumnState:
         )
         self._predictive_has_cached_columns = False
         self._predictive_materialize_learning_rate = 0.005
+        self._last_predictive_completed_candidates = None
+        self._last_predictive_completed_step = 0

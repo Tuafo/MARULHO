@@ -42,7 +42,9 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert scoped["column_wake_plan_awake_count"] == 4
     assert scoped["column_wake_plan_bounded"] is True
     assert scoped["column_wake_plan_runs_all_columns"] is False
-    assert scoped["column_wake_plan_wake_reason"] == "retrieved_candidate_not_in_deep_sleep"
+    assert scoped["column_wake_plan_wake_reason"] == (
+        "retrieved_candidate_before_deep_sleep_age_gate"
+    )
     assert scoped["runs_all_columns"] is False
     assert all_vote["predictive_vote_updated_columns"] == 16
     assert all_vote["predictive_vote_runs_all_columns"] is True

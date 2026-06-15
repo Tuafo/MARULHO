@@ -1276,11 +1276,15 @@ class MarulhoTrainer:
         apply_sleep_filter: bool = False,
     ) -> ColumnWakePlan | None:
         target_k = max(1, int(self.config.k_routing))
-        filter_due = bool(
+        filter_start_due = bool(
             apply_sleep_filter
             and self.token_count
             >= int(self.config.candidate_deep_sleep_filter_start_tokens)
         )
+        filter_age_ready = bool(
+            int(self.token_count) >= int(self.config.dead_column_steps)
+        )
+        filter_due = bool(filter_start_due and filter_age_ready)
         search_k = target_k
         if filter_due and self.model.device.type != "cuda":
             search_k = min(
@@ -1331,7 +1335,7 @@ class MarulhoTrainer:
             )
             self._record_column_wake_plan(plan)
             return plan
-        if not filter_due:
+        if not filter_start_due:
             bounded = candidates[:target_k]
             plan = self._build_column_wake_plan(
                 mode="not_due",
@@ -1341,6 +1345,20 @@ class MarulhoTrainer:
                 backfill_candidate_count=0,
                 fallback_reason="candidate_deep_sleep_filter_not_due",
                 wake_reason="retrieved_candidate_before_sleep_gate",
+                sleep_reason=None,
+            )
+            self._record_column_wake_plan(plan)
+            return plan
+        if not filter_age_ready:
+            bounded = candidates[:target_k]
+            plan = self._build_column_wake_plan(
+                mode="not_due",
+                awake_indices=bounded,
+                input_candidate_count=int(bounded.numel()),
+                filtered_deep_sleep_count=0,
+                backfill_candidate_count=0,
+                fallback_reason="candidate_deep_sleep_filter_no_column_can_be_deep_sleep_yet",
+                wake_reason="retrieved_candidate_before_deep_sleep_age_gate",
                 sleep_reason=None,
             )
             self._record_column_wake_plan(plan)
@@ -2125,6 +2143,7 @@ class MarulhoTrainer:
         modulator: float,
         local_trace: torch.Tensor | None,
         compute_metrics: bool,
+        predictive_candidates_already_materialized: bool = False,
     ) -> tuple[
         torch.Tensor,
         list[int] | None,
@@ -2224,6 +2243,7 @@ class MarulhoTrainer:
                     self._prev_routing_key,
                     learning_rate=0.005,
                     candidate_indices=predictive_update_indices,
+                    assume_materialized=predictive_candidates_already_materialized,
                 )
                 used_candidate_transition = True
             else:
@@ -2480,6 +2500,7 @@ class MarulhoTrainer:
         # recent winners get a routing boost (Thousand Brains voting).
         # The retained path updates only the routed awake mask; non-awake
         # columns keep cached vote state and are not scanned for this tick.
+        predictive_vote_materialized_candidates = False
         if (
             self.last_winner is not None
             and not self._column_transition_runtime.handles_predictive_vote
@@ -2488,6 +2509,9 @@ class MarulhoTrainer:
                 [self.last_winner],
                 routing_key,
                 candidate_indices=candidates,
+            )
+            predictive_vote_materialized_candidates = bool(
+                candidates is not None and int(candidates.numel()) > 0
             )
             if context_gain is not None:
                 context_gain = torch.clamp(context_gain * consensus_gain, min=0.5, max=1.5)
@@ -2537,6 +2561,9 @@ class MarulhoTrainer:
             modulator=modulator,
             local_trace=local_trace,
             compute_metrics=_telemetry_tick,
+            predictive_candidates_already_materialized=(
+                predictive_vote_materialized_candidates
+            ),
         )
         def _materialize_winner_ids() -> tuple[list[int], int]:
             nonlocal winner_id_list, winner_id, profile_last
