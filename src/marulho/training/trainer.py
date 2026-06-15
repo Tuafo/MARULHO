@@ -2185,6 +2185,7 @@ class MarulhoTrainer:
             self.model.device.type == "cuda"
             and self.config.predictive_dense_transition_mode != "legacy"
         )
+        used_candidate_transition = False
         if use_dense_transition:
             dense_transition_mode = self.config.predictive_dense_transition_mode
             transition_runtime_fallback = None
@@ -2216,11 +2217,21 @@ class MarulhoTrainer:
             if transition_runtime_fallback is not None:
                 self.model.predictive.last_dense_transition_fallback_reason = transition_runtime_fallback
         else:
-            pred_error_mod = self.model.predictive.compute_prediction_error(
-                winner_id_list,
-                routing_key,
-                candidate_indices=predictive_update_indices,
-            )
+            if predictive_update_indices is not None:
+                pred_error_mod = self.model.predictive.update_candidate_prediction_transition(
+                    winner_id_list,
+                    routing_key,
+                    self._prev_routing_key,
+                    learning_rate=0.005,
+                    candidate_indices=predictive_update_indices,
+                )
+                used_candidate_transition = True
+            else:
+                pred_error_mod = self.model.predictive.compute_prediction_error(
+                    winner_id_list,
+                    routing_key,
+                    candidate_indices=None,
+                )
         pred_boost = (
             float(pred_error_mod[winner_id_list].mean().item())
             if winner_id_list
@@ -2228,7 +2239,7 @@ class MarulhoTrainer:
         )
         pred_boost = min(2.0, max(0.5, pred_boost))
 
-        if not use_dense_transition:
+        if not use_dense_transition and not used_candidate_transition:
             self.model.predictive.update_location(
                 winner_id_list,
                 routing_key,

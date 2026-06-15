@@ -218,6 +218,27 @@ a scheduler ownership/Runtime Truth promotion rather than a speed promotion.
 Treat `6k-ish` as a noisy sustained-runtime band and compare the stage
 `ms/token` values before claiming improvement.
 
+The fused retained CPU candidate-transition cleanup moved prediction-error,
+location/velocity, prediction-weight, and cached predictive materialization
+work behind one candidate-scoped core call instead of three split calls over the
+same wake mask. The focused parity test matched the old split sequence state,
+and the 8192-column CPU A/B at
+`reports/column_scheduler_20260615/cpu-8192-fused-candidate-transition.json`
+preserved exact winners with bounded specialist work at `10/8192`.
+Scoped mean complete-step latency improved against the previous scoped
+wake-plan baseline (`12.24272625` to `10.637575 ms`), but same-run all-column
+mean was still lower at `9.8858125 ms`; this is a CPU-path cleanup, not a
+neutral-or-better scheduler speed promotion. The corresponding long CUDA run at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-fused-candidate-transition.json`
+reached `5889.241 tokens/sec`, `train_compute=0.140840 ms/token`,
+`prepare_training=0.006423 ms/token`, and
+`finalize_total=0.005995 ms/token`, with RTX 3060 CUDA selected, no observed
+contention, `8190` conditional loop successes over `131040` tokens, zero
+sequence/native fallbacks or failures, and host-truth cadence `4097/126975`.
+CUDA therefore remains in the documented broad 6k-ish band, while the retained
+CPU scoped path is faster than its prior scoped implementation but still has an
+open complete-step cost gate.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

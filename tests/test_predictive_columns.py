@@ -261,6 +261,148 @@ class TestPredictiveColumnState:
         assert torch.all(state._prediction_weights[3] < before[3])
         assert torch.allclose(state._prediction_weights[[0, 2, 4, 5]], before[[0, 2, 4, 5]])
 
+    def test_candidate_transition_matches_split_predictive_update_path(self):
+        torch.manual_seed(20260615)
+        split = PredictiveColumnState(n_columns=8, location_dim=4)
+        fused = PredictiveColumnState(n_columns=8, location_dim=4)
+        fused.load_state_dict(split.state_dict())
+
+        candidates = torch.tensor([1, 2, 5, 6], dtype=torch.long)
+        winners = [2, 6]
+        previous = torch.randn(8)
+        routing_key = torch.randn(8)
+
+        split_error = split.compute_prediction_error(
+            winners,
+            routing_key,
+            candidate_indices=candidates,
+        )
+        split.update_location(
+            winners,
+            routing_key,
+            previous,
+            candidate_indices=candidates,
+        )
+        split.update_predictions(
+            winners,
+            learning_rate=0.005,
+            candidate_indices=candidates,
+        )
+
+        fused_error = fused.update_candidate_prediction_transition(
+            winners,
+            routing_key,
+            previous,
+            learning_rate=0.005,
+            candidate_indices=candidates,
+        )
+
+        assert torch.allclose(fused_error, split_error, atol=1e-6)
+        assert torch.allclose(fused.location, split.location, atol=1e-6)
+        assert torch.allclose(fused.velocity, split.velocity, atol=1e-6)
+        assert torch.allclose(
+            fused._prediction_weights,
+            split._prediction_weights,
+            atol=1e-6,
+        )
+        assert torch.allclose(fused.prediction_error, split.prediction_error, atol=1e-6)
+        assert torch.equal(
+            fused.prediction_failure_streak,
+            split.prediction_failure_streak,
+        )
+        assert torch.allclose(fused.confidence, split.confidence, atol=1e-6)
+        assert torch.equal(
+            fused.predictive_last_update_step,
+            split.predictive_last_update_step,
+        )
+        assert fused.predictive_step_count == split.predictive_step_count
+        assert fused.last_prediction_update_mode == "candidate_subset"
+        assert fused.last_prediction_update_count == int(candidates.numel())
+        assert fused.last_location_update_mode == "candidate_subset"
+        assert fused.last_location_update_count == int(candidates.numel())
+
+    def test_candidate_transition_matches_split_path_across_cached_steps(self):
+        torch.manual_seed(98765)
+        split = PredictiveColumnState(n_columns=12, location_dim=4)
+        fused = PredictiveColumnState(n_columns=12, location_dim=4)
+        fused.load_state_dict(split.state_dict())
+        candidates = torch.tensor([0, 3, 7], dtype=torch.long)
+        winners = [3]
+        previous = None
+
+        for _ in range(32):
+            routing_key = torch.randn(12)
+            split.compute_prediction_error(
+                winners,
+                routing_key,
+                candidate_indices=candidates,
+            )
+            split.update_location(
+                winners,
+                routing_key,
+                previous,
+                candidate_indices=candidates,
+            )
+            split.update_predictions(
+                winners,
+                learning_rate=0.005,
+                candidate_indices=candidates,
+            )
+            fused.update_candidate_prediction_transition(
+                winners,
+                routing_key,
+                previous,
+                learning_rate=0.005,
+                candidate_indices=candidates,
+            )
+            previous = routing_key
+
+        assert torch.allclose(fused.location, split.location, atol=1e-6)
+        assert torch.allclose(fused.velocity, split.velocity, atol=1e-6)
+        assert torch.allclose(
+            fused._prediction_weights,
+            split._prediction_weights,
+            atol=1e-6,
+        )
+        assert torch.allclose(fused.prediction_error, split.prediction_error, atol=1e-6)
+        assert torch.equal(
+            fused.prediction_failure_streak,
+            split.prediction_failure_streak,
+        )
+        assert torch.allclose(fused.confidence, split.confidence, atol=1e-6)
+        assert torch.equal(
+            fused.predictive_last_update_step,
+            split.predictive_last_update_step,
+        )
+        assert fused.predictive_step_count == split.predictive_step_count
+
+    def test_candidate_transition_preserves_cached_materialization_evidence(self):
+        torch.manual_seed(20260615)
+        state = PredictiveColumnState(n_columns=6, location_dim=3)
+
+        state.update_candidate_prediction_transition(
+            [0],
+            torch.randn(6),
+            None,
+            learning_rate=0.005,
+            candidate_indices=torch.tensor([0], dtype=torch.long),
+        )
+        assert state.predictive_step_count == 1
+        assert state.last_predictive_materialize_count == 0
+
+        state.update_candidate_prediction_transition(
+            [1],
+            torch.randn(6),
+            torch.randn(6),
+            learning_rate=0.005,
+            candidate_indices=torch.tensor([1], dtype=torch.long),
+        )
+
+        assert state.last_predictive_materialize_mode == "candidate_subset"
+        assert state.last_predictive_materialize_count == 1
+        assert state.last_predictive_materialize_max_age == 1
+        assert int(state.predictive_last_update_step[1].item()) == 2
+
     def test_candidate_vote_materializes_idle_predictive_state_before_scoring(self):
         torch.manual_seed(123)
         full = PredictiveColumnState(n_columns=6, location_dim=3)

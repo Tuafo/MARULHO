@@ -1110,6 +1110,8 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 
 **Predictive Columns** — SNN columns that predict their input. Prediction error drives surprise, learning, and curiosity.
 
+**Candidate Predictive Transition** — the retained CPU scheduler path that applies prediction-error, location/velocity, prediction-weight, and lazy cached-state materialization for one bounded awake mask in `PredictiveColumnState`. It is core/training-owned and preserves the same state as the older split prediction-error/location/update sequence. CUDA keeps the dense predictive transition when measured sparse indexing is launch-bound; do not call this a sparse-CUDA promotion.
+
 **Neuron Dynamics** — executable spiking neuron state such as AdEx membrane voltage, adaptation, and spike timing. CUDA evidence requires live tensor device reports and checkpoint restore back onto the selected runtime device.
 
 **Replay** — hippocampal-style replay of past experiences for consolidation. Strictly evidence-only in the current runtime: no training, memory mutation, fact promotion, action execution, or sleep side effects from replay artifacts.

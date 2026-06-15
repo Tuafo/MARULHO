@@ -770,6 +770,146 @@ class PredictiveColumnState:
             self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
         self._mark_predictive_update_complete(candidates)
 
+    def update_candidate_prediction_transition(
+        self,
+        winners: list[int],
+        routing_key: torch.Tensor,
+        prev_routing_key: Optional[torch.Tensor] = None,
+        *,
+        learning_rate: float = 0.005,
+        candidate_indices: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Apply one candidate-scoped predictive transition with one wake set."""
+
+        candidates = self._candidate_update_indices(candidate_indices)
+        if candidates is None:
+            pred_error = self.compute_prediction_error(
+                winners,
+                routing_key,
+                candidate_indices=None,
+            )
+            self.update_location(
+                winners,
+                routing_key,
+                prev_routing_key,
+                candidate_indices=None,
+            )
+            self.update_predictions(
+                winners,
+                learning_rate=learning_rate,
+                candidate_indices=None,
+            )
+            return pred_error
+
+        winner_tensor = torch.as_tensor(winners, device=self.device, dtype=torch.long)
+        if int(winner_tensor.numel()) > 0:
+            winner_in_scope = (winner_tensor[:, None] == candidates[None, :]).any(dim=1)
+            if not bool(winner_in_scope.all().item()):
+                pred_error = self.compute_prediction_error(
+                    winners,
+                    routing_key,
+                    candidate_indices=candidates,
+                )
+                self.update_location(
+                    winners,
+                    routing_key,
+                    prev_routing_key,
+                    candidate_indices=candidates,
+                )
+                self.update_predictions(
+                    winners,
+                    learning_rate=learning_rate,
+                    candidate_indices=candidates,
+                )
+                return pred_error
+
+        self.materialize_predictive_state(candidates)
+
+        self._record_prediction_update_scope(candidates)
+        prediction = torch.sigmoid(
+            (
+                self.location.index_select(0, candidates)
+                * self._prediction_weights.index_select(0, candidates)
+            ).sum(dim=1)
+        )
+        if int(winner_tensor.numel()) == 0:
+            actual_binary = torch.zeros(candidates.shape[0], device=self.device)
+        else:
+            actual_binary = (candidates[:, None] == winner_tensor[None, :]).any(
+                dim=1,
+            ).to(dtype=torch.float32)
+
+        raw_error = (prediction - actual_binary).abs()
+        failure_mask = raw_error > float(self._failure_streak_threshold)
+        current_streak = self.prediction_failure_streak.index_select(0, candidates)
+        next_streak = torch.where(
+            failure_mask,
+            current_streak + 1,
+            torch.zeros_like(current_streak),
+        )
+        self.prediction_failure_streak[candidates] = next_streak
+
+        current_error = self.prediction_error.index_select(0, candidates)
+        self.prediction_error[candidates] = (
+            self._error_ema_alpha * raw_error
+            + (1 - self._error_ema_alpha) * current_error
+        )
+
+        current_confidence = self.confidence.index_select(0, candidates)
+        next_confidence = 0.95 * current_confidence + 0.05 * (1.0 - raw_error)
+        self.confidence[candidates] = next_confidence.clamp(0.0, 1.0)
+
+        self._record_location_update_scope(candidates)
+        if prev_routing_key is not None:
+            diff = routing_key - prev_routing_key
+            movement = (
+                diff[: self.location_dim]
+                if diff.shape[0] >= self.location_dim
+                else F.pad(diff, (0, self.location_dim - diff.shape[0]))
+            )
+
+            self.velocity[candidates] *= 0.9
+            movement = movement.to(self.device)
+            for w in winners:
+                self.velocity[w] += 0.1 * movement
+                self.location[w] += self.velocity[w]
+
+        loc = self.location.index_select(0, candidates)
+        loc_norm = loc.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        scale = torch.where(
+            loc_norm > 5.0,
+            5.0 / loc_norm,
+            torch.ones_like(loc_norm),
+        )
+        self.location[candidates] = loc * scale
+
+        self._record_prediction_update_scope(candidates)
+        lr = float(learning_rate)
+        self._predictive_materialize_learning_rate = lr
+        for w in winners:
+            self._prediction_weights[w] += lr * self.location[w]
+
+        prediction = torch.sigmoid(
+            (
+                self.location.index_select(0, candidates)
+                * self._prediction_weights.index_select(0, candidates)
+            ).sum(dim=1)
+        )
+        if int(winner_tensor.numel()) == 0:
+            non_winner_mask = torch.ones(
+                candidates.shape[0],
+                dtype=torch.bool,
+                device=self.device,
+            )
+        else:
+            non_winner_mask = ~(
+                candidates[:, None] == winner_tensor[None, :]
+            ).any(dim=1)
+        high_pred_non_winners = candidates[non_winner_mask & (prediction > 0.5)]
+        self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
+        self._mark_predictive_update_complete(candidates)
+        return self.prediction_error
+
     def vote(
         self,
         winners: list[int],
