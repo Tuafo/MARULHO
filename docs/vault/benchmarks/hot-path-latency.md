@@ -146,6 +146,21 @@ run at `5653.175`, `-1.47%` versus the completion-audit `5955.123`, and
 throughput gate is therefore: same broad 6k-ish long-run band, not exact top-run
 parity.
 
+The explicit longer-run rerun requested for the scheduler audit used the same
+131072-token stress shape at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-lazy-scheduler-long-rerun.json`.
+It reached `5886.247 tokens/sec`, `train_compute=0.141223 ms/token`,
+`prepare_training=0.006347 ms/token`, and `finalize_total=0.005770 ms/token`.
+CUDA selected the RTX 3060, `velocity_environment.v1` again reported
+`contention.verdict=not_observed`, and Runtime Truth preserved `8190`
+conditional sequence-loop successes over `131040` tokens, zero sequence/native
+fallbacks or failures, and host-truth cadence `4097/126975`. Relative to the
+documented long baselines, this is `+1.36%` versus same-host `HEAD` at
+`5807.210`, `+0.32%` versus the prior lazy-scheduler rerun, `-1.16%` versus the
+completion-audit `5955.123`, and `-3.77%` versus the post-promotion top
+`6116.646`. Treat the scheduler throughput answer as stable 6k-ish sustained
+runtime, not proof that the exact top historical run is preserved.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

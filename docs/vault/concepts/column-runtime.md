@@ -110,6 +110,16 @@ completion-audit baseline, and `-4.07%` versus the `6116.646` post-promotion
 top run, so the long-run path remains in the same broad 6k-ish throughput band
 with scheduler correctness proven.
 
+The explicit longer-run audit rerun at
+`reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-lazy-scheduler-long-rerun.json`
+kept the same 131072-token shape and reached `5886.247 tokens/sec` with
+`train_compute=0.141223 ms/token`, zero sequence/native fallbacks or failures,
+`8190` conditional loop successes over `131040` tokens, host-truth cadence
+`4097/126975`, and no observed contention. That is `-1.16%` versus the
+`5955.123` completion-audit baseline and `-3.77%` versus the `6116.646`
+post-promotion top, so the evidence still says stable 6k-ish sustained
+throughput rather than exact top-run parity.
+
 Also on 2026-06-15, the CUDA text path promoted the conditional-WHILE q16 sequence executor below the trainer-owned burst boundary. It does not change column scheduling policy, but it matters for Column Runtime evidence because the same sequential SNN column state is now advanced by a larger native CUDA Graph parent while Runtime Truth reports executor identity, token coverage, fallback/failure counts, host-truth cadence, startup compile/capture cost, and separate repeated-child versus sequence-loop capacities. The retained repeated-child native replay remains the exact native8 fallback and explicit opt-out path.
 
 On 2026-06-11, candidate-scoped competitive homeostasis became the first sleep-aware execution effect. The trainer kept early learning all-column, then after `dead_column_steps` passed the retrieved candidate set into `CompetitiveColumnLayer.process()` so win-rate/threshold homeostasis updated only active candidates. Focused tests passed for frozen non-candidate homeostasis, delayed trainer promotion, learned-chunk diversity, and Runtime Truth execution fields. An 8192-column CPU/CUDA microbenchmark with 10 candidates measured all-column versus scoped process medians of `1.28555` to `1.08545 ms` on CPU and `5.06735` to `4.93965 ms` on CUDA; p95 changed from `4.3084` to `2.3779 ms` on CPU and `10.6108` to `9.195 ms` on CUDA.
