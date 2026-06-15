@@ -272,6 +272,17 @@ mean/median were `17.98001875/17.09485 ms`. This confirms the CUDA rule for
 now: keep the dense GPU predictive transition until a fused or lower-launch
 sparse CUDA path beats dense complete-runtime evidence.
 
+The direct CUDA predictive-writeback experiment at
+`reports/column_scheduler_20260615/cuda-8192-predictive-writeback-scope-experiment.json`
+tested that lower-level question in isolation on a synthetic 8192-column CUDA
+checkpoint. Dense all-column predictive writeback measured mean/median/p95
+`3.0670796875/2.7036/4.8754 ms`. Eager candidate-indexed writeback updated only
+`10/8192` rows and matched dense candidate rows exactly, but measured
+`6.7971921875/6.40065/10.229 ms`, so
+`scoped_neutral_or_better=false` and `promotion_decision=retain_dense_cuda_predictive_update`.
+This rejects the simple sparse-indexing CUDA route; a promotable CUDA scheduler
+must fuse the predictive update or move below the small-launch boundary.
+
 The longer CUDA gate the user requested stayed healthy. The 131072-token run at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-age-gate-materialization-cache.json`
 reached `5909.600 tokens/sec`, `train_compute=0.140558 ms/token`,
