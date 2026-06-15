@@ -214,6 +214,17 @@ cognitive-quality evidence, and grounded fallback gates.
   `4340.160 tokens/sec` and `train_compute=0.192680 ms/token`. The retained
   best prior long run was `4577.595 tokens/sec`, so this is a small but real
   new sustained-throughput ceiling.
+- The refreshed base comparison on 2026-06-15 keeps that decision current:
+  the native path reached `4992.049 tokens/sec` with
+  `train_compute=0.166575 ms/token`, while the same shape with native replay
+  disabled reached `4530.883 tokens/sec` and `0.185263 ms/token`. Both runs
+  processed `131072` tokens on RTX 3060 with no observed contention, zero
+  graph/burst failures, and `131056` burst-owned tokens.
+- Wider event/truth cadences remain rejected. A sixty-four-token event window
+  cut long-run drains from `4096` to `2049`, but measured only
+  `4402.958 tokens/sec` in the clean `131072`-token run versus `4771.221`
+  for the retained thirty-two-token repeat and `4992.049` for the refreshed
+  native base comparison. Fewer host truth packets alone is not a promotion.
 - The C++ loop over `cudaGraphLaunch(graph_exec)` is rejected as a promotion
   path. It moved the loop below Python, but still launched once per token and
   lost the 131072-token comparison (`4159.316` native-loop versus `4347.554`

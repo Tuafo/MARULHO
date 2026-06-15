@@ -30,7 +30,7 @@ The retained previous best long-run evidence was
 `131056` burst-owned tokens, zero forced drains, zero graph/burst failures, and
 RTX 3060 CUDA execution.
 
-The current retained top is now
+The promoted native parent-graph evidence was
 `reports/native_graph_replay_20260614/stress-131072-parent-native.json`:
 `4671.202 tokens/sec` over `131072` tokens, `train_compute=0.177193 ms/token`,
 `prepare_training=0.008906 ms/token`, `finalize_total=0.007671 ms/token`,
@@ -44,10 +44,23 @@ the promoted parent graph measured `1.076x` over the disabled replay loop and
 `1.020x` over the prior retained top. Both reports recorded
 `velocity_environment.v1` with `contention.verdict=not_observed`.
 
+The current refreshed base comparison is
+`reports/base_comparison_20260615/current-native-131072-i32.json`:
+`4992.049 tokens/sec` over `131072` tokens, `train_compute=0.166575 ms/token`,
+`prepare_training=0.007805 ms/token`, `finalize_total=0.007046 ms/token`,
+`4097` host-truth syncs, `126975` skips, `16382` native parent-graph
+successes, `131056` native-covered burst tokens, zero native fallbacks/failures,
+zero graph/burst failures, and `contention.verdict=not_observed`. The same
+shape with native replay disabled at
+`reports/base_comparison_20260615/disabled-native-131072-i32.json` reached
+`4530.883 tokens/sec` with `train_compute=0.185263 ms/token` and no observed
+contention, so the current native replay delta is `1.102x`.
+
 The cost is startup, not measured warm throughput: the promoted parent-graph
 run reported `capture_latency_ms=6790.4858` and
-`native_burst_replay_compile_latency_ms=6202.4909`. Keep that visible in
-Runtime Truth and avoid quoting the new top for cold start.
+`native_burst_replay_compile_latency_ms=6202.4909`; the refreshed base run
+reported `5961.3172` and `5452.4969`. Keep that visible in Runtime Truth and
+avoid quoting the new top for cold start.
 
 The first current rerun after the route/vote experiment measured only
 `2784.022 tokens/sec` at

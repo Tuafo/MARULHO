@@ -1348,7 +1348,10 @@ boundary without changing the sequential SNN transition order. A graph-owned
 **Device Strong-Event Ring** snapshots the bounded result packet on every burst
 tick and copies assembly/routing evidence only when that tick crosses the
 configured strong-capture threshold. Training drains those events at the
-host-truth boundary and archives their input/evidence payloads on CPU. Drift
+host-truth boundary and archives their input/evidence payloads on CPU. The
+retained event capacity and host-truth cadence are both thirty-two tokens;
+later sixty-four and one-hundred-twenty-eight token rechecks reduced drain
+count but did not beat the complete-runtime base comparison. Drift
 refresh, telemetry, sleep, slow-memory cadence, cross-modal wake, host-truth,
 concept-observation, and final-metrics boundaries retain the full per-token
 path. Runtime Truth reports burst executions, tokens, failures, fallback-reason

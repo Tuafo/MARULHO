@@ -28,6 +28,10 @@ related_benchmarks:
   - reports/host_truth_interval_sweep_20260614/stress-131072-i32.json
   - reports/native_graph_replay_20260614/stress-131072-parent-native.json
   - reports/native_graph_replay_20260614/stress-131072-parent-disabled.json
+  - reports/event_capacity_recheck_20260614/sequential-131072-cap32-i32-repeat.json
+  - reports/event_capacity_recheck_20260614/sequential-131072-cap64-i64-recaptured.json
+  - reports/base_comparison_20260615/current-native-131072-i32.json
+  - reports/base_comparison_20260615/disabled-native-131072-i32.json
 ---
 
 # Prepared Source Tick Executor
@@ -153,15 +157,26 @@ event-drain semantics.
 - Disabled throughput: `4340.160 tokens/sec`, `train_compute=0.192680 ms/token`, zero graph/burst failures, and `contention.verdict=not_observed`.
 - Promotion delta: `1.076x` over the same-command disabled comparison and `1.020x` over the retained prior top `4577.595 tokens/sec`.
 - Rejected diagnostic: the earlier native C++ loop over `cudaGraphLaunch(graph_exec)` was not promoted because it still launched once per token and lost the recorded long comparison (`4159.316` native-loop versus `4347.554` disabled Python replay).
+- Fresh base comparison: `reports/base_comparison_20260615/current-native-131072-i32.json` reached `4992.049 tokens/sec` with `train_compute=0.166575 ms/token`, no observed contention, `16382` native parent-graph successes, `131056` native-covered burst tokens, and zero native/graph/burst failures. The same shape with `--disable-native-burst-replay` at `reports/base_comparison_20260615/disabled-native-131072-i32.json` reached `4530.883 tokens/sec` with `train_compute=0.185263 ms/token` and no observed contention. The refreshed native delta is `1.102x`.
+
+## Rejected Wider Event Cadence
+
+Raising the event ring and host-truth cadence beyond thirty-two tokens reduced
+drain count but did not improve complete runtime.
+
+- Retained repeat: `reports/event_capacity_recheck_20260614/sequential-131072-cap32-i32-repeat.json` reached `4771.221 tokens/sec`, `train_compute=0.173368 ms/token`, `4096` event drains, `16382` native successes, and zero native failures.
+- Sixty-four-token candidate: `reports/event_capacity_recheck_20260614/sequential-131072-cap64-i64-recaptured.json` reached `4402.958 tokens/sec`, `train_compute=0.184551 ms/token`, `2049` event drains, `16382` native successes, zero native failures, and `contention.verdict=not_observed`.
+- One-hundred-twenty-eight-token short recheck: `reports/event_capacity_recheck_20260614/sequential-32768-cap128-i128-recaptured.json` reached `3832.220 tokens/sec`, below the thirty-two-token short control at `4177.463`.
+- Decision: keep the fixed thirty-two-token event capacity and host-truth cadence. Wider event windows stay retired until a device-resident or asynchronous truth publisher changes the cost model and wins long complete-runtime evidence.
 
 ## Remaining Cost
 
-`train_compute=0.177193 ms/token` is still dominant. Source prewarm remains an
-explicit startup slow path at about `91.051 s` for the parent-graph
-confirmation. Native parent-graph build/capture adds startup cost
-(`native_burst_replay_compile_latency_ms=6202.4909`,
-`capture_latency_ms=6790.4858`) but is outside measured warm token throughput.
-The long run stop latency was `205.315 ms`.
+`train_compute=0.166575 ms/token` is still dominant in the refreshed native
+base comparison. Source prewarm remains an explicit startup slow path at about
+`70.510 s` for that run. Native parent-graph build/capture adds startup cost
+(`native_burst_replay_compile_latency_ms=5452.4969`,
+`capture_latency_ms=5961.3172`) but is outside measured warm token throughput.
+The long run stop latency was `127.600 ms`.
 
 ## Rejected Continuation
 
