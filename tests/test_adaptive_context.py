@@ -329,6 +329,13 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cuda_graph_host_truth_sync_interval_tokens"):
             MarulhoConfig(cuda_graph_host_truth_sync_interval_tokens=0)
 
+    def test_cuda_graph_native_burst_tokens_must_be_supported_capacity(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        self.assertEqual(MarulhoConfig(cuda_graph_native_burst_tokens=16).cuda_graph_native_burst_tokens, 16)
+        with self.assertRaisesRegex(ValueError, "cuda_graph_native_burst_tokens"):
+            MarulhoConfig(cuda_graph_native_burst_tokens=24)
+
     def test_slow_memory_archive_interval_must_be_positive(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
@@ -347,6 +354,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         cfg = MarulhoConfig()
         assert cfg.cuda_graph_quantum_input_staging is True
         assert cfg.cuda_graph_sequence_input_staging is True
+        self.assertEqual(cfg.cuda_graph_native_burst_tokens, 8)
         self.assertEqual(cfg.context_mode, "adaptive")
         self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 32)
         self.assertEqual(cfg.slow_memory_archive_interval_tokens, 256)

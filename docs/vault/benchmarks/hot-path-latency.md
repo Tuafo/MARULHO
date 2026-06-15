@@ -845,3 +845,47 @@ the unaligned 130-token tick width. Partial native parent graphs therefore stay
 opt-in; the production path should preserve aligned 128-token source ticks
 until a startup-warmed or lower-level device-owned multi-tick executor wins
 long complete-runtime evidence.
+
+### Startup-Warmed Native16 Parent Graph Prototype, 2026-06-15
+
+The next capacity probe kept the exact fast shape: 1024 columns, 64 column dim,
+`k=10`, text-only CUDA checkpoint, `tick_tokens=128`,
+`execution_quantum_tokens=16`, host-truth cadence `32`, and a clean
+`131072`-token sustained run. It changed only the startup-warmed native
+repeated-child parent graph capacity from the maintained eight-token default
+to `16` through `--native-burst-tokens 16`.
+
+The clean report at
+`reports/native_burst_sequence_20260615/native16-131072-i32.json` processed
+all `131072` tokens on the RTX 3060 with `velocity_environment.v1` reporting
+`not_observed` contention. Runtime Truth exposed
+`persistent_executor_burst_tokens=16`,
+`persistent_executor_default_burst_tokens=8`, allowed capacities `[8, 16, 32]`,
+parent graph token-count coverage `[16]`, `8190` native parent-graph launches,
+`131040` native-covered tokens, `4097` host-truth syncs, `126975` host-truth
+skips, zero native fallbacks/failures, zero graph/burst failures, and fallback
+reasons `runtime_not_fully_warm=1` plus `sleep_boundary=1`. Startup cost
+remained visible outside measured warm throughput:
+`capture_latency_ms=6112.8292` and
+`native_burst_replay_compile_latency_ms=5609.5473`.
+
+The throughput result rejects native16 as a default promotion:
+`4887.767 tokens/sec` and `train_compute=0.168278 ms/token`, below the refreshed
+native8 base at `reports/base_comparison_20260615/current-native-131072-i32.json`
+with `4992.049 tokens/sec` and `train_compute=0.166575 ms/token`. Because total
+throughput varies with host availability, the promotion comparison uses the
+clean `velocity_environment.v1=not_observed` long run; the contended profile
+pair is only diagnostic.
+
+The profile pair at
+`reports/native_burst_sequence_20260615/profile-8192-native8.json` and
+`reports/native_burst_sequence_20260615/profile-8192-native16.json` ran under
+observed contention. It still explains the boundary: native16 reduced parent
+launches from `1023` to `511`, but moved
+`text_burst_runtime_replay_loop` only from `0.159096` to
+`0.149719 ms/token` and `text_burst_graph_replay` from `0.302545` to
+`0.293198 ms/token`, while event drain worsened from `0.101787` to
+`0.122930 ms/token`. The next executor boundary should therefore move below
+repeated child-graph wrapping into a C++/CUDA, Triton persistent-kernel, or
+hybrid device-owned sequence executor rather than adding another local Python
+wrapper.

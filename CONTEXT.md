@@ -1345,9 +1345,15 @@ for eight ordinary text ticks between explicit cognitive boundaries. It stages
 the existing input ring only when no wider staged quantum already covers the
 burst slice, replays the proven one-tick CUDA graph eight times in causal order,
 and batches only host bookkeeping. When native graph replay is available, the
-trainer may compose the captured one-tick graph into an eight-child parent CUDA
-graph and launch that parent once per burst; this reduces the real replay-launch
-boundary without changing the sequential SNN transition order. A graph-owned
+trainer composes the captured one-tick graph into a startup-warmed parent CUDA
+graph and launches that parent once per maintained exact burst. The production
+default remains eight ticks; wider exact parent graphs are evaluation-only
+capacity probes until they beat sustained evidence under `velocity_environment`
+rather than launch-count reduction alone. The 2026-06-15 sixteen-token parent
+graph probe preserved sequential state, covered `131040` tokens with zero
+native failures, and exposed `[16]` parent-graph coverage, but reached
+`4887.767 tokens/sec` versus the refreshed eight-token ceiling at
+`4992.049 tokens/sec`. A graph-owned
 **Device Strong-Event Ring** snapshots the bounded result packet on every burst
 tick and copies assembly/routing evidence only when that tick crosses the
 configured strong-capture threshold. Training drains those events at the
@@ -1363,8 +1369,9 @@ _Avoid_: calling the burst parallel cognition, skipping CUDA transitions,
 moving eligibility algorithms into `service`, crossing a slow-path boundary,
 using the previous mirrored surprise value to predict internal burst events,
 retaining archival tensors on CUDA, letting speculative preflight update Runtime
-Truth counters, or replacing the one-tick graph with a larger graph without
-sustained evidence or a fail-closed parent-graph promotion gate
+Truth counters, promoting wider native parent graphs from launch-count reduction
+alone, or replacing the one-tick graph with a larger graph without sustained
+evidence or a fail-closed parent-graph promotion gate
 
 **Training-Owned Text Sequence** — the training boundary that accepts one complete service text tick, executes its ordered eight-token quanta, requests full metrics only for explicit evaluator evidence positions, checks stop requests between quanta, and returns Device-Burst Lightweight Metrics to service for ordinary prepared source ticks. Service still owns source selection, locks, Runtime Truth projection, and concept observation; training owns neural sequencing, burst/fallback selection, event drains, and per-token mutation semantics. Runtime Truth reports sequence calls, tokens, quanta, stops, owner, and stop boundary.
 _Avoid_: moving concept algorithms into training, skipping sequential SNN updates, checking stop only after an unbounded tick, letting service duplicate burst policy, or claiming one API call means one CUDA kernel.

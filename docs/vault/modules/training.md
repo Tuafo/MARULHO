@@ -80,7 +80,12 @@ related_benchmarks: []
         burst, replays the same one-tick graph eight times in order, and applies
         equivalent host bookkeeping in one bounded operation. On the promoted
         CUDA path, native replay composes the captured one-tick burst graph into
-        an eight-child parent CUDA graph and launches that parent once per burst.
+        a startup-warmed repeated-child parent CUDA graph and launches that
+        parent once per exact burst. The maintained production capacity remains
+        eight tokens; `16` and `32` are exposed as evaluation/prototype
+        capacities only. Runtime Truth reports the active, default, and allowed
+        burst capacities so a wider parent graph cannot be confused with a
+        promoted executor boundary.
         Runtime Truth exposes whether native replay is configured, loaded,
         enabled, which backend ran, parent-graph count, launch attempts,
         successes, covered tokens, fallbacks, failures, and compile/build

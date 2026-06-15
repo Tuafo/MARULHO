@@ -14,11 +14,11 @@ last_verified: 2026-06-14
 - `src/marulho/core/cross_modal.py`: 50 nodes
 - `src/marulho/core/columns.py`: 47 nodes
 - `src/marulho/core/context.py`: 46 nodes
+- `src/marulho/core/native_cuda_graph_replay.cpp`: 38 nodes
 - `src/marulho/core/predictive_columns.py`: 35 nodes
 - `src/marulho/core/binding.py`: 33 nodes
 - `src/marulho/core/plasticity.py`: 32 nodes
 - `src/marulho/core/sparsity.py`: 32 nodes
-- `src/marulho/core/abstraction.py`: 25 nodes
 ## marulho.data
 
 - `src/marulho/data/rtf_encoder.py`: 67 nodes
@@ -57,14 +57,14 @@ last_verified: 2026-06-14
 - `src/marulho/service/snn_language_plasticity_executor.py`: 54 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 75 nodes
+- `src/marulho/training/trainer.py`: 81 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
+- `src/marulho/training/cuda_graph_route_transition.py`: 40 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
-- `src/marulho/training/cuda_graph_route_transition.py`: 29 nodes
-- `src/marulho/training/column_transition_runtime.py`: 25 nodes
+- `src/marulho/training/column_transition_runtime.py`: 27 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
 ## marulho.evaluation
@@ -73,11 +73,11 @@ last_verified: 2026-06-14
 - `src/marulho/evaluation/baselines.py`: 54 nodes
 - `src/marulho/evaluation/service_benchmark.py`: 44 nodes
 - `src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py`: 36 nodes
+- `src/marulho/evaluation/continuous_runtime_stress_benchmark.py`: 25 nodes
 - `src/marulho/evaluation/replay_training_approval.py`: 18 nodes
 - `src/marulho/evaluation/autonomy_ladder.py`: 17 nodes
 - `src/marulho/evaluation/grounding_probe.py`: 17 nodes
 - `src/marulho/evaluation/replay_training_gate.py`: 17 nodes
-- `src/marulho/evaluation/continuous_runtime_stress_benchmark.py`: 16 nodes
 - `src/marulho/evaluation/multi_hour_live_validation.py`: 16 nodes
 ## marulho.consolidation
 

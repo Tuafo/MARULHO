@@ -499,6 +499,7 @@ def run_continuous_runtime_stress(
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
+    native_burst_tokens: int | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -513,6 +514,8 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
+    if native_burst_tokens is not None and int(native_burst_tokens) not in (8, 16, 32):
+        raise ValueError("native_burst_tokens must be one of 8, 16, or 32")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -521,9 +524,16 @@ def run_continuous_runtime_stress(
     previous_native_replay_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"
     )
+    previous_native_burst_tokens_env = os.environ.get(
+        "MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"
+    )
     if native_burst_replay is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
+        )
+    if native_burst_tokens is not None:
+        os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = str(
+            int(native_burst_tokens)
         )
     manager = MarulhoServiceManager(
         checkpoint,
@@ -558,6 +568,18 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_native_burst_replay"] = {
                 "from": previous_native_replay,
                 "to": bool(native_burst_replay),
+            }
+        if native_burst_tokens is not None:
+            with manager._lock:
+                previous_native_burst_tokens = int(
+                    manager._trainer.config.cuda_graph_native_burst_tokens
+                )
+                manager._trainer.config.cuda_graph_native_burst_tokens = int(
+                    native_burst_tokens
+                )
+            config_overrides["cuda_graph_native_burst_tokens"] = {
+                "from": previous_native_burst_tokens,
+                "to": int(native_burst_tokens),
             }
         runtime.configure_terminus(
             source_bank=[
@@ -618,6 +640,9 @@ def run_continuous_runtime_stress(
                     ),
                     "cuda_graph_native_burst_replay": bool(
                         manager._trainer.config.cuda_graph_native_burst_replay
+                    ),
+                    "cuda_graph_native_burst_tokens": int(
+                        manager._trainer.config.cuda_graph_native_burst_tokens
                     ),
                 },
                 "checkpoint_metadata": {
@@ -740,6 +765,9 @@ def run_continuous_runtime_stress(
                 "cuda_graph_native_burst_replay": bool(
                     manager._trainer.config.cuda_graph_native_burst_replay
                 ),
+                "cuda_graph_native_burst_tokens": int(
+                    manager._trainer.config.cuda_graph_native_burst_tokens
+                ),
             },
             "checkpoint_metadata": {
                 "config_migrations": list(
@@ -788,6 +816,13 @@ def run_continuous_runtime_stress(
                 os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
                     previous_native_replay_env
                 )
+        if native_burst_tokens is not None:
+            if previous_native_burst_tokens_env is None:
+                os.environ.pop("MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS", None)
+            else:
+                os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = (
+                    previous_native_burst_tokens_env
+                )
 
 
 def main() -> int:
@@ -833,6 +868,17 @@ def main() -> int:
             "loop for A/B comparison."
         ),
     )
+    parser.add_argument(
+        "--native-burst-tokens",
+        type=int,
+        choices=(8, 16, 32),
+        default=None,
+        help=(
+            "Evaluation-only override for the startup-warmed native repeated "
+            "child parent-graph token count. Default keeps the checkpoint or "
+            "production config, currently eight tokens."
+        ),
+    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -846,6 +892,7 @@ def main() -> int:
         profile_trainer_stages=args.profile_trainer_stages,
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
         native_burst_replay=False if args.disable_native_burst_replay else None,
+        native_burst_tokens=args.native_burst_tokens,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

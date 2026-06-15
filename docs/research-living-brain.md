@@ -821,6 +821,28 @@ This file records research anchors for current architecture work. It is not a pr
   speed jump. Sources remain:
   https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html
   and https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html.
+- Native parent-graph capacity note, June 2026: current CUDA Graph guidance
+  still favors static work, fixed virtual addresses, and synchronization-free
+  replay, while NVIDIA's dynamic-pattern guidance and CUDA device-graph launch
+  support do not give PyTorch Python a general device-owned conditional loop
+  for this stateful sequence. MARULHO therefore tested a startup-warmed exact
+  sixteen-token repeated-child parent graph before considering a deeper
+  executor. The prototype preserved sequential SNN state and fail-closed
+  Runtime Truth, halved parent launches on an 8192-token profile, and exposed
+  active/default/allowed burst capacity in Runtime Truth, but the clean
+  131072-token run reached only `4887.767 tokens/sec` versus the retained
+  eight-token native base at `4992.049`. FlashRNN and persistent-RNN work,
+  Triton persistent-kernel examples, PyTorch persistent grouped-GEMM work, and
+  NeuronSpark fused PLIF kernels all point the same way: a real next executor
+  must own more of the time loop/state update below Python/CUDA Graph replay,
+  likely as C++/CUDA, Triton persistent kernels, or a hybrid. Sources:
+  https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/handling-dynamic-patterns.html,
+  https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/sync-free-code.html,
+  https://docs.nvidia.com/cuda/cuda-programming-guide/index.html#cuda-graphs,
+  https://github.com/NX-AI/flashrnn,
+  https://triton-lang.org/main/getting-started/tutorials/09-persistent-matmul.html,
+  https://pytorch.org/blog/accelerating-moes-with-a-triton-persistent-cache-aware-grouped-gemm-kernel/,
+  and https://arxiv.org/abs/2603.16148.
 - Next-throughput goal synthesis, June 2026: recent research and current
   MARULHO evidence point to seven large work tracks rather than more local
   wrappers. CUDA Graph guidance says graphs help only when launch/setup overhead

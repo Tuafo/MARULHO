@@ -220,6 +220,22 @@ cognitive-quality evidence, and grounded fallback gates.
   disabled reached `4530.883 tokens/sec` and `0.185263 ms/token`. Both runs
   processed `131072` tokens on RTX 3060 with no observed contention, zero
   graph/burst failures, and `131056` burst-owned tokens.
+- A startup-warmed exact sixteen-token native parent graph remains rejected as
+  the default. The opt-in run covered `131040` tokens with `8190` native
+  parent-graph launches, exposed parent graph token-count coverage `[16]`,
+  preserved the host-truth cadence at `32`, and reported zero native,
+  graph, or burst failures. It still reached only `4887.767 tokens/sec` with
+  `train_compute=0.168278 ms/token` on the clean 131072-token gate, below the
+  refreshed eight-token ceiling at `4992.049` and `0.166575`. Startup cost
+  stayed visible outside measured warm throughput:
+  `capture_latency_ms=6112.8292` and
+  `native_burst_replay_compile_latency_ms=5609.5473`. Contended 8192-token
+  profile pairs showed that doubling the parent capacity mainly halves parent
+  launches (`1023` to `511`) while moving
+  `text_burst_runtime_replay_loop` only from `0.159096` to
+  `0.149719 ms/token`, so the next executor must move below repeated
+  child-graph wrapping into C++/CUDA/Triton persistent or hybrid sequence
+  ownership.
 - Wider event/truth cadences remain rejected. A sixty-four-token event window
   cut long-run drains from `4096` to `2049`, but measured only
   `4402.958 tokens/sec` in the clean `131072`-token run versus `4771.221`
@@ -253,4 +269,7 @@ the persistent graph while restoring exact per-token input copies. Set
 `cuda_graph_native_burst_replay=false` or
 `MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY=0` to keep the current persistent graph
 while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
-preserve the retained execution paths.
+preserve the retained execution paths. Keep `cuda_graph_native_burst_tokens=8`
+or `MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS=8` for the maintained native parent
+capacity; `16` and `32` remain benchmark/prototype capacities until a clean
+long-run gate promotes them.
