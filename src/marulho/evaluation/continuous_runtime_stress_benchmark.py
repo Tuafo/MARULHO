@@ -501,6 +501,7 @@ def run_continuous_runtime_stress(
     native_burst_replay: bool | None = None,
     native_burst_tokens: int | None = None,
     sequence_executor: str | None = None,
+    sequence_loop_tokens: int | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -547,6 +548,20 @@ def run_continuous_runtime_stress(
             )
     else:
         normalized_sequence_executor = None
+    if sequence_loop_tokens is not None:
+        sequence_loop_token_count = int(sequence_loop_tokens)
+        if sequence_loop_token_count not in (8, 16, 32):
+            raise ValueError("sequence_loop_tokens must be one of 8, 16, or 32")
+        if sequence_loop_token_count > int(quantum_tokens):
+            raise ValueError(
+                "sequence_loop_tokens must not exceed quantum_tokens for an "
+                "exact conditional sequence benchmark"
+            )
+        if int(quantum_tokens) % sequence_loop_token_count != 0:
+            raise ValueError(
+                "sequence_loop_tokens must divide quantum_tokens for an exact "
+                "conditional sequence benchmark"
+            )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -561,6 +576,9 @@ def run_continuous_runtime_stress(
     previous_sequence_executor_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"
     )
+    previous_sequence_loop_tokens_env = os.environ.get(
+        "MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS"
+    )
     if native_burst_replay is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
@@ -572,6 +590,10 @@ def run_continuous_runtime_stress(
     if normalized_sequence_executor is not None:
         os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
             normalized_sequence_executor
+        )
+    if sequence_loop_tokens is not None:
+        os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS"] = str(
+            int(sequence_loop_tokens)
         )
     manager = MarulhoServiceManager(
         checkpoint,
@@ -630,6 +652,18 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_sequence_executor"] = {
                 "from": previous_sequence_executor,
                 "to": normalized_sequence_executor,
+            }
+        if sequence_loop_tokens is not None:
+            with manager._lock:
+                previous_sequence_loop_tokens = int(
+                    manager._trainer.config.cuda_graph_sequence_loop_tokens
+                )
+                manager._trainer.config.cuda_graph_sequence_loop_tokens = int(
+                    sequence_loop_tokens
+                )
+            config_overrides["cuda_graph_sequence_loop_tokens"] = {
+                "from": previous_sequence_loop_tokens,
+                "to": int(sequence_loop_tokens),
             }
         runtime.configure_terminus(
             source_bank=[
@@ -696,6 +730,9 @@ def run_continuous_runtime_stress(
                     ),
                     "cuda_graph_sequence_executor": str(
                         manager._trainer.config.cuda_graph_sequence_executor
+                    ),
+                    "cuda_graph_sequence_loop_tokens": int(
+                        manager._trainer.config.cuda_graph_sequence_loop_tokens
                     ),
                 },
                 "checkpoint_metadata": {
@@ -824,6 +861,9 @@ def run_continuous_runtime_stress(
                 "cuda_graph_sequence_executor": str(
                     manager._trainer.config.cuda_graph_sequence_executor
                 ),
+                "cuda_graph_sequence_loop_tokens": int(
+                    manager._trainer.config.cuda_graph_sequence_loop_tokens
+                ),
             },
             "checkpoint_metadata": {
                 "config_migrations": list(
@@ -885,6 +925,13 @@ def run_continuous_runtime_stress(
             else:
                 os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
                     previous_sequence_executor_env
+                )
+        if sequence_loop_tokens is not None:
+            if previous_sequence_loop_tokens_env is None:
+                os.environ.pop("MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS", None)
+            else:
+                os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS"] = (
+                    previous_sequence_loop_tokens_env
                 )
 
 
@@ -959,6 +1006,17 @@ def main() -> int:
             "conditional_while probes the CUDA conditional-WHILE parent graph."
         ),
     )
+    parser.add_argument(
+        "--sequence-loop-tokens",
+        type=int,
+        choices=(8, 16, 32),
+        default=None,
+        help=(
+            "Evaluation-only override for the CUDA conditional-WHILE loop "
+            "token count. Default keeps the checkpoint or production config, "
+            "currently sixteen tokens for the promoted sequence executor."
+        ),
+    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -974,6 +1032,7 @@ def main() -> int:
         native_burst_replay=False if args.disable_native_burst_replay else None,
         native_burst_tokens=args.native_burst_tokens,
         sequence_executor=args.sequence_executor,
+        sequence_loop_tokens=args.sequence_loop_tokens,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

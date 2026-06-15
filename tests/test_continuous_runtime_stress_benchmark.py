@@ -248,6 +248,8 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
             "16",
             "--sequence-executor",
             "conditional_while",
+            "--sequence-loop-tokens",
+            "16",
         ],
     )
 
@@ -256,6 +258,7 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
     assert captured["host_truth_sync_interval_tokens"] == 32
     assert captured["native_burst_tokens"] == 16
     assert captured["sequence_executor"] == "conditional_while"
+    assert captured["sequence_loop_tokens"] == 16
 
 
 def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
@@ -301,6 +304,38 @@ def test_stress_runner_rejects_native_burst_tokens_that_do_not_divide_quantum(
         assert "divide quantum_tokens" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected native burst divisibility rejection")
+
+
+def test_stress_runner_rejects_sequence_loop_tokens_above_quantum(tmp_path) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            quantum_tokens=16,
+            sequence_loop_tokens=32,
+        )
+    except ValueError as exc:
+        assert "sequence_loop_tokens" in str(exc)
+        assert "quantum_tokens" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected sequence loop quantum alignment rejection")
+
+
+def test_stress_runner_rejects_sequence_loop_tokens_that_do_not_divide_quantum(
+    tmp_path,
+) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            quantum_tokens=24,
+            sequence_loop_tokens=16,
+        )
+    except ValueError as exc:
+        assert "sequence_loop_tokens" in str(exc)
+        assert "divide quantum_tokens" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected sequence loop divisibility rejection")
 
 
 def test_stress_runner_rejects_unknown_sequence_executor(tmp_path) -> None:

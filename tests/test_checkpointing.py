@@ -128,6 +128,8 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy.pt", trainer)
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
             payload["config"]["cuda_graph_host_truth_sync_interval_tokens"] = 8
+            payload["config"]["cuda_graph_sequence_executor"] = "native_repeated_child_graph"
+            payload["config"].pop("cuda_graph_sequence_loop_tokens", None)
             payload["metadata"].pop("hot_path_config_defaults_revision", None)
             torch.save(payload, checkpoint)
 
@@ -136,15 +138,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
 
             self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 256)
             self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
+            self.assertEqual(restored.config.cuda_graph_sequence_executor, "conditional_while")
+            self.assertEqual(restored.config.cuda_graph_sequence_loop_tokens, 16)
+            self.assertEqual(restored.config.cuda_graph_native_burst_tokens, 8)
             self.assertEqual(
                 metadata["config_migrations"][-1]["reason"],
-                "retired_host_truth_sync_interval_cadence",
+                "promoted_conditional_while_sequence_executor",
             )
             self.assertEqual(
-                [item["reason"] for item in metadata["config_migrations"][-2:]],
+                [item["reason"] for item in metadata["config_migrations"][-3:]],
                 [
                     "retired_hot_path_memory_archive_cadence",
                     "retired_host_truth_sync_interval_cadence",
+                    "promoted_conditional_while_sequence_executor",
                 ],
             )
 
@@ -166,6 +172,8 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy_truth.pt", trainer)
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["cuda_graph_sequence_executor"] = "native_repeated_child_graph"
+            payload["config"].pop("cuda_graph_sequence_loop_tokens", None)
             payload["metadata"].pop("hot_path_config_defaults_revision", None)
             torch.save(payload, checkpoint)
 
@@ -173,9 +181,13 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 restored, metadata = load_trainer_checkpoint(checkpoint)
 
             self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
+            self.assertEqual(restored.config.cuda_graph_sequence_executor, "conditional_while")
             self.assertEqual(
-                metadata["config_migrations"][-1]["reason"],
-                "retired_host_truth_sync_interval_cadence",
+                [item["reason"] for item in metadata["config_migrations"][-2:]],
+                [
+                    "retired_host_truth_sync_interval_cadence",
+                    "promoted_conditional_while_sequence_executor",
+                ],
             )
 
     def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:

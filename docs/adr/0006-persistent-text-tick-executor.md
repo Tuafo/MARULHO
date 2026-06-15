@@ -248,8 +248,8 @@ cognitive-quality evidence, and grounded fallback gates.
   native32 would require changing the execution quantum boundary, which is a
   separate retired/default-sensitive trade-off rather than the exact fast
   q16 shape.
-- A CUDA conditional-WHILE parent graph prototype is now available as an opt-in
-  lower-level sequence executor. It keeps the proven one-tick graph body but
+- A CUDA conditional-WHILE parent graph was added as a lower-level sequence
+  executor candidate. It keeps the proven one-tick graph body but
   moves burst-loop control into a CUDA conditional node plus a device counter
   kernel. The clean 131072-token q16/native16 probe at
   `reports/conditional_sequence_20260615/conditional-while16-131072-i32.json`
@@ -257,9 +257,24 @@ cognitive-quality evidence, and grounded fallback gates.
   `8190` conditional parent launches, `131040` conditional-owned tokens, zero
   sequence/native fallbacks, zero sequence/native failures, host-truth cadence
   `4097/126975`, and `velocity_environment.v1` contention `not_observed`.
-  This beats the retained same-session native8 rerun at `5035.537 tokens/sec`,
-  but remains opt-in pending repeated paired gates, fallback tests, and a
-  promotion decision.
+  This beat the retained same-session native8 rerun at `5035.537 tokens/sec`
+  and triggered the repeated paired promotion gate.
+- The conditional-WHILE executor is promoted for eligible q16 text sequences
+  after repeated clean paired gates and a post-promotion default run. The clean
+  pairs measured conditional q16 at `5883.805` versus native8 `5485.105`
+  tokens/sec, then conditional q16 at `6027.856` versus native8 `5816.477`
+  tokens/sec in reversed order. The default post-promotion run reached
+  `6116.646 tokens/sec` with `train_compute=0.134167 ms/token`,
+  `8190` conditional launches covering `131040` tokens, zero sequence/native
+  fallbacks or failures, host-truth cadence `4097/126975`, startup capture
+  `5482.6059 ms`, conditional compile `4970.7865 ms`, and
+  `velocity_environment.v1` contention `not_observed`. The explicit native8
+  opt-out run stayed clean at `5329.542 tokens/sec`.
+- The promotion separates capacities: `cuda_graph_sequence_loop_tokens=16`
+  owns the conditional sequence loop, while `cuda_graph_native_burst_tokens=8`
+  remains the maintained repeated-child parent capacity for fallback and
+  explicit opt-out. This avoids promoting the rejected native16 repeated-child
+  path by changing the wrong default.
 - ADR 0007 captures the follow-on boundary: the next promotable text executor
   must move below local CUDA Graph wrappers into a lower-level sequence owner.
 - Wider event/truth cadences remain rejected. A sixty-four-token event window
@@ -295,9 +310,12 @@ the persistent graph while restoring exact per-token input copies. Set
 `cuda_graph_native_burst_replay=false` or
 `MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY=0` to keep the current persistent graph
 while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
-preserve the retained execution paths. Keep `cuda_graph_native_burst_tokens=8`
-or `MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS=8` for the maintained native parent
-capacity; `16` and `32` remain benchmark/prototype capacities until a clean
-long-run gate promotes them. Keep
-`cuda_graph_sequence_executor=native_repeated_child_graph` unless explicitly
-opting into `conditional_while` for benchmark/prototype evidence.
+preserve the retained execution paths. Set
+`cuda_graph_sequence_executor=native_repeated_child_graph` to opt out of the
+promoted conditional-WHILE sequence executor and use repeated-child native8
+replay. Keep `cuda_graph_native_burst_tokens=8` or
+`MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS=8` for the maintained repeated-child
+capacity; use `cuda_graph_sequence_loop_tokens=16` or
+`MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS=16` for the promoted conditional
+sequence capacity. Repeated-child `16` and `32` remain benchmark/prototype
+capacities unless a separate clean long-run gate promotes them.

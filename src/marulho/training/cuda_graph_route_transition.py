@@ -27,6 +27,7 @@ from marulho.core.native_cuda_graph_sequence import (
 
 MAX_QUANTUM_INPUT_TOKENS = 128
 PERSISTENT_EXECUTOR_BURST_TOKENS = 8
+PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS = 16
 PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 32
 PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS = (8, 16, 32)
 
@@ -110,7 +111,13 @@ class CudaGraphRouteTransition:
         self.native_sequence_loop_compile_latency_ms = 0.0
         self.native_sequence_loop_backend = "disabled"
         self.native_sequence_loop_last_error: str | None = None
-        self._burst_token_capacity = self._resolve_burst_token_capacity()
+        self._native_burst_token_capacity = self._resolve_native_burst_token_capacity()
+        self._sequence_loop_token_capacity = self._resolve_sequence_loop_token_capacity()
+        self._burst_token_capacity = (
+            self._sequence_loop_token_capacity
+            if self._native_sequence_loop_requested()
+            else self._native_burst_token_capacity
+        )
         self._graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._burst_graphs: dict[str, torch.cuda.CUDAGraph] = {}
@@ -728,7 +735,7 @@ class CudaGraphRouteTransition:
         repeated_graph_exec = self._native_burst_graph_execs.get(key)
         if repeated_graph_exec is not None:
             return repeated_graph_exec
-        if token_count != self._burst_token_capacity:
+        if token_count != self._native_burst_token_capacity:
             if not self._native_partial_burst_replay_requested():
                 return None
         build_started = time.perf_counter_ns()
@@ -751,7 +758,7 @@ class CudaGraphRouteTransition:
             time.perf_counter_ns() - build_started
         ) / 1e6
         self._native_burst_graph_execs[key] = repeated_graph_exec
-        if token_count != self._burst_token_capacity:
+        if token_count != self._native_burst_token_capacity:
             self.native_burst_replay_lazy_compile_count += 1
             self.native_burst_replay_backend = (
                 "native_repeated_child_graph_partial_ready"
@@ -768,7 +775,7 @@ class CudaGraphRouteTransition:
         sequence_graph_exec = self._native_sequence_graph_execs.get(key)
         if sequence_graph_exec is not None:
             return sequence_graph_exec
-        if token_count != self._burst_token_capacity:
+        if token_count != self._sequence_loop_token_capacity:
             if not self._native_partial_burst_replay_requested():
                 return None
         build_started = time.perf_counter_ns()
@@ -793,14 +800,14 @@ class CudaGraphRouteTransition:
         self.native_burst_replay_compile_latency_ms += latency_ms
         self.native_sequence_loop_compile_latency_ms += latency_ms
         self._native_sequence_graph_execs[key] = sequence_graph_exec
-        if token_count != self._burst_token_capacity:
+        if token_count != self._sequence_loop_token_capacity:
             self.native_sequence_loop_lazy_compile_count += 1
             self.native_sequence_loop_backend = (
                 "cuda_graph_conditional_while_partial_ready"
             )
         return sequence_graph_exec
 
-    def _resolve_burst_token_capacity(self) -> int:
+    def _resolve_native_burst_token_capacity(self) -> int:
         raw = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS")
         if raw is None:
             raw = str(
@@ -825,6 +832,34 @@ class CudaGraphRouteTransition:
         if value > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS:
             raise ValueError(
                 "cuda_graph_native_burst_tokens must not exceed burst event capacity"
+            )
+        return value
+
+    def _resolve_sequence_loop_token_capacity(self) -> int:
+        raw = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS")
+        if raw is None:
+            raw = str(
+                getattr(
+                    self._trainer.config,
+                    "cuda_graph_sequence_loop_tokens",
+                    PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS,
+                )
+            )
+        try:
+            value = int(str(raw).strip())
+        except ValueError as exc:
+            raise ValueError(
+                "cuda_graph_sequence_loop_tokens must be one of "
+                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
+            ) from exc
+        if value not in PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS:
+            raise ValueError(
+                "cuda_graph_sequence_loop_tokens must be one of "
+                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
+            )
+        if value > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS:
+            raise ValueError(
+                "cuda_graph_sequence_loop_tokens must not exceed burst event capacity"
             )
         return value
 
@@ -898,6 +933,7 @@ class CudaGraphRouteTransition:
             and self._warm_native_sequence_loop()
         ):
             return
+        self._burst_token_capacity = self._native_burst_token_capacity
         self._warm_repeated_child_burst_replay()
 
     def _warm_repeated_child_burst_replay(self) -> None:
@@ -915,10 +951,10 @@ class CudaGraphRouteTransition:
         try:
             for graph_name, graph in self._burst_graphs.items():
                 self._native_burst_graph_execs[
-                    (graph_name, self._burst_token_capacity)
+                    (graph_name, self._native_burst_token_capacity)
                 ] = make_repeated_cuda_graph_exec(
                     graph,
-                    self._burst_token_capacity,
+                    self._native_burst_token_capacity,
                 )
         except Exception as exc:
             self.native_burst_replay_compile_latency_ms += (
@@ -956,10 +992,10 @@ class CudaGraphRouteTransition:
         try:
             for graph_name, graph in self._burst_graphs.items():
                 self._native_sequence_graph_execs[
-                    (graph_name, self._burst_token_capacity)
+                    (graph_name, self._sequence_loop_token_capacity)
                 ] = make_conditional_loop_cuda_graph_exec(
                     graph,
-                    self._burst_token_capacity,
+                    self._sequence_loop_token_capacity,
                 )
         except Exception as exc:
             latency_ms = (time.perf_counter_ns() - build_started) / 1e6
@@ -984,6 +1020,7 @@ class CudaGraphRouteTransition:
         self.native_sequence_loop_enabled = True
         self.native_sequence_loop_backend = "cuda_graph_conditional_while_ready"
         self.native_sequence_loop_last_error = None
+        self._burst_token_capacity = self._sequence_loop_token_capacity
         return True
 
     def _launch_transition(
@@ -1894,7 +1931,19 @@ class CudaGraphRouteTransition:
                 int(self._burst_token_capacity)
             ),
             "persistent_executor_default_burst_tokens": (
+                PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS
+            ),
+            "persistent_executor_repeated_child_burst_tokens": (
+                int(self._native_burst_token_capacity)
+            ),
+            "persistent_executor_default_repeated_child_burst_tokens": (
                 PERSISTENT_EXECUTOR_BURST_TOKENS
+            ),
+            "persistent_executor_sequence_loop_tokens": (
+                int(self._sequence_loop_token_capacity)
+            ),
+            "persistent_executor_default_sequence_loop_tokens": (
+                PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS
             ),
             "persistent_executor_allowed_burst_tokens": list(
                 PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS

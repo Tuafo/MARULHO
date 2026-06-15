@@ -15,9 +15,11 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061402
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061501
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
+PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR = "conditional_while"
+PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = 16
 _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
 _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
 
@@ -243,6 +245,44 @@ def _migrate_loaded_config_snapshot(
                 "to": PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS,
                 "reason": "retired_host_truth_sync_interval_cadence",
             }
+        )
+    current_sequence_executor = str(
+        migrated.get("cuda_graph_sequence_executor", "native_repeated_child_graph")
+    )
+    if current_sequence_executor == "native_repeated_child_graph":
+        migrated["cuda_graph_sequence_executor"] = (
+            PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
+        )
+        migrations.append(
+            {
+                "field": "cuda_graph_sequence_executor",
+                "from": current_sequence_executor,
+                "to": PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
+                "reason": "promoted_conditional_while_sequence_executor",
+            }
+        )
+    current_sequence_loop_tokens = int(
+        migrated.get(
+            "cuda_graph_sequence_loop_tokens",
+            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
+        )
+    )
+    if current_sequence_loop_tokens != PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS:
+        migrated["cuda_graph_sequence_loop_tokens"] = (
+            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
+        )
+        migrations.append(
+            {
+                "field": "cuda_graph_sequence_loop_tokens",
+                "from": current_sequence_loop_tokens,
+                "to": PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
+                "reason": "promoted_conditional_while_sequence_capacity",
+            }
+        )
+    else:
+        migrated.setdefault(
+            "cuda_graph_sequence_loop_tokens",
+            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
         )
     return migrated, migrations
 

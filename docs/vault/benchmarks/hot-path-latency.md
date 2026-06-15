@@ -63,6 +63,41 @@ run reported `capture_latency_ms=6790.4858` and
 reported `5961.3172` and `5452.4969`. Keep that visible in Runtime Truth and
 avoid quoting the new top for cold start.
 
+The CUDA conditional-WHILE q16 sequence executor is now promoted for eligible
+text sequences. It keeps the proven one-tick graph body but moves burst-loop
+control into a CUDA conditional node plus a device counter kernel. The first
+clean probe at `reports/conditional_sequence_20260615/conditional-while16-131072-i32.json`
+measured `5559.473 tokens/sec`, `train_compute=0.146978 ms/token`, `8190`
+conditional parent launches, `131040` conditional-owned tokens, zero
+sequence/native fallbacks, zero sequence/native failures, host-truth cadence
+`4097/126975`, and `velocity_environment.v1` contention `not_observed`, beating
+the same-session native8 rerun at `5035.537 tokens/sec`.
+
+Repeated paired promotion gates kept that win in both orders:
+`reports/conditional_sequence_promotion_clean_20260615/pair-a-native8-131072-i32.json`
+reached `5485.105 tokens/sec`, while `pair-a-conditional16-131072-i32.json`
+reached `5883.805`; then `pair-b-conditional16-131072-i32.json` reached
+`6027.856`, while `pair-b-native8-131072-i32.json` reached `5816.477`. All four
+reports had `velocity_environment.v1` contention `not_observed`, zero
+sequence/native fallbacks, and zero sequence/native failures.
+
+The post-promotion default run at
+`reports/conditional_sequence_promotion_default_20260615/post-promotion-default-conditional16-rerun-131072-i32.json`
+used no executor override and reached `6116.646 tokens/sec` with
+`train_compute=0.134167 ms/token`, `8190` conditional launches covering
+`131040` tokens, zero sequence/native fallbacks or failures, host-truth cadence
+`4097/126975`, `capture_latency_ms=5482.6059`,
+`native_sequence_loop_compile_latency_ms=4970.7865`, and
+`velocity_environment.v1` contention `not_observed`. The explicit opt-out
+native8 run at
+`post-promotion-native8-131072-i32.json` stayed clean at
+`5329.542 tokens/sec`.
+
+ADR 0007 now records the promoted boundary and the next executor direction:
+further work should move below local graph composition into C++/CUDA, Triton,
+persistent-kernel, or hybrid sequence ownership only if it beats the promoted
+conditional q16 default with the same parity and Runtime Truth gates.
+
 The first current rerun after the route/vote experiment measured only
 `2784.022 tokens/sec` at
 `reports/direct_route_vote_20260614/stress-131072-clean-retained-interval32-rerun.json`.
@@ -964,8 +999,8 @@ new `native_sequence_loop_*` fields separately from
 `native_sequence_loop_success_count`, `native_sequence_loop_token_count`,
 fallback/failure counters, parent token counts, and host-truth cadence.
 
-This is promotion-candidate evidence. Promotion still requires repeated paired
-clean long runs in both orders, fallback tests for unavailable/failed
-conditional construction, fail-closed launch-failure coverage, and an ADR/config
-decision before changing the maintained default from native8 repeated-child
-replay.
+This first probe became promotion-candidate evidence. The follow-up promotion
+gate supplied repeated paired clean long runs in both orders, fallback tests for
+unavailable conditional construction, fail-closed launch-failure coverage, and
+an ADR/config decision. Conditional-WHILE q16 is now the maintained eligible
+default, while native8 repeated-child replay remains fallback and opt-out.

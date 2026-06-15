@@ -1313,6 +1313,7 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
         enable_binding_layer=False,
         enable_abstraction_layer=False,
         cuda_graph_host_truth_sync_interval_tokens=33,
+        cuda_graph_sequence_executor="native_repeated_child_graph",
         slow_memory_start_tokens=0,
         slow_memory_archive_interval_tokens=256,
         slow_memory_archive_strong_capture_threshold=10.0,
@@ -1450,8 +1451,8 @@ def test_training_owned_sequence_can_use_conditional_while_executor() -> None:
         enable_binding_layer=False,
         enable_abstraction_layer=False,
         cuda_graph_host_truth_sync_interval_tokens=33,
-        cuda_graph_native_burst_tokens=16,
         cuda_graph_sequence_executor="conditional_while",
+        cuda_graph_sequence_loop_tokens=16,
         slow_memory_start_tokens=0,
         slow_memory_archive_interval_tokens=256,
         slow_memory_archive_strong_capture_threshold=10.0,
@@ -1539,6 +1540,9 @@ def test_training_owned_sequence_can_use_conditional_while_executor() -> None:
     assert graph_report["native_burst_replay_backend"] == (
         "cuda_graph_conditional_while"
     )
+    assert graph_report["persistent_executor_burst_tokens"] == 16
+    assert graph_report["persistent_executor_repeated_child_burst_tokens"] == 8
+    assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["native_burst_replay_parent_graph_count"] == 0
     assert graph_report["native_sequence_executor_requested"] == (
         "cuda_graph_conditional_while"
@@ -1674,6 +1678,9 @@ def test_conditional_while_unavailable_falls_back_before_mutation(
     assert graph_report["native_sequence_loop_fallback_count"] == 1
     assert graph_report["native_sequence_loop_failure_count"] == 0
     assert graph_report["native_sequence_loop_parent_graph_count"] == 0
+    assert graph_report["persistent_executor_burst_tokens"] == 8
+    assert graph_report["persistent_executor_repeated_child_burst_tokens"] == 8
+    assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["native_burst_replay_backend"] == (
         "native_repeated_child_graph"
     )
@@ -1701,6 +1708,7 @@ def test_training_owned_sequence_can_use_startup_warmed_sixteen_token_parent_gra
         enable_abstraction_layer=False,
         cuda_graph_host_truth_sync_interval_tokens=33,
         cuda_graph_native_burst_tokens=16,
+        cuda_graph_sequence_executor="native_repeated_child_graph",
         slow_memory_start_tokens=0,
         slow_memory_archive_interval_tokens=256,
         slow_memory_archive_strong_capture_threshold=10.0,
@@ -1786,7 +1794,10 @@ def test_training_owned_sequence_can_use_startup_warmed_sixteen_token_parent_gra
     assert report["text_burst_token_count"] == 32
     assert report["text_burst_fallback_count"] == 0
     assert graph_report["persistent_executor_burst_tokens"] == 16
-    assert graph_report["persistent_executor_default_burst_tokens"] == 8
+    assert graph_report["persistent_executor_default_burst_tokens"] == 16
+    assert graph_report["persistent_executor_default_repeated_child_burst_tokens"] == 8
+    assert graph_report["persistent_executor_repeated_child_burst_tokens"] == 16
+    assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["native_burst_replay_parent_graph_count"] == 2
     assert graph_report["native_burst_replay_parent_graph_token_counts"] == [16]
     assert graph_report["native_burst_replay_success_count"] == 2

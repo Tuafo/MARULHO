@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, amended 2026-06-15
 
 ## Context
 
@@ -55,7 +55,7 @@ existing pre-mutation fallback and fail-closed launch behavior because failed
 conditional parent construction returns to retained repeated-child replay, while
 post-launch errors still raise.
 
-The first clean long evidence makes it a promotion candidate rather than another
+The first clean long evidence made it a promotion candidate rather than another
 rejected local wrapper. With the same text-only checkpoint and q16 shape,
 `reports/conditional_sequence_20260615/native8-rerun-131072-i32.json` measured
 the retained native8 executor at `5035.537 tokens/sec`, zero native failures,
@@ -69,25 +69,39 @@ tokens with `8190` conditional parent launches, parent token counts `[16]`,
 zero sequence/native fallbacks, zero sequence/native failures, host-truth
 cadence `4097/126975`, and clean `velocity_environment.v1` evidence.
 
+The follow-up promotion gate repeated the comparison in both orders and kept
+startup/capture cost outside measured warm throughput. Pair A measured native8
+at `5485.105 tokens/sec` and conditional q16 at `5883.805`. Pair B measured
+conditional q16 at `6027.856` and native8 at `5816.477`. All four paired runs
+reported `velocity_environment.v1` contention `not_observed`, host-truth
+cadence `4097/126975`, and zero native/sequence fallbacks or failures. After
+the default change, an explicit native8 opt-out reached `5329.542 tokens/sec`,
+while the promoted default conditional q16 run reached `6116.646 tokens/sec`,
+`train_compute=0.134167 ms/token`, `8190` conditional launches, `131040`
+conditional-owned tokens, startup capture `5482.6059 ms`, conditional compile
+`4970.7865 ms`, and no observed contention.
+
 ## Decision
 
 Do not promote another local CUDA Graph wrapper, parent-capacity change,
 truth-cadence change, Python burst grouping change, or route/vote wrapper as
 the next executor boundary for the promoted text path.
 
-The retained production path remains exact eight-token native parent graph
-replay inside the q16 training-owned text sequence. Benchmark/prototype knobs
-may remain for controlled rejection evidence, but they must fail closed or fail
-early when they cannot exercise the requested executor. In particular, native
-parent graph capacity probes must not exceed or fail to divide the execution
-quantum.
+Promote the CUDA conditional-WHILE sequence executor as the default for
+eligible q16 CUDA text sequences. The retained repeated-child native parent
+graph remains exact eight-token replay for fallback and explicit opt-out.
+Benchmark/prototype knobs may remain for controlled rejection evidence, but
+they must fail closed or fail early when they cannot exercise the requested
+executor. In particular, native parent graph capacity probes must not exceed or
+fail to divide the execution quantum.
 
-The conditional-WHILE executor is the first accepted lower-level prototype that
-meets the directional requirement and beats the sustained native8 ceiling in a
-clean long run. It is not yet the default. Promotion requires repeated clean
-paired long runs in both orders, stronger CUDA parity/fallback tests, and an
-explicit default-change decision because the winning shape also changes the
-effective burst capacity to `16`.
+The conditional-WHILE executor is the first accepted lower-level executor that
+meets the directional requirement and beats the sustained native8 ceiling in
+repeated clean long runs. The winning shape changes the effective sequence
+capacity to `16`, so capacity ownership is split:
+`cuda_graph_sequence_loop_tokens` sets the promoted conditional loop size,
+while `cuda_graph_native_burst_tokens` continues to describe the repeated-child
+parent capacity and remains `8` by default.
 
 The next promotable executor must be lower level than the current
 Python/CUDA Graph replay boundary. A candidate design must own a bounded
@@ -103,14 +117,16 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 
 ## Consequences
 
-- The native8 parent graph remains the sustained production ceiling until a
-  lower-level executor passes repeated promotion gates. The conditional-WHILE
-  prototype has one winning clean gate but remains opt-in.
+- The conditional-WHILE q16 parent graph is the promoted eligible CUDA text
+  sequence executor.
+- The native8 repeated-child parent graph remains the fallback and explicit
+  opt-out path.
 - Native16 remains a rejected safe prototype, not a default.
 - Native32 is rejected under q16 unless a separate execution-quantum decision is
   made; the stress benchmark rejects misaligned capacity probes before startup.
 - Runtime Truth now exposes `native_sequence_loop_*` fields for lower-level
-  sequence-loop coverage separately from repeated-child parent-graph coverage.
+  sequence-loop coverage separately from repeated-child parent-graph coverage,
+  plus active/default repeated-child and sequence-loop capacity fields.
 - Future performance work should start from a lower-level sequence-kernel or
   device-graph design, not another Python-side launcher, scalar report, or
   local route/vote wrapper.
@@ -120,8 +136,10 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 
 ## Reversal
 
-This decision can be revisited only if a lower-level executor under the existing
-q16 architecture produces repeated clean 131072-token CUDA wins over the retained
-native8 path, preserves exact sequential state and fail-closed fallback, and
-exposes complete Runtime Truth evidence. Short, contended, or counter-only wins
-are not enough.
+Revert by setting `cuda_graph_sequence_executor=native_repeated_child_graph` or
+`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=native_repeated_child_graph`, which returns
+eligible bursts to the retained repeated-child native8 executor. This decision
+should be revisited only if the promoted conditional executor loses repeated
+clean 131072-token CUDA comparisons, weakens exact sequential state or
+fail-closed fallback, or stops exposing complete Runtime Truth evidence. Short,
+contended, or counter-only regressions are not enough.

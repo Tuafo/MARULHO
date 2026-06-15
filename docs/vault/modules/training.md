@@ -79,23 +79,20 @@ related_benchmarks: []
         wider quantum slice when available, otherwise stages the ring for that
         burst, replays the same one-tick graph eight times in order, and applies
         equivalent host bookkeeping in one bounded operation. On the promoted
-        CUDA path, native replay composes the captured one-tick burst graph into
-        a startup-warmed repeated-child parent CUDA graph and launches that
-        parent once per exact burst. The maintained production capacity remains
-        eight tokens; `16` and `32` are exposed as evaluation/prototype
-        capacities only. Runtime Truth reports the active, default, and allowed
-        burst capacities so a wider parent graph cannot be confused with a
-        promoted executor boundary. Benchmark probes must keep native burst
-        capacity aligned with the execution quantum; a warmed parent graph is
-        not native coverage when q16 chunking forces `python_loop_partial_disabled`.
-        ADR 0007 records the next executor boundary as lower-level sequence
-        ownership below the current Python/CUDA Graph replay wrapper. The
-        first accepted prototype is the opt-in `conditional_while` CUDA Graph
-        sequence executor: it wraps the retained one-tick graph in a native
-        conditional-WHILE parent graph, preserves ordered state mutation, and
-        reports `native_sequence_loop_*` Runtime Truth. It is not the default
-        until repeated same-session long-run gates and fallback tests justify a
-        promotion decision.
+        CUDA path, the promoted `conditional_while` sequence executor wraps the
+        retained one-tick graph in a startup-warmed conditional-WHILE parent
+        CUDA graph and launches that parent once per sixteen-token q16 sequence.
+        The repeated-child native parent graph remains exact eight-token replay
+        for fallback and explicit opt-out. Runtime Truth reports active,
+        default, and allowed effective burst capacities plus separate
+        repeated-child and sequence-loop capacities so a conditional q16
+        promotion is not confused with the rejected native16 repeated-child
+        prototype. Benchmark probes must keep native burst capacity aligned
+        with the execution quantum; a warmed parent graph is not native
+        coverage when q16 chunking forces `python_loop_partial_disabled`.
+        ADR 0007 records conditional-WHILE q16 as the promoted lower-level
+        sequence boundary and keeps the next direction below local graph
+        composition in C++/CUDA, Triton, persistent-kernel, or hybrid ownership.
         Runtime Truth exposes whether native replay is configured, loaded,
         enabled, which backend ran, parent-graph count, launch attempts,
         successes, covered tokens, fallbacks, failures, and compile/build
@@ -128,11 +125,12 @@ related_benchmarks: []
 
         The 2026-06-14 Training-Owned Text Sequence gives `MarulhoTrainer` the complete ordered text-tick execution boundary while service retains source orchestration and semantic observation. Runtime Sources separately owns Prepared Source Generations, allowing consumption-only ticks to skip cache reconstruction in O(1). Ordinary service ticks now return Device-Burst Lightweight Metrics from the CUDA result packet; full per-token metrics are reserved for explicit evaluator evidence positions so source concept sampling cannot silently break burst ownership. See [[prepared-source-tick-executor]].
 
-        The maintained service execution quantum is `16`, but this is host
-        orchestration only. `MarulhoTrainer.train_text_sequence` subdivides
-        each wider quantum into exact ordered eight-token device bursts, so the
-        persistent CUDA burst executor, event ring, host-truth boundary, and
-        SNN transition order remain unchanged. This removes the old q16
+        The maintained service execution quantum is `16`. The promoted
+        conditional-WHILE executor consumes that q16 quantum as one ordered
+        native sequence loop, while the repeated-child native fallback/opt-out
+        path still consumes exact ordered eight-token parent graphs. In both
+        cases the persistent CUDA graph body, event ring, host-truth boundary,
+        and SNN transition order remain unchanged. This removes the old q16
         fallback path where wider quanta bypassed burst execution and fell
         through to per-token `train_step`. The source-sequence input stage now
         spans multiple quanta when safe, but never crosses the same host-truth,
