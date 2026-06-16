@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The project goal is shifting from a merely executable cortex-subcortex runtime toward a more continuous "living brain" system. The existing implementation already routes most subcortical computation through PyTorch tensors and `MarulhoConfig.resolve_device()`, with `device="auto"` selecting CUDA when available. Routing also has a `torch_topk` backend that becomes the automatic search path on CUDA, while FAISS HNSW and exact cosine remain CPU-friendly alternatives.
+The project goal is shifting from a merely executable cortex-subcortex runtime toward a more continuous "living brain" system. The existing implementation already routes most subcortical computation through PyTorch tensors and `MarulhoConfig.resolve_device()`, with `device="auto"` selecting CUDA when available. Routing now keeps exact `torch_topk` as the single live backend; the earlier FAISS/HNSW and exact-cosine choices were retired because they cannot feed the promoted CUDA route/vote cache.
 
 Unit tests intentionally force `MARULHO_DEVICE=cpu` in `conftest.py` so they remain deterministic and do not fail on machines without a GPU. That creates a useful split: production/runtime experiments should use CUDA when available, but correctness tests should not require CUDA.
 
@@ -118,7 +118,7 @@ The first acceleration targets are routing/index search, predictive column state
 ## References
 
 - `src/marulho/config/model_config.py`
-- `src/marulho/retrieval/hnsw_index.py`
+- `src/marulho/retrieval/routing_index.py`
 - Historical standalone `src/marulho/retrieval/ivf_router.py` was removed after a no-live-caller audit; future IVF/RaBitQ routing needs new bounded GPU-owned candidate-router evidence.
 - `conftest.py`
 - Lee, Dora, and Mejias, "Predictive coding with spiking neurons and feedforward gist signaling", Frontiers in Computational Neuroscience, 2024.

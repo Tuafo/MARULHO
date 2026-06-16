@@ -73,11 +73,11 @@ def run_hot_window_benchmark(
     if _trainer_setup is not None:
         _trainer_setup(trainer)
     device = trainer.model.device
-    if hasattr(trainer.model.hnsw_index, "merge_torch_shards"):
-        trainer.model.hnsw_index.merge_torch_shards = bool(merge_torch_shards)
+    if hasattr(trainer.model.routing_index, "merge_torch_shards"):
+        trainer.model.routing_index.merge_torch_shards = bool(merge_torch_shards)
     if routing_candidate_mode == "list":
         def _list_routing_candidates(routing_key: torch.Tensor) -> torch.Tensor | None:
-            candidate_ids, _ = trainer.model.hnsw_index.search(
+            candidate_ids, _ = trainer.model.routing_index.search(
                 routing_key.unsqueeze(0),
                 k=trainer.config.k_routing,
             )
@@ -253,7 +253,7 @@ def run_hot_window_benchmark(
             "candidate_deep_sleep_filter_start_tokens": int(
                 trainer.config.candidate_deep_sleep_filter_start_tokens
             ),
-            "routing_index": trainer.model.hnsw_index.stats(),
+            "routing_index": trainer.model.routing_index.stats(),
             "competitive": trainer.model.competitive.execution_report(),
             "candidate_sleep_filter_execution": (
                 getattr(trainer.model.last_column_wake_plan, "to_execution_report")()

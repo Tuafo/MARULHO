@@ -820,7 +820,7 @@ class TestPredictiveColumnState:
 class TestPredictiveColumnsInTrainer:
     """Test that predictive columns are wired into the training loop."""
 
-    def test_hnsw_buffer_reuses_known_winner_ids(self):
+    def test_routing_index_buffer_reuses_known_winner_ids(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
@@ -830,13 +830,13 @@ class TestPredictiveColumnsInTrainer:
         indices = torch.tensor([7], dtype=torch.long)
         vectors = trainer.model.competitive.prototypes[[3]].detach()
 
-        trainer._buffer_hnsw_update(
+        trainer._buffer_routing_index_update(
             indices,
             vectors,
             known_ids=[3],
         )
 
-        assert trainer._hnsw_buffer_ids == [3]
+        assert trainer._routing_index_buffer_ids == [3]
 
     def test_model_has_predictive_state(self):
         from marulho.config.model_config import MarulhoConfig
@@ -1196,7 +1196,7 @@ class TestPredictiveColumnsInTrainer:
             distances = torch.arange(int(k), dtype=torch.float32).unsqueeze(0)
             return ids, distances
 
-        monkeypatch.setattr(model.hnsw_index, "search_tensors", fake_search_tensors)
+        monkeypatch.setattr(model.routing_index, "search_tensors", fake_search_tensors)
 
         trainer.token_count = cfg.dead_column_steps - 1
         early = trainer._routing_wake_plan(
@@ -1263,7 +1263,7 @@ class TestPredictiveColumnsInTrainer:
             distances = torch.arange(int(k), dtype=torch.float32).unsqueeze(0)
             return ids, distances
 
-        monkeypatch.setattr(model.hnsw_index, "search_tensors", fake_search_tensors)
+        monkeypatch.setattr(model.routing_index, "search_tensors", fake_search_tensors)
 
         plan = trainer._routing_wake_plan(
             torch.randn(cfg.column_latent_dim),

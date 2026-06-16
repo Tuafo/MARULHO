@@ -114,7 +114,7 @@ def _routing_index_candidates(
         torch.cuda.synchronize()
     started = time.perf_counter_ns()
     routing_keys = _project_routing_keys(input_patterns, w_project)
-    ids, distances = trainer.model.hnsw_index.search(routing_keys, k=k_routing)
+    ids, distances = trainer.model.routing_index.search(routing_keys, k=k_routing)
     fallback_rows = 0
     candidate_rows: list[list[int]] = []
     fallback = list(range(min(k_routing, n_columns)))
@@ -159,7 +159,7 @@ def _routing_index_candidates(
         "candidate_prep_tokens_per_second": float(batch_size / max(prep_latency_ms / 1000.0, 1e-9)),
         "fallback_rows": int(fallback_rows),
         "distance_stats": distance_stats,
-        "routing_index_stats": trainer.model.hnsw_index.stats(),
+        "routing_index_stats": trainer.model.routing_index.stats(),
     }
 
 
@@ -178,7 +178,7 @@ def _routing_index_tensor_candidates(
         torch.cuda.synchronize()
     started = time.perf_counter_ns()
     routing_keys = _project_routing_keys(input_patterns, w_project)
-    ids, distances = trainer.model.hnsw_index.search_tensors(routing_keys, k=k_routing)
+    ids, distances = trainer.model.routing_index.search_tensors(routing_keys, k=k_routing)
 
     fallback_rows = 0
     if ids.shape != (batch_size, k_routing):
@@ -201,7 +201,7 @@ def _routing_index_tensor_candidates(
         torch.cuda.synchronize()
     warm_started = time.perf_counter_ns()
     warm_routing_keys = _project_routing_keys(input_patterns, w_project)
-    warm_ids, _ = trainer.model.hnsw_index.search_tensors(warm_routing_keys, k=k_routing)
+    warm_ids, _ = trainer.model.routing_index.search_tensors(warm_routing_keys, k=k_routing)
     if device.type == "cuda":
         torch.cuda.synchronize()
     warm_prep_latency_ms = (time.perf_counter_ns() - warm_started) / 1e6
@@ -221,7 +221,7 @@ def _routing_index_tensor_candidates(
         "candidate_prep_warm_shape": list(warm_ids.shape),
         "fallback_rows": int(fallback_rows),
         "distance_stats": distance_stats,
-        "routing_index_stats": trainer.model.hnsw_index.stats(),
+        "routing_index_stats": trainer.model.routing_index.stats(),
     }
 
 
@@ -778,8 +778,8 @@ def run_compiled_hot_path_kernel_benchmark(
 
     trainer, _ = load_trainer_checkpoint(checkpoint)
     device = trainer.model.device
-    if hasattr(trainer.model.hnsw_index, "merge_torch_shards"):
-        trainer.model.hnsw_index.merge_torch_shards = bool(merge_torch_shards)
+    if hasattr(trainer.model.routing_index, "merge_torch_shards"):
+        trainer.model.routing_index.merge_torch_shards = bool(merge_torch_shards)
     comp = trainer.model.competitive
     predictive = trainer.model.predictive
 
@@ -818,7 +818,7 @@ def run_compiled_hot_path_kernel_benchmark(
             support_reasons.append("requires_zero_input_weight_blend")
         try:
             routing_vectors, routing_ids, cache_report = _routing_tensor_cache(
-                trainer.model.hnsw_index
+                trainer.model.routing_index
             )
         except Exception as exc:
             support_reasons.append(f"routing_cache_unavailable:{type(exc).__name__}:{exc}")
@@ -1046,7 +1046,7 @@ def run_compiled_hot_path_kernel_benchmark(
             "candidate_prep_tokens_per_second": None,
             "fallback_rows": 0,
             "distance_stats": None,
-            "routing_index_stats": trainer.model.hnsw_index.stats(),
+            "routing_index_stats": trainer.model.routing_index.stats(),
         }
 
     for _ in range(warmup_iterations):

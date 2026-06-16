@@ -63,8 +63,8 @@ class CognitiveBoundaryController:
         telemetry_interval: int,
         slow_memory_archive_interval: int,
         drift_floor_window_tokens: int,
-        hnsw_flush_interval: int,
-        hnsw_buffer_pending: bool,
+        routing_index_flush_interval: int,
+        routing_index_buffer_pending: bool,
         deep_sleep_interval_tokens: int,
         last_deep_sleep_token: int,
         pending_emergency_deep_sleep: bool,
@@ -79,8 +79,8 @@ class CognitiveBoundaryController:
             telemetry_interval=telemetry_interval,
             slow_memory_archive_interval=slow_memory_archive_interval,
             drift_floor_window_tokens=drift_floor_window_tokens,
-            hnsw_flush_interval=hnsw_flush_interval,
-            hnsw_buffer_pending=hnsw_buffer_pending,
+            routing_index_flush_interval=routing_index_flush_interval,
+            routing_index_buffer_pending=routing_index_buffer_pending,
             deep_sleep_interval_tokens=deep_sleep_interval_tokens,
             last_deep_sleep_token=last_deep_sleep_token,
             pending_emergency_deep_sleep=pending_emergency_deep_sleep,
@@ -105,8 +105,8 @@ class CognitiveBoundaryController:
         telemetry_interval: int,
         slow_memory_archive_interval: int,
         drift_floor_window_tokens: int,
-        hnsw_flush_interval: int,
-        hnsw_buffer_pending: bool,
+        routing_index_flush_interval: int,
+        routing_index_buffer_pending: bool,
         deep_sleep_interval_tokens: int,
         last_deep_sleep_token: int,
         pending_emergency_deep_sleep: bool,
@@ -119,10 +119,10 @@ class CognitiveBoundaryController:
         end_token = start + int(token_count)
         fallback_token: int | None = None
 
-        if end_token > start and bool(hnsw_buffer_pending):
+        if end_token > start and bool(routing_index_buffer_pending):
             first_routing = _first_multiple_at_or_after(
                 start,
-                max(1, int(hnsw_flush_interval)),
+                max(1, int(routing_index_flush_interval)),
             )
             if first_routing < end_token:
                 fallback_token = first_routing

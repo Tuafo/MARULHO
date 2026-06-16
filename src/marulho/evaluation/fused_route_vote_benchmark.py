@@ -91,7 +91,7 @@ def run_fused_route_vote_benchmark(
         [trainer.model.routing_key_from_pattern(pattern) for pattern in patterns]
     )
     routing_vectors, routing_ids, cache_report = _routing_tensor_cache(
-        trainer.model.hnsw_index
+        trainer.model.routing_index
     )
     k_routing = min(
         int(trainer.config.k_routing),
@@ -142,7 +142,7 @@ def run_fused_route_vote_benchmark(
     )
 
     def production_step(key: torch.Tensor) -> torch.Tensor:
-        candidates, _ = trainer.model.hnsw_index.search_tensors(
+        candidates, _ = trainer.model.routing_index.search_tensors(
             key.unsqueeze(0),
             k=k_routing,
         )

@@ -119,8 +119,8 @@ def _restore_model(trainer: MarulhoTrainer, snapshot: dict[str, Any]) -> None:
     trainer.bootstrap.prev_pattern = None if prev_pattern is None else prev_pattern.to(trainer.model.device)
 
     all_ids = np.arange(trainer.config.n_columns, dtype=np.int64)
-    trainer.model.hnsw_index.add(trainer.model.competitive.prototypes.detach(), all_ids)
-    trainer.model.hnsw_index.rebuild()
+    trainer.model.routing_index.add(trainer.model.competitive.prototypes.detach(), all_ids)
+    trainer.model.routing_index.rebuild()
 
 
 def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata: dict[str, Any] | None = None) -> Path:

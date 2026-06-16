@@ -12,7 +12,7 @@ def _plan(
     token_count: int = 8,
     telemetry_interval: int = 64,
     slow_memory_archive_interval: int = 256,
-    hnsw_buffer_pending: bool = False,
+    routing_index_buffer_pending: bool = False,
 ):
     return controller.plan(
         start_token=start_token,
@@ -20,8 +20,8 @@ def _plan(
         telemetry_interval=telemetry_interval,
         slow_memory_archive_interval=slow_memory_archive_interval,
         drift_floor_window_tokens=10_000,
-        hnsw_flush_interval=16,
-        hnsw_buffer_pending=hnsw_buffer_pending,
+        routing_index_flush_interval=16,
+        routing_index_buffer_pending=routing_index_buffer_pending,
         deep_sleep_interval_tokens=10_000,
         last_deep_sleep_token=0,
         pending_emergency_deep_sleep=False,
@@ -60,8 +60,8 @@ def test_classify_previews_boundaries_without_runtime_truth_mutation() -> None:
         telemetry_interval=64,
         slow_memory_archive_interval=256,
         drift_floor_window_tokens=10_000,
-        hnsw_flush_interval=16,
-        hnsw_buffer_pending=True,
+        routing_index_flush_interval=16,
+        routing_index_buffer_pending=True,
         deep_sleep_interval_tokens=10_000,
         last_deep_sleep_token=0,
         pending_emergency_deep_sleep=False,
@@ -79,7 +79,7 @@ def test_classify_previews_boundaries_without_runtime_truth_mutation() -> None:
     actual = _plan(
         controller,
         start_token=16,
-        hnsw_buffer_pending=True,
+        routing_index_buffer_pending=True,
     )
     report = controller.report()
     assert actual.fallback_reason == "routing_index_flush_boundary"
@@ -97,8 +97,8 @@ def test_drift_floor_window_closes_after_device_execution() -> None:
         telemetry_interval=64,
         slow_memory_archive_interval=256,
         drift_floor_window_tokens=64,
-        hnsw_flush_interval=16,
-        hnsw_buffer_pending=False,
+        routing_index_flush_interval=16,
+        routing_index_buffer_pending=False,
         deep_sleep_interval_tokens=10_000,
         last_deep_sleep_token=0,
         pending_emergency_deep_sleep=False,
@@ -137,7 +137,7 @@ def test_pending_routing_index_flush_remains_a_real_fallback() -> None:
     plan = _plan(
         controller,
         start_token=16,
-        hnsw_buffer_pending=True,
+        routing_index_buffer_pending=True,
     )
 
     assert plan.fallback_reason == "routing_index_flush_boundary"
@@ -150,8 +150,8 @@ def _reference_loop_plan(
     telemetry_interval: int,
     slow_memory_archive_interval: int,
     drift_floor_window_tokens: int,
-    hnsw_flush_interval: int,
-    hnsw_buffer_pending: bool,
+    routing_index_flush_interval: int,
+    routing_index_buffer_pending: bool,
     deep_sleep_interval_tokens: int,
     last_deep_sleep_token: int,
     pending_emergency_deep_sleep: bool,
@@ -184,8 +184,8 @@ def _reference_loop_plan(
             or next_token % max(1, int(slow_memory_archive_interval)) == 0
         )
         if (
-            current % max(1, int(hnsw_flush_interval)) == 0
-            and hnsw_buffer_pending
+            current % max(1, int(routing_index_flush_interval)) == 0
+            and routing_index_buffer_pending
         ):
             fallback_reason = "routing_index_flush_boundary"
             break
@@ -221,7 +221,7 @@ def test_range_arithmetic_classifier_matches_loop_semantics() -> None:
     token_counts = [0, 1, 7, 8, 16, 33]
     for start_token in starts:
         for token_count in token_counts:
-            for hnsw_pending in (False, True):
+            for routing_index_pending in (False, True):
                 for pending_emergency in (False, True):
                     kwargs = {
                         "start_token": start_token,
@@ -229,8 +229,8 @@ def test_range_arithmetic_classifier_matches_loop_semantics() -> None:
                         "telemetry_interval": 8,
                         "slow_memory_archive_interval": 32,
                         "drift_floor_window_tokens": 64,
-                        "hnsw_flush_interval": 16,
-                        "hnsw_buffer_pending": hnsw_pending,
+                        "routing_index_flush_interval": 16,
+                        "routing_index_buffer_pending": routing_index_pending,
                         "deep_sleep_interval_tokens": 10_000,
                         "last_deep_sleep_token": 0,
                         "pending_emergency_deep_sleep": pending_emergency,

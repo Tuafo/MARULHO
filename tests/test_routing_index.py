@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from marulho.config.model_config import MarulhoConfig
-from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
+from marulho.retrieval.routing_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from marulho.training.model import MarulhoModel
 
 
@@ -353,7 +353,7 @@ class RoutingIndexTests(unittest.TestCase):
             device="cpu",
         )
         model = MarulhoModel(cfg)
-        model.hnsw_index.search_tensors(torch.rand(1, cfg.column_latent_dim), k=2)
+        model.routing_index.search_tensors(torch.rand(1, cfg.column_latent_dim), k=2)
         routing_stats = model.runtime_scope_report()["routing_index"]
 
         self.assertFalse(routing_stats["merged_torch_search_enabled"])

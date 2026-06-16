@@ -108,9 +108,9 @@ class MarulhoTrainer:
         self._cross_modal_traces_cleared_for_idle: bool = True
 
         # Routing-index update buffer - flush every N steps to amortize add() overhead.
-        self._hnsw_buffer_ids: list[int | torch.Tensor] = []
-        self._hnsw_buffer_vecs: list[torch.Tensor] = []
-        self._hnsw_flush_interval = 16
+        self._routing_index_buffer_ids: list[int | torch.Tensor] = []
+        self._routing_index_buffer_vecs: list[torch.Tensor] = []
+        self._routing_index_flush_interval = 16
         self._routing_index_device_update_count = 0
         self._routing_index_buffer_skip_count = 0
         self._routing_index_host_mirror_sync_count = 0
@@ -494,9 +494,9 @@ class MarulhoTrainer:
             telemetry_interval=telemetry_interval,
             slow_memory_archive_interval=archive_interval,
             drift_floor_window_tokens=self.config.drift_floor_window_tokens,
-            hnsw_flush_interval=self._hnsw_flush_interval,
-            hnsw_buffer_pending=bool(
-                self._hnsw_buffer_ids or self._hnsw_buffer_vecs
+            routing_index_flush_interval=self._routing_index_flush_interval,
+            routing_index_buffer_pending=bool(
+                self._routing_index_buffer_ids or self._routing_index_buffer_vecs
             ),
             deep_sleep_interval_tokens=self.config.deep_sleep_interval_tokens,
             last_deep_sleep_token=self.last_deep_sleep_token,
@@ -1075,7 +1075,7 @@ class MarulhoTrainer:
             "stopped": bool(stopped),
         }
 
-    def _buffer_hnsw_update(
+    def _buffer_routing_index_update(
         self,
         indices: torch.Tensor,
         vectors: torch.Tensor,
@@ -1095,18 +1095,18 @@ class MarulhoTrainer:
             raise ValueError("known_ids must align with buffered routing-index vectors")
         vecs = vectors.detach()
         for i, vid in enumerate(ids):
-            self._hnsw_buffer_ids.append(vid)
-            self._hnsw_buffer_vecs.append(vecs[i])
-        if len(self._hnsw_buffer_ids) >= self._hnsw_flush_interval:
-            self._flush_hnsw_buffer()
+            self._routing_index_buffer_ids.append(vid)
+            self._routing_index_buffer_vecs.append(vecs[i])
+        if len(self._routing_index_buffer_ids) >= self._routing_index_flush_interval:
+            self._flush_routing_index_buffer()
 
-    def _flush_hnsw_buffer(self) -> None:
+    def _flush_routing_index_buffer(self) -> None:
         """Flush buffered routing-index updates in a single batch."""
-        if not self._hnsw_buffer_ids:
+        if not self._routing_index_buffer_ids:
             return
         if self._routing_index_cpu_mirror_stale:
             sync_host_store = getattr(
-                self.model.hnsw_index,
+                self.model.routing_index,
                 "synchronize_host_store",
                 None,
             )
@@ -1126,10 +1126,10 @@ class MarulhoTrainer:
             self._routing_index_host_mirror_sync_count += 1
         # Deduplicate: keep latest vector per id. CUDA ids are materialized in
         # one transfer to avoid one scalar sync per buffered entry.
-        materialized_ids: list[int] = [0] * len(self._hnsw_buffer_ids)
+        materialized_ids: list[int] = [0] * len(self._routing_index_buffer_ids)
         tensor_positions: list[int] = []
         tensor_ids: list[torch.Tensor] = []
-        for position, vid in enumerate(self._hnsw_buffer_ids):
+        for position, vid in enumerate(self._routing_index_buffer_ids):
             if isinstance(vid, torch.Tensor):
                 tensor_positions.append(position)
                 tensor_ids.append(vid.reshape(()))
@@ -1147,13 +1147,13 @@ class MarulhoTrainer:
                 materialized_ids[position] = int(value)
 
         seen: dict[int, torch.Tensor] = {}
-        for vid_int, vec in zip(materialized_ids, self._hnsw_buffer_vecs):
+        for vid_int, vec in zip(materialized_ids, self._routing_index_buffer_vecs):
             seen[int(vid_int)] = vec
         ids_arr = np.array(list(seen.keys()), dtype=np.int64)
         vecs_batch = torch.stack(list(seen.values()))
-        self.model.hnsw_index.add(vecs_batch, ids_arr)
-        self._hnsw_buffer_ids.clear()
-        self._hnsw_buffer_vecs.clear()
+        self.model.routing_index.add(vecs_batch, ids_arr)
+        self._routing_index_buffer_ids.clear()
+        self._routing_index_buffer_vecs.clear()
 
     def _build_candidate_sleep_filter_execution(
         self,
@@ -1617,7 +1617,7 @@ class MarulhoTrainer:
                 int(self.config.n_columns),
                 target_k * max(1, int(backfill_factor)),
             )
-        candidate_ids, candidate_distances = self.model.hnsw_index.search_tensors(
+        candidate_ids, candidate_distances = self.model.routing_index.search_tensors(
             routing_key.unsqueeze(0),
             k=search_k,
         )
@@ -2438,8 +2438,8 @@ class MarulhoTrainer:
                 uniq = sorted(set(updated_ids))
                 id_arr = np.asarray(uniq, dtype=np.int64)
                 vecs = self.model.competitive.prototypes[id_arr].detach()
-                self.model.hnsw_index.add(vecs, id_arr)
-                self.model.hnsw_index.rebuild()
+                self.model.routing_index.add(vecs, id_arr)
+                self.model.routing_index.rebuild()
                 self.model.memory_store.consolidate_replay(
                     processed_indices,
                     current_token=self.token_count,
@@ -2455,8 +2455,8 @@ class MarulhoTrainer:
                 uniq = sorted(set(updated_ids))
                 id_arr = np.asarray(uniq, dtype=np.int64)
                 vecs = self.model.competitive.prototypes[id_arr].detach()
-                self.model.hnsw_index.add(vecs, id_arr)
-                self.model.hnsw_index.rebuild()
+                self.model.routing_index.add(vecs, id_arr)
+                self.model.routing_index.rebuild()
                 self.model.memory_store.mark_repair_replay(
                     processed_indices,
                     current_token=self.token_count,
@@ -2742,7 +2742,7 @@ class MarulhoTrainer:
             and (deep_due_interval or deep_due_emergency or micro_due)
         )
         if allow_sleep_maintenance and (deep_due_interval or deep_due_emergency):
-            self._flush_hnsw_buffer()
+            self._flush_routing_index_buffer()
             replay_updates = self._sleep_replay("repair" if deep_due_emergency else "deep")
             if replay_updates > 0:
                 sleep_type = "deep"
@@ -2750,12 +2750,12 @@ class MarulhoTrainer:
                 if deep_due_emergency:
                     self.pending_emergency_deep_sleep = False
         elif allow_sleep_maintenance and micro_due:
-            self._flush_hnsw_buffer()
+            self._flush_routing_index_buffer()
             replay_updates = self._sleep_replay("micro")
             if replay_updates > 0:
                 sleep_type = "micro"
-        elif self.token_count % self._hnsw_flush_interval == 0:
-            self._flush_hnsw_buffer()
+        elif self.token_count % self._routing_index_flush_interval == 0:
+            self._flush_routing_index_buffer()
 
         sleep_triggered = sleep_type != "none"
         if sleep_triggered:
@@ -3229,7 +3229,7 @@ class MarulhoTrainer:
             winner_vectors = self.model.competitive.prototypes[
                 updated_indices
             ].detach()
-            self._buffer_hnsw_update(
+            self._buffer_routing_index_update(
                 updated_indices,
                 winner_vectors,
                 known_ids=updated_id_list,

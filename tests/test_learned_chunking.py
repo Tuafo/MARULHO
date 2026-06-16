@@ -64,7 +64,7 @@ class LearnedChunkingTests(unittest.TestCase):
 
         dense_assembly = competitive.assembly_from_input(pattern)
         expected_key = F.normalize(competitive.last_projected_input, dim=0)
-        candidate_ids, _ = trainer.model.hnsw_index.search(
+        candidate_ids, _ = trainer.model.routing_index.search(
             expected_key.unsqueeze(0),
             k=trainer.config.k_routing,
         )
@@ -126,7 +126,7 @@ class LearnedChunkingTests(unittest.TestCase):
             del args, kwargs
             raise AssertionError("live train_step must not use list-returning routing search")
 
-        trainer.model.hnsw_index.search = fail_legacy_list_search  # type: ignore[method-assign]
+        trainer.model.routing_index.search = fail_legacy_list_search  # type: ignore[method-assign]
         trainer.train_step(pattern, raw_window="river")
 
     def test_lite_train_step_keeps_unchanged_projection_cache(self) -> None:

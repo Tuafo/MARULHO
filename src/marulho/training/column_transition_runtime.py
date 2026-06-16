@@ -396,7 +396,7 @@ class ColumnTransitionRuntime:
         if not self.fused_vote_competition_active:
             self.route_vote_fallback_reason = "fused_route_vote_requires_fused_vote_shape"
             return
-        index = self._trainer.model.hnsw_index
+        index = self._trainer.model.routing_index
         if not hasattr(index, "routing_tensor_cache"):
             self.route_vote_fallback_reason = "routing_tensor_cache_unavailable"
             return
@@ -674,7 +674,7 @@ class ColumnTransitionRuntime:
             self._route_vote_ready = True
             self._route_transition_graph_ready = True
             return self._route_candidates
-        index = self._trainer.model.hnsw_index
+        index = self._trainer.model.routing_index
         assert self._route_vectors is not None
         assert self._route_ids is not None
         assert self._route_scores is not None

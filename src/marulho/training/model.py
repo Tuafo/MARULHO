@@ -28,7 +28,7 @@ from marulho.core.surprise import SurpriseMonitor
 from marulho.consolidation.memory_store import DualMemoryStore
 from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
-from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
+from marulho.retrieval.routing_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from marulho.training.bootstrap import PredictiveBootstrap
 from marulho.training.column_scheduler import ColumnWakePlan, WAKE_PLAN_EXECUTION_CONSUMERS
 
@@ -223,7 +223,7 @@ class MarulhoModel:
             strong_event_threshold=self.config.stc_strong_event_threshold,
         )
         if self.config.routing_shards > 1:
-            self.hnsw_index = ShardedHierarchicalAssemblyIndex(
+            self.routing_index = ShardedHierarchicalAssemblyIndex(
                 dim=self.config.column_latent_dim,
                 n_shards=self.config.routing_shards,
                 rebuild_threshold=self.config.index_rebuild_threshold,
@@ -233,7 +233,7 @@ class MarulhoModel:
                 merge_torch_shards=self.config.merge_torch_routing_shards,
             )
         else:
-            self.hnsw_index = HierarchicalAssemblyIndex(
+            self.routing_index = HierarchicalAssemblyIndex(
                 dim=self.config.column_latent_dim,
                 rebuild_threshold=self.config.index_rebuild_threshold,
                 device=self.device,
@@ -300,7 +300,7 @@ class MarulhoModel:
         self._W_assembly_project_t = self.W_assembly_project.t().contiguous()
 
         init_ids = np.arange(self.config.n_columns, dtype=np.int64)
-        self.hnsw_index.add(self.competitive.prototypes.detach(), init_ids)
+        self.routing_index.add(self.competitive.prototypes.detach(), init_ids)
 
         # Predictive columns (Thousand Brains Theory)
         # Each column maintains location state, makes predictions, and votes
@@ -543,7 +543,7 @@ class MarulhoModel:
         token_count: int | None = None,
         last_winner: int | None = None,
     ) -> dict[str, Any]:
-        routing_index_stats = self.hnsw_index.stats()
+        routing_index_stats = self.routing_index.stats()
         device_report = self.config.device_report()
         subcortex_device_report = self.subcortex_device_report()
         column_runtime = self.column_runtime_report(

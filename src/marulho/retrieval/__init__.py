@@ -1,5 +1,5 @@
 from .decoder import NativeAssemblyDecoder
-from .hnsw_index import HierarchicalAssemblyIndex
+from .routing_index import HierarchicalAssemblyIndex
 
 __all__ = [
     "HierarchicalAssemblyIndex",

@@ -344,9 +344,9 @@ class CudaGraphRouteTransition:
             gc.collect()
             if device.type != "cuda":
                 raise RuntimeError("cuda_graph_requires_cuda")
-            vectors, ids = trainer.model.hnsw_index.routing_tensor_cache()
+            vectors, ids = trainer.model.routing_index.routing_tensor_cache()
             route_generation_fn = getattr(
-                trainer.model.hnsw_index,
+                trainer.model.routing_index,
                 "routing_tensor_cache_generation",
                 None,
             )
@@ -1189,7 +1189,7 @@ class CudaGraphRouteTransition:
         ids = self._route_ids
         route_pointers_known_current = bool(assume_route_cache_current)
         if not assume_route_cache_current:
-            index = self._trainer.model.hnsw_index
+            index = self._trainer.model.routing_index
             generation_fn = getattr(
                 index,
                 "routing_tensor_cache_generation",

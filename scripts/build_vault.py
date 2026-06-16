@@ -136,7 +136,7 @@ MODULES = {
         "concepts": ["Replay Window", "Runtime Evidence"],
     },
     "retrieval": {
-        "responsibility": "Promoted HNSW, exact torch-cache routing, and decoder support.",
+        "responsibility": "Exact torch-cache routing, tensor candidate search, and decoder support.",
         "owns": "Lookup and routing experiments with explicit performance/device evidence and no retired backend language.",
         "not_own": "Claiming CUDA acceleration without observed telemetry.",
         "concepts": ["Hot Path", "Slow Path", "CUDA Evidence"],

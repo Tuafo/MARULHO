@@ -38,7 +38,7 @@ seeds the device cursor from the restored competitive state.
 The same transition owns exact device routing-cache coherence for eligible
 graph ticks. It writes the normalized next winner prototype into the captured
 retrieval cache through a prevalidated column-id-to-cache-row tensor. The
-trainer skips the duplicate per-token HNSW enqueue and treats the CPU index
+trainer skips the duplicate per-token routing-index enqueue and treats the CPU index
 store as a slow mirror. Before a retained slow-path index mutation, training
 synchronizes that host mirror from live prototypes without invalidating the
 captured device cache.

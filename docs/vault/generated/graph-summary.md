@@ -8,21 +8,21 @@ last_verified: 2026-06-16
 # Graphify Summary
 
 - Graph file: `graphify-out/graph.json` local generated cache, ignored by git.
-- Nodes: 9423
-- Edges: 29723
+- Nodes: 9432
+- Edges: 57379
 - Mode: AST/local graph update; clustering and graph HTML were not required for this pass.
 
 ## Package Node Counts
 
-- `tests`: 3396 nodes
+- `tests`: 3403 nodes
 - `service`: 2580 nodes
 - `core`: 637 nodes
-- `training`: 544 nodes
+- `training`: 546 nodes
 - `evaluation`: 542 nodes
 - `data`: 377 nodes
 - `semantics`: 334 nodes
 - `MARULHO_UI`: 212 nodes
-- `retrieval`: 69 nodes
+- `retrieval`: 67 nodes
 - `consolidation`: 61 nodes
 - `config`: 38 nodes
 - `interaction`: 35 nodes
@@ -32,17 +32,17 @@ last_verified: 2026-06-16
 
 ## Common Relations
 
-- `calls`: 7150
-- `references`: 6448
-- `uses`: 4785
-- `method`: 4374
-- `contains`: 2810
-- `imports_from`: 1382
-- `rationale_for`: 1288
-- `imports`: 1146
-- `inherits`: 276
-- `re_exports`: 43
-- `defines`: 14
+- `calls`: 14255
+- `references`: 12890
+- `uses`: 9562
+- `method`: 8708
+- `contains`: 5626
+- `rationale_for`: 2543
+- `imports`: 1614
+- `imports_from`: 1509
+- `inherits`: 552
+- `re_exports`: 85
+- `defines`: 28
 - `extends`: 7
 
 ## Largest Source Files By Node Count

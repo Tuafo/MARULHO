@@ -248,7 +248,7 @@ def prime_context(trainer: MarulhoTrainer, encoder: RTFEncoder, text: str) -> in
 
 
 def candidate_details(trainer: MarulhoTrainer, routing_key: torch.Tensor, top_k: int) -> list[dict[str, Any]]:
-    candidate_ids, _ = trainer.model.hnsw_index.search(routing_key.unsqueeze(0), k=max(1, int(top_k)))
+    candidate_ids, _ = trainer.model.routing_index.search(routing_key.unsqueeze(0), k=max(1, int(top_k)))
     row = candidate_ids[0] if candidate_ids else []
     details: list[dict[str, Any]] = []
     for column_id in row:

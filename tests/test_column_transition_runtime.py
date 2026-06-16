@@ -300,7 +300,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     routing_key = trainer.model.routing_key_from_pattern(
         torch.rand(config.input_dim, device=trainer.model.device)
     )
-    expected, _ = trainer.model.hnsw_index.search_tensors(
+    expected, _ = trainer.model.routing_index.search_tensors(
         routing_key.unsqueeze(0),
         k=config.k_routing,
     )
@@ -353,7 +353,7 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     trainer.token_count = 1
     pattern = torch.rand(config.input_dim, device=trainer.model.device)
     routing_key = trainer.model.routing_key_from_pattern(pattern)
-    expected, _ = trainer.model.hnsw_index.search_tensors(
+    expected, _ = trainer.model.routing_index.search_tensors(
         routing_key.unsqueeze(0),
         k=config.k_routing,
     )
@@ -436,7 +436,7 @@ def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
     trainer.token_count = 1
     pattern = torch.rand(config.input_dim, device=trainer.model.device)
     routing_key = trainer.model.routing_key_from_pattern(pattern)
-    expected, _ = trainer.model.hnsw_index.search_tensors(
+    expected, _ = trainer.model.routing_index.search_tensors(
         routing_key.unsqueeze(0),
         k=config.k_routing,
     )
@@ -644,7 +644,7 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     )
     final_report = graph.column_transition_runtime_report()
     graph_runtime = final_report["cuda_graph_route_transition"]
-    route_vectors, route_ids = graph.model.hnsw_index.routing_tensor_cache()
+    route_vectors, route_ids = graph.model.routing_index.routing_tensor_cache()
     route_positions = torch.empty(
         config.n_columns,
         dtype=torch.long,
@@ -697,8 +697,8 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_metrics["routing_index_buffer_skip_count"] == 16
     assert graph_metrics["routing_index_host_mirror_sync_count"] == 0
     assert graph_metrics["routing_index_cpu_mirror_stale"] == 1
-    assert graph._hnsw_buffer_ids == []
-    assert graph._hnsw_buffer_vecs == []
+    assert graph._routing_index_buffer_ids == []
+    assert graph._routing_index_buffer_vecs == []
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -2672,9 +2672,9 @@ def test_device_owned_route_cache_syncs_host_mirror_before_retained_flush() -> N
     assert trainer._routing_index_cpu_mirror_stale is True
     assert trainer._routing_index_host_mirror_sync_count == 0
 
-    trainer._hnsw_flush_interval = 1
+    trainer._routing_index_flush_interval = 1
     retained_id = torch.tensor([0], dtype=torch.long, device="cuda")
-    trainer._buffer_hnsw_update(
+    trainer._buffer_routing_index_update(
         retained_id,
         trainer.model.competitive.prototypes.index_select(
             0,
@@ -2685,14 +2685,14 @@ def test_device_owned_route_cache_syncs_host_mirror_before_retained_flush() -> N
 
     assert trainer._routing_index_cpu_mirror_stale is False
     assert trainer._routing_index_host_mirror_sync_count == 1
-    assert trainer._hnsw_buffer_ids == []
-    assert trainer._hnsw_buffer_vecs == []
+    assert trainer._routing_index_buffer_ids == []
+    assert trainer._routing_index_buffer_vecs == []
     normalized = torch.nn.functional.normalize(
         trainer.model.competitive.prototypes.detach(),
         dim=1,
     ).cpu()
     for column_id in range(config.n_columns):
-        index = trainer.model.hnsw_index
+        index = trainer.model.routing_index
         store_owner = (
             index.shards[index.shard_for_id(column_id)]
             if hasattr(index, "shards")

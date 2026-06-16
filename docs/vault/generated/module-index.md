@@ -63,7 +63,7 @@ last_verified: 2026-06-16
 - `src/marulho/training/cuda_graph_route_transition.py`: 49 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
-- `src/marulho/training/column_transition_runtime.py`: 32 nodes
+- `src/marulho/training/column_transition_runtime.py`: 34 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
@@ -85,7 +85,7 @@ last_verified: 2026-06-16
 - `src/marulho/consolidation/__init__.py`: 1 nodes
 ## marulho.retrieval
 
-- `src/marulho/retrieval/hnsw_index.py`: 51 nodes
+- `src/marulho/retrieval/routing_index.py`: 49 nodes
 - `src/marulho/retrieval/decoder.py`: 17 nodes
 - `src/marulho/retrieval/__init__.py`: 1 nodes
 ## marulho.interaction
