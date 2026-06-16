@@ -81,9 +81,8 @@ class MarulhoConfig:
     predictive_dense_transition_mode: Literal[
         "legacy",
         "fused_eager",
-        "compiled",
         "inplace_triton",
-    ] = "compiled"
+    ] = "inplace_triton"
     predictive_route_vote_mode: Literal[
         "tensor",
         "fused_triton_text",
@@ -420,11 +419,10 @@ class MarulhoConfig:
         if self.predictive_dense_transition_mode not in {
             "legacy",
             "fused_eager",
-            "compiled",
             "inplace_triton",
         }:
             raise ValueError(
-                "predictive_dense_transition_mode must be legacy, fused_eager, compiled, or inplace_triton"
+                "predictive_dense_transition_mode must be legacy, fused_eager, or inplace_triton"
             )
         if self.predictive_route_vote_mode not in {
             "tensor",

@@ -18,28 +18,10 @@ References:
 from __future__ import annotations
 
 import math
-import os
-from pathlib import Path
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
-
-
-def _ensure_windows_triton_compiler() -> str | None:
-    if os.environ.get("CC"):
-        return os.environ["CC"]
-    if os.name != "nt":
-        return None
-    try:
-        import triton  # type: ignore[import-not-found]
-    except Exception:
-        return None
-    tcc = Path(triton.__file__).parent / "runtime" / "tcc" / "tcc.exe"
-    if tcc.exists():
-        os.environ["CC"] = str(tcc)
-        return str(tcc)
-    return None
 
 
 def dense_predictive_transition(
@@ -230,54 +212,6 @@ class PredictiveColumnState:
         self.last_dense_transition_mode = "legacy"
         self.last_dense_transition_fallback_reason: str | None = None
         self.dense_transition_compile_count = 0
-        self._compiled_dense_transition_with_previous = None
-        self._compiled_dense_transition_without_previous = None
-
-    def _compiled_dense_transition(self, *, has_previous_routing_key: bool):
-        attribute = (
-            "_compiled_dense_transition_with_previous"
-            if has_previous_routing_key
-            else "_compiled_dense_transition_without_previous"
-        )
-        compiled = getattr(self, attribute)
-        if compiled is not None:
-            return compiled
-
-        error_ema_alpha = float(self._error_ema_alpha)
-        failure_streak_threshold = float(self._failure_streak_threshold)
-
-        def transition(
-            location: torch.Tensor,
-            velocity: torch.Tensor,
-            prediction_weights: torch.Tensor,
-            prediction_error: torch.Tensor,
-            prediction_failure_streak: torch.Tensor,
-            confidence: torch.Tensor,
-            routing_key: torch.Tensor,
-            previous_routing_key: torch.Tensor,
-            winners: torch.Tensor,
-        ):
-            return dense_predictive_transition(
-                location,
-                velocity,
-                prediction_weights,
-                prediction_error,
-                prediction_failure_streak,
-                confidence,
-                routing_key,
-                previous_routing_key,
-                winners,
-                has_previous_routing_key=has_previous_routing_key,
-                error_ema_alpha=error_ema_alpha,
-                failure_streak_threshold=failure_streak_threshold,
-                learning_rate=0.005,
-            )
-
-        _ensure_windows_triton_compiler()
-        compiled = torch.compile(transition, mode="reduce-overhead", fullgraph=True)
-        setattr(self, attribute, compiled)
-        self.dense_transition_compile_count += 1
-        return compiled
 
     def apply_dense_transition(
         self,
@@ -304,83 +238,32 @@ class PredictiveColumnState:
             "learning_rate": learning_rate,
         }
         self.last_dense_transition_fallback_reason = None
-        if transition_mode == "compiled":
-            if abs(float(learning_rate) - 0.005) > 1e-12:
-                self.last_dense_transition_mode = "fused_eager"
-                self.last_dense_transition_fallback_reason = (
-                    "compiled_learning_rate_requires_0.005"
-                )
-            else:
-                try:
-                    transition_fn = self._compiled_dense_transition(
-                        has_previous_routing_key=has_previous,
-                    )
-                    transition_kwargs = {}
-                    self.last_dense_transition_mode = "compiled"
-                except Exception as exc:  # pragma: no cover - backend dependent
-                    self.last_dense_transition_mode = "fused_eager"
-                    self.last_dense_transition_fallback_reason = (
-                        f"compile_failed:{type(exc).__name__}"
-                    )
-        elif transition_mode == "fused_eager":
+        if transition_mode == "fused_eager":
             self.last_dense_transition_mode = "fused_eager"
         else:
-            raise ValueError("transition_mode must be fused_eager or compiled")
+            raise ValueError("transition_mode must be fused_eager")
 
-        try:
-            if self.last_dense_transition_mode == "compiled":
-                torch.compiler.cudagraph_mark_step_begin()
-            outputs = transition_fn(
-                self.location,
-                self.velocity,
-                self._prediction_weights,
-                self.prediction_error,
-                self.prediction_failure_streak,
-                self.confidence,
-                routing_key,
-                previous,
-                winners,
-                **transition_kwargs,
-            )
-        except Exception as exc:  # pragma: no cover - backend dependent
-            if self.last_dense_transition_mode != "compiled":
-                raise
-            self.last_dense_transition_mode = "fused_eager"
-            self.last_dense_transition_fallback_reason = (
-                f"compiled_execution_failed:{type(exc).__name__}"
-            )
-            outputs = dense_predictive_transition(
-                self.location,
-                self.velocity,
-                self._prediction_weights,
-                self.prediction_error,
-                self.prediction_failure_streak,
-                self.confidence,
-                routing_key,
-                previous,
-                winners,
-                has_previous_routing_key=has_previous,
-                error_ema_alpha=self._error_ema_alpha,
-                failure_streak_threshold=self._failure_streak_threshold,
-                learning_rate=learning_rate,
-            )
+        outputs = transition_fn(
+            self.location,
+            self.velocity,
+            self._prediction_weights,
+            self.prediction_error,
+            self.prediction_failure_streak,
+            self.confidence,
+            routing_key,
+            previous,
+            winners,
+            **transition_kwargs,
+        )
 
-        if self.last_dense_transition_mode == "compiled":
-            self.location.copy_(outputs[0])
-            self.velocity.copy_(outputs[1])
-            self._prediction_weights.copy_(outputs[2])
-            self.prediction_error.copy_(outputs[3])
-            self.prediction_failure_streak.copy_(outputs[4])
-            self.confidence.copy_(outputs[5])
-        else:
-            (
-                self.location,
-                self.velocity,
-                self._prediction_weights,
-                self.prediction_error,
-                self.prediction_failure_streak,
-                self.confidence,
-            ) = outputs
+        (
+            self.location,
+            self.velocity,
+            self._prediction_weights,
+            self.prediction_error,
+            self.prediction_failure_streak,
+            self.confidence,
+        ) = outputs
         self._record_prediction_update_scope(None)
         self._mark_predictive_update_complete(None)
         return self.prediction_error

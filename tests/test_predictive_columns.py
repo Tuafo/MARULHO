@@ -58,57 +58,15 @@ class TestPredictiveColumnState:
         assert str(report["location_device"]).startswith("cuda")
         assert str(report["prediction_weights_device"]).startswith("cuda")
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
-    def test_compiled_dense_transition_preserves_state_across_repeated_cuda_steps(self):
-        torch.manual_seed(23)
-        legacy = PredictiveColumnState(
-            n_columns=16,
-            location_dim=4,
-            device=torch.device("cuda"),
-        )
-        compiled = PredictiveColumnState(
-            n_columns=16,
-            location_dim=4,
-            device=torch.device("cuda"),
-        )
-        compiled.load_state_dict(legacy.state_dict())
-        previous = torch.randn(16, device="cuda")
-
-        for step in range(3):
-            routing_key = torch.randn(16, device="cuda")
-            winners = torch.tensor([step + 1], dtype=torch.long, device="cuda")
-            winner_list = winners.cpu().tolist()
-            legacy.compute_prediction_error(winner_list, routing_key)
-            legacy.update_location(winner_list, routing_key, previous)
-            legacy.update_predictions(winner_list, learning_rate=0.005)
-            compiled.apply_dense_transition(
-                winners,
-                routing_key,
-                previous,
+    def test_dense_transition_rejects_retired_compiled_mode(self):
+        state = PredictiveColumnState(n_columns=16, location_dim=4)
+        with pytest.raises(ValueError, match="transition_mode must be fused_eager"):
+            state.apply_dense_transition(
+                torch.tensor([1], dtype=torch.long),
+                torch.randn(16),
+                torch.randn(16),
                 transition_mode="compiled",
             )
-            previous = routing_key
-
-        torch.cuda.synchronize()
-        assert compiled.last_dense_transition_mode == "compiled"
-        assert compiled.last_dense_transition_fallback_reason is None
-        assert torch.allclose(compiled.location, legacy.location, atol=1e-5)
-        assert torch.allclose(compiled.velocity, legacy.velocity, atol=1e-5)
-        assert torch.allclose(
-            compiled._prediction_weights,
-            legacy._prediction_weights,
-            atol=1e-5,
-        )
-        assert torch.allclose(
-            compiled.prediction_error,
-            legacy.prediction_error,
-            atol=1e-5,
-        )
-        assert torch.equal(
-            compiled.prediction_failure_streak,
-            legacy.prediction_failure_streak,
-        )
-        assert torch.allclose(compiled.confidence, legacy.confidence, atol=1e-5)
 
     def test_predict_returns_correct_shape(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)
@@ -1354,7 +1312,9 @@ class TestPredictiveColumnsInTrainer:
         )
         assert report["predictive_vote_execution"]["updated_column_count"] == cfg.k_routing
         assert report["execution"]["homeostasis_update_count"] == cfg.k_routing
-        assert report["runs_all_columns"] is False
+        assert report["execution"]["state_transition_runs_all_columns"] is True
+        assert report["execution"]["fallback_reason"] == "state_transition_dense_all_columns_retained"
+        assert report["runs_all_columns"] is True
 
     def test_candidate_homeostasis_start_tokens_must_be_non_negative(self):
         from marulho.config.model_config import MarulhoConfig
@@ -1419,6 +1379,8 @@ class TestPredictiveColumnsInTrainer:
         assert report["last_prediction_update_fallback_reason"] == (
             "cuda_sparse_prediction_update_launch_bound_dense_retained"
         )
-        assert report["last_dense_transition_mode"] == "compiled"
-        assert report["dense_transition_compile_count"] == 1
-        assert report["last_dense_transition_fallback_reason"] is None
+        assert report["last_dense_transition_mode"] == "fused_eager"
+        assert report["dense_transition_compile_count"] == 0
+        assert report["last_dense_transition_fallback_reason"] == (
+            "inplace_triton_requires_zero_input_weight_blend"
+        )

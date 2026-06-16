@@ -2276,15 +2276,10 @@ class MarulhoTrainer:
             dense_transition_mode = self.config.predictive_dense_transition_mode
             transition_runtime_fallback = None
             if dense_transition_mode == "inplace_triton":
-                dense_transition_mode = "compiled"
+                dense_transition_mode = "fused_eager"
                 transition_runtime_fallback = (
                     self._column_transition_runtime.fallback_reason
                 )
-            if (
-                dense_transition_mode == "compiled"
-                and self._prev_routing_key is None
-            ):
-                dense_transition_mode = "fused_eager"
             pred_error_mod = self.model.predictive.apply_dense_transition(
                 winners,
                 routing_key,

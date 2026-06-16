@@ -3,7 +3,6 @@ type: retired
 status: rejected
 related_code:
   - ../../../src/marulho/core/inplace_column_cuda.py
-  - ../../../src/marulho/evaluation/predictive_transition_benchmark.py
   - ../../../src/marulho/training/column_transition_runtime.py
 related_docs:
   - ../../retired-paths.md
@@ -26,6 +25,6 @@ mean latency from `8.607221875 ms` to `27.7788925 ms`.
 The maintained CUDA path is `ColumnTransitionRuntime` calling
 `inplace_column_transition_cuda`, where candidate predictive state updates
 inside the existing fused transition launch and Runtime Truth reports
-`candidate_predictive_transition_mode=fused_inplace`. The dense predictive
-transition benchmark remains fallback/evidence tooling, not a second scheduler
-mutation boundary.
+`candidate_predictive_transition_mode=fused_inplace`. Dense eager predictive
+transition remains only an explicit fallback/oracle inside active runtime code,
+not a second scheduler mutation boundary.

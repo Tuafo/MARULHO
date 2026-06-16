@@ -4,7 +4,7 @@ This benchmark intentionally excludes service, source loading, tokenization,
 UI/status reads, checkpointing, replay, and sleep maintenance. It measures the
 current Subcortex training loop over fixed-shape input tensors so wider compile,
 CUDA graph, or fused-kernel work has a stable target. Individual promoted
-transitions may already be compiled and are reported explicitly.
+transition runtimes report their execution/fallback modes explicitly.
 """
 
 from __future__ import annotations
@@ -51,11 +51,10 @@ def run_hot_window_benchmark(
         None,
         "legacy",
         "fused_eager",
-        "compiled",
         "inplace_triton",
     }:
         raise ValueError(
-            "predictive_transition_mode must be legacy, fused_eager, compiled, inplace_triton, or None"
+            "predictive_transition_mode must be legacy, fused_eager, inplace_triton, or None"
         )
     if sync_mode not in {"step", "window"}:
         raise ValueError("sync_mode must be step or window")
@@ -183,7 +182,7 @@ def run_hot_window_benchmark(
         "scope": "already_encoded_tensor_train_step_no_service_no_source_no_sleep",
         "claim_boundary": (
             "measures current configured hot-window throughput; "
-            "individual compiled transitions are reported but the full train_step is not fused; "
+            "individual transition runtimes are reported but the full train_step is not fused; "
             "does not prove service endpoint throughput or fused-kernel capacity"
         ),
         "torch": torch.__version__,
@@ -298,7 +297,7 @@ def main() -> int:
     parser.add_argument("--disable-merged-torch-shards", action="store_true")
     parser.add_argument(
         "--predictive-transition-mode",
-        choices=("legacy", "fused_eager", "compiled", "inplace_triton"),
+        choices=("legacy", "fused_eager", "inplace_triton"),
     )
     parser.add_argument("--seed", type=int, default=20260611)
     parser.add_argument("--profile-trainer-stages", action="store_true")
