@@ -1935,6 +1935,32 @@ That run reached `6150.296 tokens/sec`, `train_compute=0.130390 ms/token`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
 and `velocity_environment.v1` contention `not_observed`.
 
+The promoted follow-up added a fixed two-row route-bank probe lane and kept
+refresh at the graph quantum boundary so fused sequential, graph sequential, and
+burst execution preserve exact state parity:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-bank-probe-lane-8192-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+| Metric | k-only bank cleanup rerun | bounded probe lane |
+| --- | ---: | ---: |
+| tokens/sec | `6150.296` | `6141.234` |
+| train_compute ms/token | `0.130390` | `0.130664` |
+| prepare_training ms/token | `0.006365` | `0.006246` |
+| finalize_total ms/token | `0.005874` | `0.005932` |
+| tick_duration p95 ms | `21.097` | `21.976` |
+| route rows scored | `10/8192` | `12/8192` |
+| awake/state-transition columns | `10/8192` | `10/8192` |
+| graph/native/sequence failures | `0` | `0` |
+| environment contention | not observed | not observed |
+
+Runtime Truth reported `route_candidate_bank.probe_rows=2`,
+`score_rows=12`, `refresh_interval_tokens=16`,
+`probe_refresh_count=8192`, `route_input_rows_scored=12`,
+`route_rows_run_all_columns=false`, `state_transition_cached_count=8182`, and
+`state_transition_runs_all_columns=false`. This keeps the 6k-ish long path while
+adding bounded outside-bank discovery; it is not evidence that the route bank is
+quality-complete on changing text.
+
 ### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
 
 Awake-ripple tagging is a replay-priority metabolism path, not a CUDA route

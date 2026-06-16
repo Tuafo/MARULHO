@@ -23,6 +23,9 @@ from marulho.training.cuda_graph_route_transition import (
 )
 
 
+ROUTE_CANDIDATE_BANK_PROBE_ROWS = 2
+
+
 class ColumnTransitionRuntime:
     """Own the production lifecycle for the in-place CUDA column transition."""
 
@@ -102,6 +105,9 @@ class ColumnTransitionRuntime:
         self._full_route_scores: torch.Tensor | None = None
         self._route_position_by_column: torch.Tensor | None = None
         self._route_bank_positions: torch.Tensor | None = None
+        self._route_probe_positions: torch.Tensor | None = None
+        self._route_probe_offsets: torch.Tensor | None = None
+        self._route_score_positions: torch.Tensor | None = None
         self._route_candidates: torch.Tensor | None = None
         comp = trainer.model.competitive
         device = trainer.model.device
@@ -118,6 +124,19 @@ class ColumnTransitionRuntime:
         self.route_candidate_bank_ready = False
         self.route_candidate_bank_seed_count = 0
         self.route_candidate_bank_refresh_count = 0
+        self.route_candidate_probe_rows = (
+            min(
+                max(0, int(ROUTE_CANDIDATE_BANK_PROBE_ROWS)),
+                max(0, int(comp.n_columns) - self.route_candidate_bank_size),
+            )
+            if self.route_candidate_bank_enabled
+            else 0
+        )
+        self.route_candidate_probe_cursor = self.route_candidate_bank_size
+        self.route_candidate_bank_refresh_interval_tokens = 16
+        self.route_candidate_bank_scored_since_refresh = 0
+        self.route_candidate_probe_refresh_count = 0
+        self.route_candidate_probe_last_reason: str | None = None
         self.route_candidate_bank_graph_bypass_count = 0
         self.route_candidate_bank_fallback_count = 0
         self.route_candidate_bank_last_reason: str | None = None
@@ -458,6 +477,81 @@ class ColumnTransitionRuntime:
         self._last_route_input_source = str(route_input_source)
         self._last_route_scoring_unbounded_reason = unbounded_reason
 
+    def _route_positions_for_scoring(self) -> torch.Tensor | None:
+        if not self.route_candidate_bank_enabled or not self.route_candidate_bank_ready:
+            return None
+        if self._route_score_positions is not None:
+            return self._route_score_positions
+        return self._route_bank_positions
+
+    def _refresh_route_score_positions(self, *, reason: str) -> bool:
+        if not self.route_candidate_bank_enabled:
+            return False
+        if self._route_bank_positions is None or self._route_score_positions is None:
+            self.route_candidate_probe_last_reason = "route_score_workspace_unavailable"
+            return False
+        self._route_score_positions.narrow(
+            0,
+            0,
+            int(self.route_candidate_bank_size),
+        ).copy_(self._route_bank_positions)
+        probe_rows = int(self.route_candidate_probe_rows)
+        if probe_rows <= 0:
+            self.route_candidate_probe_last_reason = "probe_lane_disabled"
+            return True
+        if (
+            self._route_probe_positions is None
+            or self._route_probe_offsets is None
+            or self._route_ids is None
+        ):
+            self.route_candidate_probe_last_reason = "route_probe_workspace_unavailable"
+            return False
+        route_count = int(self._route_ids.numel())
+        if route_count <= int(self.route_candidate_bank_size):
+            self.route_candidate_probe_last_reason = "route_cache_not_larger_than_bank"
+            return True
+        cursor = int(self.route_candidate_probe_cursor) % route_count
+        self._route_probe_positions.copy_(
+            torch.remainder(
+                self._route_probe_offsets + cursor,
+                route_count,
+            )
+        )
+        self._route_score_positions.narrow(
+            0,
+            int(self.route_candidate_bank_size),
+            probe_rows,
+        ).copy_(self._route_probe_positions)
+        self.route_candidate_probe_cursor = (cursor + probe_rows) % route_count
+        self.route_candidate_probe_refresh_count += 1
+        self.route_candidate_probe_last_reason = str(reason)
+        return True
+
+    def _refresh_route_bank_at_quantum_boundary(
+        self,
+        candidates: torch.Tensor,
+        *,
+        tick_count: int,
+        reason: str,
+        validate: bool = True,
+    ) -> None:
+        if not self.route_candidate_bank_enabled:
+            return
+        count = max(0, int(tick_count))
+        if count <= 0:
+            return
+        self.route_candidate_bank_scored_since_refresh += count
+        interval = max(1, int(self.route_candidate_bank_refresh_interval_tokens))
+        if self.route_candidate_bank_scored_since_refresh < interval:
+            self.route_candidate_probe_last_reason = "probe_refresh_deferred_until_quantum_boundary"
+            return
+        if self._refresh_route_bank_from_candidates(
+            candidates,
+            reason=reason,
+            validate=validate,
+        ):
+            self.route_candidate_bank_scored_since_refresh = 0
+
     def _refresh_route_bank_from_candidates(
         self,
         candidates: torch.Tensor,
@@ -483,8 +577,10 @@ class ColumnTransitionRuntime:
             self.route_candidate_bank_last_reason = "candidate_missing_from_route_cache"
             return False
         self._route_bank_positions.copy_(positions)
+        self._refresh_route_score_positions(reason=reason)
         self.route_candidate_bank_ready = True
         self.route_candidate_bank_refresh_count += 1
+        self.route_candidate_bank_scored_since_refresh = 0
         self.route_candidate_bank_last_reason = str(reason)
         return True
 
@@ -529,12 +625,45 @@ class ColumnTransitionRuntime:
                     dtype=torch.long,
                     device=vectors.device,
                 )
+                probe_rows = int(self.route_candidate_probe_rows)
+                if probe_rows > 0:
+                    self._route_probe_offsets = torch.arange(
+                        probe_rows,
+                        dtype=torch.long,
+                        device=vectors.device,
+                    )
+                    self._route_probe_positions = torch.remainder(
+                        self._route_probe_offsets + int(self.route_candidate_probe_cursor),
+                        int(ids.numel()),
+                    ).to(dtype=torch.long)
+                    self._route_score_positions = torch.empty(
+                        int(self.route_candidate_bank_size) + probe_rows,
+                        dtype=torch.long,
+                        device=vectors.device,
+                    )
+                    self._route_score_positions.narrow(
+                        0,
+                        0,
+                        int(self.route_candidate_bank_size),
+                    ).copy_(self._route_bank_positions)
+                    self._route_score_positions.narrow(
+                        0,
+                        int(self.route_candidate_bank_size),
+                        probe_rows,
+                    ).copy_(self._route_probe_positions)
+                else:
+                    self._route_probe_offsets = None
+                    self._route_probe_positions = None
+                    self._route_score_positions = self._route_bank_positions
                 self._route_scores = torch.empty(
-                    self.route_candidate_bank_size,
+                    int(self._route_score_positions.numel()),
                     device=vectors.device,
                 )
             else:
                 self._route_bank_positions = None
+                self._route_probe_offsets = None
+                self._route_probe_positions = None
+                self._route_score_positions = None
                 self._route_scores = self._full_route_scores
             self._route_candidates = torch.empty(
                 candidate_count,
@@ -580,7 +709,7 @@ class ColumnTransitionRuntime:
                 routing_vectors=vectors,
                 routing_ids=ids,
                 route_positions=(
-                    self._route_bank_positions
+                    self._route_score_positions
                     if self.route_candidate_bank_enabled
                     else None
                 ),
@@ -609,7 +738,7 @@ class ColumnTransitionRuntime:
             self.route_vote_kernel_variant = fused_route_vote_kernel_variant(
                 vectors,
                 self._route_candidates,
-                self._route_bank_positions
+                self._route_score_positions
                 if self.route_candidate_bank_enabled
                 else None,
             )
@@ -946,6 +1075,7 @@ class ColumnTransitionRuntime:
             and self._cuda_graph_runtime.active
             and self._route_candidates is not None
         ):
+            score_positions = self._route_positions_for_scoring()
             comp = self._trainer.model.competitive
             comp.last_candidate_count = int(self._route_candidates.numel())
             comp.last_scored_column_count = int(self._route_candidates.numel())
@@ -957,30 +1087,30 @@ class ColumnTransitionRuntime:
             self._route_transition_graph_ready = True
             self._record_route_scoring(
                 input_rows=(
-                    int(self._route_bank_positions.numel())
-                    if self.route_candidate_bank_enabled
-                    and self._route_bank_positions is not None
+                    int(score_positions.numel())
+                    if score_positions is not None
                     else int(self._route_ids.numel())
                     if self._route_ids is not None
                     else int(self._route_candidates.numel())
                 ),
                 output_candidates=int(self._route_candidates.numel()),
                 candidate_boundary=(
-                    "bounded_route_bank_score_then_filter_select"
+                    "bounded_route_bank_probe_score_then_filter_select"
                     if self.route_candidate_bank_enabled
                     else "exact_full_cache_score_then_filter_select"
                 ),
                 route_input_source=(
-                    "training_owned_route_candidate_bank"
+                    "training_owned_route_candidate_bank_plus_probe_lane"
                     if self.route_candidate_bank_enabled
                     else "complete_routing_tensor_cache"
                 ),
                 unbounded_reason=None,
             )
             if self.route_candidate_bank_enabled:
-                self._refresh_route_bank_from_candidates(
+                self._refresh_route_bank_at_quantum_boundary(
                     self._route_candidates,
-                    reason="bounded_route_bank_graph_refresh",
+                    tick_count=1,
+                    reason="bounded_route_bank_graph_quantum_refresh",
                     validate=False,
                 )
             return self._route_candidates
@@ -1034,6 +1164,7 @@ class ColumnTransitionRuntime:
                 assume_route_cache_current=True
             )
         ):
+            score_positions = self._route_positions_for_scoring()
             comp = self._trainer.model.competitive
             comp.last_candidate_count = int(route_candidates.numel())
             comp.last_scored_column_count = int(route_candidates.numel())
@@ -1044,31 +1175,25 @@ class ColumnTransitionRuntime:
             self._route_transition_graph_ready = True
             self._record_route_scoring(
                 input_rows=(
-                    int(self._route_bank_positions.numel())
-                    if self.route_candidate_bank_enabled
-                    and self._route_bank_positions is not None
+                    int(score_positions.numel())
+                    if score_positions is not None
                     else int(route_ids.numel())
                 ),
                 output_candidates=int(route_candidates.numel()),
                 candidate_boundary=(
-                    "bounded_route_bank_score_then_filter_select"
+                    "bounded_route_bank_probe_score_then_filter_select"
                     if self.route_candidate_bank_enabled
                     else "exact_full_cache_score_then_filter_select"
                 ),
                 route_input_source=(
-                    "training_owned_route_candidate_bank"
+                    "training_owned_route_candidate_bank_plus_probe_lane"
                     if self.route_candidate_bank_enabled
                     else "complete_routing_tensor_cache"
                 ),
                 unbounded_reason=None,
             )
             return route_candidates
-        route_positions = (
-            self._route_bank_positions
-            if self.route_candidate_bank_enabled
-            and self.route_candidate_bank_ready
-            else None
-        )
+        route_positions = self._route_positions_for_scoring()
         route_scores = (
             self._route_scores
             if route_positions is not None
@@ -1123,14 +1248,14 @@ class ColumnTransitionRuntime:
             input_rows=route_input_rows,
             output_candidates=int(route_candidates.numel()),
             candidate_boundary=(
-                "bounded_route_bank_score_then_filter_select"
+                "bounded_route_bank_probe_score_then_filter_select"
                 if route_positions is not None
                 else "exact_full_cache_score_seed_route_bank"
                 if self.route_candidate_bank_enabled
                 else "exact_full_cache_score_then_filter_select"
             ),
             route_input_source=(
-                "training_owned_route_candidate_bank"
+                "training_owned_route_candidate_bank_plus_probe_lane"
                 if route_positions is not None
                 else "complete_routing_tensor_cache_seed"
                 if self.route_candidate_bank_enabled
@@ -1145,15 +1270,19 @@ class ColumnTransitionRuntime:
             ),
         )
         if self.route_candidate_bank_enabled:
-            self._refresh_route_bank_from_candidates(
-                route_candidates,
-                reason=(
-                    "route_candidate_bank_seeded_from_exact_route"
-                    if route_positions is None
-                    else "bounded_route_bank_refreshed_from_candidates"
-                ),
-                validate=False,
-            )
+            if route_positions is None:
+                self._refresh_route_bank_from_candidates(
+                    route_candidates,
+                    reason="route_candidate_bank_seeded_from_exact_route",
+                    validate=False,
+                )
+            else:
+                self._refresh_route_bank_at_quantum_boundary(
+                    route_candidates,
+                    tick_count=1,
+                    reason="bounded_route_bank_quantum_refresh",
+                    validate=False,
+                )
         return route_candidates
 
     def prepare_routing(
@@ -1907,15 +2036,32 @@ class ColumnTransitionRuntime:
                 "enabled": bool(self.route_candidate_bank_enabled),
                 "ready": bool(self.route_candidate_bank_ready),
                 "bank_size": int(self.route_candidate_bank_size),
+                "probe_rows": int(self.route_candidate_probe_rows),
+                "score_rows": (
+                    int(self._route_score_positions.numel())
+                    if self._route_score_positions is not None
+                    else int(self.route_candidate_bank_size)
+                ),
+                "probe_cursor": int(self.route_candidate_probe_cursor),
+                "refresh_interval_tokens": int(
+                    self.route_candidate_bank_refresh_interval_tokens
+                ),
+                "scored_since_refresh": int(
+                    self.route_candidate_bank_scored_since_refresh
+                ),
                 "seed_count": int(self.route_candidate_bank_seed_count),
                 "refresh_count": int(self.route_candidate_bank_refresh_count),
+                "probe_refresh_count": int(
+                    self.route_candidate_probe_refresh_count
+                ),
                 "graph_bypass_count": int(
                     self.route_candidate_bank_graph_bypass_count
                 ),
                 "fallback_count": int(self.route_candidate_bank_fallback_count),
                 "last_reason": self.route_candidate_bank_last_reason,
+                "probe_last_reason": self.route_candidate_probe_last_reason,
                 "claim_boundary": (
-                    "training_owned_bounded_route_rows_seeded_from_exact_route_without_hot_path_all_column_rescore"
+                    "training_owned_bounded_route_bank_plus_probe_lane_without_hot_path_all_column_rescore"
                 ),
             },
             "route_vote_scoring": route_scoring,

@@ -357,7 +357,7 @@ class CudaGraphRouteTransition:
             self.route_vote_kernel_variant = fused_route_vote_kernel_variant(
                 vectors,
                 runtime._route_candidates,
-                runtime._route_bank_positions
+                runtime._route_score_positions
                 if runtime.route_candidate_bank_enabled
                 else None,
             )
@@ -628,7 +628,7 @@ class CudaGraphRouteTransition:
             routing_vectors=self._route_vectors,
             routing_ids=self._route_ids,
             route_positions=(
-                runtime._route_bank_positions
+                runtime._route_score_positions
                 if runtime.route_candidate_bank_enabled
                 else None
             ),
@@ -1627,20 +1627,21 @@ class CudaGraphRouteTransition:
         comp.last_candidate_count = int(self._runtime._route_candidates.numel())
         if self._runtime.route_candidate_bank_enabled:
             route_input_rows = (
-                int(self._runtime._route_bank_positions.numel())
-                if self._runtime._route_bank_positions is not None
+                int(self._runtime._route_score_positions.numel())
+                if self._runtime._route_score_positions is not None
                 else int(self._runtime._route_candidates.numel())
             )
             self._runtime._record_route_scoring(
                 input_rows=route_input_rows,
                 output_candidates=int(self._runtime._route_candidates.numel()),
-                candidate_boundary="bounded_route_bank_burst_score_then_filter_select",
-                route_input_source="training_owned_route_candidate_bank",
+                candidate_boundary="bounded_route_bank_probe_burst_score_then_filter_select",
+                route_input_source="training_owned_route_candidate_bank_plus_probe_lane",
                 unbounded_reason=None,
             )
-            self._runtime._refresh_route_bank_from_candidates(
+            self._runtime._refresh_route_bank_at_quantum_boundary(
                 self._runtime._route_candidates,
-                reason="bounded_route_bank_burst_refresh",
+                tick_count=token_count,
+                reason="bounded_route_bank_burst_quantum_refresh",
                 validate=False,
             )
         elif self._route_ids is not None:

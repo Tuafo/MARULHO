@@ -212,7 +212,7 @@ if triton is not None:
             candidate_id = tl.load(routing_ids + routing_cache_position)
             tl.store(candidates_out + candidate_offset, candidate_id)
             primary_scores = tl.where(
-                score_offsets == routing_position,
+                candidate_ids_by_position == candidate_id,
                 -float("inf"),
                 primary_scores,
             )
@@ -448,7 +448,6 @@ def warmup_fused_route_vote_cuda(
         num_warps=8,
         grid=(1,),
     )
-
 
 def fused_route_vote_cuda(
     *,

@@ -573,15 +573,89 @@ def test_cuda_graph_route_candidate_bank_bounds_route_scoring_after_seed() -> No
     assert report["route_candidate_bank"]["enabled"] is True
     assert report["route_candidate_bank"]["ready"] is True
     assert report["route_candidate_bank"]["bank_size"] == config.k_routing
+    assert report["route_candidate_bank"]["probe_rows"] == 2
+    assert report["route_candidate_bank"]["score_rows"] == config.k_routing + 2
+    assert report["route_candidate_bank"]["probe_refresh_count"] >= 1
     assert report["route_candidate_bank"]["graph_bypass_count"] == 1
-    assert scoring["route_input_rows_scored"] == config.k_routing
+    assert scoring["route_input_rows_scored"] == config.k_routing + 2
     assert scoring["route_output_candidate_count"] == config.k_routing
     assert scoring["route_rows_run_all_columns"] is False
     assert scoring["bounded_route_scoring"] is True
-    assert scoring["candidate_boundary"] == "bounded_route_bank_score_then_filter_select"
-    assert scoring["route_input_source"] == "training_owned_route_candidate_bank"
+    assert scoring["candidate_boundary"] == "bounded_route_bank_probe_score_then_filter_select"
+    assert scoring["route_input_source"] == "training_owned_route_candidate_bank_plus_probe_lane"
     assert scoring["route_scoring_unbounded_reason"] is None
     assert report["cuda_graph_route_transition"]["tick_replay_count"] >= 1
+    assert report["state_transition_runs_all_columns"] is False
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_route_candidate_probe_lane_discovers_outside_stale_bank() -> None:
+    torch.manual_seed(20260617)
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        route_candidate_bank_size=0,
+        memory_capacity=16,
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        dead_column_steps=1000,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        candidate_memory_pressure_filter_start_tokens=10**9,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="route probe seed",
+        allow_sleep_maintenance=False,
+    )
+    runtime = trainer._column_transition_runtime
+    assert runtime is not None
+    assert runtime._route_bank_positions is not None
+    assert runtime._route_score_positions is not None
+    assert runtime._route_vectors is not None
+    assert runtime._route_ids is not None
+
+    target_position = config.k_routing + 7
+    runtime._cuda_graph_runtime = None
+    runtime._prepared_graph_token = None
+    runtime._route_bank_positions.copy_(
+        torch.arange(config.k_routing, dtype=torch.long, device="cuda")
+    )
+    runtime.route_candidate_probe_cursor = target_position
+    assert runtime._refresh_route_score_positions(reason="unit_test_probe_refresh")
+    assert int(runtime._route_score_positions[-2].item()) == target_position
+
+    target_id = int(runtime._route_ids[target_position].item())
+    candidates = runtime.route_candidates(
+        runtime._route_vectors[target_position].detach().clone(),
+        sensory_tick=False,
+    )
+    assert candidates is not None
+    torch.cuda.synchronize()
+    report = runtime.report()
+    scoring = report["route_vote_scoring"]
+
+    assert target_id in [int(value) for value in candidates.detach().cpu().tolist()]
+    assert scoring["route_input_rows_scored"] == config.k_routing + 2
+    assert scoring["route_output_candidate_count"] == config.k_routing
+    assert scoring["route_rows_run_all_columns"] is False
+    assert scoring["bounded_route_scoring"] is True
+    assert scoring["candidate_boundary"] == "bounded_route_bank_probe_score_then_filter_select"
+    assert scoring["route_input_source"] == "training_owned_route_candidate_bank_plus_probe_lane"
+    assert report["route_candidate_bank"]["probe_rows"] == 2
+    assert report["route_candidate_bank"]["score_rows"] == config.k_routing + 2
+    assert report["route_candidate_bank"]["probe_refresh_count"] >= 2
     assert report["state_transition_runs_all_columns"] is False
 
 

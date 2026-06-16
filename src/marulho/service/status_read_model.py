@@ -1251,9 +1251,23 @@ class StatusReadModel:
                 "enabled": bool(route_candidate_bank.get("enabled", False)),
                 "ready": bool(route_candidate_bank.get("ready", False)),
                 "bank_size": int(route_candidate_bank.get("bank_size", 0) or 0),
+                "probe_rows": int(route_candidate_bank.get("probe_rows", 0) or 0),
+                "score_rows": int(route_candidate_bank.get("score_rows", 0) or 0),
+                "probe_cursor": int(
+                    route_candidate_bank.get("probe_cursor", 0) or 0
+                ),
+                "refresh_interval_tokens": int(
+                    route_candidate_bank.get("refresh_interval_tokens", 0) or 0
+                ),
+                "scored_since_refresh": int(
+                    route_candidate_bank.get("scored_since_refresh", 0) or 0
+                ),
                 "seed_count": int(route_candidate_bank.get("seed_count", 0) or 0),
                 "refresh_count": int(
                     route_candidate_bank.get("refresh_count", 0) or 0
+                ),
+                "probe_refresh_count": int(
+                    route_candidate_bank.get("probe_refresh_count", 0) or 0
                 ),
                 "graph_bypass_count": int(
                     route_candidate_bank.get("graph_bypass_count", 0) or 0
@@ -1262,6 +1276,7 @@ class StatusReadModel:
                     route_candidate_bank.get("fallback_count", 0) or 0
                 ),
                 "last_reason": route_candidate_bank.get("last_reason"),
+                "probe_last_reason": route_candidate_bank.get("probe_last_reason"),
                 "claim_boundary": route_candidate_bank.get("claim_boundary"),
             },
             "scheduler": {

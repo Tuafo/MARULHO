@@ -639,13 +639,20 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "enabled": True,
                         "ready": True,
                         "bank_size": 7,
+                        "probe_rows": 2,
+                        "score_rows": 9,
+                        "probe_cursor": 31,
+                        "refresh_interval_tokens": 16,
+                        "scored_since_refresh": 4,
                         "seed_count": 1,
                         "refresh_count": 12,
+                        "probe_refresh_count": 12,
                         "graph_bypass_count": 1,
                         "fallback_count": 1,
                         "last_reason": "bounded_route_bank_graph_refresh",
+                        "probe_last_reason": "bounded_route_bank_graph_refresh",
                         "claim_boundary": (
-                            "training_owned_bounded_route_rows_seeded_from_exact_route_without_hot_path_all_column_rescore"
+                            "training_owned_bounded_route_bank_plus_probe_lane_without_hot_path_all_column_rescore"
                         ),
                     },
                 },
@@ -696,8 +703,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertTrue(projected["route_candidate_bank"]["enabled"])
         self.assertTrue(projected["route_candidate_bank"]["ready"])
         self.assertEqual(projected["route_candidate_bank"]["bank_size"], 7)
+        self.assertEqual(projected["route_candidate_bank"]["probe_rows"], 2)
+        self.assertEqual(projected["route_candidate_bank"]["score_rows"], 9)
+        self.assertEqual(projected["route_candidate_bank"]["probe_cursor"], 31)
+        self.assertEqual(
+            projected["route_candidate_bank"]["refresh_interval_tokens"],
+            16,
+        )
+        self.assertEqual(projected["route_candidate_bank"]["scored_since_refresh"], 4)
         self.assertEqual(projected["route_candidate_bank"]["seed_count"], 1)
         self.assertEqual(projected["route_candidate_bank"]["refresh_count"], 12)
+        self.assertEqual(projected["route_candidate_bank"]["probe_refresh_count"], 12)
         self.assertEqual(
             projected["route_candidate_bank"]["graph_bypass_count"],
             1,
@@ -705,6 +721,10 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(projected["route_candidate_bank"]["fallback_count"], 1)
         self.assertEqual(
             projected["route_candidate_bank"]["last_reason"],
+            "bounded_route_bank_graph_refresh",
+        )
+        self.assertEqual(
+            projected["route_candidate_bank"]["probe_last_reason"],
             "bounded_route_bank_graph_refresh",
         )
         self.assertEqual(
