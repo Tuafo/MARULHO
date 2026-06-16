@@ -59,6 +59,7 @@ class DualMemoryStore:
         self._bucket_consolidation_weight_sum: Optional[torch.Tensor] = None
         self._bucket_consolidation_devices: dict[str, torch.Tensor] = {}
         self._bucket_consolidation_cache_generation = 0
+        self._bucket_entry_indices: defaultdict[int, set[int]] = defaultdict(set)
 
         self.slow_buffer: List[torch.Tensor] = []
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
@@ -95,6 +96,10 @@ class DualMemoryStore:
         self.optional_payload_copy_avoidance_count = 0
         self.ripple_scalar_scan_count = 0
         self.ripple_vector_scan_count = 0
+        self.ripple_awake_bucket_scan_count = 0
+        self.ripple_awake_bucket_candidate_count = 0
+        self.last_ripple_awake_bucket_count = 0
+        self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
 
         self.n_seen = 0
@@ -136,6 +141,10 @@ class DualMemoryStore:
         self.optional_payload_copy_avoidance_count = 0
         self.ripple_scalar_scan_count = 0
         self.ripple_vector_scan_count = 0
+        self.ripple_awake_bucket_scan_count = 0
+        self.ripple_awake_bucket_candidate_count = 0
+        self.last_ripple_awake_bucket_count = 0
+        self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
         self._slow_mean = None
         self._slow_weight_sum = 0.0
@@ -143,7 +152,41 @@ class DualMemoryStore:
         self.n_seen = 0
         self._cached_summary = None
         self._cached_summary_token = -1
+        self._bucket_entry_indices = defaultdict(set)
         self._invalidate_bucket_consolidation_cache()
+
+    def _invalidate_summary_cache(self) -> None:
+        self._cached_summary = None
+        self._cached_summary_token = -1
+
+    def _remove_bucket_entry_index(
+        self,
+        bucket_id: Optional[int],
+        index: int,
+    ) -> None:
+        if bucket_id is None:
+            return
+        bucket = int(bucket_id)
+        entries = self._bucket_entry_indices.get(bucket)
+        if entries is None:
+            return
+        entries.discard(int(index))
+        if not entries:
+            self._bucket_entry_indices.pop(bucket, None)
+
+    def _add_bucket_entry_index(
+        self,
+        bucket_id: Optional[int],
+        index: int,
+    ) -> None:
+        if bucket_id is None:
+            return
+        self._bucket_entry_indices[int(bucket_id)].add(int(index))
+
+    def _rebuild_bucket_entry_index(self) -> None:
+        self._bucket_entry_indices = defaultdict(set)
+        for index, bucket_id in enumerate(self.slow_bucket_ids):
+            self._add_bucket_entry_index(bucket_id, int(index))
 
     def _invalidate_bucket_consolidation_cache(self) -> None:
         self._bucket_consolidation_cache_generation += 1
@@ -304,6 +347,18 @@ class DualMemoryStore:
                 ),
                 "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
                 "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+                "ripple_awake_bucket_scan_count": int(
+                    self.ripple_awake_bucket_scan_count
+                ),
+                "ripple_awake_bucket_candidate_count": int(
+                    self.ripple_awake_bucket_candidate_count
+                ),
+                "last_ripple_awake_bucket_count": int(
+                    self.last_ripple_awake_bucket_count
+                ),
+                "last_ripple_awake_candidate_count": int(
+                    self.last_ripple_awake_candidate_count
+                ),
                 "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             },
             "all_archival_tensors_cpu": all(
@@ -643,12 +698,15 @@ class DualMemoryStore:
         old_bucket_id = self.slow_bucket_ids[index]
         old_importance = self.slow_importance[index]
         old_consolidation = self.slow_consolidation_level[index]
+        new_bucket_id = int(bucket_id) if bucket_id is not None else None
         self._adjust_bucket_consolidation_cache(
             old_bucket_id,
             importance=old_importance,
             consolidation=old_consolidation,
             sign=-1.0,
         )
+        if old_bucket_id != new_bucket_id:
+            self._remove_bucket_entry_index(old_bucket_id, index)
         strong_event = self._is_strong_event(capture_value, importance)
         injected_prp = self._inject_prp(bucket_id=bucket_id, strength=capture_value, importance=importance)
         local_prp = 0.20 * injected_prp if strong_event else 0.0
@@ -660,7 +718,7 @@ class DualMemoryStore:
         self.slow_raw_windows[index] = stored_window
         self.slow_texts[index] = stored_text
         self.slow_metadata[index] = None if stored_metadata is None else {str(key): value for key, value in dict(stored_metadata).items()}
-        self.slow_bucket_ids[index] = int(bucket_id) if bucket_id is not None else None
+        self.slow_bucket_ids[index] = new_bucket_id
         self.slow_importance[index] = float(max(1e-6, importance))
         self.slow_capture_tag[index] = tag_value
         self.slow_tag_is_strong[index] = bool(strong_event)
@@ -678,6 +736,8 @@ class DualMemoryStore:
         self.slow_last_replay_token[index] = int(token_marker)
         self.slow_replay_count[index] = 0
         self.slow_ripple_strength[index] = 0.0
+        self._add_bucket_entry_index(new_bucket_id, index)
+        self._invalidate_summary_cache()
 
     def update(
         self,
@@ -745,7 +805,7 @@ class DualMemoryStore:
             self.slow_raw_windows.append(stored_window)
             self.slow_texts.append(stored_text)
             self.slow_metadata.append(None if stored_metadata is None else {str(key): value for key, value in dict(stored_metadata).items()})
-            self.slow_bucket_ids.append(int(bucket_id) if bucket_id is not None else None)
+            self.slow_bucket_ids.append(None)
             self.slow_importance.append(float(max(1e-6, importance)))
             self.slow_capture_tag.append(0.0)
             self.slow_tag_is_strong.append(False)
@@ -804,6 +864,82 @@ class DualMemoryStore:
         # instead of a flat 3x multiplier.
         return float(3.0 + 2.0 * max(0.0, clipped - 0.5) / 0.5)
 
+    @staticmethod
+    def _normalise_awake_bucket_ids(
+        awake_bucket_ids: Sequence[int] | torch.Tensor | None,
+    ) -> list[int] | None:
+        if awake_bucket_ids is None:
+            return None
+        if isinstance(awake_bucket_ids, torch.Tensor):
+            raw_values = awake_bucket_ids.detach().flatten().cpu().tolist()
+        else:
+            raw_values = list(awake_bucket_ids)
+        bucket_ids: list[int] = []
+        seen: set[int] = set()
+        for raw in raw_values:
+            if raw is None:
+                continue
+            if isinstance(raw, torch.Tensor):
+                if int(raw.numel()) != 1:
+                    continue
+                raw = raw.detach().cpu().item()
+            try:
+                bucket_id = int(raw)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if bucket_id < 0 or bucket_id in seen:
+                continue
+            seen.add(bucket_id)
+            bucket_ids.append(bucket_id)
+        return bucket_ids
+
+    def _ripple_tag_indices(
+        self,
+        indices: Sequence[int],
+        *,
+        floor_token: int,
+        window_span: float,
+        da_scale: float,
+        size: int,
+    ) -> int:
+        tagged = 0
+        touched = 0
+        for raw_index in indices:
+            idx = int(raw_index)
+            if idx < 0 or idx >= size:
+                continue
+            entry_token = int(self.slow_entry_timestamps[idx])
+            if entry_token < floor_token:
+                continue
+            recency_scale = max(
+                0.0,
+                min(
+                    1.0,
+                    (float(entry_token) - float(floor_token))
+                    / window_span,
+                ),
+            )
+            ripple_strength = self._clip_ripple_strength(
+                0.5 + 0.30 * da_scale + 0.20 * recency_scale
+            )
+            was_untagged = float(self.slow_ripple_strength[idx]) <= 0.0
+            self.slow_ripple_strength[idx] = float(
+                max(self.slow_ripple_strength[idx], ripple_strength)
+            )
+            self.slow_capture_tag[idx] = float(
+                min(
+                    1.0,
+                    self.slow_capture_tag[idx]
+                    + 0.10
+                    + 0.25 * ripple_strength,
+                )
+            )
+            tagged += int(was_untagged)
+            touched += 1
+        if touched:
+            self._invalidate_summary_cache()
+        return tagged
+
     def replay_scores(self, current_token: int) -> torch.Tensor:
         if not self.slow_buffer:
             return torch.zeros(0, dtype=torch.float32)
@@ -839,6 +975,7 @@ class DualMemoryStore:
         window_tokens: int,
         da_level: float,
         da_threshold: float = 0.7,
+        awake_bucket_ids: Sequence[int] | torch.Tensor | None = None,
     ) -> int:
         """Awake ripple tagging (Yang & Buzsaki 2024, Science).
 
@@ -851,6 +988,10 @@ class DualMemoryStore:
             window_tokens: How far back to look for recent entries.
             da_level: Current dopamine level from SurpriseMonitor.
             da_threshold: DA threshold to trigger ripple tagging.
+            awake_bucket_ids: Optional scheduler-owned column/bucket ids.
+                When supplied, only entries attached to those awake buckets are
+                considered. An empty list is an explicit no-awake-bucket result,
+                not a request to fall back to the global scan.
 
         Returns:
             Number of entries ripple-tagged.
@@ -869,47 +1010,51 @@ class DualMemoryStore:
         )
         if size <= 0:
             return 0
+        bucket_ids = self._normalise_awake_bucket_ids(awake_bucket_ids)
+        if bucket_ids is not None:
+            self.last_ripple_scan_mode = "awake_bucket_index"
+            self.ripple_awake_bucket_scan_count += 1
+            self.last_ripple_awake_bucket_count = int(len(bucket_ids))
+            candidate_indices: set[int] = set()
+            for bucket_id in bucket_ids:
+                candidate_indices.update(
+                    self._bucket_entry_indices.get(int(bucket_id), ())
+                )
+            bounded_indices = [
+                int(index)
+                for index in sorted(candidate_indices)
+                if 0 <= int(index) < size
+            ]
+            self.last_ripple_awake_candidate_count = int(len(bounded_indices))
+            self.ripple_awake_bucket_candidate_count += int(
+                len(bounded_indices)
+            )
+            self._invalidate_summary_cache()
+            if not bounded_indices:
+                return 0
+            return self._ripple_tag_indices(
+                bounded_indices,
+                floor_token=floor_token,
+                window_span=window_span,
+                da_scale=da_scale,
+                size=size,
+            )
+
         if size < 512:
             self.last_ripple_scan_mode = "scalar_small_memory"
             self.ripple_scalar_scan_count += 1
-            tagged = 0
-            for idx, timestamp in enumerate(self.slow_entry_timestamps):
-                entry_token = int(timestamp)
-                if entry_token < floor_token:
-                    continue
-                recency_scale = max(
-                    0.0,
-                    min(
-                        1.0,
-                        (float(entry_token) - float(floor_token))
-                        / window_span,
-                    ),
-                )
-                ripple_strength = self._clip_ripple_strength(
-                    0.5 + 0.30 * da_scale + 0.20 * recency_scale
-                )
-                was_untagged = (
-                    float(self.slow_ripple_strength[idx]) <= 0.0
-                )
-                self.slow_ripple_strength[idx] = float(
-                    max(
-                        self.slow_ripple_strength[idx],
-                        ripple_strength,
-                    )
-                )
-                self.slow_capture_tag[idx] = float(
-                    min(
-                        1.0,
-                        self.slow_capture_tag[idx]
-                        + 0.10
-                        + 0.25 * ripple_strength,
-                    )
-                )
-                tagged += int(was_untagged)
-            return tagged
+            self._invalidate_summary_cache()
+            return self._ripple_tag_indices(
+                range(size),
+                floor_token=floor_token,
+                window_span=window_span,
+                da_scale=da_scale,
+                size=size,
+            )
 
         self.last_ripple_scan_mode = "vector_large_memory"
         self.ripple_vector_scan_count += 1
+        self._invalidate_summary_cache()
         timestamps = np.frombuffer(
             self.slow_entry_timestamps,
             dtype=np.int64,
@@ -946,6 +1091,7 @@ class DualMemoryStore:
             1.0,
             capture[recent] + 0.10 + 0.25 * next_ripple,
         )
+        self._invalidate_summary_cache()
         return int(np.count_nonzero(previous <= 0.0))
 
     @property
@@ -1265,6 +1411,18 @@ class DualMemoryStore:
                 "drift": float(self.compute_drift()),
                 "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
                 "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+                "ripple_awake_bucket_scan_count": int(
+                    self.ripple_awake_bucket_scan_count
+                ),
+                "ripple_awake_bucket_candidate_count": int(
+                    self.ripple_awake_bucket_candidate_count
+                ),
+                "last_ripple_awake_bucket_count": int(
+                    self.last_ripple_awake_bucket_count
+                ),
+                "last_ripple_awake_candidate_count": int(
+                    self.last_ripple_awake_candidate_count
+                ),
                 "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             }
             self._cached_summary = result
@@ -1319,6 +1477,18 @@ class DualMemoryStore:
             "max_ripple_strength": float(ripple_t.max().item()),
             "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
             "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+            "ripple_awake_bucket_scan_count": int(
+                self.ripple_awake_bucket_scan_count
+            ),
+            "ripple_awake_bucket_candidate_count": int(
+                self.ripple_awake_bucket_candidate_count
+            ),
+            "last_ripple_awake_bucket_count": int(
+                self.last_ripple_awake_bucket_count
+            ),
+            "last_ripple_awake_candidate_count": int(
+                self.last_ripple_awake_candidate_count
+            ),
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
@@ -1395,6 +1565,18 @@ class DualMemoryStore:
             ),
             "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
             "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+            "ripple_awake_bucket_scan_count": int(
+                self.ripple_awake_bucket_scan_count
+            ),
+            "ripple_awake_bucket_candidate_count": int(
+                self.ripple_awake_bucket_candidate_count
+            ),
+            "last_ripple_awake_bucket_count": int(
+                self.last_ripple_awake_bucket_count
+            ),
+            "last_ripple_awake_candidate_count": int(
+                self.last_ripple_awake_candidate_count
+            ),
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
@@ -1549,9 +1731,22 @@ class DualMemoryStore:
         self.ripple_vector_scan_count = int(
             snapshot.get("ripple_vector_scan_count", 0)
         )
+        self.ripple_awake_bucket_scan_count = int(
+            snapshot.get("ripple_awake_bucket_scan_count", 0)
+        )
+        self.ripple_awake_bucket_candidate_count = int(
+            snapshot.get("ripple_awake_bucket_candidate_count", 0)
+        )
+        self.last_ripple_awake_bucket_count = int(
+            snapshot.get("last_ripple_awake_bucket_count", 0)
+        )
+        self.last_ripple_awake_candidate_count = int(
+            snapshot.get("last_ripple_awake_candidate_count", 0)
+        )
         self.last_ripple_scan_mode = str(
             snapshot.get("last_ripple_scan_mode", "not_run")
         )
+        self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")
         self._slow_mean = slow_mean.detach().clone().cpu() if isinstance(slow_mean, torch.Tensor) else None
         self._slow_weight_sum = float(snapshot.get("slow_weight_sum", 0.0))

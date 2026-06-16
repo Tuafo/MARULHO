@@ -3557,6 +3557,22 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             result["memory_store"]["ripple_vector_scan_count"],
         )
         self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["ripple_awake_bucket_scan_count"],
+            result["memory_store"]["ripple_awake_bucket_scan_count"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["ripple_awake_bucket_candidate_count"],
+            result["memory_store"]["ripple_awake_bucket_candidate_count"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["last_ripple_awake_bucket_count"],
+            result["memory_store"]["last_ripple_awake_bucket_count"],
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"]["last_ripple_awake_candidate_count"],
+            result["memory_store"]["last_ripple_awake_candidate_count"],
+        )
+        self.assertEqual(
             truth["evidence"]["memory_hot_path"]["last_ripple_scan_mode"],
             result["memory_store"]["last_ripple_scan_mode"],
         )

@@ -908,6 +908,19 @@ class StatusReadModel:
             "ripple_vector_scan_count": int(
                 memory_store.get("ripple_vector_scan_count", 0) or 0
             ),
+            "ripple_awake_bucket_scan_count": int(
+                memory_store.get("ripple_awake_bucket_scan_count", 0) or 0
+            ),
+            "ripple_awake_bucket_candidate_count": int(
+                memory_store.get("ripple_awake_bucket_candidate_count", 0) or 0
+            ),
+            "last_ripple_awake_bucket_count": int(
+                memory_store.get("last_ripple_awake_bucket_count", 0) or 0
+            ),
+            "last_ripple_awake_candidate_count": int(
+                memory_store.get("last_ripple_awake_candidate_count", 0)
+                or 0
+            ),
             "last_ripple_scan_mode": str(
                 memory_store.get("last_ripple_scan_mode") or "not_run"
             ),

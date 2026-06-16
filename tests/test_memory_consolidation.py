@@ -99,6 +99,93 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["hot_path"]["update_calls"], 1)
         self.assertEqual(report["hot_path"]["admission_count"], 1)
         self.assertEqual(report["hot_path"]["optional_payload_copy_count"], 2)
+        self.assertEqual(report["hot_path"]["ripple_awake_bucket_scan_count"], 0)
+        self.assertEqual(
+            report["hot_path"]["last_ripple_awake_candidate_count"],
+            0,
+        )
+
+    def test_awake_ripple_tagging_uses_awake_bucket_index(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        for token, bucket_id in enumerate([1, 2, 1, 3], start=1):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                importance=0.8,
+                token_count=token,
+                bucket_id=bucket_id,
+            )
+
+        snapshot = store.snapshot()
+        tagged = store.ripple_tag_awake(
+            current_token=5,
+            window_tokens=10,
+            da_level=0.95,
+            awake_bucket_ids=[1, 1],
+        )
+
+        self.assertEqual(tagged, 2)
+        self.assertEqual(store.last_ripple_scan_mode, "awake_bucket_index")
+        self.assertEqual(store.ripple_scalar_scan_count, 0)
+        self.assertEqual(store.ripple_vector_scan_count, 0)
+        self.assertEqual(store.ripple_awake_bucket_scan_count, 1)
+        self.assertEqual(store.last_ripple_awake_bucket_count, 1)
+        self.assertEqual(store.last_ripple_awake_candidate_count, 2)
+        tagged_buckets = [
+            bucket_id
+            for bucket_id, strength in zip(
+                store.slow_bucket_ids,
+                store.slow_ripple_strength,
+            )
+            if float(strength) > 0.0
+        ]
+        self.assertEqual(tagged_buckets, [1, 1])
+
+        restored = DualMemoryStore(capacity=8)
+        restored.restore(snapshot)
+        restored_tagged = restored.ripple_tag_awake(
+            current_token=5,
+            window_tokens=10,
+            da_level=0.95,
+            awake_bucket_ids=torch.tensor([3], dtype=torch.long),
+        )
+        self.assertEqual(restored_tagged, 1)
+        self.assertEqual(restored.last_ripple_scan_mode, "awake_bucket_index")
+        self.assertEqual(restored.last_ripple_awake_candidate_count, 1)
+        self.assertEqual(restored.slow_bucket_ids[3], 3)
+        self.assertGreater(float(restored.slow_ripple_strength[3]), 0.0)
+
+    def test_awake_ripple_bucket_index_updates_on_reservoir_replacement(self) -> None:
+        store = DualMemoryStore(capacity=1)
+        store.update(
+            torch.tensor([1.0, 0.0], dtype=torch.float32),
+            token_count=1,
+            bucket_id=1,
+        )
+
+        with patch("torch.randint", return_value=torch.tensor([0])):
+            store.update(
+                torch.tensor([0.0, 1.0], dtype=torch.float32),
+                token_count=2,
+                bucket_id=2,
+            )
+
+        old_bucket_tagged = store.ripple_tag_awake(
+            current_token=3,
+            window_tokens=10,
+            da_level=0.95,
+            awake_bucket_ids=[1],
+        )
+        self.assertEqual(old_bucket_tagged, 0)
+        self.assertEqual(store.last_ripple_awake_candidate_count, 0)
+
+        new_bucket_tagged = store.ripple_tag_awake(
+            current_token=3,
+            window_tokens=10,
+            da_level=0.95,
+            awake_bucket_ids=[2],
+        )
+        self.assertEqual(new_bucket_tagged, 1)
+        self.assertEqual(store.last_ripple_awake_candidate_count, 1)
 
     def test_memory_store_rejected_reservoir_sample_skips_optional_payload_copies(self) -> None:
         store = DualMemoryStore(capacity=1)

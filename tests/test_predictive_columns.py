@@ -1012,7 +1012,10 @@ class TestPredictiveColumnsInTrainer:
                 raw_window=f"ripple cadence {step}",
             )
 
-        assert model.memory_store.ripple_scalar_scan_count == 2
+        assert model.memory_store.ripple_scalar_scan_count == 0
+        assert model.memory_store.ripple_vector_scan_count == 0
+        assert model.memory_store.ripple_awake_bucket_scan_count == 2
+        assert model.memory_store.last_ripple_scan_mode == "awake_bucket_index"
         assert metrics["awake_ripple_tag_count"] == 2
         assert metrics["awake_ripple_tag_skip_count"] == 3
         assert metrics["awake_ripple_last_reason"] == "cadence_skip"

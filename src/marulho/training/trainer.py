@@ -384,10 +384,21 @@ class MarulhoTrainer:
         self._winner_host_mirror_fresh = True
         self._column_transition_runtime.graph_host_winner_reuse_count += 1
         if self.model.surprise.dopamine > 0.7 and strong_count:
+            graph_runtime = getattr(graph, "_runtime", None)
+            route_candidates = getattr(graph_runtime, "_route_candidates", None)
+            awake_bucket_ids: torch.Tensor | list[int]
+            if (
+                isinstance(route_candidates, torch.Tensor)
+                and int(route_candidates.numel()) > 0
+            ):
+                awake_bucket_ids = route_candidates
+            else:
+                awake_bucket_ids = [int(final_result[6])]
             tagged = self.model.memory_store.ripple_tag_awake(
                 current_token=int(self.token_count),
                 window_tokens=max(1, self.config.functional_minute // 2),
                 da_level=self.model.surprise.dopamine,
+                awake_bucket_ids=awake_bucket_ids,
             )
             self._awake_ripple_tag_count += 1
             self._awake_ripple_last_tagged = int(tagged)
@@ -3402,10 +3413,17 @@ class MarulhoTrainer:
             and da_level > 0.7
         )
         if awake_ripple_due:
+            awake_bucket_ids = candidates
+            if (
+                not isinstance(awake_bucket_ids, torch.Tensor)
+                or int(awake_bucket_ids.numel()) <= 0
+            ):
+                awake_bucket_ids = winners
             tagged = self.model.memory_store.ripple_tag_awake(
                 current_token=next_token,
                 window_tokens=max(1, self.config.functional_minute // 2),
                 da_level=da_level,
+                awake_bucket_ids=awake_bucket_ids,
             )
             self._awake_ripple_tag_count += 1
             self._awake_ripple_last_tagged = int(tagged)

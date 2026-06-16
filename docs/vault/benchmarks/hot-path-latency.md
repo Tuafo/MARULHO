@@ -1844,3 +1844,51 @@ That run reached `6150.296 tokens/sec`, `train_compute=0.130390 ms/token`,
 `state_transition_column_count=10`, `state_transition_cached_count=8182`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
 and `velocity_environment.v1` contention `not_observed`.
+
+### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
+
+Awake-ripple tagging is a replay-priority metabolism path, not a CUDA route
+kernel. The cleanup moved it from a global recent-memory scan on scheduler-owned
+ticks to the same wake-plan bucket IDs already chosen by training. The memory
+ledger remains CPU archival storage; the execution effect is that retained
+`train_step` and CUDA text-burst flushing no longer scan unrelated sleeping
+memory buckets when they already have an awake mask.
+
+The isolated micro-benchmark command was:
+
+`python -m marulho.evaluation.awake_ripple_scope_benchmark --output reports\column_scheduler_20260616\awake-ripple-scope-8192-i256.json --capacity 8192 --bucket-count 8192 --awake-bucket-count 10 --iterations 256 --dim 16`
+
+| Metric | Global recent-memory scan | Wake-bucket scoped |
+| --- | ---: | ---: |
+| mean tag time | `1.1831957031063212 ms` | `0.9895980468854759 ms` |
+| speedup | baseline | `1.1956326175361276x` |
+| scalar/vector scans | global vector path | `0` |
+| awake-bucket index scans | `0` | `256` |
+| last candidate entries touched | all recent entries | `10` |
+
+The scoped path passed all benchmark gates:
+`scoped_avoids_global_memory_scan=true`,
+`scoped_candidate_count_bounded=true`, and
+`scoped_not_slower_than_global=true`.
+
+The longer real-path check reused the 8192-column promoted scheduler
+checkpoint and the same 131072-token shape as the 6k-ish baseline:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\awake-ripple-scope-8192-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+| Metric | Post graph-reject cleanup | Wake-ripple scoped cleanup |
+| --- | ---: | ---: |
+| tokens/sec | `6150.296` | `6286.386` |
+| train_compute ms/token | `0.130390` | `0.130081` |
+| prepare_training ms/token | `0.006365` | `0.006330` |
+| finalize_total ms/token | `0.005874` | `0.005830` |
+| tick_duration p95 ms | `21.097` | `21.009` |
+| route rows scored | `10/8192` | `10/8192` |
+| state transition columns | `10/8192` | `10/8192` |
+| graph/native/sequence failures | `0` | `0` |
+| environment contention | not observed | not observed |
+
+This is accepted as a true scheduler-consumer cleanup: the memory/replay helper
+uses the training-owned wake mask and the long CUDA path stayed neutral or
+better. It is not a new route-discovery solution and does not move archival
+memory storage to GPU.
