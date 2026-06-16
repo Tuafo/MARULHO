@@ -17,6 +17,14 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
+def _force_route_vote_mode_for_evaluation(
+    trainer: MarulhoTrainer,
+    mode: str,
+) -> None:
+    trainer._route_vote_mode_override_for_evaluation = mode
+    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+
+
 def test_inplace_transition_falls_back_before_mutation_on_cpu() -> None:
     config = MarulhoConfig(
         n_columns=16,
@@ -57,21 +65,22 @@ def test_inplace_transition_rejects_unsupported_plasticity_before_warmup() -> No
     assert report["execution_count"] == 0
 
 
-def test_fused_route_vote_reports_pre_mutation_fallback_on_cpu() -> None:
+def test_route_vote_evaluation_override_reports_pre_mutation_fallback_on_cpu() -> None:
     config = MarulhoConfig(
         n_columns=16,
         column_latent_dim=8,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="fused_triton_text",
         input_weight_blend=0.0,
         device="cpu",
     )
     trainer = MarulhoTrainer(MarulhoModel(config), config)
+    _force_route_vote_mode_for_evaluation(trainer, "fused_triton_text")
 
     report = trainer.column_transition_runtime_report()
 
     assert report["route_vote_requested_mode"] == "fused_triton_text"
+    assert report["route_vote_requested_mode_source"] == "evaluation_override"
     assert report["route_vote_resolved_mode"] == "tensor"
     assert report["route_vote_active"] is False
     assert report["route_vote_fallback_reason"] == (
@@ -285,7 +294,7 @@ def test_fused_vote_competition_matches_retained_candidate_math(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
-def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
+def test_evaluation_fused_route_vote_override_matches_tensor_candidates() -> None:
     torch.manual_seed(20260612)
     config = MarulhoConfig(
         n_columns=32,
@@ -294,7 +303,6 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
         k_routing=5,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="fused_triton_text",
         plasticity_mode="lite",
         input_weight_blend=0.0,
         enable_context_layer=False,
@@ -304,6 +312,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
         device="cuda",
     )
     trainer = MarulhoTrainer(MarulhoModel(config), config)
+    _force_route_vote_mode_for_evaluation(trainer, "fused_triton_text")
     runtime = trainer._column_transition_runtime
     routing_key = trainer.model.routing_key_from_pattern(
         torch.rand(config.input_dim, device=trainer.model.device)
@@ -319,6 +328,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
 
     assert torch.equal(candidates, expected[0])
     assert runtime.handles_route_vote is True
+    assert runtime.route_vote_requested_mode_source == "evaluation_override"
     assert runtime.route_vote_execution_count == 1
     assert runtime.route_vote_kernel_variant == "indexed_route_bank_vote"
     assert (
@@ -331,10 +341,7 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
-@pytest.mark.parametrize("route_vote_mode", ["fused_triton_text", "cuda_graph_text"])
-def test_route_vote_sleep_filter_updates_trainer_wake_plan(
-    route_vote_mode: str,
-) -> None:
+def test_route_vote_sleep_filter_updates_trainer_wake_plan() -> None:
     torch.manual_seed(20260615)
     config = MarulhoConfig(
         n_columns=32,
@@ -343,7 +350,6 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
         k_routing=5,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode=route_vote_mode,
         plasticity_mode="lite",
         input_weight_blend=0.0,
         dead_column_steps=1,
@@ -425,10 +431,7 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
-@pytest.mark.parametrize("route_vote_mode", ["fused_triton_text", "cuda_graph_text"])
-def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
-    route_vote_mode: str,
-) -> None:
+def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan() -> None:
     torch.manual_seed(20260616)
     config = MarulhoConfig(
         n_columns=32,
@@ -437,7 +440,6 @@ def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
         k_routing=5,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode=route_vote_mode,
         plasticity_mode="lite",
         input_weight_blend=0.0,
         dead_column_steps=1000,
@@ -617,7 +619,6 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
         k_routing=5,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="fused_triton_text",
         plasticity_mode="lite",
         input_weight_blend=0.0,
         enable_context_layer=False,
@@ -627,9 +628,9 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     )
     torch.manual_seed(20260612)
     retained = MarulhoTrainer(MarulhoModel(config), config)
+    _force_route_vote_mode_for_evaluation(retained, "fused_triton_text")
     graph_config = replace(
         config,
-        predictive_route_vote_mode="cuda_graph_text",
         cuda_graph_host_truth_sync_interval_tokens=1,
     )
     torch.manual_seed(20260612)
@@ -801,7 +802,6 @@ def test_cuda_graph_candidate_predictive_transition_matches_non_graph_path() -> 
         k_routing=5,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="fused_triton_text",
         candidate_homeostasis_start_tokens=0,
         candidate_predictive_update_start_tokens=0,
         candidate_deep_sleep_filter_start_tokens=10**9,
@@ -814,9 +814,9 @@ def test_cuda_graph_candidate_predictive_transition_matches_non_graph_path() -> 
     )
     torch.manual_seed(20260618)
     retained = MarulhoTrainer(MarulhoModel(config), config)
+    _force_route_vote_mode_for_evaluation(retained, "fused_triton_text")
     graph_config = replace(
         config,
-        predictive_route_vote_mode="cuda_graph_text",
         cuda_graph_host_truth_sync_interval_tokens=1,
     )
     torch.manual_seed(20260618)
@@ -2779,7 +2779,6 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
         k_routing=4,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="tensor",
         candidate_predictive_update_start_tokens=0,
         plasticity_mode="lite",
         input_weight_blend=0.0,
@@ -2800,6 +2799,7 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
     }
 
     trainer = MarulhoTrainer(model, config)
+    _force_route_vote_mode_for_evaluation(trainer, "tensor")
     torch.cuda.synchronize()
     report = trainer.column_transition_runtime_report()
 

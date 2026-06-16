@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from marulho.config.model_config import MarulhoConfig
+from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -15,7 +16,6 @@ def test_inplace_runtime_skips_dense_warmup_when_candidate_gate_is_due() -> None
         k_routing=4,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
-        predictive_route_vote_mode="tensor",
         candidate_homeostasis_start_tokens=0,
         candidate_predictive_update_start_tokens=0,
         plasticity_mode="lite",
@@ -27,6 +27,8 @@ def test_inplace_runtime_skips_dense_warmup_when_candidate_gate_is_due() -> None
     )
 
     trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer._route_vote_mode_override_for_evaluation = "tensor"
+    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
     torch.cuda.synchronize()
 
     report = trainer.column_transition_runtime_report()

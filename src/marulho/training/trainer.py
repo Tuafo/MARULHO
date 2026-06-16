@@ -33,9 +33,19 @@ from marulho.training.cuda_graph_route_transition import MAX_QUANTUM_INPUT_TOKEN
 class MarulhoTrainer:
     """Main stage-0 trainer."""
 
-    def __init__(self, model: MarulhoModel, config: MarulhoConfig):
+    def __init__(
+        self,
+        model: MarulhoModel,
+        config: MarulhoConfig,
+        *,
+        defer_cuda_graph_route_transition: bool = False,
+    ):
         self.model = model
         self.config = config
+        self._defer_cuda_graph_route_transition = bool(
+            defer_cuda_graph_route_transition
+        )
+        self._route_vote_mode_override_for_evaluation: str | None = None
         self.token_count = 0
         self.is_bootstrap = True
         self.sleep_events = 0

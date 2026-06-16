@@ -119,6 +119,26 @@ zero graph/native/sequence failures, `route_input_rows_scored=10/8192`,
 `state_transition_cached_count=8182`, and
 `state_transition_runs_all_columns=false`.
 
+The route-vote selector cleanup then fixed `predictive_route_vote_mode` to the
+promoted `cuda_graph_text` path, migrated retired `tensor`/`fused_triton_text`
+checkpoint values forward, and moved old route-vote modes behind explicit
+evaluation overrides. The first 131072-token CUDA gate at
+`reports/column_scheduler_20260616/route-vote-selector-cleanup-8192-131072-i32.json`
+reached `6011.457 tokens/sec`, `train_compute=0.130446 ms/token`, and
+`tick_p95=23.112 ms`, but `velocity_environment.v1` reported GPU contention.
+The requested rerun at
+`reports/column_scheduler_20260616/route-vote-selector-cleanup-8192-131072-i32-rerun.json`
+reached `6141.720 tokens/sec`, `train_compute=0.129445 ms/token`,
+`prepare_training=0.006344 ms/token`, `finalize_total=0.005838 ms/token`, and
+`tick_p95=21.018 ms`. Runtime Truth reported
+`route_vote_requested_mode_source=promoted_config`,
+`route_vote_config_mode=cuda_graph_text`, `route_input_rows_scored=10/8192`,
+`route_rows_run_all_columns=false`, `state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, `native_sequence_loop_success_count=8191`,
+`native_sequence_loop_token_count=131056`, and zero graph/native/sequence
+failures. The rerun still observed GPU utilization at the configured contention
+threshold, so treat it as in-band cleanup evidence, not a new top-speed claim.
+
 The post column-scheduler long-run check used the same 131072-token default
 conditional16 stress shape after promoting retained CPU candidate deep-sleep
 filtering and predictive-location caching. The current working tree report at

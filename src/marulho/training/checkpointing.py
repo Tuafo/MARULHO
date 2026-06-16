@@ -35,7 +35,7 @@ _RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS = {
     "cuda_graph_conditional_while",
 }
 _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
-_RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES = {"tensor"}
+_RETIRED_PREDICTIVE_ROUTE_VOTE_MODES = {"tensor", "fused_triton_text"}
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -300,6 +300,29 @@ def _migrate_loaded_config_snapshot(
                     "reason": "retired_sequence_executor_selector",
                 }
             )
+    current_route_vote_mode = str(
+        migrated.get("predictive_route_vote_mode", "missing")
+    )
+    if (
+        "predictive_route_vote_mode" not in migrated
+        or current_route_vote_mode != PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
+    ):
+        route_vote_reason = (
+            "retired_route_vote_mode_selector"
+            if current_route_vote_mode in _RETIRED_PREDICTIVE_ROUTE_VOTE_MODES
+            else "missing_route_vote_mode_promoted"
+            if current_route_vote_mode == "missing"
+            else "unsupported_route_vote_mode_migrated"
+        )
+        migrated["predictive_route_vote_mode"] = PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
+        migrations.append(
+            {
+                "field": "predictive_route_vote_mode",
+                "from": current_route_vote_mode,
+                "to": PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE,
+                "reason": route_vote_reason,
+            }
+        )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 
@@ -365,24 +388,6 @@ def _migrate_loaded_config_snapshot(
                 "reason": "promoted_inplace_triton_scheduler_boundary",
             }
         )
-    current_route_vote_mode = str(
-        migrated.get("predictive_route_vote_mode", "missing")
-    )
-    if (
-        "predictive_route_vote_mode" not in migrated
-        or current_route_vote_mode in _RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES
-    ):
-        migrated["predictive_route_vote_mode"] = (
-            PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
-        )
-        migrations.append(
-            {
-                "field": "predictive_route_vote_mode",
-                "from": current_route_vote_mode,
-                "to": PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE,
-                "reason": "promoted_cuda_graph_text_scheduler_boundary",
-            }
-        )
     return migrated, migrations
 
 
@@ -402,10 +407,12 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
     cfg = MarulhoConfig(**config_snapshot)
     requested_route_vote_mode = cfg.predictive_route_vote_mode
     defer_cuda_graph_capture = requested_route_vote_mode == "cuda_graph_text"
-    if defer_cuda_graph_capture:
-        cfg.predictive_route_vote_mode = "tensor"
     model = MarulhoModel(cfg)
-    trainer = MarulhoTrainer(model, cfg)
+    trainer = MarulhoTrainer(
+        model,
+        cfg,
+        defer_cuda_graph_route_transition=defer_cuda_graph_capture,
+    )
     _restore_model(trainer, payload["model"])
     encoder_snapshot = payload.get("encoder")
     if isinstance(encoder_snapshot, dict):
@@ -453,6 +460,6 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
             ColumnTransitionRuntime,
         )
 
-        trainer.config.predictive_route_vote_mode = requested_route_vote_mode
+        trainer._defer_cuda_graph_route_transition = False
         trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
     return trainer, metadata

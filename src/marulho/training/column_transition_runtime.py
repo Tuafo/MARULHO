@@ -51,9 +51,28 @@ class ColumnTransitionRuntime:
         self.last_selection_mode = "not_run"
         self.fused_vote_competition_execution_count = 0
         self.fused_vote_competition_fallback_count = 0
-        self.route_vote_requested_mode = str(
-            getattr(trainer.config, "predictive_route_vote_mode", "tensor")
+        evaluation_route_vote_mode = getattr(
+            trainer,
+            "_route_vote_mode_override_for_evaluation",
+            None,
         )
+        if evaluation_route_vote_mode is not None:
+            self.route_vote_requested_mode = str(evaluation_route_vote_mode)
+            self.route_vote_requested_mode_source = "evaluation_override"
+        elif bool(getattr(trainer, "_defer_cuda_graph_route_transition", False)):
+            self.route_vote_requested_mode = "tensor"
+            self.route_vote_requested_mode_source = "checkpoint_restore_defer"
+        else:
+            self.route_vote_requested_mode = "cuda_graph_text"
+            self.route_vote_requested_mode_source = "promoted_config"
+        if self.route_vote_requested_mode not in {
+            "tensor",
+            "fused_triton_text",
+            "cuda_graph_text",
+        }:
+            raise ValueError(
+                "route vote mode override must be tensor, fused_triton_text, or cuda_graph_text"
+            )
         self.route_vote_resolved_mode = "tensor"
         self.route_vote_fallback_reason: str | None = None
         self.route_vote_warmup_attempted = False
@@ -1856,6 +1875,14 @@ class ColumnTransitionRuntime:
                 self.fused_vote_competition_fallback_count
             ),
             "route_vote_requested_mode": self.route_vote_requested_mode,
+            "route_vote_requested_mode_source": self.route_vote_requested_mode_source,
+            "route_vote_config_mode": str(
+                getattr(
+                    self._trainer.config,
+                    "predictive_route_vote_mode",
+                    "cuda_graph_text",
+                )
+            ),
             "route_vote_resolved_mode": self.route_vote_resolved_mode,
             "route_vote_active": self.handles_route_vote,
             "route_vote_fallback_reason": self.route_vote_fallback_reason,

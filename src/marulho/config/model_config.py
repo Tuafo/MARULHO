@@ -81,11 +81,7 @@ class MarulhoConfig:
         "fused_eager",
         "inplace_triton",
     ] = "inplace_triton"
-    predictive_route_vote_mode: Literal[
-        "tensor",
-        "fused_triton_text",
-        "cuda_graph_text",
-    ] = "cuda_graph_text"
+    predictive_route_vote_mode: Literal["cuda_graph_text"] = "cuda_graph_text"
 
     eta_competitive: float = 0.01
     eta_decay: float = 1e-6
@@ -427,13 +423,9 @@ class MarulhoConfig:
             raise ValueError(
                 "predictive_dense_transition_mode must be fused_eager or inplace_triton"
             )
-        if self.predictive_route_vote_mode not in {
-            "tensor",
-            "fused_triton_text",
-            "cuda_graph_text",
-        }:
+        if self.predictive_route_vote_mode != "cuda_graph_text":
             raise ValueError(
-                "predictive_route_vote_mode must be tensor, fused_triton_text, or cuda_graph_text"
+                "predictive_route_vote_mode is fixed at cuda_graph_text"
             )
 
     def resolve_device(self) -> torch.device:

@@ -10,13 +10,20 @@ from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 from marulho.training.trainer import MarulhoTrainer
 
 
+def _set_route_vote_mode_for_evaluation(
+    trainer: MarulhoTrainer,
+    mode: str,
+) -> None:
+    trainer._route_vote_mode_override_for_evaluation = mode
+    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+
+
 def _install_production(trainer_object: object) -> None:
     trainer = trainer_object
     if not isinstance(trainer, MarulhoTrainer):
         raise TypeError("production setup requires MarulhoTrainer")
     trainer.config.predictive_dense_transition_mode = "inplace_triton"
-    trainer.config.predictive_route_vote_mode = "tensor"
-    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+    _set_route_vote_mode_for_evaluation(trainer, "tensor")
     if not trainer._column_transition_runtime.active:
         raise RuntimeError(
             "in-place transition unavailable: "
@@ -30,8 +37,7 @@ def install_fused_route_vote_for_benchmark(trainer_object: object) -> None:
     if not isinstance(trainer, MarulhoTrainer):
         raise TypeError("fused route/vote setup requires MarulhoTrainer")
     trainer.config.predictive_dense_transition_mode = "inplace_triton"
-    trainer.config.predictive_route_vote_mode = "fused_triton_text"
-    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+    _set_route_vote_mode_for_evaluation(trainer, "fused_triton_text")
     if not trainer._column_transition_runtime.handles_route_vote:
         raise RuntimeError(
             "fused route/vote unavailable: "
@@ -47,8 +53,7 @@ def install_cuda_graph_route_transition_for_benchmark(
     if not isinstance(trainer, MarulhoTrainer):
         raise TypeError("CUDA graph setup requires MarulhoTrainer")
     trainer.config.predictive_dense_transition_mode = "inplace_triton"
-    trainer.config.predictive_route_vote_mode = "cuda_graph_text"
-    trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
+    _set_route_vote_mode_for_evaluation(trainer, "cuda_graph_text")
     graph_report = trainer._column_transition_runtime.report().get(
         "cuda_graph_route_transition"
     )

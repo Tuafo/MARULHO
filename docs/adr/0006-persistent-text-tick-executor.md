@@ -305,8 +305,10 @@ cognitive-quality evidence, and grounded fallback gates.
 
 ## Reversal
 
-Set `predictive_route_vote_mode` to `fused_triton_text` or `tensor`, or let
-eligibility fail closed. Set `cuda_graph_quantum_input_staging=false` to retain
+Let graph eligibility fail closed to the internal tensor/fused fallback path, or
+use the explicit evaluation override for benchmark controls; do not restore
+`tensor` or `fused_triton_text` as production `predictive_route_vote_mode`
+values. Set `cuda_graph_quantum_input_staging=false` to retain
 the persistent graph while restoring exact per-token input copies. Set
 `cuda_graph_native_burst_replay=false` or
 `MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY=0` to keep the current persistent graph

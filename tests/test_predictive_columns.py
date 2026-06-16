@@ -1417,7 +1417,12 @@ class TestPredictiveColumnsInTrainer:
         with pytest.raises(ValueError, match="candidate_memory_pressure_threshold"):
             MarulhoConfig(candidate_memory_pressure_threshold=1.1)
 
-    def test_predictive_route_vote_mode_must_be_supported(self):
+    def test_predictive_route_vote_mode_is_fixed_to_promoted_graph_path(self):
+        assert MarulhoConfig().predictive_route_vote_mode == "cuda_graph_text"
+        with pytest.raises(ValueError, match="predictive_route_vote_mode"):
+            MarulhoConfig(predictive_route_vote_mode="tensor")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="predictive_route_vote_mode"):
+            MarulhoConfig(predictive_route_vote_mode="fused_triton_text")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):
             MarulhoConfig(predictive_route_vote_mode="always")  # type: ignore[arg-type]
 

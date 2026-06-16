@@ -297,7 +297,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
 
-        for old_value in ("missing", "tensor"):
+        for old_value in ("missing", "tensor", "fused_triton_text"):
             with self.subTest(old_value=old_value), TemporaryDirectory() as tmpdir:
                 cfg = MarulhoConfig(
                     n_columns=8,
@@ -330,10 +330,54 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                         "field": "predictive_route_vote_mode",
                         "from": old_value,
                         "to": "cuda_graph_text",
-                        "reason": "promoted_cuda_graph_text_scheduler_boundary",
+                        "reason": (
+                            "missing_route_vote_mode_promoted"
+                            if old_value == "missing"
+                            else "retired_route_vote_mode_selector"
+                        ),
                     },
                     metadata["config_migrations"],
                 )
+
+    def test_revision_stamped_checkpoint_retired_route_vote_selector_migrates(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "retired-route-vote-selector.pt",
+                trainer,
+            )
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["predictive_route_vote_mode"] = "fused_triton_text"
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertEqual(
+                restored.config.predictive_route_vote_mode,
+                "cuda_graph_text",
+            )
+            self.assertIn(
+                {
+                    "field": "predictive_route_vote_mode",
+                    "from": "fused_triton_text",
+                    "to": "cuda_graph_text",
+                    "reason": "retired_route_vote_mode_selector",
+                },
+                metadata["config_migrations"],
+            )
 
     def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:
         from tempfile import TemporaryDirectory
