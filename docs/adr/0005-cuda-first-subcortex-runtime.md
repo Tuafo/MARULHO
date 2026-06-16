@@ -119,7 +119,7 @@ The first acceleration targets are routing/index search, predictive column state
 
 - `src/marulho/config/model_config.py`
 - `src/marulho/retrieval/hnsw_index.py`
-- `src/marulho/retrieval/ivf_router.py`
+- Historical standalone `src/marulho/retrieval/ivf_router.py` was removed after a no-live-caller audit; future IVF/RaBitQ routing needs new bounded GPU-owned candidate-router evidence.
 - `conftest.py`
 - Lee, Dora, and Mejias, "Predictive coding with spiking neurons and feedforward gist signaling", Frontiers in Computational Neuroscience, 2024.
 - "Predictive Coding with Spiking Neural Networks: a Survey", arXiv:2409.05386, 2024.

@@ -56,7 +56,7 @@ This file records research anchors for current architecture work. It is not a pr
 
 - Johnson, Douze, and Jegou, "Billion-scale similarity search with GPUs", 2017: establishes GPU k-selection, brute-force search, approximate search, and compressed-domain product-quantization search as first-class designs for high-dimensional retrieval.
 - Ootomo et al., "CAGRA: Highly Parallel Graph Construction and Approximate Nearest Neighbor Search for GPUs", 2023/2024: supports treating CPU HNSW as only one point in the design space; graph ANN construction and search can be redesigned around GPU parallelism.
-- Shi et al., "GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search", 2026: supports the direction of fusing IVF-style cluster routing with low-bit quantization and GPU-native distance kernels for high-throughput routing.
+- Shi et al., "GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search", 2026: supports the direction of fusing IVF-style cluster routing with low-bit quantization and GPU-native distance kernels for high-throughput routing. MARULHO's historical standalone `ivf_router.py` was removed because it had no live trainer/config/Runtime Truth caller and used Python list/gather control rather than a bounded graph/cache-eligible GPU router.
 - Zandieh et al., "TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate", 2025: supports considering compressed inner-product scoring under a future bounded GPU router, but the legacy MARULHO `turboquant_plus` backend was removed after audit because it scanned all route rows, lacked graph-cache eligibility, and was slower than exact torch routing on the measured CUDA path.
 
 ### Multimodal sensory grounding
