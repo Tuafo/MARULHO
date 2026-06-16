@@ -2177,11 +2177,13 @@ the queue can remain checkpoint-backed and operator-reviewable without becoming
 a hot-path structural-review CPU sync; it is not a growth/prune mutation claim
 or a new top-speed ceiling.
 
-The follow-up cheap-discovery probe added
-`marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
-random-projection buckets. These are evaluation-only probes: offline precompute
-may inspect the full routing cache, but the simulated hot path reports bounded
-selector rows and route rows explicitly.
+The follow-up cheap-discovery probe measured fixed landmark and
+random-projection buckets. Those probes were evaluation-only: offline precompute
+could inspect the full routing cache, but the simulated hot path reported
+bounded selector rows and route rows explicitly. After the rejection below, the
+`marulho.evaluation.route_candidate_discovery_probe` implementation and tests
+were deleted so the repo keeps one promoted scheduler path plus the retained
+route-bank quality oracle.
 
 | Probe shape | refresh | steady route rows | selector rows | exact top-1 | winner match | worst miss | status |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -2196,6 +2198,21 @@ the rejected graph-neighbor runtime. The random-projection bucket is worse than
 the route-bank probe lane despite far more rows. The next candidate must be a
 fused/GPU-owned graph or ANN discovery boundary that beats this quality/cost
 frontier and then survives the 131072-token real-path run.
+
+The cleanup removed the rejected `route_candidate_discovery_probe` module and
+its tests rather than keeping a non-promoted scheduler variant in source. The
+post-cleanup 32768-column real-path validation:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-32768-seeded.pt --output reports\column_scheduler_20260616\promoted-scheduler-32768-131072-i32-after-discovery-cleanup.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 420 --sample-interval-seconds 0.5`
+
+processed `131072` tokens at `6128.457 tokens/sec`,
+`train_compute=0.132636 ms/token`, `prepare_training=0.006447 ms/token`,
+`finalize_total=0.005978 ms/token`, and `tick_duration_ms.p95=22.109`, with
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. This validates the deletion as one-path cleanup,
+not a new relevance-quality claim.
 
 ### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
 
