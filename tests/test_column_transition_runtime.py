@@ -2940,6 +2940,7 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
         torch.randn(config.input_dim, device=model.device)
     )
     candidates = trainer._routing_candidates(routing_key)
+    assert candidates is not None
     fallback_winner, _, _ = trainer._column_transition_runtime.select_winner(
         routing_key=routing_key,
         candidates=candidates,
@@ -2950,6 +2951,15 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
     fallback_report = trainer.column_transition_runtime_report()
 
     assert fallback_report["fused_vote_competition_fallback_count"] == 1
+    vote_report = model.predictive.vote_execution_report()
+    assert vote_report["mode"] == "awake_mask_cached_vote"
+    assert vote_report["updated_column_count"] == int(candidates.numel())
+    assert vote_report["updated_column_count"] == config.k_routing
+    assert vote_report["cached_vote_use_count"] == (
+        config.n_columns - config.k_routing
+    )
+    assert vote_report["runs_all_columns"] is False
+    assert vote_report["fallback_reason"] is None
     assert int(trainer._column_transition_runtime._previous_winner.item()) == int(
         fallback_winner.item()
     )

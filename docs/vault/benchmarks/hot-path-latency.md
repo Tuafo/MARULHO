@@ -2012,6 +2012,25 @@ needs a fused/GPU-owned discovery mechanism or graph-ordered device refresh
 that can preserve burst parity, recover relevance, and keep the 131072-token
 6k-ish path.
 
+The retained fallback vote-scope cleanup prevents a context-gain selection
+fallback from becoming a hidden all-column predictive vote. The focused CUDA
+test forces the fallback and verifies `awake_mask_cached_vote`,
+`updated_column_count=4`, `cached_vote_use_count=12`, and
+`runs_all_columns=false`. The longer 8192-column real-path check at
+`reports/column_scheduler_20260616/fallback-candidate-vote-scope-8192-131072-i32.json`
+processed `131072` tokens at `6016.247 tokens/sec` with
+`train_compute=0.1330716 ms/token`, `prepare_training=0.006573 ms/token`,
+`finalize_total=0.006077 ms/token`, `tick_duration_ms.p95=22.786`,
+`route_input_rows_scored=12/8192`, `route_output_candidate_count=10`,
+`state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. Compared with the previous in-band
+`graph-walk-eval-no-runtime-change-8192-131072-i32.json` result
+(`6141.295 tokens/sec`, `0.132462 ms/token` train compute, GPU contention
+observed), this is neutral-ish same-band evidence rather than a speed
+promotion; the value is that fallback truth now preserves the bounded vote
+contract.
+
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
 random-projection buckets. These are evaluation-only probes: offline precompute

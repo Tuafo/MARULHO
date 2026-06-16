@@ -924,9 +924,17 @@ class CompetitiveColumnLayer:
         )
         if context_gain is not None:
             gain = context_gain.to(self.device)
-            if gain.dim() != 1 or int(gain.numel()) != self.n_columns:
-                raise ValueError("context_gain must be a 1D tensor with n_columns entries")
-            combined = combined * torch.clamp(gain[candidates], min=0.5, max=1.5)
+            if gain.dim() != 1:
+                raise ValueError("context_gain must be a 1D tensor")
+            if int(gain.numel()) == int(self.n_columns):
+                selected_gain = gain[candidates]
+            elif int(gain.numel()) == int(candidate_count):
+                selected_gain = gain
+            else:
+                raise ValueError(
+                    "context_gain must have n_columns entries or match candidate count"
+                )
+            combined = combined * torch.clamp(selected_gain, min=0.5, max=1.5)
         self.materialize_homeostasis(candidates)
         act = torch.relu(combined - self._inhibition(candidates))
 

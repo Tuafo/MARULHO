@@ -333,6 +333,43 @@ class TestStateDict:
         assert report["sparse_candidate_execution_observed"] is True
         assert report["tensor_device"] == "cpu"
 
+    def test_candidate_context_gain_accepts_candidate_local_tensor(self):
+        torch.manual_seed(20260616)
+        layer = _make_layer(
+            n_columns=8,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+        )
+        routing_key = torch.rand(layer.column_dim)
+        candidates = torch.tensor([1, 3, 5, 7])
+        full_gain = torch.ones(layer.n_columns)
+        full_gain[candidates] = torch.tensor([0.75, 1.2, 1.5, 0.6])
+        local_gain = full_gain[candidates]
+
+        local_layer = _make_layer(
+            n_columns=8,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+        )
+        local_layer.load_state_dict(layer.state_dict())
+
+        full_result = layer.compete(
+            routing_key,
+            candidate_indices=candidates,
+            context_gain=full_gain,
+        )
+        local_result = local_layer.compete(
+            routing_key,
+            candidate_indices=candidates,
+            context_gain=local_gain,
+        )
+
+        assert torch.equal(full_result[0], local_result[0])
+        assert torch.allclose(full_result[1], local_result[1])
+        assert torch.equal(full_result[2], local_result[2])
+
     def test_lite_process_does_not_read_winner_strengths(self):
         layer = _make_layer(plasticity_mode="lite")
         layer.last_input_pattern = torch.full((layer.input_dim,), 1.0 / layer.input_dim)

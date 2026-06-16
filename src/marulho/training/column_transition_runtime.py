@@ -1359,18 +1359,45 @@ class ColumnTransitionRuntime:
         self,
         context_gain: torch.Tensor | None,
         routing_key: torch.Tensor,
+        candidates: torch.Tensor | None,
     ) -> torch.Tensor | None:
         trainer = self._trainer
         if trainer.last_winner is None:
             return context_gain
+        selected = (
+            candidates.to(device=trainer.model.device, dtype=torch.long).flatten()
+            if candidates is not None and int(candidates.numel()) > 0
+            else None
+        )
         consensus_gain = trainer.model.predictive.vote(
             [trainer.last_winner],
             routing_key,
+            candidate_indices=selected,
         )
+        if selected is None:
+            if context_gain is None:
+                return consensus_gain
+            return torch.clamp(
+                context_gain * consensus_gain,
+                min=0.5,
+                max=1.5,
+            )
+        candidate_consensus_gain = consensus_gain.index_select(0, selected)
         if context_gain is None:
-            return consensus_gain
+            return candidate_consensus_gain
+        context = context_gain.to(device=trainer.model.device)
+        if context.dim() != 1:
+            raise ValueError("context_gain must be a 1D tensor")
+        if int(context.numel()) == int(trainer.model.competitive.n_columns):
+            candidate_context_gain = context.index_select(0, selected)
+        elif int(context.numel()) == int(selected.numel()):
+            candidate_context_gain = context
+        else:
+            raise ValueError(
+                "context_gain must have n_columns entries or match candidate count"
+            )
         return torch.clamp(
-            context_gain * consensus_gain,
+            candidate_context_gain * candidate_consensus_gain,
             min=0.5,
             max=1.5,
         )
@@ -1460,6 +1487,7 @@ class ColumnTransitionRuntime:
             context_gain = self._retained_consensus_gain(
                 context_gain,
                 routing_key,
+                selected,
             )
         comp.last_candidate_count = candidate_count
         comp.last_scored_column_count = (
@@ -1483,12 +1511,18 @@ class ColumnTransitionRuntime:
         )
         if context_gain is not None:
             gain = context_gain.to(comp.device)
-            if gain.dim() != 1 or int(gain.numel()) != comp.n_columns:
+            if gain.dim() != 1:
+                raise ValueError("context_gain must be a 1D tensor")
+            if int(gain.numel()) == int(comp.n_columns):
+                selected_gain = gain[selected]
+            elif int(gain.numel()) == int(selected.numel()):
+                selected_gain = gain
+            else:
                 raise ValueError(
-                    "context_gain must be a 1D tensor with n_columns entries"
+                    "context_gain must have n_columns entries or match candidate count"
                 )
             combined = combined * torch.clamp(
-                gain[selected],
+                selected_gain,
                 min=0.5,
                 max=1.5,
             )
