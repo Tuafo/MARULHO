@@ -57,7 +57,7 @@ This file records research anchors for current architecture work. It is not a pr
 - Johnson, Douze, and Jegou, "Billion-scale similarity search with GPUs", 2017: establishes GPU k-selection, brute-force search, approximate search, and compressed-domain product-quantization search as first-class designs for high-dimensional retrieval.
 - Ootomo et al., "CAGRA: Highly Parallel Graph Construction and Approximate Nearest Neighbor Search for GPUs", 2023/2024: supports treating CPU HNSW as only one point in the design space; graph ANN construction and search can be redesigned around GPU parallelism.
 - Shi et al., "GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ: Fast Index Build and Search", 2026: supports the direction of fusing IVF-style cluster routing with low-bit quantization and GPU-native distance kernels for high-throughput routing.
-- Zandieh et al., "TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate", 2025: supports keeping online quantized routing as an experimental path, but it still needs observed device/backend telemetry before being used as CUDA evidence.
+- Zandieh et al., "TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate", 2025: supports considering compressed inner-product scoring under a future bounded GPU router, but the legacy MARULHO `turboquant_plus` backend was removed after audit because it scanned all route rows, lacked graph-cache eligibility, and was slower than exact torch routing on the measured CUDA path.
 
 ### Multimodal sensory grounding
 
@@ -889,7 +889,7 @@ This file records research anchors for current architecture work. It is not a pr
 - Keep **Subcortex** tensor state on the configured `torch.device`.
 - Preserve sparse/event structure where possible before reaching for dense CUDA kernels.
 - Record actual device/backend evidence in reports before claiming CUDA acceleration.
-- For routing, separate configured intent (`search_device`) from observed cache placement (`torch_vector_cache_device`, `tq_*_device`) and benchmarked execution.
+- For routing, separate configured intent (`search_device`) from observed cache placement (`torch_vector_cache_device`) and benchmarked execution. Removed experimental backends should stay out of the live config surface until fresh evidence justifies a new implementation.
 - For predictive/plasticity/binding work, local traces and eligibility state are the auditable CUDA surface. Device reports should prove where those live tensors reside before performance claims.
 - For neuron dynamics, report membrane voltage, adaptation, and spike-time tensors directly, and preserve them across checkpoints without silently restoring to CPU.
 - For cross-modal grounding, report the live devices of text/visual/audio traces, cross-modal weights, and confidence state.

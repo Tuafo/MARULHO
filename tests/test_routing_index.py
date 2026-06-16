@@ -331,6 +331,10 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertEqual(scope["routing_backend_mode"], "torch_topk")
         self.assertEqual(scope["routing_index"]["index_type"], "torch_topk")
 
+    def test_removed_turboquant_backend_fails_fast(self) -> None:
+        with self.assertRaisesRegex(ValueError, "routing_index_mode"):
+            MarulhoConfig(routing_index_mode="turboquant_plus")  # type: ignore[arg-type]
+
     def test_model_can_disable_merged_torch_routing_cache(self) -> None:
         cfg = MarulhoConfig(
             n_columns=8,

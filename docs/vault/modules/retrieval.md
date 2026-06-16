@@ -11,7 +11,7 @@ related_benchmarks: []
 
         ## Responsibility
 
-        Vector/routing indexes such as TurboQuant, IVF, HNSW, and decoder support.
+        Vector/routing indexes such as exact torch routing, IVF, HNSW, and decoder support.
 
         ## Owns
 

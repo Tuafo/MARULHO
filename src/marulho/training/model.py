@@ -605,7 +605,6 @@ class MarulhoModel:
                 "routing_backend_cuda_capable": routing_index_stats.get("index_type") in {
                     "torch_topk",
                     "sharded_torch_topk",
-                    "turboquant_plus",
                 },
                 "unit_tests_default_cpu": True,
             },

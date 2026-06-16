@@ -1386,3 +1386,45 @@ target is a fused or lazy transition contract that replaces dense
 `steps_since_win`, spike-window, assembly, threshold/win-rate, and predictive
 state touches with candidate-owned or lazily materialized state while preserving
 checkpoint correctness.
+
+### TurboQuant Routing Audit, 2026-06-15
+
+TurboQuant was rechecked against Google Research's TurboQuant paper, current
+vLLM/community implementation notes, and MARULHO's scheduler contract. The
+paper and community code make TurboQuant useful as vector compression or
+approximate inner-product scoring, but not as a wake/sleep scheduler by itself.
+MARULHO's removed legacy `turboquant_plus` backend was also not paper-faithful:
+it used per-prototype min/max uniform codes, kept FP32 prototypes, applied a
+QJL-style correction, and scanned every route row before top-k.
+
+The archived audit before removal was
+`python -m marulho.evaluation.routing_backend_audit --n-columns 8192 --dim 64 --k 10 --samples 40 --warmup-steps 5 --seed 20260615 --device auto --output reports/routing_backend_audit_20260615/routing-8192-auto.json`.
+
+| Columns | Backend | Mean route ms | p95 route ms | Top-1 recall vs exact | Exact top-1 in candidates | Route rows scored | Graph route/vote eligible |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1024 | `torch_topk` | `1.034438` | `1.5262` | `1.000` | `1.000` | `1024` | yes |
+| 1024 | `turboquant_plus` | `3.280950` | `5.0043` | `0.650` | `1.000` | `1024` | no |
+| 8192 | `torch_topk` | `0.822393` | `1.1669` | `1.000` | `1.000` | `8192` | yes |
+| 8192 | `turboquant_plus` | `5.502870` | `8.3901` | `0.750` | `1.000` | `8192` | no |
+
+The retained path is still exact torch-cache routing for CUDA route/vote. The
+TurboQuant backend was removed after rejection as a scheduler boundary because
+it was slower on the measured GPU path, did not preserve exact winner sequence,
+could not feed the promoted graph cache interface, kept a full FP32 copy, and
+continued to score all columns. A future revisit must be a bounded GPU-owned
+candidate router or a paper-faithful compressed scorer embedded under such a
+router, with long complete-runtime evidence against the 131072-token 6k-ish
+baseline.
+
+After removal, the live 1024-column promoted checkpoint still stayed on the
+real CUDA path. The long cleanup check at
+`reports/turboquant_removal_20260615/runtime-1024-cleanup-131072-i32.json`
+used the same `131072` target tokens, `tick_tokens=128`, q16
+conditional-WHILE, and host-truth interval `32`. It completed successfully at
+`5690.654 tokens/sec` with `train_compute=0.142132 ms/token`, no observed
+contention, CUDA selected on the RTX 3060, `131072` route-vote executions,
+`8190` conditional sequence-loop successes over `131040` burst tokens, and zero
+sequence/native failures. This is below the best 6k-ish route-vote
+sync-cadence run (`6135.026 tokens/sec`, `0.133995 ms/token`) but preserves the
+promoted execution path and shows the deletion did not force a fallback or CPU
+route.
