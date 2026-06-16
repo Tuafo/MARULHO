@@ -1789,3 +1789,26 @@ the 1024 and 8192 real paths. It does not prove a general ANN router,
 wider-bank quality, or growth/pruning autonomy. The remaining scaling work is a
 quality/recall gate for larger banks or future GPU-owned routers, plus explicit
 growth/pruning budget policy, not another per-tick all-column route scorer.
+
+### Route Candidate Bank Quality Gate, 2026-06-16
+
+The quality gate compares the training-owned route candidate bank against an
+offline complete-cache exact top-k oracle. The oracle work is evaluation-only:
+it does not add a hot-path all-column scan and the report keeps steady
+`route_candidate_bank` scoring separate from `offline_oracle_score_rows_per_tick`.
+
+| Report | Source | Columns | Bank rows | Exact reseed | Exact top-1 in bank | Winner match | Mean top-k overlap | Worst top-1 miss streak | Status |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `route-candidate-bank-quality-8192-default-text-s512.json` | default text | `8192` | `10` | `0` | `0.009765625` | `0.001953125` | `0.02578125` | `134` | rejected |
+| `route-candidate-bank-quality-8192-default-text-s512-reseed32.json` | default text | `8192` | `10` | `15` | `0.486328125` | `0.001953125` | `0.33046875` | `30` | rejected |
+| `route-candidate-bank-quality-8192-random-s256.json` | random/stable control | `8192` | `10` | `0` | `1.0` | `1.0` | `0.86875` | `0` | passed control |
+
+The control proves the gate can pass when the route distribution stays local.
+The default-text runs prove the current k-only self-refreshing bank can trap the
+scheduler in an old relevance neighborhood. That does not invalidate the
+131072-token throughput gate above; it limits the claim to bounded steady
+execution. A runtime exact reseed would be an explicit full-cache fallback or
+maintenance cadence, not a hidden promotion. The next route scheduler needs a
+bounded discovery mechanism such as a GPU-owned candidate router, multi-bank
+exploration policy, or quality-aware refresh that can find outside the current
+bank without making every tick score all columns.
