@@ -673,7 +673,9 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "probe_refresh_count": 12,
                         "graph_bypass_count": 1,
                         "fallback_count": 1,
+                        "checkpoint_restore_count": 2,
                         "last_reason": "bounded_route_bank_graph_refresh",
+                        "restore_reason": "route_candidate_bank_restored_from_checkpoint",
                         "probe_last_reason": "bounded_route_bank_graph_refresh",
                         "claim_boundary": (
                             "training_owned_bounded_route_bank_plus_probe_lane_without_hot_path_all_column_rescore"
@@ -744,8 +746,16 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertEqual(projected["route_candidate_bank"]["fallback_count"], 1)
         self.assertEqual(
+            projected["route_candidate_bank"]["checkpoint_restore_count"],
+            2,
+        )
+        self.assertEqual(
             projected["route_candidate_bank"]["last_reason"],
             "bounded_route_bank_graph_refresh",
+        )
+        self.assertEqual(
+            projected["route_candidate_bank"]["restore_reason"],
+            "route_candidate_bank_restored_from_checkpoint",
         )
         self.assertEqual(
             projected["route_candidate_bank"]["probe_last_reason"],
@@ -930,7 +940,9 @@ class StatusReadModelStatusTests(unittest.TestCase):
                     "probe_refresh_count": 9,
                     "graph_bypass_count": 1,
                     "fallback_count": 1,
+                    "checkpoint_restore_count": 3,
                     "last_reason": "bounded_route_bank_graph_refresh",
+                    "restore_reason": "route_candidate_bank_restored_from_checkpoint",
                     "probe_last_reason": "bounded_probe_lane_refresh",
                     "claim_boundary": (
                         "training_owned_bounded_route_bank_plus_probe_lane_"
@@ -957,6 +969,16 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             runtime_core_projection["route_candidate_bank"]["probe_refresh_count"],
             9,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"][
+                "checkpoint_restore_count"
+            ],
+            3,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["restore_reason"],
+            "route_candidate_bank_restored_from_checkpoint",
         )
         self.assertEqual(
             runtime_core_projection["scheduler"]["wake_plan_mode"],

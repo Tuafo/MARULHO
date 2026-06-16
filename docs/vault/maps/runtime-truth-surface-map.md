@@ -52,9 +52,10 @@ from `state_transition_runs_all_columns` and the wake-plan `runs_all_columns`
 truth. `route_candidate_bank` reports the training-owned bank readiness,
 observed fixed `k_routing` bank size, probe rows, score rows, probe cursor,
 refresh cadence, exact seed count, refresh count, graph bypass count, fallback
-count, and last reason. The bank size is not a service or config selector;
-old checkpoint `route_candidate_bank_size` keys migrate away before the runtime
-is built. The exact seed is visible as
+count, checkpoint restore count, restore reason, and last reason. The bank size
+is not a service or config selector; old checkpoint
+`route_candidate_bank_size` keys migrate away before the runtime is built. The
+exact seed is visible as
 `exact_full_cache_score_seed_route_bank`; steady graph/burst ticks report
 `indexed_route_bank_vote` with bounded route rows. The 2026-06-16 8192-column
 probe-lane gate reports `route_input_rows_scored=12/8192`,

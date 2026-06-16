@@ -149,7 +149,11 @@ def build_column_runtime_evidence(
             "fallback_count": int(
                 route_candidate_bank.get("fallback_count", 0) or 0
             ),
+            "checkpoint_restore_count": int(
+                route_candidate_bank.get("checkpoint_restore_count", 0) or 0
+            ),
             "last_reason": route_candidate_bank.get("last_reason"),
+            "restore_reason": route_candidate_bank.get("restore_reason"),
             "probe_last_reason": route_candidate_bank.get("probe_last_reason"),
             "claim_boundary": route_candidate_bank.get("claim_boundary"),
         },
