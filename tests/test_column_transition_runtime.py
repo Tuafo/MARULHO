@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -75,6 +76,49 @@ def test_fused_route_vote_reports_pre_mutation_fallback_on_cpu() -> None:
     assert report["route_vote_active"] is False
     assert report["route_vote_fallback_reason"] == (
         "fused_route_vote_requires_inplace_runtime"
+    )
+
+
+def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter() -> None:
+    runtime = object.__new__(ColumnTransitionRuntime)
+    runtime._route_sleep_filter_state_host = [
+        0,  # deep-sleep enabled
+        0,  # combined filter applied
+        0,  # deep-sleep filtered count
+        12,  # deep-sleep eligible count
+        3,  # insufficient pressure-eligible rows
+        12,  # route input rows
+        5,  # output candidate count
+        0,  # sleep backfill
+        1,  # memory-pressure enabled
+        0,  # memory-pressure applied
+        10,  # over-threshold rows observed
+        2,  # pressure-eligible rows
+    ]
+    runtime._route_sleep_filter_control_mirror = (0, 2000, 1, 500000)
+    runtime._route_ids = None
+    runtime._route_candidates = None
+    runtime._route_sleep_filter_state_dirty = False
+    runtime._route_sleep_filter_state = torch.zeros(12, dtype=torch.long)
+    runtime.route_vote_deep_sleep_filter_control_update_count = 1
+    runtime.route_vote_deep_sleep_filter_state_sync_count = 1
+    runtime._route_memory_pressure_source_mirror = "unit_test_cached_pressure"
+    runtime._trainer = SimpleNamespace(
+        model=SimpleNamespace(
+            column_metabolism=SimpleNamespace(
+                last_memory_pressure_source="unit_test_cached_pressure"
+            )
+        )
+    )
+
+    snapshot = runtime.route_sleep_filter_snapshot()
+
+    assert snapshot["memory_pressure_enabled"] is True
+    assert snapshot["memory_pressure_applied"] is False
+    assert snapshot["filtered_memory_pressure_count"] == 0
+    assert snapshot["memory_pressure_over_threshold_count"] == 10
+    assert snapshot["fallback_reason"] == (
+        "insufficient_awake_route_scores_after_memory_pressure_filter"
     )
 
 
@@ -352,6 +396,94 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     )
     assert runtime_truth["runs_all_columns"] is True
     assert runtime_truth["execution"]["state_transition_runs_all_columns"] is True
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+@pytest.mark.parametrize("route_vote_mode", ["fused_triton_text", "cuda_graph_text"])
+def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
+    route_vote_mode: str,
+) -> None:
+    torch.manual_seed(20260616)
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode=route_vote_mode,
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        dead_column_steps=1000,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        candidate_memory_pressure_filter_start_tokens=0,
+        candidate_memory_pressure_threshold=0.5,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.token_count = 1
+    pattern = torch.rand(config.input_dim, device=trainer.model.device)
+    routing_key = trainer.model.routing_key_from_pattern(pattern)
+    expected, _ = trainer.model.hnsw_index.search_tensors(
+        routing_key.unsqueeze(0),
+        k=config.k_routing,
+    )
+    pressure_ids = expected[0, :2].detach().clone()
+    trainer.model.column_metabolism.memory_pressure.zero_()
+    trainer.model.column_metabolism.memory_pressure[pressure_ids] = 0.99
+    trainer.model.column_metabolism.last_memory_pressure_source = (
+        "unit_test_cached_pressure"
+    )
+
+    trainer.train_step(
+        pattern,
+        allow_sleep_maintenance=False,
+    )
+    torch.cuda.synchronize()
+
+    wake_plan = trainer.model.last_column_wake_plan
+    assert wake_plan.mode == "candidate_memory_pressure_filter_route_vote"
+    assert wake_plan.runs_all_columns is False
+    assert wake_plan.awake_count == config.k_routing
+    assert wake_plan.input_candidate_count == config.n_columns
+    assert wake_plan.filtered_deep_sleep_count == 0
+    assert wake_plan.filtered_memory_pressure_count == 2
+    assert wake_plan.memory_pressure_threshold == 0.5
+    assert wake_plan.memory_pressure_source == "unit_test_cached_pressure"
+    assert (
+        wake_plan.sleep_reason
+        == "memory_pressure_route_score_masked_before_topk_vote"
+    )
+    assert not torch.isin(wake_plan.candidates(), pressure_ids).any()
+    route_filter = trainer.column_transition_runtime_report()[
+        "route_vote_deep_sleep_filter"
+    ]
+    assert route_filter["enabled"] is False
+    assert route_filter["memory_pressure_enabled"] is True
+    assert route_filter["memory_pressure_state_enabled"] is True
+    assert route_filter["memory_pressure_applied"] is True
+    assert route_filter["filtered_memory_pressure_count"] == 2
+    assert route_filter["memory_pressure_over_threshold_count"] == 2
+    assert route_filter["memory_pressure_threshold"] == 0.5
+    assert route_filter["memory_pressure_source"] == "unit_test_cached_pressure"
+    assert route_filter["state_sync_count"] >= 1
+    runtime_truth = trainer.model.column_runtime_report(
+        token_count=trainer.token_count,
+        last_winner=trainer.last_winner,
+    )
+    assert runtime_truth["column_wake_plan"][
+        "filtered_memory_pressure_count"
+    ] == 2
+    assert runtime_truth["candidate_sleep_filter_execution"][
+        "filtered_memory_pressure_count"
+    ] == 2
 
 
 def test_cuda_graph_route_transition_reports_pre_mutation_fallback_on_cpu() -> None:

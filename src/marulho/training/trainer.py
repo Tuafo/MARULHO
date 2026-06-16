@@ -1244,10 +1244,23 @@ class MarulhoTrainer:
         )
 
     def _candidate_memory_pressure_filter_due(self, *, apply_sleep_filter: bool) -> bool:
+        source = str(
+            getattr(
+                getattr(self.model, "column_metabolism", None),
+                "last_memory_pressure_source",
+                "not_run",
+            )
+        )
+        has_pressure_evidence = source not in {
+            "not_run",
+            "no_awake_candidates",
+            "no_memory_store_bucket_evidence",
+        }
         return bool(
             apply_sleep_filter
             and int(self.token_count)
             >= int(self.config.candidate_memory_pressure_filter_start_tokens)
+            and has_pressure_evidence
         )
 
     def _filter_candidate_memory_pressure_plan(
@@ -1477,15 +1490,41 @@ class MarulhoTrainer:
     ) -> ColumnWakePlan:
         snapshot = self._column_transition_runtime.route_sleep_filter_snapshot()
         filter_enabled = bool(snapshot.get("enabled", False))
+        pressure_enabled = bool(snapshot.get("memory_pressure_enabled", False))
         fallback_reason = snapshot.get("fallback_reason")
-        if filter_enabled:
+        pressure_filtered_count = int(
+            snapshot.get("filtered_memory_pressure_count", 0) or 0
+        )
+        pressure_threshold = snapshot.get("memory_pressure_threshold")
+        pressure_source = snapshot.get("memory_pressure_source")
+        if filter_enabled or pressure_enabled:
             mode = (
-                "candidate_deep_sleep_filter_route_vote_fallback"
-                if fallback_reason
+                "candidate_deep_sleep_memory_pressure_filter_route_vote"
+                if filter_enabled and pressure_enabled and not fallback_reason
+                else "candidate_deep_sleep_memory_pressure_filter_route_vote_fallback"
+                if filter_enabled and pressure_enabled
+                else "candidate_deep_sleep_filter_route_vote_fallback"
+                if filter_enabled and fallback_reason
                 else "candidate_deep_sleep_filter_route_vote"
+                if filter_enabled
+                else "candidate_memory_pressure_filter_route_vote_fallback"
+                if fallback_reason
+                else "candidate_memory_pressure_filter_route_vote"
             )
-            wake_reason = "route_vote_primary_score_not_in_deep_sleep"
-            sleep_reason = "deep_sleep_route_score_masked_before_topk_vote"
+            wake_reason = (
+                "route_vote_primary_score_not_in_deep_sleep_or_memory_pressure"
+                if filter_enabled and pressure_enabled
+                else "route_vote_primary_score_not_in_deep_sleep"
+                if filter_enabled
+                else "route_vote_primary_score_below_memory_pressure_threshold"
+            )
+            sleep_reason = (
+                "deep_sleep_or_memory_pressure_route_score_masked_before_topk_vote"
+                if filter_enabled and pressure_enabled and pressure_filtered_count > 0
+                else "deep_sleep_route_score_masked_before_topk_vote"
+                if filter_enabled and pressure_filtered_count <= 0
+                else "memory_pressure_route_score_masked_before_topk_vote"
+            )
             filtered_count = int(snapshot.get("filtered_deep_sleep_count", 0) or 0)
             backfill_count = int(snapshot.get("sleep_backfill_count", 0) or 0)
         else:
@@ -1506,10 +1545,21 @@ class MarulhoTrainer:
                 snapshot.get("input_candidate_count", int(candidates.numel())) or 0
             ),
             filtered_deep_sleep_count=filtered_count,
+            filtered_memory_pressure_count=pressure_filtered_count,
             backfill_candidate_count=backfill_count,
             fallback_reason=fallback_reason,
             wake_reason=wake_reason,
             sleep_reason=sleep_reason,
+            memory_pressure_threshold=(
+                float(pressure_threshold)
+                if pressure_threshold is not None
+                else None
+            ),
+            memory_pressure_source=(
+                str(pressure_source)
+                if pressure_source is not None
+                else None
+            ),
         )
         self._record_column_wake_plan(plan)
         return plan
@@ -2859,9 +2909,7 @@ class MarulhoTrainer:
         if (
             candidates is not None
             and wake_plan is not None
-            and str(wake_plan.mode).startswith(
-                "candidate_deep_sleep_filter_route_vote"
-            )
+            and "filter_route_vote" in str(wake_plan.mode)
         ):
             wake_plan = self._route_vote_owner_wake_plan(candidates)
         self._record_column_metabolism(wake_plan)
@@ -3425,8 +3473,7 @@ class MarulhoTrainer:
             self.config.candidate_memory_pressure_filter_start_tokens
         )
         metrics["candidate_memory_pressure_filter_due"] = int(
-            self.token_count
-            >= int(self.config.candidate_memory_pressure_filter_start_tokens)
+            self._candidate_memory_pressure_filter_due(apply_sleep_filter=True)
         )
         metrics["candidate_memory_pressure_filtered_count"] = int(
             self._column_wake_plan.filtered_memory_pressure_count

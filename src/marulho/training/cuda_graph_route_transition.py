@@ -621,6 +621,7 @@ class CudaGraphRouteTransition:
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=pred.location,
+            memory_pressure=trainer.model.column_metabolism.memory_pressure,
             previous_winner=runtime._previous_winner,
             route_filter_control=runtime._route_sleep_filter_control,
             route_filter_state_out=runtime._route_sleep_filter_state,

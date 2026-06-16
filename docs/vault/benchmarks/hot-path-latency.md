@@ -473,9 +473,10 @@ executions, route-vote deep-sleep filtering from `1024` rows to `10` eligible
 route candidates, `8190` q16 sequence-loop successes over `131040` tokens, and
 zero graph, sequence, or native failures. `velocity_environment.v1` reported
 `contention_observed` with GPU busy, so this is stable same-band evidence, not a
-new speed ceiling. CUDA route-vote memory-pressure filtering remains future
-work because post-selection pressure filtering would make scheduler truth drift
-from winner selection.
+new speed ceiling. The follow-up route-owner pressure slice no longer uses
+post-selection pressure filtering: CUDA masks high-pressure route rows before
+candidate and winner selection when cached pressure evidence exists, and keeps
+the pressure gate disabled when evidence is absent.
 
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
@@ -1396,16 +1397,19 @@ unavailable conditional construction, fail-closed launch-failure coverage, and
 an ADR/config decision. Conditional-WHILE q16 is now the maintained eligible
 default, while native8 repeated-child replay remains fallback and opt-out.
 
-### Route-Vote Deep-Sleep Filter In Fused CUDA Route, 2026-06-15
+### Route-Vote Scheduler Filter In Fused CUDA Route, 2026-06-15/16
 
 The scheduler slice moved deep-sleep filtering into the fused CUDA route-vote
 owner instead of filtering candidates after graph/fused route-vote had already
-selected a winner. `core.fused_route_vote_cuda` now reads the existing
-route-score rows plus `steps_since_win`, masks deep-sleep rows before route
-top-k vote, writes an eight-field `route_vote_deep_sleep_filter.v1` device state
-packet, and lets training build the `ColumnWakePlan`. There is no extra
-all-column sleep scan; fallback remains explicit when the route rows do not
-contain enough awake candidates.
+selected a winner. The follow-up pressure slice uses the same owner for
+memory-pressure filtering when cached pressure evidence exists.
+`core.fused_route_vote_cuda` now reads the existing route-score rows plus
+`steps_since_win` and, when enabled, `ColumnMetabolismState.memory_pressure`;
+it masks ineligible rows before route top-k vote, writes a twelve-field
+`route_vote_scheduler_filter.v1` device state packet, and lets training build
+the `ColumnWakePlan`. There is no extra all-column sleep or pressure census;
+fallback remains explicit when the route rows do not contain enough eligible
+candidates.
 
 The first clean long run at
 `reports/column_scheduler_20260615/route-vote-sleep-filter-131072-i32.json`
@@ -1433,6 +1437,33 @@ effectively the same 6k-ish band while train compute still regresses by about
 `0.0073 ms/token`. Keep the route-vote sleep filter as the real scheduler
 boundary, but the next speed pass should reduce the remaining route/filter
 bookkeeping rather than add a new all-column sleep decision.
+
+Focused 2026-06-16 tests now prove the pressure half of the same route-owner
+packet: high-pressure route rows are masked before CUDA candidate/winner
+selection in both direct `fused_triton_text` and captured `cuda_graph_text`
+modes, and the trainer wake plan reports
+`candidate_memory_pressure_filter_route_vote`. The pressure gate is
+evidence-aware: when `ColumnMetabolismState` has no cached pressure source, the
+CUDA route owner leaves pressure filtering disabled so the default hot path
+does not pay a no-op route-row pressure read.
+
+The current 131072-token stress rerun at
+`reports/column_scheduler_20260616/route-vote-pressure-filter-current-131072-i32-rerun.json`
+processed `131072` tokens at `5947.863 tokens/sec` with
+`train_compute=0.136041 ms/token`, `prepare_training=0.006541 ms/token`, and
+`finalize_total=0.005931 ms/token`. It stayed on RTX 3060 CUDA with
+`route_vote_resolved_mode=cuda_graph_text`, `131072` route/vote executions,
+`8190` q16 conditional sequence-loop launches over `131040` tokens, zero
+graph/sequence/native failures or fallbacks, and no observed CPU/GPU contention.
+Runtime Truth showed the pressure gate had real cached evidence
+(`memory_store_bucket_consolidation_gap`) but did not apply because only `6`
+route rows remained below the pressure threshold for `k=10`; it reported
+`memory_pressure_applied=false`, `memory_pressure_over_threshold_count=4`, and
+fallback reason `insufficient_awake_route_scores_after_memory_pressure_filter`.
+Compared with the previous default-route run (`6014.550 tokens/sec`,
+`train_compute=0.136192 ms/token`), complete throughput is slightly lower while
+train compute is effectively neutral/slightly lower. Treat this as stable
+same-band Runtime Truth evidence, not a new speed ceiling.
 
 ### Real-Path Column Scaling Probe, 2026-06-15
 

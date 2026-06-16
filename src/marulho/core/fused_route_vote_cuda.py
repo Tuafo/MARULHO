@@ -55,6 +55,7 @@ if triton is not None:
         prototypes,
         thresholds,
         prediction_location,
+        memory_pressure,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -90,15 +91,45 @@ if triton is not None:
             mask=score_mask,
             other=0,
         )
+        candidate_pressure = tl.load(
+            memory_pressure + candidate_ids_by_position,
+            mask=score_mask,
+            other=0.0,
+        )
         route_awake_mask = candidate_steps < deep_sleep_threshold
+        pressure_enabled = tl.load(route_filter_control + 2) != 0
+        pressure_threshold = (
+            tl.load(route_filter_control + 3).to(tl.float32) * 0.000001
+        )
+        route_pressure_mask = candidate_pressure <= pressure_threshold
+        deep_eligible_mask = score_mask & tl.where(
+            filter_enabled,
+            route_awake_mask,
+            True,
+        )
         eligible_count = tl.sum(
-            tl.where(score_mask & route_awake_mask, 1, 0),
+            tl.where(deep_eligible_mask, 1, 0),
             axis=0,
         )
         deep_sleep_count = vector_count - eligible_count
-        apply_filter = filter_enabled & (eligible_count >= candidate_count)
+        final_eligible_mask = deep_eligible_mask & tl.where(
+            pressure_enabled,
+            route_pressure_mask,
+            True,
+        )
+        pressure_eligible_count = tl.sum(
+            tl.where(final_eligible_mask, 1, 0),
+            axis=0,
+        )
+        pressure_filtered_count = tl.where(
+            pressure_enabled,
+            eligible_count - pressure_eligible_count,
+            0,
+        )
+        any_filter_enabled = filter_enabled | pressure_enabled
+        apply_filter = any_filter_enabled & (pressure_eligible_count >= candidate_count)
         primary_scores = tl.where(
-            apply_filter & score_mask & (~route_awake_mask),
+            apply_filter & score_mask & (~final_eligible_mask),
             -float("inf"),
             remaining_scores,
         )
@@ -221,11 +252,11 @@ if triton is not None:
         tl.store(strength_out, 1.0)
         tl.store(competition_had_positive, had_positive)
         tl.store(
-            reconstruction_error_out,
-            tl.maximum(1.0 - best_route_score, 0.0),
+        reconstruction_error_out,
+        tl.maximum(1.0 - best_route_score, 0.0),
         )
         filtered_count = tl.where(
-            apply_filter,
+            apply_filter & filter_enabled,
             deep_sleep_count,
             0,
         )
@@ -233,9 +264,17 @@ if triton is not None:
             filter_enabled & (~apply_filter) & (eligible_count <= 0),
             2,
             tl.where(
-                filter_enabled & (~apply_filter),
-                1,
-                0,
+                pressure_enabled & (~apply_filter) & (pressure_eligible_count <= 0),
+                4,
+                tl.where(
+                    pressure_enabled & (~apply_filter),
+                    3,
+                    tl.where(
+                        filter_enabled & (~apply_filter),
+                        1,
+                        0,
+                    ),
+                ),
             ),
         )
         tl.store(route_filter_state_out + 0, tl.where(filter_enabled, 1, 0))
@@ -252,6 +291,13 @@ if triton is not None:
             route_filter_state_out + 7,
             0,
         )
+        tl.store(route_filter_state_out + 8, tl.where(pressure_enabled, 1, 0))
+        tl.store(
+            route_filter_state_out + 9,
+            tl.where(apply_filter & pressure_enabled, 1, 0),
+        )
+        tl.store(route_filter_state_out + 10, pressure_filtered_count)
+        tl.store(route_filter_state_out + 11, pressure_eligible_count)
 
 
 def fused_route_vote_available() -> bool:
@@ -285,6 +331,7 @@ def warmup_fused_route_vote_cuda(
     prototypes: torch.Tensor,
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
+    memory_pressure: torch.Tensor,
     previous_winner: torch.Tensor,
     route_filter_control: torch.Tensor,
     route_filter_state_out: torch.Tensor,
@@ -320,6 +367,7 @@ def warmup_fused_route_vote_cuda(
         prototypes,
         thresholds,
         prediction_location,
+        memory_pressure,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -349,6 +397,7 @@ def fused_route_vote_cuda(
     prototypes: torch.Tensor,
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
+    memory_pressure: torch.Tensor,
     previous_winner: torch.Tensor,
     route_filter_control: torch.Tensor,
     route_filter_state_out: torch.Tensor,
@@ -373,6 +422,7 @@ def fused_route_vote_cuda(
         prototypes,
         thresholds,
         prediction_location,
+        memory_pressure,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -398,10 +448,10 @@ def fused_route_vote_cuda(
         raise ValueError("steps_since_win must match prototype rows")
     if steps_since_win.dtype != torch.long:
         raise ValueError("steps_since_win must use int64")
-    if route_filter_control.dtype != torch.long or int(route_filter_control.numel()) < 2:
-        raise ValueError("route_filter_control must contain at least two int64 values")
-    if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 8:
-        raise ValueError("route_filter_state_out must contain at least eight int64 values")
+    if route_filter_control.dtype != torch.long or int(route_filter_control.numel()) < 4:
+        raise ValueError("route_filter_control must contain at least four int64 values")
+    if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 12:
+        raise ValueError("route_filter_state_out must contain at least twelve int64 values")
     if int(scores_out.numel()) != vector_count:
         raise ValueError("scores_out must match routing vector rows")
     candidate_count = int(candidates_out.numel())
@@ -413,6 +463,8 @@ def fused_route_vote_cuda(
         raise ValueError("thresholds must match prototype rows")
     if int(prediction_location.shape[0]) != int(prototypes.shape[0]):
         raise ValueError("prediction locations must match prototype rows")
+    if int(memory_pressure.numel()) != int(prototypes.shape[0]):
+        raise ValueError("memory pressure must match prototype rows")
     if previous_winner.dtype != torch.long or int(previous_winner.numel()) != 1:
         raise ValueError("previous_winner must be one int64 value")
     if candidates_out.dtype != torch.long:
@@ -438,6 +490,7 @@ def fused_route_vote_cuda(
         prototypes,
         thresholds,
         prediction_location,
+        memory_pressure,
         previous_winner,
         route_filter_control,
         route_filter_state_out,

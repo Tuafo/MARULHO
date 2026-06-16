@@ -84,21 +84,36 @@ class ColumnTransitionRuntime:
         comp = trainer.model.competitive
         device = trainer.model.device
         self._route_reconstruction_error = torch.empty(1, device=device)
+        pressure_threshold = int(
+            round(
+                float(trainer.config.candidate_memory_pressure_threshold)
+                * 1_000_000.0
+            )
+        )
         self._route_sleep_filter_control = torch.tensor(
-            [0, int(trainer.config.dead_column_steps)],
+            [0, int(trainer.config.dead_column_steps), 0, pressure_threshold],
             dtype=torch.long,
             device=device,
         )
         self._route_sleep_filter_control_mirror = (
             0,
             int(trainer.config.dead_column_steps),
+            0,
+            pressure_threshold,
+        )
+        self._route_memory_pressure_source_mirror = str(
+            getattr(
+                trainer.model.column_metabolism,
+                "last_memory_pressure_source",
+                "not_run",
+            )
         )
         self._route_sleep_filter_state = torch.zeros(
-            8,
+            12,
             dtype=torch.long,
             device=device,
         )
-        self._route_sleep_filter_state_host = [0] * 8
+        self._route_sleep_filter_state_host = [0] * 12
         self._route_sleep_filter_state_dirty = False
         self.route_vote_deep_sleep_filter_control_update_count = 0
         self.route_vote_deep_sleep_filter_state_sync_count = 0
@@ -390,6 +405,7 @@ class ColumnTransitionRuntime:
                 prototypes=self._trainer.model.competitive.prototypes,
                 thresholds=self._trainer.model.competitive.thresholds,
                 prediction_location=self._trainer.model.predictive.location,
+                memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
                 previous_winner=self._previous_winner,
                 route_filter_control=self._route_sleep_filter_control,
                 route_filter_state_out=self._route_sleep_filter_state,
@@ -439,14 +455,49 @@ class ColumnTransitionRuntime:
             >= int(self._trainer.config.dead_column_steps)
         )
 
+    def route_memory_pressure_filter_due(self) -> bool:
+        source = str(
+            getattr(
+                self._trainer.model.column_metabolism,
+                "last_memory_pressure_source",
+                "not_run",
+            )
+        )
+        has_pressure_evidence = source not in {
+            "not_run",
+            "no_awake_candidates",
+            "no_memory_store_bucket_evidence",
+        }
+        return bool(
+            self._trainer.token_count
+            >= int(self._trainer.config.candidate_memory_pressure_filter_start_tokens)
+            and has_pressure_evidence
+        )
+
     def prepare_route_sleep_filter_control(self) -> None:
         enabled = 1 if self.route_sleep_filter_due() else 0
         threshold = int(self._trainer.config.dead_column_steps)
-        desired = (enabled, threshold)
+        pressure_enabled = 1 if self.route_memory_pressure_filter_due() else 0
+        self._route_memory_pressure_source_mirror = str(
+            getattr(
+                self._trainer.model.column_metabolism,
+                "last_memory_pressure_source",
+                "not_run",
+            )
+        )
+        pressure_threshold = int(
+            round(
+                float(self._trainer.config.candidate_memory_pressure_threshold)
+                * 1_000_000.0
+            )
+        )
+        desired = (enabled, threshold, pressure_enabled, pressure_threshold)
         if desired == self._route_sleep_filter_control_mirror:
             return
         self._route_sleep_filter_control[0].fill_(enabled)
         self._route_sleep_filter_control[1].fill_(threshold)
+        self._route_sleep_filter_control[2].fill_(pressure_enabled)
+        self._route_sleep_filter_control[3].fill_(pressure_threshold)
         self._route_sleep_filter_control_mirror = desired
         self.route_vote_deep_sleep_filter_control_update_count += 1
 
@@ -467,10 +518,22 @@ class ColumnTransitionRuntime:
     def route_sleep_filter_snapshot(self) -> dict[str, Any]:
         state = list(self._route_sleep_filter_state_host)
         enabled = bool(self._route_sleep_filter_control_mirror[0])
-        fallback_code = int(state[4]) if bool(state[0]) else 0
+        pressure_enabled = bool(self._route_sleep_filter_control_mirror[2])
+        pressure_threshold = (
+            float(self._route_sleep_filter_control_mirror[3]) / 1_000_000.0
+        )
+        state_enabled = bool(state[0])
+        pressure_state_enabled = bool(state[8]) if len(state) > 8 else False
+        pressure_applied = bool(state[9]) if len(state) > 9 else False
+        pressure_over_threshold_count = (
+            int(state[10]) if pressure_state_enabled and len(state) > 10 else 0
+        )
+        fallback_code = int(state[4]) if state_enabled or pressure_state_enabled else 0
         fallback_reason = {
             1: "insufficient_awake_route_scores_after_deep_sleep_filter",
             2: "all_route_scores_deep_sleep",
+            3: "insufficient_awake_route_scores_after_memory_pressure_filter",
+            4: "all_route_scores_over_memory_pressure_threshold",
         }.get(fallback_code)
         route_input_count = (
             int(self._route_ids.numel())
@@ -482,24 +545,42 @@ class ColumnTransitionRuntime:
             if self._route_candidates is not None
             else int(state[6])
         )
-        state_enabled = bool(state[0])
         state_current_for_control = bool(
             state_enabled == enabled
+            and pressure_state_enabled == pressure_enabled
             and int(state[5]) == int(route_input_count)
             and int(state[6]) == int(route_output_count)
         )
         return {
-            "surface": "route_vote_deep_sleep_filter.v1",
+            "surface": "route_vote_scheduler_filter.v1",
             "enabled": enabled,
             "state_enabled": state_enabled,
+            "memory_pressure_enabled": pressure_enabled,
+            "memory_pressure_state_enabled": pressure_state_enabled,
+            "memory_pressure_applied": pressure_applied,
             "state_current_for_control": state_current_for_control,
             "input_candidate_count": route_input_count,
             "output_candidate_count": route_output_count,
             "filtered_deep_sleep_count": int(state[2]) if state_enabled else 0,
+            "filtered_memory_pressure_count": (
+                pressure_over_threshold_count if pressure_applied else 0
+            ),
+            "memory_pressure_over_threshold_count": pressure_over_threshold_count,
             "eligible_route_count": (
                 int(state[3])
                 if state_enabled
                 else int(route_input_count)
+            ),
+            "memory_pressure_eligible_route_count": (
+                int(state[11])
+                if pressure_state_enabled and len(state) > 11
+                else int(route_input_count)
+            ),
+            "memory_pressure_threshold": (
+                pressure_threshold if pressure_enabled else None
+            ),
+            "memory_pressure_source": str(
+                self._route_memory_pressure_source_mirror
             ),
             "sleep_backfill_count": int(state[7]) if state_enabled else 0,
             "fallback_reason": fallback_reason,
@@ -512,7 +593,7 @@ class ColumnTransitionRuntime:
             "state_dirty": bool(self._route_sleep_filter_state_dirty),
             "tensor_device": str(self._route_sleep_filter_state.device),
             "claim_boundary": (
-                "training_owned_route_vote_masks_deep_sleep_rows_inside_existing_route_selection"
+                "training_owned_route_vote_masks_sleep_and_memory_pressure_inside_existing_route_selection"
             ),
         }
 
@@ -608,6 +689,7 @@ class ColumnTransitionRuntime:
             prototypes=self._trainer.model.competitive.prototypes,
             thresholds=self._trainer.model.competitive.thresholds,
             prediction_location=self._trainer.model.predictive.location,
+            memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
             previous_winner=self._previous_winner,
             steps_since_win=self._trainer.model.competitive.steps_since_win,
             route_filter_control=self._route_sleep_filter_control,

@@ -115,11 +115,21 @@ def run_fused_route_vote_benchmark(
     fused_positive = torch.empty((), dtype=torch.bool, device=device)
     fused_reconstruction_error = torch.empty(1, device=device)
     route_filter_control = torch.tensor(
-        [0, int(trainer.config.dead_column_steps)],
+        [
+            0,
+            int(trainer.config.dead_column_steps),
+            0,
+            int(
+                round(
+                    float(trainer.config.candidate_memory_pressure_threshold)
+                    * 1_000_000.0
+                )
+            ),
+        ],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(8, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
 
     def production_step(key: torch.Tensor) -> torch.Tensor:
         candidates, _ = trainer.model.hnsw_index.search_tensors(
@@ -149,6 +159,7 @@ def run_fused_route_vote_benchmark(
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=trainer.model.predictive.location,
+            memory_pressure=trainer.model.column_metabolism.memory_pressure,
             previous_winner=fused_previous,
             route_filter_control=route_filter_control,
             route_filter_state_out=route_filter_state,
