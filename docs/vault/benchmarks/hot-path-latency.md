@@ -2064,6 +2064,22 @@ processed `131072` tokens at `6174.224 tokens/sec`,
 and no observed contention. This is accepted as one-path cleanup evidence, not a
 new speed ceiling.
 
+The route-bank checkpoint restore cleanup removed the first live exact-cache
+seed after a checkpoint already has a ready route bank. A seeded checkpoint was
+created from the promoted 8192-column scheduler checkpoint by paying the exact
+seed before save; restore then loaded the saved bank IDs before CUDA graph
+capture. The 131072-token run at
+`reports/column_scheduler_20260616/route-bank-checkpoint-restore-8192-131072-i32.json`
+reported `checkpoint_restore_count=1`, `seed_count=0`, `fallback_count=0`,
+`graph_bypass_count=0`, `route_input_rows_scored=12/8192`,
+`route_output_candidate_count=10`, `state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. Throughput stayed in band at
+`6129.693 tokens/sec`, `train_compute=0.130218 ms/token`,
+`prepare_training=0.006547 ms/token`, `finalize_total=0.005899 ms/token`, and
+`tick_duration_ms.p95=21.637`. This is restore/startup scheduler evidence, not
+a new route-quality claim.
+
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
 random-projection buckets. These are evaluation-only probes: offline precompute

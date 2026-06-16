@@ -46,6 +46,7 @@ class MarulhoTrainer:
             defer_cuda_graph_route_transition
         )
         self._route_vote_mode_override_for_evaluation: str | None = None
+        self._restored_route_candidate_bank_snapshot: dict[str, Any] | None = None
         self.token_count = 0
         self.is_bootstrap = True
         self.sleep_events = 0

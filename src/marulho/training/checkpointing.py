@@ -137,6 +137,17 @@ def _restore_model(trainer: MarulhoTrainer, snapshot: dict[str, Any]) -> None:
     trainer.model.routing_index.rebuild()
 
 
+def _route_candidate_bank_checkpoint_snapshot(trainer: Any) -> dict[str, Any]:
+    runtime = getattr(trainer, "_column_transition_runtime", None)
+    checkpoint_fn = getattr(runtime, "route_candidate_bank_checkpoint", None)
+    if not callable(checkpoint_fn):
+        return {
+            "valid": False,
+            "reason": "route_candidate_bank_runtime_unavailable",
+        }
+    return dict(checkpoint_fn())
+
+
 def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata: dict[str, Any] | None = None) -> Path:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +192,7 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
                 for key, value in trainer.column_anchors.items()
                 if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
             },
+            "route_candidate_bank": _route_candidate_bank_checkpoint_snapshot(trainer),
         },
         "metadata": metadata_snapshot,
     }
@@ -466,6 +478,9 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
         for key, value in dict(trainer_snapshot.get("column_anchors", {})).items()
         if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
     }
+    route_bank_snapshot = trainer_snapshot.get("route_candidate_bank")
+    if isinstance(route_bank_snapshot, dict):
+        trainer._restored_route_candidate_bank_snapshot = dict(route_bank_snapshot)
     if defer_cuda_graph_capture:
         from marulho.training.column_transition_runtime import (
             ColumnTransitionRuntime,

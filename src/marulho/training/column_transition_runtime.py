@@ -139,7 +139,9 @@ class ColumnTransitionRuntime:
         self.route_candidate_probe_last_reason: str | None = None
         self.route_candidate_bank_graph_bypass_count = 0
         self.route_candidate_bank_fallback_count = 0
+        self.route_candidate_bank_checkpoint_restore_count = 0
         self.route_candidate_bank_last_reason: str | None = None
+        self.route_candidate_bank_restore_reason: str | None = None
         self._last_route_input_rows_scored = 0
         self._last_route_output_candidate_count = 0
         self._last_route_candidate_boundary = "not_run"
@@ -577,6 +579,96 @@ class ColumnTransitionRuntime:
         self.route_candidate_bank_last_reason = str(reason)
         return True
 
+    def _restore_route_bank_from_checkpoint(self) -> None:
+        if not self.route_candidate_bank_enabled:
+            return
+        snapshot = getattr(
+            self._trainer,
+            "_restored_route_candidate_bank_snapshot",
+            None,
+        )
+        if not isinstance(snapshot, dict) or not bool(snapshot.get("valid", False)):
+            self.route_candidate_bank_restore_reason = (
+                "checkpoint_route_bank_snapshot_absent"
+            )
+            return
+        ids = snapshot.get("ids")
+        if not isinstance(ids, torch.Tensor):
+            self.route_candidate_bank_restore_reason = (
+                "checkpoint_route_bank_ids_missing"
+            )
+            return
+        if int(snapshot.get("bank_size", -1)) != int(self.route_candidate_bank_size):
+            self.route_candidate_bank_restore_reason = (
+                "checkpoint_route_bank_size_mismatch"
+            )
+            return
+        route_count = 0 if self._route_ids is None else int(self._route_ids.numel())
+        if route_count <= 0:
+            self.route_candidate_bank_restore_reason = (
+                "checkpoint_route_bank_route_cache_unavailable"
+            )
+            return
+        self.route_candidate_probe_cursor = int(
+            snapshot.get("probe_cursor", self.route_candidate_probe_cursor)
+            or 0
+        ) % route_count
+        restored = self._refresh_route_bank_from_candidates(
+            ids,
+            reason="route_candidate_bank_restored_from_checkpoint",
+            validate=True,
+        )
+        if not restored:
+            self.route_candidate_bank_restore_reason = (
+                self.route_candidate_bank_last_reason
+            )
+            return
+        interval = max(1, int(self.route_candidate_bank_refresh_interval_tokens))
+        self.route_candidate_bank_scored_since_refresh = min(
+            max(0, int(snapshot.get("scored_since_refresh", 0) or 0)),
+            interval - 1,
+        )
+        self.route_candidate_bank_checkpoint_restore_count += 1
+        self.route_candidate_bank_restore_reason = (
+            "route_candidate_bank_restored_from_checkpoint"
+        )
+        self._trainer._restored_route_candidate_bank_snapshot = None
+
+    def route_candidate_bank_checkpoint(self) -> dict[str, Any]:
+        if not self.route_candidate_bank_enabled:
+            return {
+                "valid": False,
+                "reason": "route_candidate_bank_disabled",
+            }
+        if (
+            not self.route_candidate_bank_ready
+            or self._route_ids is None
+            or self._route_bank_positions is None
+        ):
+            return {
+                "valid": False,
+                "reason": self.route_candidate_bank_last_reason
+                or "route_candidate_bank_not_ready",
+            }
+        bank_ids = self._route_ids.index_select(
+            0,
+            self._route_bank_positions.to(
+                device=self._route_ids.device,
+                dtype=torch.long,
+            ),
+        )
+        return {
+            "valid": True,
+            "ids": bank_ids.detach().cpu(),
+            "bank_size": int(self.route_candidate_bank_size),
+            "probe_rows": int(self.route_candidate_probe_rows),
+            "probe_cursor": int(self.route_candidate_probe_cursor),
+            "scored_since_refresh": int(
+                self.route_candidate_bank_scored_since_refresh
+            ),
+            "reason": "route_candidate_bank_checkpointed",
+        }
+
     def _warmup_route_vote(self) -> None:
         if self.route_vote_requested_mode not in {
             "fused_triton_text",
@@ -663,6 +755,7 @@ class ColumnTransitionRuntime:
                 dtype=torch.long,
                 device=vectors.device,
             )
+            self._restore_route_bank_from_checkpoint()
             if self.route_candidate_bank_enabled:
                 warmup_fused_route_vote_cuda(
                     routing_key=torch.empty(
@@ -2085,7 +2178,11 @@ class ColumnTransitionRuntime:
                     self.route_candidate_bank_graph_bypass_count
                 ),
                 "fallback_count": int(self.route_candidate_bank_fallback_count),
+                "checkpoint_restore_count": int(
+                    self.route_candidate_bank_checkpoint_restore_count
+                ),
                 "last_reason": self.route_candidate_bank_last_reason,
+                "restore_reason": self.route_candidate_bank_restore_reason,
                 "probe_last_reason": self.route_candidate_probe_last_reason,
                 "claim_boundary": (
                     "training_owned_bounded_route_bank_plus_probe_lane_without_hot_path_all_column_rescore"

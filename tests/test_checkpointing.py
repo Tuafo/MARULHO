@@ -566,6 +566,89 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 0,
             )
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_checkpoint_restores_route_candidate_bank_before_first_tick(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=32,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                k_routing=5,
+                memory_capacity=16,
+                predictive_dense_transition_mode="inplace_triton",
+                predictive_route_vote_mode="cuda_graph_text",
+                plasticity_mode="lite",
+                input_weight_blend=0.0,
+                dead_column_steps=1000,
+                candidate_homeostasis_start_tokens=0,
+                candidate_predictive_update_start_tokens=0,
+                candidate_deep_sleep_filter_start_tokens=10**9,
+                candidate_memory_pressure_filter_start_tokens=10**9,
+                enable_context_layer=False,
+                enable_binding_layer=False,
+                enable_abstraction_layer=False,
+                cuda_graph_host_truth_sync_interval_tokens=1,
+                device="cuda",
+            )
+            torch.manual_seed(20260616)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            trainer.train_step(
+                torch.rand(cfg.input_dim, device="cuda"),
+                raw_window="checkpoint route bank seed",
+                allow_sleep_maintenance=False,
+            )
+            seed_report = trainer.column_transition_runtime_report()
+            self.assertTrue(seed_report["route_candidate_bank"]["ready"])
+            self.assertEqual(seed_report["route_candidate_bank"]["seed_count"], 1)
+
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "route-bank-restored.pt",
+                trainer,
+            )
+            restored, _metadata = load_trainer_checkpoint(checkpoint)
+            before = restored.column_transition_runtime_report()
+            self.assertTrue(before["route_candidate_bank"]["ready"])
+            self.assertEqual(
+                before["route_candidate_bank"]["checkpoint_restore_count"],
+                1,
+            )
+            self.assertEqual(
+                before["route_candidate_bank"]["restore_reason"],
+                "route_candidate_bank_restored_from_checkpoint",
+            )
+
+            restored.train_step(
+                torch.rand(cfg.input_dim, device="cuda"),
+                raw_window="checkpoint route bank bounded first tick",
+                allow_sleep_maintenance=False,
+            )
+            torch.cuda.synchronize()
+            after = restored.column_transition_runtime_report()
+            self.assertEqual(after["route_candidate_bank"]["seed_count"], 0)
+            self.assertEqual(
+                after["route_candidate_bank"]["graph_bypass_count"],
+                0,
+            )
+            self.assertEqual(
+                after["route_vote_scoring"]["route_input_rows_scored"],
+                cfg.k_routing + 2,
+            )
+            self.assertFalse(after["route_vote_scoring"]["route_rows_run_all_columns"])
+            self.assertTrue(after["route_vote_scoring"]["bounded_route_scoring"])
+            self.assertIsNone(
+                after["route_vote_scoring"]["route_scoring_unbounded_reason"]
+            )
+            self.assertGreaterEqual(
+                after["cuda_graph_route_transition"]["replay_count"],
+                1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
