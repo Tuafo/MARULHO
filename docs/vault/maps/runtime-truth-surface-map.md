@@ -51,13 +51,15 @@ bounded route-candidate bank plus fixed probe lane.
 from `state_transition_runs_all_columns` and the wake-plan `runs_all_columns`
 truth. `route_candidate_bank` reports the training-owned bank readiness,
 observed fixed `k_routing` bank size, probe rows, score rows, probe cursor,
-refresh cadence, exact seed count, refresh count, graph bypass count, fallback
-count, checkpoint restore count, restore reason, and last reason. The bank size
+refresh owner, refresh cadence, exact seed count, refresh count, host/device
+refresh counts, graph bypass count, fallback count, checkpoint restore count,
+restore reason, and last reason. The bank size
 is not a service or config selector; old checkpoint
 `route_candidate_bank_size` keys migrate away before the runtime is built. The
 exact seed is visible as
 `exact_full_cache_score_seed_route_bank`; steady graph/burst ticks report
-`indexed_route_bank_vote` with bounded route rows. The 2026-06-16 8192-column
+`indexed_route_bank_vote_device_refresh` with bounded route rows and
+`refresh_owner=fused_route_vote_device`. The 2026-06-16 8192-column
 probe-lane gate reports `route_input_rows_scored=12/8192`,
 `route_output_candidate_count=10`, `state_transition_column_count=10`,
 and `state_transition_cached_count=8182`, so Runtime Truth now has a measured
@@ -65,7 +67,10 @@ steady-route example where scored rows and awake rows are both bounded after
 the explicit exact seed. The corrected 16384- and 32768-column scale gates
 report the same `route_input_rows_scored=12` and
 `route_output_candidate_count=10` with `state_transition_cached_count=16374`
-and `32758`, respectively. The
+and `32758`, respectively. The device-refresh 32768 gate reports
+`device_refresh_count=131072`, `host_refresh_count=1`,
+`route_input_rows_scored=12/32768`, `state_transition_cached_count=32758`,
+and zero graph/native/sequence failures. The
 route-owner scheduler filter also reports whether memory-pressure and
 usefulness filtering were enabled from cached metabolism evidence, how many
 route rows they masked, eligible counts after each gate, thresholds, sources,

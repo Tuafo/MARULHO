@@ -1825,9 +1825,9 @@ scheduler boundary:
   `candidate_boundary=exact_full_cache_score_seed_route_bank`,
   `route_scoring_unbounded_reason=route_candidate_bank_not_ready_exact_seed`
 - steady fused/graph ticks: indexed bank scoring with
-  `route_vote_kernel_variant=indexed_route_bank_vote`
-- graph/burst boundaries refresh the bank from device route/vote candidates
-  without a hot-path all-column scan
+  `route_vote_kernel_variant=indexed_route_bank_vote_device_refresh`
+- steady graph/burst replays refresh the next bank/probe positions inside the
+  fused route/vote select kernel; host refresh remains for exact seed/restore
 - `service` only projects `route_candidate_bank` and `route_vote_scoring`; it
   does not choose the bank, wake columns, or decide sleep
 
@@ -1884,7 +1884,7 @@ against the promoted 8192-column checkpoint:
 | environment contention | not observed | contention observed | not observed |
 
 The 8192 route-bank report selected the RTX 3060, completed `131072` tokens,
-kept `route_vote_kernel_variant=indexed_route_bank_vote`,
+kept the then-current `route_vote_kernel_variant=indexed_route_bank_vote`,
 `route_candidate_bank.enabled=true`, `ready=true`, `seed_count=1`,
 `fallback_count=1`, `graph_bypass_count=1`, and
 `last_reason=bounded_route_bank_burst_refresh`. Runtime Truth reported
@@ -1898,6 +1898,39 @@ the 1024 and 8192 real paths. It does not prove a general ANN router,
 wider-bank quality, or growth/pruning autonomy. The remaining scaling work is a
 quality/recall gate for larger banks or future GPU-owned routers, plus explicit
 growth/pruning budget policy, not another per-tick all-column route scorer.
+
+### Device-Owned Route-Bank Refresh, 2026-06-16
+
+The follow-up scheduler slice moved steady route-bank refresh from Python-side
+candidate-to-route-position indexing into the fused route/vote select kernel.
+The long gate
+`reports/column_scheduler_20260616/device-route-bank-refresh-32768-131072-i32.json`
+used the same `32768`-column usefulness scheduler checkpoint as the previous
+run and completed `131072` tokens on the RTX 3060. It reported
+`route_vote_kernel_variant=indexed_route_bank_vote_device_refresh`,
+`refresh_owner=fused_route_vote_device`, `device_refresh_count=131072`,
+`host_refresh_count=1`, `route_input_rows_scored=12/32768`,
+`route_output_candidate_count=10`, `state_transition_cached_count=32758`,
+`state_transition_runs_all_columns=false`, and zero graph/native/sequence
+failures. Throughput was `6008.953 tokens/sec`; train compute was
+`0.133379 ms/token`; tick p95 was `22.068 ms`.
+
+The immediately previous same-checkpoint usefulness-filter run,
+`reports/column_scheduler_20260616/usefulness-scheduler-32768-131072-i32.json`,
+reported `5886.235 tokens/sec`, `0.134212 ms/token`, `tick p95=22.614 ms`,
+`route_vote_kernel_variant=indexed_route_bank_vote`, `route_input_rows_scored=12/32768`,
+and zero graph/native/sequence failures. The device-refresh run therefore kept
+the 6k-ish long path and slightly improved this local before/after despite
+observed GPU contention, but it is not a new global speed ceiling.
+
+Quality remains open. Same-checkpoint offline gates over `512` default-text
+ticks compared the old q16 probe cadence against per-token device refresh:
+q16 probe2 reached top-1-in-bank `0.271484375`, winner match `0.046875`, mean
+overlap `0.2025390625`, and worst top-1 miss streak `19`; device refresh
+reached top-1-in-bank `0.2734375`, winner match `0.046875`, mean overlap
+`0.2078125`, and worst top-1 miss streak `19`. This promotes device ownership
+of the existing bounded scheduler refresh, not a quality-complete discovery
+router.
 
 ### Route Candidate Bank Quality Gate, 2026-06-16
 

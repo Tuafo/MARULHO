@@ -343,10 +343,10 @@ def test_evaluation_fused_route_vote_override_matches_tensor_candidates() -> Non
     assert runtime.handles_route_vote is True
     assert runtime.route_vote_requested_mode_source == "evaluation_override"
     assert runtime.route_vote_execution_count == 1
-    assert runtime.route_vote_kernel_variant == "indexed_route_bank_vote"
+    assert runtime.route_vote_kernel_variant == "indexed_route_bank_vote_device_refresh"
     assert (
         trainer.column_transition_runtime_report()["route_vote_kernel_variant"]
-        == "indexed_route_bank_vote"
+        == "indexed_route_bank_vote_device_refresh"
     )
     assert runtime.route_vote_clean_cache_reuse_count == 1
     assert runtime.route_candidates(routing_key, sensory_tick=True) is None
@@ -671,13 +671,18 @@ def test_cuda_graph_route_candidate_bank_bounds_route_scoring_after_seed() -> No
 
     report = trainer.column_transition_runtime_report()
     scoring = report["route_vote_scoring"]
-    assert report["route_vote_kernel_variant"] == "indexed_route_bank_vote"
+    assert report["route_vote_kernel_variant"] == "indexed_route_bank_vote_device_refresh"
     assert report["route_candidate_bank"]["enabled"] is True
     assert report["route_candidate_bank"]["ready"] is True
     assert report["route_candidate_bank"]["bank_size"] == config.k_routing
     assert report["route_candidate_bank"]["probe_rows"] == 2
     assert report["route_candidate_bank"]["score_rows"] == config.k_routing + 2
+    assert report["route_candidate_bank"]["refresh_owner"] == "fused_route_vote_device"
+    assert report["route_candidate_bank"]["refresh_interval_tokens"] == 1
+    assert report["route_candidate_bank"]["host_refresh_count"] == 1
+    assert report["route_candidate_bank"]["device_refresh_count"] >= 1
     assert report["route_candidate_bank"]["probe_refresh_count"] >= 1
+    assert report["route_candidate_bank"]["probe_device_refresh_count"] >= 1
     assert report["route_candidate_bank"]["graph_bypass_count"] == 1
     assert scoring["route_input_rows_scored"] == config.k_routing + 2
     assert scoring["route_output_candidate_count"] == config.k_routing
@@ -812,10 +817,13 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
     graph_report = graph.column_transition_runtime_report()
     assert graph_report["cuda_graph_route_transition"]["active"] is True
-    assert graph_report["route_vote_kernel_variant"] == "indexed_route_bank_vote"
+    assert (
+        graph_report["route_vote_kernel_variant"]
+        == "indexed_route_bank_vote_device_refresh"
+    )
     assert (
         graph_report["cuda_graph_route_transition"]["route_vote_kernel_variant"]
-        == "indexed_route_bank_vote"
+        == "indexed_route_bank_vote_device_refresh"
     )
     assert graph_report["execution_count"] == 0
     consolidation_lookup_count = 0
@@ -943,7 +951,10 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert graph_runtime["route_cache_device_owned"] is True
     assert graph_runtime["route_cache_device_update_count"] == 15
     assert graph_runtime["reconstruction_error_source"] == "fused_route_score_max"
-    assert graph_runtime["route_vote_kernel_variant"] == "indexed_route_bank_vote"
+    assert (
+        graph_runtime["route_vote_kernel_variant"]
+        == "indexed_route_bank_vote_device_refresh"
+    )
     assert graph_runtime["fused_reconstruction_error_active"] is True
     assert graph_runtime["fused_reconstruction_error_update_count"] == 15
     assert graph_runtime["persistent_tick_graph"] is True

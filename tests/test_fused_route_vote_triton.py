@@ -248,6 +248,103 @@ def test_fused_route_vote_scores_indexed_route_bank_only() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_route_vote_refreshes_indexed_route_bank_on_device() -> None:
+    torch.manual_seed(20260618)
+    device = torch.device("cuda")
+    vector_count = 32
+    column_dim = 8
+    location_dim = 4
+    candidate_count = 5
+    route_positions = torch.tensor(
+        [3, 5, 8, 13, 21, 1, 2],
+        dtype=torch.long,
+        device=device,
+    )
+    routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
+    routing_vectors = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    routing_ids = torch.arange(vector_count, device=device, dtype=torch.long)
+    prototypes = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    thresholds = torch.full((vector_count,), 0.2, device=device)
+    locations = torch.rand(vector_count, location_dim, device=device)
+    previous_winner = torch.tensor([7], dtype=torch.long, device=device)
+    steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
+    memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
+    route_filter_control = torch.tensor(
+        [0, 2000, 0, 950000, 0, 100000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
+    original_positions = route_positions.clone()
+    bank_scores = routing_key.unsqueeze(0) @ routing_vectors[original_positions].T
+    expected_offsets = torch.topk(
+        bank_scores,
+        k=candidate_count,
+        dim=1,
+    ).indices[0]
+    expected_positions = original_positions[expected_offsets]
+    route_bank_positions_out = torch.empty(candidate_count, dtype=torch.long, device=device)
+    route_probe_cursor = torch.tensor([11], dtype=torch.long, device=device)
+    scores_out = torch.empty(int(route_positions.numel()), device=device)
+    candidates_out = torch.empty(candidate_count, dtype=torch.long, device=device)
+    winner_out = torch.empty(1, dtype=torch.long, device=device)
+    strength_out = torch.empty(1, device=device)
+    had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
+
+    assert (
+        fused_route_vote_kernel_variant(
+            routing_vectors,
+            candidates_out,
+            route_positions,
+            device_route_bank_refresh=True,
+        )
+        == "indexed_route_bank_vote_device_refresh"
+    )
+    fused_route_vote_cuda(
+        routing_key=routing_key,
+        routing_vectors=routing_vectors,
+        routing_ids=routing_ids,
+        route_positions=route_positions,
+        route_bank_positions_out=route_bank_positions_out,
+        route_probe_cursor=route_probe_cursor,
+        steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
+        prototypes=prototypes,
+        thresholds=thresholds,
+        prediction_location=locations,
+        memory_pressure=memory_pressure,
+        usefulness=usefulness,
+        previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
+        scores_out=scores_out,
+        candidates_out=candidates_out,
+        winner_out=winner_out,
+        strength_out=strength_out,
+        competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
+    )
+    torch.cuda.synchronize()
+
+    assert torch.equal(route_bank_positions_out, expected_positions)
+    assert torch.equal(route_positions[:candidate_count], expected_positions)
+    assert torch.equal(
+        route_positions[candidate_count:],
+        torch.tensor([11, 12], dtype=torch.long, device=device),
+    )
+    assert int(route_probe_cursor.item()) == 13
+    assert torch.equal(candidates_out, routing_ids[expected_positions])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_fused_route_vote_de_duplicates_repeated_indexed_route_rows() -> None:
     torch.manual_seed(20260617)
     device = torch.device("cuda")

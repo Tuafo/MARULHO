@@ -133,6 +133,7 @@ def build_column_runtime_evidence(
             "refresh_interval_tokens": int(
                 route_candidate_bank.get("refresh_interval_tokens", 0) or 0
             ),
+            "refresh_owner": route_candidate_bank.get("refresh_owner"),
             "scored_since_refresh": int(
                 route_candidate_bank.get("scored_since_refresh", 0) or 0
             ),
@@ -140,8 +141,17 @@ def build_column_runtime_evidence(
             "refresh_count": int(
                 route_candidate_bank.get("refresh_count", 0) or 0
             ),
+            "host_refresh_count": int(
+                route_candidate_bank.get("host_refresh_count", 0) or 0
+            ),
+            "device_refresh_count": int(
+                route_candidate_bank.get("device_refresh_count", 0) or 0
+            ),
             "probe_refresh_count": int(
                 route_candidate_bank.get("probe_refresh_count", 0) or 0
+            ),
+            "probe_device_refresh_count": int(
+                route_candidate_bank.get("probe_device_refresh_count", 0) or 0
             ),
             "graph_bypass_count": int(
                 route_candidate_bank.get("graph_bypass_count", 0) or 0

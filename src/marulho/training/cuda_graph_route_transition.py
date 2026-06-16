@@ -411,6 +411,7 @@ class CudaGraphRouteTransition:
                 runtime._route_score_positions
                 if runtime.route_candidate_bank_enabled
                 else None,
+                device_route_bank_refresh=runtime.route_candidate_bank_enabled,
             )
             route_ids_cpu = ids.detach().to(device="cpu", dtype=torch.long)
             if int(route_ids_cpu.numel()) != int(comp.n_columns):
@@ -692,6 +693,16 @@ class CudaGraphRouteTransition:
             routing_ids=self._route_ids,
             route_positions=(
                 runtime._route_score_positions
+                if runtime.route_candidate_bank_enabled
+                else None
+            ),
+            route_bank_positions_out=(
+                runtime._route_bank_positions
+                if runtime.route_candidate_bank_enabled
+                else None
+            ),
+            route_probe_cursor=(
+                runtime._route_probe_cursor_tensor
                 if runtime.route_candidate_bank_enabled
                 else None
             ),
@@ -1696,11 +1707,9 @@ class CudaGraphRouteTransition:
                 route_input_source="training_owned_route_candidate_bank_plus_probe_lane",
                 unbounded_reason=None,
             )
-            self._runtime._refresh_route_bank_at_quantum_boundary(
-                self._runtime._route_candidates,
+            self._runtime._record_device_route_bank_refresh(
                 tick_count=token_count,
-                reason="bounded_route_bank_burst_quantum_refresh",
-                validate=False,
+                reason="device_route_bank_refresh_after_burst_replay",
             )
         elif self._route_ids is not None:
             self._runtime._record_route_scoring(

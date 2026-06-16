@@ -961,11 +961,15 @@ class StatusReadModelStatusTests(unittest.TestCase):
                     "probe_rows": 2,
                     "score_rows": 13,
                     "probe_cursor": 47,
-                    "refresh_interval_tokens": 16,
+                    "refresh_interval_tokens": 1,
+                    "refresh_owner": "fused_route_vote_device",
                     "scored_since_refresh": 5,
                     "seed_count": 1,
                     "refresh_count": 9,
+                    "host_refresh_count": 1,
+                    "device_refresh_count": 8,
                     "probe_refresh_count": 9,
+                    "probe_device_refresh_count": 8,
                     "graph_bypass_count": 1,
                     "fallback_count": 1,
                     "checkpoint_restore_count": 3,
@@ -997,6 +1001,18 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             runtime_core_projection["route_candidate_bank"]["probe_refresh_count"],
             9,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["refresh_owner"],
+            "fused_route_vote_device",
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["device_refresh_count"],
+            8,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["host_refresh_count"],
+            1,
         )
         self.assertEqual(
             runtime_core_projection["route_candidate_bank"][
