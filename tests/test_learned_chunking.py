@@ -26,7 +26,6 @@ def _build_trainer() -> MarulhoTrainer:
         eta_competitive=0.05,
         eta_decay=0.0,
         input_weight_blend=0.0,
-        routing_index_mode="torch_topk",
         micro_sleep_interval_tokens=10**9,
         deep_sleep_interval_tokens=10**9,
         window_size=10,
@@ -150,7 +149,6 @@ class LearnedChunkingTests(unittest.TestCase):
             n_columns=16,
             column_latent_dim=32,
             enable_learned_chunking=False,
-            routing_index_mode="torch_topk",
             device="cpu",
         )
         model = MarulhoModel(cfg)

@@ -1621,9 +1621,9 @@ After the sparse state-transition promotion, cleanup removed the remaining
 selectable CPU routing backends: `auto`, `faiss_hnsw`, and `exact_cosine`.
 Those branches could produce candidate ids, but they could not expose
 `routing_tensor_cache()` for the promoted CUDA route/vote graph, so keeping them
-preserved a second non-promoted path. `routing_index_mode` now accepts only
-`torch_topk`; focused routing/config tests assert the retired backends fail
-fast.
+preserved a second non-promoted path. `routing_index_mode` was later removed as
+a live config field; focused routing/config tests assert retired backend kwargs
+fail fast, and checkpoint load drops old keys with migration evidence.
 
 The follow-up long run used
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/column_scheduler_20260616/routing-backend-consolidation-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 300 --sample-interval-seconds 0.5`.
@@ -1687,10 +1687,12 @@ and `bounded_route_scoring=false`.
 
 The routing backend selector cleanup then removed the last retrieval-local
 backend constructor argument and the private benchmark compatibility branch that
-checked `_uses_merged_torch_search`. Config validation remains the only gate for
-retired backend names, and benchmark helpers now consume the public
-`routing_tensor_cache()` surface. This did not change the promoted route-bank
-algorithm. The matching 8192-column 131072-token stress report at
+checked `_uses_merged_torch_search`. The follow-up removed `routing_index_mode`
+from live config entirely; checkpoint load now drops old keys with
+`retired_routing_backend_config_surface` migration evidence, and benchmark
+helpers consume the public `routing_tensor_cache()` surface. This did not change
+the promoted route-bank algorithm. The matching 8192-column 131072-token stress
+report at
 `reports/column_scheduler_20260616/routing-backend-selector-cleanup-8192-131072-i32.json`
 reached `6134.242 tokens/sec`, `train_compute=0.131117 ms/token`,
 `prepare_training=0.006441 ms/token`, `finalize_total=0.005995 ms/token`, and
@@ -1698,6 +1700,14 @@ reached `6134.242 tokens/sec`, `train_compute=0.131117 ms/token`,
 `route_input_rows_scored=10/8192`, `state_transition_column_count=10`,
 `state_transition_cached_count=8182`, `state_transition_runs_all_columns=false`,
 zero graph/sequence/native failures, and `velocity_environment=not_observed`.
+The config-field removal gate at
+`reports/column_scheduler_20260616/routing-index-mode-removal-8192-131072-i32.json`
+reached `6126.128 tokens/sec`, `train_compute=0.129371 ms/token`,
+`prepare_training=0.006485 ms/token`, `finalize_total=0.005973 ms/token`, and
+`tick_duration_ms.p95=21.830` with the same `10/8192` route rows, `10` active
+state-transition columns, `8182` cached columns, zero graph/sequence/native
+failures, and checkpoint migrations for both `merge_torch_routing_shards` and
+`routing_index_mode`.
 
 The route-scoring truth cleanup adds `route_vote_scoring` to the training-owned
 transition report and projects it through Runtime Truth without changing the

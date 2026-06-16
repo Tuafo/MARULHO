@@ -224,6 +224,16 @@ def _migrate_loaded_config_snapshot(
                 "reason": "retired_non_promoted_sharded_route_cache_switch",
             }
         )
+    if "routing_index_mode" in migrated:
+        retired_value = str(migrated.pop("routing_index_mode"))
+        migrations.append(
+            {
+                "field": "routing_index_mode",
+                "from": retired_value,
+                "to": "torch_topk_fixed_retrieval_surface",
+                "reason": "retired_routing_backend_config_surface",
+            }
+        )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 

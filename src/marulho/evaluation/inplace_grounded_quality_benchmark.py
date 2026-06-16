@@ -142,7 +142,6 @@ def prepare_grounded_checkpoint(
         column_latent_dim=64,
         bootstrap_tokens=0,
         memory_capacity=64,
-        routing_index_mode="torch_topk",
         plasticity_mode="lite",
         input_weight_blend=0.0,
         enable_context_layer=False,

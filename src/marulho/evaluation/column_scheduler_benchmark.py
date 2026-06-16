@@ -92,7 +92,6 @@ def _make_config(
         k_routing=int(k_routing),
         bootstrap_tokens=0,
         memory_capacity=max(64, int(n_columns) * 2),
-        routing_index_mode="torch_topk",
         candidate_homeostasis_start_tokens=int(candidate_homeostasis_start_tokens),
         candidate_predictive_update_start_tokens=int(candidate_predictive_update_start_tokens),
         candidate_deep_sleep_filter_start_tokens=int(candidate_deep_sleep_filter_start_tokens),

@@ -74,7 +74,6 @@ class MarulhoConfig:
     bootstrap_tokens: int = 5000
     k_routing: int = 10
     index_rebuild_threshold: int = 256
-    routing_index_mode: Literal["torch_topk"] = "torch_topk"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
     route_candidate_bank_size: int = 0
@@ -418,10 +417,6 @@ class MarulhoConfig:
             raise ValueError("routing_shards must be positive")
         if self.routing_shards > self.n_columns:
             raise ValueError("routing_shards must be less than or equal to n_columns")
-        if self.routing_index_mode != "torch_topk":
-            raise ValueError(
-                "routing_index_mode must be torch_topk; auto, faiss_hnsw, and exact_cosine are retired"
-            )
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
         if self.route_candidate_bank_size < 0:

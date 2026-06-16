@@ -111,7 +111,6 @@ def test_model_column_runtime_projects_training_wake_plan_not_report_topk() -> N
         column_latent_dim=4,
         k_routing=2,
         memory_capacity=16,
-        routing_index_mode="torch_topk",
         device="cpu",
     )
     model = MarulhoModel(cfg)

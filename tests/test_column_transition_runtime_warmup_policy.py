@@ -14,7 +14,6 @@ def test_inplace_runtime_skips_dense_warmup_when_candidate_gate_is_due() -> None
         bootstrap_tokens=0,
         k_routing=4,
         memory_capacity=16,
-        routing_index_mode="torch_topk",
         predictive_dense_transition_mode="inplace_triton",
         predictive_route_vote_mode="tensor",
         candidate_homeostasis_start_tokens=0,

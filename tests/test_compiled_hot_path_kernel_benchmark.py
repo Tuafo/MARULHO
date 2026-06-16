@@ -140,7 +140,6 @@ def test_compiled_hot_path_kernel_benchmark_exact_route_compete_reports_parity()
             enable_binding_layer=False,
             enable_cross_modal=False,
             input_weight_blend=0.0,
-            routing_index_mode="torch_topk",
         )
         trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         checkpoint = save_trainer_checkpoint(Path(tmpdir) / "hot-path-kernel.pt", trainer)

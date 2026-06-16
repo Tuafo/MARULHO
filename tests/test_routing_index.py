@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields
 import unittest
 
 import numpy as np
@@ -318,7 +319,6 @@ class RoutingIndexTests(unittest.TestCase):
         cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
-            routing_index_mode="torch_topk",
         )
         model = MarulhoModel(cfg)
         scope = model.runtime_scope_report()
@@ -326,21 +326,22 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertEqual(scope["routing_backend_mode"], "torch_topk")
         self.assertEqual(scope["routing_index"]["index_type"], "torch_topk")
 
-    def test_removed_turboquant_backend_fails_fast(self) -> None:
-        with self.assertRaisesRegex(ValueError, "routing_index_mode"):
-            MarulhoConfig(routing_index_mode="turboquant_plus")  # type: ignore[arg-type]
+    def test_removed_routing_backend_config_surface_is_absent(self) -> None:
+        self.assertNotIn(
+            "routing_index_mode",
+            {field.name for field in fields(MarulhoConfig())},
+        )
 
-    def test_removed_cpu_routing_backends_fail_fast(self) -> None:
-        for backend in ("auto", "faiss_hnsw", "exact_cosine"):
+    def test_removed_routing_backend_kwargs_fail_fast(self) -> None:
+        for backend in ("auto", "faiss_hnsw", "exact_cosine", "turboquant_plus"):
             with self.subTest(backend=backend):
-                with self.assertRaisesRegex(ValueError, "routing_index_mode"):
+                with self.assertRaisesRegex(TypeError, "routing_index_mode"):
                     MarulhoConfig(routing_index_mode=backend)  # type: ignore[arg-type]
 
     def test_model_sharded_routing_always_exposes_merged_cache(self) -> None:
         cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=4,
-            routing_index_mode="torch_topk",
             routing_shards=2,
             device="cpu",
         )
@@ -356,7 +357,6 @@ class RoutingIndexTests(unittest.TestCase):
         cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
-            routing_index_mode="torch_topk",
             device="cpu",
         )
         model = MarulhoModel(cfg)

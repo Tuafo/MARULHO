@@ -378,6 +378,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             )
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
             payload["config"]["merge_torch_routing_shards"] = False
+            payload["config"]["routing_index_mode"] = "faiss_hnsw"
             torch.save(payload, checkpoint)
 
             with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
@@ -387,12 +388,25 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "merge_torch_routing_shards",
                 {field.name for field in fields(restored.config)},
             )
+            self.assertNotIn(
+                "routing_index_mode",
+                {field.name for field in fields(restored.config)},
+            )
             self.assertIn(
                 {
                     "field": "merge_torch_routing_shards",
                     "from": False,
                     "to": "merged_torch_route_cache_required",
                     "reason": "retired_non_promoted_sharded_route_cache_switch",
+                },
+                metadata["config_migrations"],
+            )
+            self.assertIn(
+                {
+                    "field": "routing_index_mode",
+                    "from": "faiss_hnsw",
+                    "to": "torch_topk_fixed_retrieval_surface",
+                    "reason": "retired_routing_backend_config_surface",
                 },
                 metadata["config_migrations"],
             )
@@ -412,7 +426,6 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 bootstrap_tokens=0,
                 k_routing=5,
                 memory_capacity=16,
-                routing_index_mode="torch_topk",
                 predictive_dense_transition_mode="inplace_triton",
                 predictive_route_vote_mode="cuda_graph_text",
                 plasticity_mode="lite",
@@ -439,14 +452,27 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
 
             self.assertEqual(before["route_vote_resolved_mode"], "cuda_graph_text")
             self.assertTrue(before["cuda_graph_route_transition"]["active"])
+            self.assertTrue(before["cuda_graph_route_transition"]["capture_succeeded"])
             self.assertEqual(after["route_vote_execution_count"], 1)
+            self.assertEqual(after["last_selection_mode"], "fused_route_vote_cuda")
             self.assertEqual(
-                after["cuda_graph_route_transition"]["pre_route_replay_count"],
-                1,
+                after["route_candidate_bank"]["last_reason"],
+                "route_candidate_bank_seeded_from_exact_route",
+            )
+            self.assertEqual(after["route_candidate_bank"]["seed_count"], 1)
+            self.assertEqual(after["route_candidate_bank"]["graph_bypass_count"], 1)
+            self.assertTrue(after["route_vote_scoring"]["route_rows_run_all_columns"])
+            self.assertEqual(
+                after["route_vote_scoring"]["route_scoring_unbounded_reason"],
+                "route_candidate_bank_not_ready_exact_seed",
             )
             self.assertEqual(
                 after["cuda_graph_route_transition"]["replay_count"],
-                1,
+                0,
+            )
+            self.assertEqual(
+                after["cuda_graph_route_transition"]["pre_route_replay_count"],
+                0,
             )
             self.assertEqual(
                 after["cuda_graph_route_transition"]["failure_count"],

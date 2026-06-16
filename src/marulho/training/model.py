@@ -621,7 +621,7 @@ class MarulhoModel:
             "estimated_neurons": int(self.config.n_columns * self.config.neurons_per_column_assumption),
             "neurons_per_column_assumption": int(self.config.neurons_per_column_assumption),
             "routing_candidate_fraction": float(self.config.k_routing / max(1, self.config.n_columns)),
-            "routing_backend_mode": str(self.config.routing_index_mode),
+            "routing_backend_mode": "torch_topk",
             "routing_index": routing_index_stats,
             "spike_health": self.competitive.spike_health_report(),
             "column_runtime": column_runtime,
