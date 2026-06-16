@@ -164,6 +164,54 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "unit_test_cached_pressure",
             )
 
+    def test_checkpoint_roundtrip_preserves_column_structural_review_queue(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            trainer.model.predictive.prediction_error[3] = 0.9
+            trainer.model.predictive.confidence[3] = 0.2
+            trainer.model.predictive.prediction_failure_streak[3] = 5
+            trainer.model.column_structural_review_queue.record_candidates(
+                torch.tensor([3], device=trainer.model.device),
+                token_count=12,
+                mode="awake_mask_tick",
+                prediction_error=trainer.model.predictive.prediction_error,
+                confidence=trainer.model.predictive.confidence,
+                prediction_failure_streak=(
+                    trainer.model.predictive.prediction_failure_streak
+                ),
+                estimated_cost=trainer.model.column_metabolism.estimated_cost,
+                memory_pressure=trainer.model.column_metabolism.memory_pressure,
+                wake_reason="unit_awake",
+                sleep_reason=None,
+            )
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "structural-review.pt",
+                trainer,
+            )
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            report = restored.model.column_structural_review_queue.report()
+            self.assertEqual(report["pending_count"], 1)
+            self.assertEqual(report["growth_ticket_count"], 1)
+            self.assertEqual(report["last_evaluated_column_count"], 1)
+            self.assertFalse(report["runs_all_columns"])
+            self.assertTrue(report["checkpoint_backed"])
+            self.assertEqual(report["tickets_sample"][0]["column_id"], 3)
+
     def test_legacy_checkpoint_migrates_retired_slow_memory_archive_cadence(self) -> None:
         from tempfile import TemporaryDirectory
 

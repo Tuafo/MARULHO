@@ -188,6 +188,7 @@ class MarulhoTrainer:
         self._text_sequence_input_staged_token_count = 0
         self._text_sequence_input_stage_skip_count = 0
         self._last_text_burst_metrics: dict[str, Any] | None = None
+        self._column_structural_review_cuda_cadence_tokens = 4096
 
     def enable_train_step_profile(self, *, reset: bool = True) -> None:
         """Enable opt-in trainer stage timing for benchmarks and diagnosis."""
@@ -877,6 +878,30 @@ class MarulhoTrainer:
         else:
             pred._record_prediction_update_scope(None)
             pred._mark_predictive_update_complete(None, step_count=token_count)
+
+        structural_review_due = (
+            end
+            % max(1, int(self._column_structural_review_cuda_cadence_tokens))
+            == 0
+        )
+        if bool(burst_outputs.get("truth_synced", False)) and structural_review_due:
+            self._record_column_structural_review(
+                None,
+                token_count=end,
+                mode="cuda_graph_text_burst_host_truth",
+                candidates=runtime._route_candidates,
+            )
+        else:
+            self._record_column_structural_review(
+                None,
+                token_count=end,
+                mode="cuda_graph_text_burst_deferred",
+                deferred_reason=(
+                    "structural_review_cuda_cadence_not_due"
+                    if bool(burst_outputs.get("truth_synced", False))
+                    else "host_truth_not_synced_for_structural_review_queue"
+                ),
+            )
 
         updated_count = token_count * int(runtime._winner.numel())
         self._routing_index_device_update_count += updated_count
@@ -1835,6 +1860,50 @@ class MarulhoTrainer:
             awake_budget=awake_budget,
             input_candidate_count=input_candidate_count,
             memory_consolidation=self._cached_bucket_consolidation_for_column_metabolism(),
+        )
+
+    def _record_column_structural_review(
+        self,
+        wake_plan: ColumnWakePlan | None,
+        *,
+        token_count: int,
+        mode: str,
+        candidates: torch.Tensor | None = None,
+        deferred_reason: str | None = None,
+    ) -> None:
+        queue = getattr(self.model, "column_structural_review_queue", None)
+        if queue is None:
+            return
+        if deferred_reason is not None:
+            queue.record_deferred(
+                token_count=int(token_count),
+                mode=str(mode),
+                reason=str(deferred_reason),
+            )
+            return
+        review_candidates = candidates
+        wake_reason = None
+        sleep_reason = None
+        if isinstance(wake_plan, ColumnWakePlan):
+            if review_candidates is None:
+                review_candidates = wake_plan.candidates()
+            wake_reason = wake_plan.wake_reason
+            sleep_reason = wake_plan.sleep_reason
+        queue.record_candidates(
+            review_candidates,
+            token_count=int(token_count),
+            mode=str(mode),
+            prediction_error=getattr(self.model.predictive, "prediction_error", None),
+            confidence=getattr(self.model.predictive, "confidence", None),
+            prediction_failure_streak=getattr(
+                self.model.predictive,
+                "prediction_failure_streak",
+                None,
+            ),
+            estimated_cost=getattr(self.model.column_metabolism, "estimated_cost", None),
+            memory_pressure=getattr(self.model.column_metabolism, "memory_pressure", None),
+            wake_reason=wake_reason,
+            sleep_reason=sleep_reason,
         )
 
 
@@ -3017,6 +3086,11 @@ class MarulhoTrainer:
         ):
             wake_plan = self._route_vote_owner_wake_plan(candidates)
         self._record_column_metabolism(wake_plan)
+        self._record_column_structural_review(
+            wake_plan,
+            token_count=int(self.token_count) + 1,
+            mode="awake_mask_tick",
+        )
         def _materialize_winner_ids() -> tuple[list[int], int]:
             nonlocal winner_id_list, winner_id, profile_last
             if winner_id_list is not None and winner_id is not None:

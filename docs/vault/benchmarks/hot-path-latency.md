@@ -2080,6 +2080,25 @@ and no observed contention. Throughput stayed in band at
 `tick_duration_ms.p95=21.637`. This is restore/startup scheduler evidence, not
 a new route-quality claim.
 
+The column structural-review queue first tried to capture candidate evidence on
+every CUDA host-truth boundary. That was rejected by the longer real-path run at
+`reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
+it still reported bounded route/state truth, but throughput fell to
+`4788.708 tokens/sec`, `train_compute=0.180271 ms/token`, and
+`tick_duration_ms.p95=30.495` despite no observed contention. The retained
+implementation cadences CUDA structural-review capture at `4096` tokens and
+marks intervening bursts as deferred review capture. The rerun at
+`reports/column_scheduler_20260616/structural-review-queue-cadenced-8192-131072-i32.json`
+processed `131072` tokens at `6312.338 tokens/sec`,
+`train_compute=0.129495 ms/token`, `prepare_training=0.006171 ms/token`,
+`finalize_total=0.005776 ms/token`, and `tick_duration_ms.p95=21.155`, with
+`route_input_rows_scored=12/8192`, `route_output_candidate_count=10`,
+`state_transition_cached_count=8182`, `state_transition_runs_all_columns=false`,
+zero graph/native/sequence failures, and no observed contention. This proves
+the queue can remain checkpoint-backed and operator-reviewable without becoming
+a hot-path structural-review CPU sync; it is not a growth/prune mutation claim
+or a new top-speed ceiling.
+
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
 random-projection buckets. These are evaluation-only probes: offline precompute

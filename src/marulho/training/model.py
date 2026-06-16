@@ -30,6 +30,7 @@ from marulho.data.base_encoder import BaseEncoder
 from marulho.data.encoder_factory import build_encoder
 from marulho.retrieval.routing_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from marulho.training.bootstrap import PredictiveBootstrap
+from marulho.training.column_structural_review import ColumnStructuralReviewQueue
 from marulho.training.column_scheduler import ColumnWakePlan, WAKE_PLAN_EXECUTION_CONSUMERS
 
 
@@ -286,6 +287,11 @@ class MarulhoModel:
             n_columns=self.config.n_columns,
             device=self.device,
         )
+        self.column_structural_review_queue = ColumnStructuralReviewQueue(
+            n_columns=self.config.n_columns,
+            device=self.device,
+            max_candidates_per_update=max(1, int(self.config.k_routing)),
+        )
 
         self.W_assembly_project = torch.empty(
             self.config.n_columns,
@@ -432,6 +438,7 @@ class MarulhoModel:
         predictive_update_execution = self.predictive.prediction_update_execution_report()
         predictive_vote_execution = self.predictive.vote_execution_report()
         column_metabolism_execution = self.column_metabolism.report()
+        structural_review_queue = self.column_structural_review_queue.report()
         if isinstance(stored_wake_plan, ColumnWakePlan):
             column_wake_plan = stored_wake_plan.to_report()
             candidate_sleep_filter_execution = stored_wake_plan.to_execution_report()
@@ -520,6 +527,7 @@ class MarulhoModel:
         report["predictive_update_execution"] = predictive_update_execution
         report["predictive_vote_execution"] = predictive_vote_execution
         report["column_metabolism_execution"] = column_metabolism_execution
+        report["structural_review_queue"] = structural_review_queue
         report["runs_all_columns"] = runs_all_columns
         if isinstance(report.get("scheduler"), dict):
             report["scheduler"]["runs_all_columns"] = runs_all_columns

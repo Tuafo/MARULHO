@@ -582,6 +582,29 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         },
                         "claim_boundary": "training_owned_awake_mask_cost_and_memory_pressure_updates_without_all_column_scan",
                     },
+                    "structural_review_queue": {
+                        "surface": "column_structural_review_queue.v1",
+                        "pending_count": 2,
+                        "growth_ticket_count": 1,
+                        "prune_or_sleep_ticket_count": 1,
+                        "last_update_token": 512,
+                        "last_update_mode": "awake_mask_tick",
+                        "last_evaluated_column_count": 7,
+                        "last_cached_column_count": 121,
+                        "update_count": 13,
+                        "deferred_update_count": 1,
+                        "last_deferred_reason": None,
+                        "last_reason": "queued_structural_review",
+                        "checkpoint_backed": True,
+                        "requires_operator_review": True,
+                        "mutates_runtime_state": False,
+                        "runs_all_columns": False,
+                        "next_gate": "operator_review_column_structural_ticket",
+                        "claim_boundary": (
+                            "training_owned_checkpoint_backed_structural_review_queue_"
+                            "uses_bounded_awake_candidates"
+                        ),
+                    },
                     "execution": {
                         "mode": "candidate_subset_fused_vote_competition",
                         "total_columns": 128,
@@ -788,6 +811,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
             7,
         )
         self.assertFalse(projected["predictive_update_execution"]["runs_all_columns"])
+        structural_review = projected["structural_review_queue"]
+        self.assertEqual(structural_review["surface"], "column_structural_review_queue.v1")
+        self.assertEqual(structural_review["pending_count"], 2)
+        self.assertEqual(structural_review["growth_ticket_count"], 1)
+        self.assertEqual(structural_review["prune_or_sleep_ticket_count"], 1)
+        self.assertEqual(structural_review["last_evaluated_column_count"], 7)
+        self.assertEqual(structural_review["last_cached_column_count"], 121)
+        self.assertTrue(structural_review["checkpoint_backed"])
+        self.assertTrue(structural_review["requires_operator_review"])
+        self.assertFalse(structural_review["mutates_runtime_state"])
+        self.assertFalse(structural_review["runs_all_columns"])
         self.assertEqual(
             projected["execution"]["state_transition_mode"],
             "candidate_subset_lazy_state_transition",

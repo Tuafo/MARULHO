@@ -68,3 +68,11 @@ Both active service projections now use
 `StatusReadModel` and `RuntimeStatusCore` expose the same probe-lane,
 wake-plan, cached transition, predictive cached-vote, fallback, and
 `runs_all_columns` fields without duplicating scheduler logic.
+
+`structural_review_queue` is the compact continuation surface for future
+growth/prune review. Training owns ticket capture from bounded awake/candidate
+IDs and checkpoints the queue with the model; Runtime Truth only projects
+pending counts, growth/prune counts, evaluated/cached column counts,
+update/deferred counts, next gate, operator/checkpoint requirements, and
+`runs_all_columns=false`. Service must not derive tickets from status snapshots
+or scan columns to decide structural eligibility.

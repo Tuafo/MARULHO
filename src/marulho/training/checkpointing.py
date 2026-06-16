@@ -88,6 +88,9 @@ def _model_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
         "W_assembly_project": trainer.model.W_assembly_project.detach().clone().cpu(),
         "predictive": trainer.model.predictive.state_dict(),
         "column_metabolism": trainer.model.column_metabolism.state_dict(),
+        "column_structural_review_queue": (
+            trainer.model.column_structural_review_queue.state_dict()
+        ),
         "surprise": _surprise_snapshot(trainer),
         "context_layer": None if trainer.model.context_layer is None else trainer.model.context_layer.state_dict(),
         "abstraction_layer": None if trainer.model.abstraction_layer is None else trainer.model.abstraction_layer.state_dict(),
@@ -111,6 +114,10 @@ def _restore_model(trainer: MarulhoTrainer, snapshot: dict[str, Any]) -> None:
         trainer.model.predictive.load_state_dict(snapshot["predictive"])
     if snapshot.get("column_metabolism") is not None:
         trainer.model.column_metabolism.load_state_dict(snapshot["column_metabolism"])
+    if snapshot.get("column_structural_review_queue") is not None:
+        trainer.model.column_structural_review_queue.load_state_dict(
+            snapshot["column_structural_review_queue"]
+        )
     _restore_surprise(trainer, snapshot["surprise"])
 
     if trainer.model.context_layer is not None and snapshot.get("context_layer") is not None:

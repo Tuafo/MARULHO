@@ -44,6 +44,7 @@ def build_column_runtime_evidence(
     registry = _as_mapping(report.get("registry"))
     scheduler = _as_mapping(report.get("scheduler"))
     recall = _as_mapping(report.get("local_associative_recall"))
+    structural_review_queue = _as_mapping(report.get("structural_review_queue"))
     votes = _as_list(report.get("votes"))
     wake_ids = _as_list(column_wake_plan.get("awake_column_ids_sample"))
     scheduler_consumers = _as_list(scheduler.get("execution_consumers"))
@@ -291,6 +292,53 @@ def build_column_runtime_evidence(
         "pruning_homeostasis": dict(report.get("pruning_homeostasis", {}))
         if isinstance(report.get("pruning_homeostasis"), Mapping)
         else {},
+        "structural_review_queue": {
+            "surface": structural_review_queue.get(
+                "surface",
+                "column_structural_review_queue.v1",
+            ),
+            "pending_count": int(
+                structural_review_queue.get("pending_count", 0) or 0
+            ),
+            "growth_ticket_count": int(
+                structural_review_queue.get("growth_ticket_count", 0) or 0
+            ),
+            "prune_or_sleep_ticket_count": int(
+                structural_review_queue.get("prune_or_sleep_ticket_count", 0) or 0
+            ),
+            "last_update_token": structural_review_queue.get("last_update_token"),
+            "last_update_mode": structural_review_queue.get("last_update_mode"),
+            "last_evaluated_column_count": int(
+                structural_review_queue.get("last_evaluated_column_count", 0) or 0
+            ),
+            "last_cached_column_count": int(
+                structural_review_queue.get("last_cached_column_count", 0) or 0
+            ),
+            "update_count": int(
+                structural_review_queue.get("update_count", 0) or 0
+            ),
+            "deferred_update_count": int(
+                structural_review_queue.get("deferred_update_count", 0) or 0
+            ),
+            "last_deferred_reason": structural_review_queue.get(
+                "last_deferred_reason"
+            ),
+            "last_reason": structural_review_queue.get("last_reason"),
+            "checkpoint_backed": bool(
+                structural_review_queue.get("checkpoint_backed", False)
+            ),
+            "requires_operator_review": bool(
+                structural_review_queue.get("requires_operator_review", False)
+            ),
+            "mutates_runtime_state": bool(
+                structural_review_queue.get("mutates_runtime_state", False)
+            ),
+            "runs_all_columns": bool(
+                structural_review_queue.get("runs_all_columns", False)
+            ),
+            "next_gate": structural_review_queue.get("next_gate"),
+            "claim_boundary": structural_review_queue.get("claim_boundary"),
+        },
         "local_associative_recall": {
             "surface": recall.get("surface"),
             "available": bool(recall.get("available", False)),
