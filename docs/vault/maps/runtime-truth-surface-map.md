@@ -63,3 +63,8 @@ route-owner scheduler filter also reports whether memory-pressure filtering
 was enabled from cached pressure evidence, how many route rows it masked, and
 why it fell back. Service may project that evidence but must not construct its
 own scheduler decision or clear route-cost truth from awake-count evidence.
+Both active service projections now use
+`service.column_runtime_projection.build_column_runtime_evidence`, so
+`StatusReadModel` and `RuntimeStatusCore` expose the same probe-lane,
+wake-plan, cached transition, predictive cached-vote, fallback, and
+`runs_all_columns` fields without duplicating scheduler logic.

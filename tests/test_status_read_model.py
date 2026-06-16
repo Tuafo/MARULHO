@@ -26,6 +26,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.semantics import build_spike_language_decoder_probe
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.status_read_model import StatusReadModel
+from marulho.service.status_runtime import RuntimeStatusCore
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -810,6 +811,133 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(projected["execution"]["state_transition_materialize_max_age"], 64)
         self.assertFalse(projected["execution"]["state_transition_runs_all_columns"])
         self.assertFalse(projected["execution"]["runs_all_columns"])
+
+    def test_runtime_status_core_uses_same_column_runtime_projection(self) -> None:
+        scope = {
+            "column_runtime": {
+                "surface": "column_runtime_metabolism.v1",
+                "total_columns": 256,
+                "awake_budget": 11,
+                "awake_count": 11,
+                "active_count": 11,
+                "candidate_count": 11,
+                "idle_count": 229,
+                "cached_vote_count": 201,
+                "sleeping_count": 13,
+                "deep_sleeping_count": 2,
+                "retired_count": 1,
+                "runs_all_columns": False,
+                "scheduler": {
+                    "mode": "training_wake_plan_projection",
+                    "wake_plan_mode": "candidate_route_bank_probe_lane",
+                    "projected_from_wake_plan": True,
+                    "promoted_to_execution": True,
+                    "execution_scope": "training_owned_awake_mask",
+                    "active_column_fraction": 0.042969,
+                    "execution_consumers": [
+                        "predictive_vote",
+                        "competitive_scoring",
+                    ],
+                },
+                "execution": {
+                    "state_transition_column_count": 11,
+                    "state_transition_cached_count": 245,
+                    "state_transition_cached_fraction": 0.957031,
+                    "state_transition_runs_all_columns": False,
+                },
+                "column_wake_plan": {
+                    "mode": "candidate_route_bank_probe_lane",
+                    "awake_column_ids_sample": [3, 5, 8],
+                    "execution_consumers": ["predictive_vote"],
+                    "runs_all_columns": False,
+                    "bounded": True,
+                },
+                "predictive_vote_execution": {
+                    "updated_column_count": 11,
+                    "updated_column_fraction": 0.042969,
+                    "cached_vote_use_count": 245,
+                    "cached_vote_fraction": 0.957031,
+                    "runs_all_columns": False,
+                },
+                "predictive_update_execution": {
+                    "updated_column_count": 11,
+                    "updated_column_fraction": 0.042969,
+                    "cached_state_count": 245,
+                    "cached_state_fraction": 0.957031,
+                    "location_update_count": 11,
+                    "location_cached_count": 245,
+                    "runs_all_columns": False,
+                },
+            },
+            "column_transition_runtime": {
+                "route_vote_scoring": {
+                    "route_input_rows_scored": 13,
+                    "route_output_candidate_count": 11,
+                    "route_rows_run_all_columns": False,
+                    "bounded_route_scoring": True,
+                    "candidate_boundary": (
+                        "bounded_route_bank_probe_score_then_filter_select"
+                    ),
+                    "route_input_source": (
+                        "training_owned_route_candidate_bank_plus_probe_lane"
+                    ),
+                },
+                "route_candidate_bank": {
+                    "enabled": True,
+                    "ready": True,
+                    "bank_size": 11,
+                    "probe_rows": 2,
+                    "score_rows": 13,
+                    "probe_cursor": 47,
+                    "refresh_interval_tokens": 16,
+                    "scored_since_refresh": 5,
+                    "seed_count": 1,
+                    "refresh_count": 9,
+                    "probe_refresh_count": 9,
+                    "graph_bypass_count": 1,
+                    "fallback_count": 1,
+                    "last_reason": "bounded_route_bank_graph_refresh",
+                    "probe_last_reason": "bounded_probe_lane_refresh",
+                    "claim_boundary": (
+                        "training_owned_bounded_route_bank_plus_probe_lane_"
+                        "without_hot_path_all_column_rescore"
+                    ),
+                },
+            },
+        }
+
+        read_model_projection = StatusReadModel.__new__(
+            StatusReadModel
+        )._column_runtime_evidence(runtime_scope=scope)
+        runtime_core_projection = RuntimeStatusCore.__new__(
+            RuntimeStatusCore
+        )._column_runtime_evidence(runtime_scope=scope)
+
+        self.assertEqual(runtime_core_projection, read_model_projection)
+        self.assertEqual(runtime_core_projection["route_candidate_bank"]["probe_rows"], 2)
+        self.assertEqual(runtime_core_projection["route_candidate_bank"]["score_rows"], 13)
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["probe_cursor"],
+            47,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_candidate_bank"]["probe_refresh_count"],
+            9,
+        )
+        self.assertEqual(
+            runtime_core_projection["scheduler"]["wake_plan_mode"],
+            "candidate_route_bank_probe_lane",
+        )
+        self.assertEqual(
+            runtime_core_projection["execution"]["state_transition_cached_count"],
+            245,
+        )
+        self.assertEqual(
+            runtime_core_projection["predictive_vote_execution"][
+                "cached_vote_fraction"
+            ],
+            0.957031,
+        )
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()
