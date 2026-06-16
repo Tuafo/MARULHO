@@ -331,18 +331,12 @@ def _compile_routing_compete_from_keys_kernel(mode: str):
 
 def _routing_tensor_cache(index) -> tuple[torch.Tensor, torch.Tensor, dict[str, object]]:
     stats_before = index.stats()
-    if hasattr(index, "_uses_merged_torch_search") and index._uses_merged_torch_search():  # noqa: SLF001
-        if getattr(index, "_merged_torch_cache_dirty", False):
-            index._rebuild_merged_torch_cache()  # noqa: SLF001
-        vectors = index._merged_torch_vectors  # noqa: SLF001
-        ids = index._merged_torch_ids  # noqa: SLF001
-        source = "merged_sharded_torch_topk_cache"
-    else:
-        if getattr(index, "_torch_cache_dirty", False):
-            index._rebuild_torch_cache()  # noqa: SLF001
-        vectors = index._torch_vectors  # noqa: SLF001
-        ids = index._torch_ids  # noqa: SLF001
-        source = "torch_topk_cache"
+    vectors, ids = index.routing_tensor_cache()
+    source = (
+        "merged_sharded_torch_topk_cache"
+        if stats_before.get("index_type") == "sharded_torch_topk"
+        else "torch_topk_cache"
+    )
     if int(vectors.shape[0]) <= 0 or int(ids.numel()) <= 0:
         raise RuntimeError("routing tensor cache is empty")
     return vectors.detach(), ids.detach().long(), {

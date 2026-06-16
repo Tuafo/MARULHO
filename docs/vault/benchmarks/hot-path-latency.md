@@ -1685,6 +1685,20 @@ Runtime Truth kept `state_transition_column_count=10`,
 while route scoring still truthfully reported `route_input_rows_scored=1024`
 and `bounded_route_scoring=false`.
 
+The routing backend selector cleanup then removed the last retrieval-local
+backend constructor argument and the private benchmark compatibility branch that
+checked `_uses_merged_torch_search`. Config validation remains the only gate for
+retired backend names, and benchmark helpers now consume the public
+`routing_tensor_cache()` surface. This did not change the promoted route-bank
+algorithm. The matching 8192-column 131072-token stress report at
+`reports/column_scheduler_20260616/routing-backend-selector-cleanup-8192-131072-i32.json`
+reached `6134.242 tokens/sec`, `train_compute=0.131117 ms/token`,
+`prepare_training=0.006441 ms/token`, `finalize_total=0.005995 ms/token`, and
+`tick_duration_ms.p95=21.987`. Runtime Truth reported
+`route_input_rows_scored=10/8192`, `state_transition_column_count=10`,
+`state_transition_cached_count=8182`, `state_transition_runs_all_columns=false`,
+zero graph/sequence/native failures, and `velocity_environment=not_observed`.
+
 The route-scoring truth cleanup adds `route_vote_scoring` to the training-owned
 transition report and projects it through Runtime Truth without changing the
 route/vote algorithm. Focused tests assert that the then-promoted exact-cache path

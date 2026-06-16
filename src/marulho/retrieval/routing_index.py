@@ -20,7 +20,6 @@ class HierarchicalAssemblyIndex:
         rebuild_threshold: int = 1000,
         *,
         device: torch.device | None = None,
-        backend: str = "torch_topk",
     ) -> None:
         self.dim = int(dim)
         self.rebuild_threshold = int(rebuild_threshold)
@@ -35,16 +34,6 @@ class HierarchicalAssemblyIndex:
         self._torch_cache_generation = 0
         self.tensor_search_count = 0
         self.last_search_mode: str | None = None
-
-        self._backend = self._resolve_backend(backend)
-
-    def _resolve_backend(self, backend: str) -> str:
-        requested = str(backend).strip().lower() or "torch_topk"
-        if requested == "torch_topk":
-            return requested
-        raise ValueError(
-            f"Unsupported routing backend: {backend!r}; only torch_topk is live"
-        )
 
     @property
     def ntotal(self) -> int:
@@ -181,7 +170,7 @@ class HierarchicalAssemblyIndex:
 
     def stats(self) -> dict[str, Any]:
         info: dict[str, Any] = {
-            "index_type": self._backend,
+            "index_type": "torch_topk",
             "raw_entries": int(self.ntotal),
             "unique_vectors": int(len(self._vector_store)),
             "tombstones": int(len(self.tombstones)),
@@ -205,7 +194,7 @@ class HierarchicalAssemblyIndex:
 
 
 class ShardedHierarchicalAssemblyIndex:
-    """Logical column-sharded wrapper over multiple ANN indices."""
+    """Logical column-sharded wrapper over exact torch-cache routing indices."""
 
     def __init__(
         self,
@@ -215,7 +204,6 @@ class ShardedHierarchicalAssemblyIndex:
         shard_candidate_factor: int = 2,
         *,
         device: torch.device | None = None,
-        backend: str = "torch_topk",
     ) -> None:
         self.dim = int(dim)
         self.n_shards = max(1, int(n_shards))
@@ -226,7 +214,6 @@ class ShardedHierarchicalAssemblyIndex:
                 dim=self.dim,
                 rebuild_threshold=self.rebuild_threshold,
                 device=device,
-                backend=backend,
             )
             for _ in range(self.n_shards)
         ]
@@ -297,12 +284,6 @@ class ShardedHierarchicalAssemblyIndex:
         for shard in self.shards:
             shard.rebuild()
 
-    def _uses_merged_torch_search(self) -> bool:
-        return bool(
-            self.shards
-            and all(shard._backend == "torch_topk" for shard in self.shards)
-        )
-
     def _rebuild_merged_torch_cache(self) -> None:
         ids: list[torch.Tensor] = []
         vectors: list[torch.Tensor] = []
@@ -355,10 +336,6 @@ class ShardedHierarchicalAssemblyIndex:
     def routing_tensor_cache(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return one merged exact torch cache for fused routing."""
 
-        if not self._uses_merged_torch_search():
-            raise RuntimeError(
-                "fused routing requires merged torch-backed routing shards"
-            )
         if self._merged_torch_cache_dirty:
             self._rebuild_merged_torch_cache()
         return self._merged_torch_vectors, self._merged_torch_ids
@@ -366,19 +343,11 @@ class ShardedHierarchicalAssemblyIndex:
     def routing_tensor_cache_is_dirty(self) -> bool:
         """Return whether the merged exact torch routing cache must be rebuilt."""
 
-        if not self._uses_merged_torch_search():
-            raise RuntimeError(
-                "fused routing requires merged torch-backed routing shards"
-            )
         return bool(self._merged_torch_cache_dirty)
 
     def routing_tensor_cache_generation(self) -> int:
         """Return a monotonic stamp for merged cache-invalidating changes."""
 
-        if not self._uses_merged_torch_search():
-            raise RuntimeError(
-                "fused routing requires merged torch-backed routing shards"
-            )
         return int(self._merged_torch_cache_generation)
 
     def stats(self) -> dict[str, Any]:
@@ -408,14 +377,12 @@ class ShardedHierarchicalAssemblyIndex:
             "search_device": shard_stats[0].get("search_device", "cpu") if shard_stats else "cpu",
             "tensor_search_count": int(self.tensor_search_count),
             "last_search_mode": self.last_search_mode,
-            "merged_torch_search_enabled": self._uses_merged_torch_search(),
+            "merged_torch_search_enabled": True,
             "merged_torch_cache_dirty": bool(self._merged_torch_cache_dirty),
             "merged_torch_cache_generation": int(
                 self._merged_torch_cache_generation
             ),
-            "merged_torch_cache_ready": bool(
-                self._uses_merged_torch_search() and not self._merged_torch_cache_dirty
-            ),
+            "merged_torch_cache_ready": not bool(self._merged_torch_cache_dirty),
             "merged_torch_vector_cache_device": str(self._merged_torch_vectors.device),
             "merged_torch_id_cache_device": str(self._merged_torch_ids.device),
             "merged_torch_vector_cache_count": int(self._merged_torch_vectors.shape[0]),

@@ -229,14 +229,12 @@ class MarulhoModel:
                 rebuild_threshold=self.config.index_rebuild_threshold,
                 shard_candidate_factor=self.config.shard_candidate_factor,
                 device=self.device,
-                backend=self.config.routing_index_mode,
             )
         else:
             self.routing_index = HierarchicalAssemblyIndex(
                 dim=self.config.column_latent_dim,
                 rebuild_threshold=self.config.index_rebuild_threshold,
                 device=self.device,
-                backend=self.config.routing_index_mode,
             )
         self.last_candidate_sleep_filter_execution = {
             "surface": "column_candidate_sleep_scheduler.v1",

@@ -16,7 +16,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=3,
             rebuild_threshold=2,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         vectors = torch.tensor(
             [
@@ -61,7 +60,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=3,
             rebuild_threshold=2,
             device=torch.device("cuda"),
-            backend="torch_topk",
         )
         vectors = torch.tensor(
             [
@@ -97,7 +95,6 @@ class RoutingIndexTests(unittest.TestCase):
             rebuild_threshold=2,
             shard_candidate_factor=2,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         vectors = torch.tensor(
             [
@@ -142,7 +139,6 @@ class RoutingIndexTests(unittest.TestCase):
             rebuild_threshold=2,
             shard_candidate_factor=2,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         vectors = torch.tensor(
             [
@@ -190,7 +186,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=3,
             n_shards=3,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         index.add(vectors, ids)
         queries = torch.tensor(
@@ -220,7 +215,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=2,
             n_shards=2,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         index.add(
             torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
@@ -249,7 +243,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=2,
             n_shards=2,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         ids = np.array([0, 1, 2, 3], dtype=np.int64)
         initial = torch.tensor(
@@ -290,7 +283,6 @@ class RoutingIndexTests(unittest.TestCase):
             dim=2,
             rebuild_threshold=8,
             device=torch.device("cpu"),
-            backend="torch_topk",
         )
         ids = np.array([0, 1], dtype=np.int64)
         index.add(
@@ -343,8 +335,6 @@ class RoutingIndexTests(unittest.TestCase):
             with self.subTest(backend=backend):
                 with self.assertRaisesRegex(ValueError, "routing_index_mode"):
                     MarulhoConfig(routing_index_mode=backend)  # type: ignore[arg-type]
-                with self.assertRaisesRegex(ValueError, "only torch_topk"):
-                    HierarchicalAssemblyIndex(dim=2, backend=backend)
 
     def test_model_sharded_routing_always_exposes_merged_cache(self) -> None:
         cfg = MarulhoConfig(
