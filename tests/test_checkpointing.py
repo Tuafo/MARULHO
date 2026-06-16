@@ -183,6 +183,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy.pt", trainer)
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
             payload["config"]["cuda_graph_host_truth_sync_interval_tokens"] = 8
+            payload["config"]["cuda_graph_native_burst_tokens"] = 16
             payload["config"]["cuda_graph_sequence_executor"] = "native_repeated_child_graph"
             payload["config"].pop("cuda_graph_sequence_loop_tokens", None)
             payload["metadata"].pop("hot_path_config_defaults_revision", None)
@@ -201,8 +202,9 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "promoted_conditional_while_sequence_executor",
             )
             self.assertEqual(
-                [item["reason"] for item in metadata["config_migrations"][-3:]],
+                [item["reason"] for item in metadata["config_migrations"][-4:]],
                 [
+                    "retired_native_burst_capacity_prototype",
                     "retired_hot_path_memory_archive_cadence",
                     "retired_host_truth_sync_interval_cadence",
                     "promoted_conditional_while_sequence_executor",

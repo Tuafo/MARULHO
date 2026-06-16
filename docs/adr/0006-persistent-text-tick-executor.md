@@ -299,8 +299,9 @@ cognitive-quality evidence, and grounded fallback gates.
   partial Python replay fallback. The same run exposed the bigger hazard:
   unaligned tick width forced `384` host-truth burst fallbacks. The maintained
   fast path therefore keeps exact eight-token native replay plus aligned
-  128-token source ticks, and treats partial native replay as diagnostic input
-  for a future lower-level multi-tick executor.
+  128-token source ticks. The later cleanup removed partial native replay as a
+  live diagnostic switch; non-eight-token tails report explicit Python-loop
+  fallback truth until a future lower-level multi-tick executor exists.
 
 ## Reversal
 
@@ -313,9 +314,10 @@ while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
 preserve the retained execution paths. Set
 `cuda_graph_sequence_executor=native_repeated_child_graph` to opt out of the
 promoted conditional-WHILE sequence executor and use repeated-child native8
-replay. Keep `cuda_graph_native_burst_tokens=8` or
-`MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS=8` for the maintained repeated-child
-capacity; use `cuda_graph_sequence_loop_tokens=16` or
+replay. `cuda_graph_native_burst_tokens` is fixed at `8` for the maintained
+repeated-child capacity; old checkpoint values are migrated back to `8`.
+Use `cuda_graph_sequence_loop_tokens=16` or
 `MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS=16` for the promoted conditional
-sequence capacity. Repeated-child `16` and `32` remain benchmark/prototype
-capacities unless a separate clean long-run gate promotes them.
+sequence capacity. Repeated-child `16` and `32` are retired historical
+benchmarks; a separate clean long-run gate must introduce a new reviewed
+executor path rather than restoring the old capacity knobs.

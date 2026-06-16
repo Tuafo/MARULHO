@@ -1282,14 +1282,14 @@ The next capacity probe kept the exact fast shape: 1024 columns, 64 column dim,
 `execution_quantum_tokens=16`, host-truth cadence `32`, and a clean
 `131072`-token sustained run. It changed only the startup-warmed native
 repeated-child parent graph capacity from the maintained eight-token default
-to `16` through `--native-burst-tokens 16`.
+to `16` through the now-retired `--native-burst-tokens 16` probe.
 
 The clean report at
 `reports/native_burst_sequence_20260615/native16-131072-i32.json` processed
 all `131072` tokens on the RTX 3060 with `velocity_environment.v1` reporting
 `not_observed` contention. Runtime Truth exposed
 `persistent_executor_burst_tokens=16`,
-`persistent_executor_default_burst_tokens=8`, allowed capacities `[8, 16, 32]`,
+`persistent_executor_default_burst_tokens=8`, then-allowed capacities `[8, 16, 32]`,
 parent graph token-count coverage `[16]`, `8190` native parent-graph launches,
 `131040` native-covered tokens, `4097` host-truth syncs, `126975` host-truth
 skips, zero native fallbacks/failures, zero graph/burst failures, and fallback
@@ -1306,6 +1306,11 @@ throughput varies with host availability, the promotion comparison uses the
 clean `velocity_environment.v1=not_observed` long run; the contended profile
 pair is only diagnostic.
 
+The 2026-06-16 cleanup removed this repeated-child capacity as a live option:
+`cuda_graph_native_burst_tokens` is fixed at `8`, checkpoint load migrates old
+`16`/`32` values to `8`, and the stress benchmark no longer accepts native burst
+capacity overrides. Native16 remains historical rejection evidence only.
+
 The profile pair at
 `reports/native_burst_sequence_20260615/profile-8192-native8.json` and
 `reports/native_burst_sequence_20260615/profile-8192-native16.json` ran under
@@ -1321,7 +1326,7 @@ wrapper.
 
 ### Native32 Parent Graph Under Q16, 2026-06-15
 
-The remaining configured capacity, `--native-burst-tokens 32`, is not a valid
+The former configured capacity, `--native-burst-tokens 32`, is not a valid
 native parent-graph benchmark under the maintained exact fast shape because
 `execution_quantum_tokens=16` caps the chunks that training offers to the burst
 executor. The probe at
@@ -1335,6 +1340,22 @@ zero native coverage: `native_burst_replay_attempt_count=8190`,
 remained intact (`4097` syncs, `126975` skips, zero graph/burst failures), but
 the executor that actually ran for burst tokens was the retained Python replay
 loop.
+
+The same cleanup removed native32 from the live config/env/benchmark surfaces.
+Reopening it now requires a new explicit execution-quantum decision or a
+lower-level sequence executor, not a restored repeated-child capacity knob.
+
+The native-burst capacity cleanup gate at
+`reports/column_scheduler_20260616/native-burst-capacity-cleanup-8192-131072-i32.json`
+ran the real 8192-column promoted checkpoint for `131072` tokens with
+`tick_tokens=128`, `quantum_tokens=16`, and host-truth cadence `32`. It reached
+`6276.616 tokens/sec` with `train_compute=0.129187 ms/token`,
+`prepare_training=0.006331 ms/token`, `finalize_total=0.005816 ms/token`, and
+`tick_duration_ms.p95=21.513`. Runtime Truth kept `route_input_rows_scored=10`
+out of `8192`, `state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, `native_partial_burst_replay_enabled=false`,
+and zero graph/native/sequence failures. `velocity_environment.v1` reported no
+observed contention.
 
 The run also reported `velocity_environment.v1=contention_observed` from GPU
 activity, so its `4454.287 tokens/sec` is not a promotion comparison. The

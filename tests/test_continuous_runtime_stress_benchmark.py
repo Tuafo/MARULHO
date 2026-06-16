@@ -244,8 +244,6 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
             "--profile-trainer-stages",
             "--host-truth-sync-interval-tokens",
             "32",
-            "--native-burst-tokens",
-            "16",
             "--sequence-executor",
             "conditional_while",
             "--sequence-loop-tokens",
@@ -256,7 +254,6 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
     assert main() == 0
     assert captured["profile_trainer_stages"] is True
     assert captured["host_truth_sync_interval_tokens"] == 32
-    assert captured["native_burst_tokens"] == 16
     assert captured["sequence_executor"] == "conditional_while"
     assert captured["sequence_loop_tokens"] == 16
 
@@ -272,38 +269,6 @@ def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
         assert "host_truth_sync_interval_tokens" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected invalid host truth interval rejection")
-
-
-def test_stress_runner_rejects_native_burst_tokens_above_quantum(tmp_path) -> None:
-    try:
-        run_continuous_runtime_stress(
-            tmp_path / "missing.pt",
-            output_path=tmp_path / "report.json",
-            quantum_tokens=16,
-            native_burst_tokens=32,
-        )
-    except ValueError as exc:
-        assert "native_burst_tokens" in str(exc)
-        assert "quantum_tokens" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("expected native burst quantum alignment rejection")
-
-
-def test_stress_runner_rejects_native_burst_tokens_that_do_not_divide_quantum(
-    tmp_path,
-) -> None:
-    try:
-        run_continuous_runtime_stress(
-            tmp_path / "missing.pt",
-            output_path=tmp_path / "report.json",
-            quantum_tokens=24,
-            native_burst_tokens=16,
-        )
-    except ValueError as exc:
-        assert "native_burst_tokens" in str(exc)
-        assert "divide quantum_tokens" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("expected native burst divisibility rejection")
 
 
 def test_stress_runner_rejects_sequence_loop_tokens_above_quantum(tmp_path) -> None:

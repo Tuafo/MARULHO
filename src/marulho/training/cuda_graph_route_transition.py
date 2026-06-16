@@ -29,7 +29,7 @@ MAX_QUANTUM_INPUT_TOKENS = 128
 PERSISTENT_EXECUTOR_BURST_TOKENS = 8
 PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS = 16
 PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 32
-PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS = (8, 16, 32)
+PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS = (8, 16, 32)
 
 
 class CudaGraphRouteTransition:
@@ -698,10 +698,7 @@ class CudaGraphRouteTransition:
         if repeated_graph_exec is None:
             self.native_burst_replay_fallback_count += 1
             self.native_burst_replay_python_loop_token_count += token_count
-            if (
-                token_count != self._burst_token_capacity
-                and not self._native_partial_burst_replay_requested()
-            ):
+            if token_count != self._burst_token_capacity:
                 self.native_burst_replay_backend = "python_loop_partial_disabled"
             else:
                 self.native_burst_replay_backend = "python_loop_no_parent_graph"
@@ -778,8 +775,7 @@ class CudaGraphRouteTransition:
         if repeated_graph_exec is not None:
             return repeated_graph_exec
         if token_count != self._native_burst_token_capacity:
-            if not self._native_partial_burst_replay_requested():
-                return None
+            return None
         build_started = time.perf_counter_ns()
         try:
             repeated_graph_exec = make_repeated_cuda_graph_exec(
@@ -818,8 +814,7 @@ class CudaGraphRouteTransition:
         if sequence_graph_exec is not None:
             return sequence_graph_exec
         if token_count != self._sequence_loop_token_capacity:
-            if not self._native_partial_burst_replay_requested():
-                return None
+            return None
         build_started = time.perf_counter_ns()
         try:
             sequence_graph_exec = make_conditional_loop_cuda_graph_exec(
@@ -850,32 +845,7 @@ class CudaGraphRouteTransition:
         return sequence_graph_exec
 
     def _resolve_native_burst_token_capacity(self) -> int:
-        raw = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS")
-        if raw is None:
-            raw = str(
-                getattr(
-                    self._trainer.config,
-                    "cuda_graph_native_burst_tokens",
-                    PERSISTENT_EXECUTOR_BURST_TOKENS,
-                )
-            )
-        try:
-            value = int(str(raw).strip())
-        except ValueError as exc:
-            raise ValueError(
-                "cuda_graph_native_burst_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
-            ) from exc
-        if value not in PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS:
-            raise ValueError(
-                "cuda_graph_native_burst_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
-            )
-        if value > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS:
-            raise ValueError(
-                "cuda_graph_native_burst_tokens must not exceed burst event capacity"
-            )
-        return value
+        return PERSISTENT_EXECUTOR_BURST_TOKENS
 
     def _resolve_sequence_loop_token_capacity(self) -> int:
         raw = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS")
@@ -892,12 +862,12 @@ class CudaGraphRouteTransition:
         except ValueError as exc:
             raise ValueError(
                 "cuda_graph_sequence_loop_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
+                f"{PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS}"
             ) from exc
-        if value not in PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS:
+        if value not in PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS:
             raise ValueError(
                 "cuda_graph_sequence_loop_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS}"
+                f"{PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS}"
             )
         if value > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS:
             raise ValueError(
@@ -916,12 +886,6 @@ class CudaGraphRouteTransition:
                 True,
             )
         )
-
-    def _native_partial_burst_replay_requested(self) -> bool:
-        env = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_PARTIAL_BURST_REPLAY")
-        if env is not None:
-            return env.strip().lower() not in {"0", "false", "no", "off"}
-        return False
 
     def _native_sequence_executor_mode(self) -> str:
         env = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR")
@@ -2197,8 +2161,8 @@ class CudaGraphRouteTransition:
             "persistent_executor_default_sequence_loop_tokens": (
                 PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS
             ),
-            "persistent_executor_allowed_burst_tokens": list(
-                PERSISTENT_EXECUTOR_ALLOWED_NATIVE_BURST_TOKENS
+            "persistent_executor_allowed_sequence_loop_tokens": list(
+                PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS
             ),
             "native_burst_replay_configured": bool(
                 self._native_burst_replay_requested()
@@ -2210,11 +2174,7 @@ class CudaGraphRouteTransition:
                 self._native_burst_replay_requested()
                 and self.native_burst_replay_enabled
             ),
-            "native_partial_burst_replay_enabled": bool(
-                self._native_burst_replay_requested()
-                and self.native_burst_replay_enabled
-                and self._native_partial_burst_replay_requested()
-            ),
+            "native_partial_burst_replay_enabled": False,
             "native_burst_replay_backend": self.native_burst_replay_backend,
             "native_burst_replay_parent_graph_count": int(
                 len(self._native_burst_graph_execs)

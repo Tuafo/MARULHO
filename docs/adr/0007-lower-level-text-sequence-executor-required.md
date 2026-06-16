@@ -102,10 +102,11 @@ the next executor boundary for the promoted text path.
 Promote the CUDA conditional-WHILE sequence executor as the default for
 eligible q16 CUDA text sequences. The retained repeated-child native parent
 graph remains exact eight-token replay for fallback and explicit opt-out.
-Benchmark/prototype knobs may remain for controlled rejection evidence, but
-they must fail closed or fail early when they cannot exercise the requested
-executor. In particular, native parent graph capacity probes must not exceed or
-fail to divide the execution quantum.
+Benchmark/prototype knobs may remain for controlled rejection evidence only
+while they are actively being evaluated. The repeated-child native16/native32
+and partial-tail replay probes are now retired from the live config/env/CLI
+surface; future probes must fail closed or fail early when they cannot exercise
+the requested executor.
 
 The conditional-WHILE executor is the first accepted lower-level executor that
 meets the directional requirement and beats the sustained native8 ceiling in
@@ -113,7 +114,7 @@ repeated clean long runs. The winning shape changes the effective sequence
 capacity to `16`, so capacity ownership is split:
 `cuda_graph_sequence_loop_tokens` sets the promoted conditional loop size,
 while `cuda_graph_native_burst_tokens` continues to describe the repeated-child
-parent capacity and remains `8` by default.
+parent capacity and is fixed at `8`.
 
 The next promotable executor must be lower level than the current
 Python/CUDA Graph replay boundary. A candidate design must own a bounded

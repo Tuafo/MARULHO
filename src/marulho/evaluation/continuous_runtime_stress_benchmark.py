@@ -499,7 +499,6 @@ def run_continuous_runtime_stress(
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
-    native_burst_tokens: int | None = None,
     sequence_executor: str | None = None,
     sequence_loop_tokens: int | None = None,
 ) -> dict[str, Any]:
@@ -516,20 +515,6 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
-    if native_burst_tokens is not None:
-        native_burst_token_count = int(native_burst_tokens)
-        if native_burst_token_count not in (8, 16, 32):
-            raise ValueError("native_burst_tokens must be one of 8, 16, or 32")
-        if native_burst_token_count > int(quantum_tokens):
-            raise ValueError(
-                "native_burst_tokens must not exceed quantum_tokens for an exact "
-                "native parent-graph benchmark"
-            )
-        if int(quantum_tokens) % native_burst_token_count != 0:
-            raise ValueError(
-                "native_burst_tokens must divide quantum_tokens for an exact "
-                "native parent-graph benchmark"
-            )
     if sequence_executor is not None:
         normalized_sequence_executor = (
             str(sequence_executor).strip().lower().replace("-", "_")
@@ -570,9 +555,6 @@ def run_continuous_runtime_stress(
     previous_native_replay_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"
     )
-    previous_native_burst_tokens_env = os.environ.get(
-        "MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"
-    )
     previous_sequence_executor_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"
     )
@@ -582,10 +564,6 @@ def run_continuous_runtime_stress(
     if native_burst_replay is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
-        )
-    if native_burst_tokens is not None:
-        os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = str(
-            int(native_burst_tokens)
         )
     if normalized_sequence_executor is not None:
         os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
@@ -628,18 +606,6 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_native_burst_replay"] = {
                 "from": previous_native_replay,
                 "to": bool(native_burst_replay),
-            }
-        if native_burst_tokens is not None:
-            with manager._lock:
-                previous_native_burst_tokens = int(
-                    manager._trainer.config.cuda_graph_native_burst_tokens
-                )
-                manager._trainer.config.cuda_graph_native_burst_tokens = int(
-                    native_burst_tokens
-                )
-            config_overrides["cuda_graph_native_burst_tokens"] = {
-                "from": previous_native_burst_tokens,
-                "to": int(native_burst_tokens),
             }
         if normalized_sequence_executor is not None:
             with manager._lock:
@@ -912,13 +878,6 @@ def run_continuous_runtime_stress(
                 os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
                     previous_native_replay_env
                 )
-        if native_burst_tokens is not None:
-            if previous_native_burst_tokens_env is None:
-                os.environ.pop("MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS", None)
-            else:
-                os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_TOKENS"] = (
-                    previous_native_burst_tokens_env
-                )
         if normalized_sequence_executor is not None:
             if previous_sequence_executor_env is None:
                 os.environ.pop("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR", None)
@@ -979,17 +938,6 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--native-burst-tokens",
-        type=int,
-        choices=(8, 16, 32),
-        default=None,
-        help=(
-            "Evaluation-only override for the startup-warmed native repeated "
-            "child parent-graph token count. Default keeps the checkpoint or "
-            "production config, currently eight tokens."
-        ),
-    )
-    parser.add_argument(
         "--sequence-executor",
         choices=(
             "native_repeated_child_graph",
@@ -1032,7 +980,6 @@ def main() -> int:
         profile_trainer_stages=args.profile_trainer_stages,
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
         native_burst_replay=False if args.disable_native_burst_replay else None,
-        native_burst_tokens=args.native_burst_tokens,
         sequence_executor=args.sequence_executor,
         sequence_loop_tokens=args.sequence_loop_tokens,
     )

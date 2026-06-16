@@ -15,15 +15,17 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061603
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061604
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
+PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS = 8
 PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR = "conditional_while"
 PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = 16
 PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE = "inplace_triton"
 PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE = "cuda_graph_text"
 _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
 _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
+_RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS = {16, 32}
 _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
 _RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES = {"tensor"}
 
@@ -234,6 +236,24 @@ def _migrate_loaded_config_snapshot(
                 "reason": "retired_routing_backend_config_surface",
             }
         )
+    if "cuda_graph_native_burst_tokens" in migrated:
+        current_native_burst_tokens = int(migrated["cuda_graph_native_burst_tokens"])
+        if (
+            current_native_burst_tokens
+            in _RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS
+            or current_native_burst_tokens != PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS
+        ):
+            migrated["cuda_graph_native_burst_tokens"] = (
+                PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS
+            )
+            migrations.append(
+                {
+                    "field": "cuda_graph_native_burst_tokens",
+                    "from": current_native_burst_tokens,
+                    "to": PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS,
+                    "reason": "retired_native_burst_capacity_prototype",
+                }
+            )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 
