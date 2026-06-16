@@ -383,8 +383,8 @@ the same longer gate at
 reached `6141.078 tokens/sec`, with `train_compute=0.126682 ms/token`,
 `prepare_training=0.006629 ms/token`, `finalize_total=0.004710 ms/token`,
 `candidate_predictive_transition_mode=fused_inplace`, `130816` candidate
-predictive executions, `132647424` cached predictive rows, zero graph/sequence
-fallbacks, and `contention.verdict=not_observed`. This restores the 6k-ish
+predictive executions, `132647424` cumulative cached predictive row-skips, zero
+graph/sequence fallbacks, and `contention.verdict=not_observed`. This restores the 6k-ish
 sustained band while making candidate predictive update/location a real
 scheduler execution effect rather than a report-only claim.
 
@@ -395,8 +395,8 @@ processed `131072` tokens at `6044.116 tokens/sec` with
 `train_compute=0.135451 ms/token`, `prepare_training=0.006398 ms/token`, and
 `finalize_total=0.006237 ms/token`. CUDA selected the RTX 3060, contention was
 not observed, `candidate_predictive_transition_mode=fused_inplace` stayed
-active with `130816` executions and `132647424` cached rows, and graph/sequence
-failures remained zero. This is neutral cleanup evidence: the single promoted
+active with `130816` executions and `132647424` cumulative cached row-skips, and
+graph/sequence failures remained zero. This is neutral cleanup evidence: the single promoted
 fused transition path kept the sustained band after the retired side path was
 deleted.
 
@@ -2213,6 +2213,25 @@ processed `131072` tokens at `6128.457 tokens/sec`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
 and no observed contention. This validates the deletion as one-path cleanup,
 not a new relevance-quality claim.
+
+The follow-up Runtime Truth counter fix separated last-transition cached rows
+from cumulative row-skips across the same promoted burst/sequence path:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-32768-seeded.pt --output reports\column_scheduler_20260616\promoted-scheduler-32768-131072-i32-truth-counts-fixed.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 420 --sample-interval-seconds 0.5`
+
+The fixed run processed `131072` tokens at `6163.265 tokens/sec`,
+`train_compute=0.132789 ms/token`, `prepare_training=0.006285 ms/token`,
+`finalize_total=0.005966 ms/token`, and `tick_duration_ms.p95=21.827`, with
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`,
+`candidate_predictive_transition_cached_count=32758`,
+`candidate_predictive_transition_cached_count_scope=last_transition`,
+`candidate_predictive_transition_cached_total_count=4293656576`,
+`candidate_predictive_transition_cached_total_scope=cumulative_row_skips`, and
+zero graph/native/sequence failures. The slow-path velocity surface reported
+`contention.verdict=contention_observed` because GPU utilization crossed its
+background threshold, but the complete-runtime throughput stayed in the same
+6k-ish band.
 
 ### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
 

@@ -870,10 +870,10 @@ class MarulhoTrainer:
             pred._predictive_has_cached_columns = True
             pred._last_predictive_completed_candidates = None
             pred._last_predictive_completed_step = int(pred.predictive_step_count)
-            runtime.candidate_predictive_transition_execution_count += int(token_count)
-            runtime.candidate_predictive_transition_cached_count += int(token_count) * max(
-                0,
-                int(comp.n_columns) - int(candidates.numel()),
+            runtime.record_candidate_predictive_transition_scope(
+                n_columns=int(comp.n_columns),
+                candidate_count=int(candidates.numel()),
+                token_count=int(token_count),
             )
         else:
             pred._record_prediction_update_scope(None)

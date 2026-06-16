@@ -183,6 +183,16 @@ def test_fused_inplace_candidate_predictive_transition_reports_bounded_scope() -
         runtime["candidate_predictive_transition_cached_count"]
         == config.n_columns - config.k_routing
     )
+    assert runtime["candidate_predictive_transition_cached_count_scope"] == (
+        "last_transition"
+    )
+    assert (
+        runtime["candidate_predictive_transition_cached_total_count"]
+        == config.n_columns - config.k_routing
+    )
+    assert runtime["candidate_predictive_transition_cached_total_scope"] == (
+        "cumulative_row_skips"
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -954,6 +964,14 @@ def test_cuda_graph_candidate_predictive_transition_matches_non_graph_path() -> 
     assert update["updated_column_count"] == config.k_routing
     assert update["runs_all_columns"] is False
     assert runtime["candidate_predictive_transition_execution_count"] == len(patterns)
+    assert (
+        runtime["candidate_predictive_transition_cached_count"]
+        == config.n_columns - config.k_routing
+    )
+    assert (
+        runtime["candidate_predictive_transition_cached_total_count"]
+        == (config.n_columns - config.k_routing) * len(patterns)
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -1037,8 +1055,20 @@ def test_cuda_graph_respects_delayed_candidate_predictive_gate() -> None:
     ):
         assert torch.allclose(retained_tensor, graph_tensor, rtol=0.0, atol=1e-7)
     runtime = graph.column_transition_runtime_report()
-    assert runtime["candidate_predictive_transition_execution_count"] == (
+    expected_candidate_executions = (
         len(patterns) - config.candidate_predictive_update_start_tokens
+    )
+    assert (
+        runtime["candidate_predictive_transition_execution_count"]
+        == expected_candidate_executions
+    )
+    assert (
+        runtime["candidate_predictive_transition_cached_count"]
+        == config.n_columns - config.k_routing
+    )
+    assert (
+        runtime["candidate_predictive_transition_cached_total_count"]
+        == (config.n_columns - config.k_routing) * expected_candidate_executions
     )
 
 
@@ -1212,6 +1242,7 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
         predictive_route_vote_mode="cuda_graph_text",
+        candidate_predictive_update_start_tokens=0,
         plasticity_mode="lite",
         input_weight_blend=0.0,
         enable_context_layer=False,
@@ -1332,6 +1363,13 @@ def test_text_burst_matches_eight_sequential_graph_ticks() -> None:
     assert runtime_report["text_burst_fallback_reasons"] == {}
     assert runtime_report["text_burst_strong_event_count"] == 0
     assert runtime_report["text_burst_event_deferred_apply_skip_count"] == 0
+    assert runtime_report["candidate_predictive_transition_execution_count"] == 9
+    assert runtime_report["candidate_predictive_transition_cached_count"] == (
+        config.n_columns - config.k_routing
+    )
+    assert runtime_report["candidate_predictive_transition_cached_total_count"] == (
+        (config.n_columns - config.k_routing) * 9
+    )
     assert report["burst_event_ring_device_owned"] is True
     assert report["burst_event_strong_count_device_owned"] is True
     assert report["quantum_input_stage_count"] == 1
@@ -3004,6 +3042,9 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
     assert after["fused_vote_competition_fallback_count"] == 0
     assert after["candidate_predictive_transition_execution_count"] == 1
     assert after["candidate_predictive_transition_cached_count"] == (
+        config.n_columns - config.k_routing
+    )
+    assert after["candidate_predictive_transition_cached_total_count"] == (
         config.n_columns - config.k_routing
     )
     assert after["candidate_predictive_transition_fallback_reason"] is None

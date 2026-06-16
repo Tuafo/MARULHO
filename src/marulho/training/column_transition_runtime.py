@@ -95,6 +95,7 @@ class ColumnTransitionRuntime:
         self.candidate_predictive_transition_fallback_reason: str | None = None
         self.candidate_predictive_transition_execution_count = 0
         self.candidate_predictive_transition_cached_count = 0
+        self.candidate_predictive_transition_cached_total_count = 0
         self._route_vote_ready = False
         self._route_transition_graph_ready = False
         self._prepared_graph_token: int | None = None
@@ -437,6 +438,23 @@ class ColumnTransitionRuntime:
                 self.route_vote_fallback_reason = (
                     self._cuda_graph_runtime.fallback_reason
                 )
+
+    def record_candidate_predictive_transition_scope(
+        self,
+        *,
+        n_columns: int,
+        candidate_count: int,
+        token_count: int = 1,
+    ) -> None:
+        token_count = max(0, int(token_count))
+        if token_count == 0:
+            return
+        cached_count = max(0, int(n_columns) - int(candidate_count))
+        self.candidate_predictive_transition_execution_count += token_count
+        self.candidate_predictive_transition_cached_count = cached_count
+        self.candidate_predictive_transition_cached_total_count += (
+            cached_count * token_count
+        )
 
     def _rebuild_route_position_map(self, ids: torch.Tensor) -> None:
         comp = self._trainer.model.competitive
@@ -1902,10 +1920,9 @@ class ColumnTransitionRuntime:
                 candidates.detach().clone()
             )
             trainer.model.predictive._last_predictive_completed_step = next_step
-            self.candidate_predictive_transition_execution_count += 1
-            self.candidate_predictive_transition_cached_count += max(
-                0,
-                int(comp.n_columns) - int(candidates.numel()),
+            self.record_candidate_predictive_transition_scope(
+                n_columns=int(comp.n_columns),
+                candidate_count=int(candidates.numel()),
             )
         else:
             trainer.model.predictive._record_prediction_update_scope(
@@ -2222,6 +2239,15 @@ class ColumnTransitionRuntime:
             ),
             "candidate_predictive_transition_cached_count": int(
                 self.candidate_predictive_transition_cached_count
+            ),
+            "candidate_predictive_transition_cached_count_scope": (
+                "last_transition"
+            ),
+            "candidate_predictive_transition_cached_total_count": int(
+                self.candidate_predictive_transition_cached_total_count
+            ),
+            "candidate_predictive_transition_cached_total_scope": (
+                "cumulative_row_skips"
             ),
             "winner_consolidation_cpu_metric_count": int(
                 self.winner_consolidation_cpu_metric_count
