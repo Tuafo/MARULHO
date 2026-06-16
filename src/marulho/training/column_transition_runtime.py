@@ -559,6 +559,103 @@ class ColumnTransitionRuntime:
         self.route_vote_deep_sleep_filter_state_sync_count += 1
         return self.route_sleep_filter_snapshot()
 
+    def _route_score_count_snapshot(
+        self,
+        state: list[int],
+    ) -> tuple[int, int, int]:
+        route_ids = getattr(self, "_route_ids", None)
+        route_candidates = getattr(self, "_route_candidates", None)
+        route_input_count = (
+            int(route_ids.numel())
+            if isinstance(route_ids, torch.Tensor)
+            else int(state[5])
+            if len(state) > 5
+            else 0
+        )
+        route_output_count = (
+            int(route_candidates.numel())
+            if isinstance(route_candidates, torch.Tensor)
+            else int(state[6])
+            if len(state) > 6
+            else 0
+        )
+        comp = getattr(
+            getattr(getattr(self, "_trainer", None), "model", None),
+            "competitive",
+            None,
+        )
+        total_columns = int(getattr(comp, "n_columns", 0) or 0)
+        if total_columns <= 0:
+            total_columns = route_input_count
+        return route_input_count, route_output_count, total_columns
+
+    def route_scoring_snapshot(self) -> dict[str, Any]:
+        state = list(getattr(self, "_route_sleep_filter_state_host", []))
+        route_input_count, route_output_count, total_columns = (
+            self._route_score_count_snapshot(state)
+        )
+        route_vote_active = bool(
+            getattr(self, "resolved_mode", None) == "inplace_triton"
+            and str(getattr(self, "route_vote_resolved_mode", ""))
+            in {"fused_triton_text", "cuda_graph_text"}
+        )
+        route_rows_run_all_columns = bool(
+            route_vote_active
+            and total_columns > 0
+            and route_input_count >= total_columns
+        )
+        route_output_fraction = (
+            float(route_output_count) / float(max(1, total_columns))
+        )
+        route_input_fraction = (
+            float(route_input_count) / float(max(1, total_columns))
+        )
+        bounded_route_scoring = bool(
+            route_vote_active
+            and route_output_count > 0
+            and route_input_count <= route_output_count
+            and not route_rows_run_all_columns
+        )
+        route_scoring_unbounded_reason = None
+        if route_rows_run_all_columns:
+            route_scoring_unbounded_reason = (
+                "exact_full_cache_route_scoring_before_bounded_candidate_selection"
+            )
+        elif not route_vote_active:
+            route_scoring_unbounded_reason = getattr(
+                self,
+                "route_vote_fallback_reason",
+                None,
+            )
+        return {
+            "surface": "route_vote_scoring_scope.v1",
+            "mode": str(getattr(self, "route_vote_resolved_mode", "tensor")),
+            "kernel_variant": str(
+                getattr(self, "route_vote_kernel_variant", "unavailable")
+            ),
+            "total_columns": int(total_columns),
+            "route_input_rows_scored": int(route_input_count),
+            "route_output_candidate_count": int(route_output_count),
+            "route_input_fraction": route_input_fraction,
+            "route_output_fraction": route_output_fraction,
+            "route_rows_run_all_columns": route_rows_run_all_columns,
+            "bounded_route_scoring": bounded_route_scoring,
+            "candidate_boundary": (
+                "exact_full_cache_score_then_filter_select"
+                if route_vote_active
+                else "retained_tensor_or_inactive_route_vote"
+            ),
+            "route_input_source": (
+                "complete_routing_tensor_cache"
+                if route_vote_active
+                else "not_owned_by_fused_route_vote"
+            ),
+            "route_scoring_unbounded_reason": route_scoring_unbounded_reason,
+            "claim_boundary": (
+                "route_cost_truth_separate_from_bounded_awake_specialist_execution"
+            ),
+        }
+
     def route_sleep_filter_snapshot(self) -> dict[str, Any]:
         state = list(self._route_sleep_filter_state_host)
         enabled = bool(self._route_sleep_filter_control_mirror[0])
@@ -579,15 +676,18 @@ class ColumnTransitionRuntime:
             3: "insufficient_awake_route_scores_after_memory_pressure_filter",
             4: "all_route_scores_over_memory_pressure_threshold",
         }.get(fallback_code)
-        route_input_count = (
-            int(self._route_ids.numel())
-            if self._route_ids is not None
-            else int(state[5])
+        route_input_count, route_output_count, total_columns = (
+            self._route_score_count_snapshot(state)
         )
-        route_output_count = (
-            int(self._route_candidates.numel())
-            if self._route_candidates is not None
-            else int(state[6])
+        route_vote_active = bool(
+            getattr(self, "resolved_mode", None) == "inplace_triton"
+            and str(getattr(self, "route_vote_resolved_mode", ""))
+            in {"fused_triton_text", "cuda_graph_text"}
+        )
+        route_rows_run_all_columns = bool(
+            route_vote_active
+            and total_columns > 0
+            and route_input_count >= total_columns
         )
         state_current_for_control = bool(
             state_enabled == enabled
@@ -605,6 +705,15 @@ class ColumnTransitionRuntime:
             "state_current_for_control": state_current_for_control,
             "input_candidate_count": route_input_count,
             "output_candidate_count": route_output_count,
+            "route_input_rows_scored": route_input_count,
+            "route_output_candidate_count": route_output_count,
+            "route_rows_run_all_columns": route_rows_run_all_columns,
+            "bounded_route_scoring": bool(
+                route_vote_active
+                and route_output_count > 0
+                and route_input_count <= route_output_count
+                and not route_rows_run_all_columns
+            ),
             "filtered_deep_sleep_count": int(state[2]) if state_enabled else 0,
             "filtered_memory_pressure_count": (
                 pressure_over_threshold_count if pressure_applied else 0
@@ -638,6 +747,9 @@ class ColumnTransitionRuntime:
             "tensor_device": str(self._route_sleep_filter_state.device),
             "claim_boundary": (
                 "training_owned_route_vote_masks_sleep_and_memory_pressure_inside_existing_route_selection"
+            ),
+            "route_cost_claim_boundary": (
+                "sleep_and_pressure_are_masked_before_selection_but_route_score_rows_remain_explicit"
             ),
         }
 
@@ -1402,6 +1514,7 @@ class ColumnTransitionRuntime:
                 ),
             )
         )
+        route_scoring = self.route_scoring_snapshot()
         return {
             "surface": "column_transition_runtime.v1",
             "requested_mode": self.requested_mode,
@@ -1475,6 +1588,19 @@ class ColumnTransitionRuntime:
                 self.route_vote_prepared_graph_reuse_count
             ),
             "route_vote_kernel_variant": self.route_vote_kernel_variant,
+            "route_vote_scoring": route_scoring,
+            "route_vote_input_rows_scored": route_scoring[
+                "route_input_rows_scored"
+            ],
+            "route_vote_output_candidate_count": route_scoring[
+                "route_output_candidate_count"
+            ],
+            "route_vote_rows_run_all_columns": route_scoring[
+                "route_rows_run_all_columns"
+            ],
+            "route_vote_bounded_route_scoring": route_scoring[
+                "bounded_route_scoring"
+            ],
             "route_vote_deep_sleep_filter": self.route_sleep_filter_snapshot(),
             "graph_host_winner_reuse_count": int(
                 self.graph_host_winner_reuse_count

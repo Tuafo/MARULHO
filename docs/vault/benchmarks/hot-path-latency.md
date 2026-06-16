@@ -1650,3 +1650,24 @@ CUDA again selected the RTX 3060, contention was `not_observed`, graph,
 sequence, and native failures/fallbacks stayed zero, and Runtime Truth kept
 `state_transition_column_count=10`, `state_transition_cached_count=1014`, and
 `state_transition_runs_all_columns=false`.
+
+The route-scoring truth cleanup adds `route_vote_scoring` to the training-owned
+transition report and projects it through Runtime Truth without changing the
+route/vote algorithm. Focused tests assert that the promoted exact-cache path
+keeps bounded specialist execution while still reporting
+`route_input_rows_scored=total_columns`, `route_rows_run_all_columns=true`, and
+`bounded_route_scoring=false`. This prevents an exact `torch_topk`
+`search_tensors()` pre-narrow from being promoted as sparse routing, because it
+would already have scored every route row before fused route/vote. The matching
+131072-token stress report at
+`reports/column_scheduler_20260616/route-scoring-truth-131072-i32.json`
+reached `5628.291 tokens/sec` with `train_compute=0.138304 ms/token`,
+`prepare_training=0.007313 ms/token`, `finalize_total=0.006800 ms/token`, and
+`tick_duration_ms.p95=24.122`. CUDA selected the RTX 3060, but
+`velocity_environment.v1` reported `contention_observed` from GPU busy state, so
+this is correctness/truth-surface evidence rather than a new speed ceiling.
+Runtime Truth showed `route_vote_scoring.route_input_rows_scored=1024`,
+`route_output_candidate_count=10`, `route_rows_run_all_columns=true`,
+`bounded_route_scoring=false`, `state_transition_column_count=10`,
+`state_transition_cached_count=1014`, `state_transition_runs_all_columns=false`,
+and zero graph, sequence, or native failures/fallbacks.

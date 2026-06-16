@@ -77,6 +77,12 @@ def test_fused_route_vote_reports_pre_mutation_fallback_on_cpu() -> None:
     assert report["route_vote_fallback_reason"] == (
         "fused_route_vote_requires_inplace_runtime"
     )
+    assert report["route_vote_scoring"]["candidate_boundary"] == (
+        "retained_tensor_or_inactive_route_vote"
+    )
+    assert report["route_vote_input_rows_scored"] == 0
+    assert report["route_vote_rows_run_all_columns"] is False
+    assert report["route_vote_bounded_route_scoring"] is False
 
 
 def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter() -> None:
@@ -117,6 +123,10 @@ def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter()
     assert snapshot["memory_pressure_applied"] is False
     assert snapshot["filtered_memory_pressure_count"] == 0
     assert snapshot["memory_pressure_over_threshold_count"] == 10
+    assert snapshot["route_input_rows_scored"] == 12
+    assert snapshot["route_output_candidate_count"] == 5
+    assert snapshot["route_rows_run_all_columns"] is False
+    assert snapshot["bounded_route_scoring"] is False
     assert snapshot["fallback_reason"] == (
         "insufficient_awake_route_scores_after_memory_pressure_filter"
     )
@@ -382,9 +392,25 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     ]
     assert route_filter["enabled"] is True
     assert route_filter["state_current_for_control"] is True
+    assert route_filter["route_input_rows_scored"] == config.n_columns
+    assert route_filter["route_output_candidate_count"] == config.k_routing
+    assert route_filter["route_rows_run_all_columns"] is True
+    assert route_filter["bounded_route_scoring"] is False
     assert route_filter["filtered_deep_sleep_count"] == 2
     assert route_filter["state_sync_count"] >= 1
     transition_report = trainer.column_transition_runtime_report()
+    route_scoring = transition_report["route_vote_scoring"]
+    assert route_scoring["surface"] == "route_vote_scoring_scope.v1"
+    assert route_scoring["route_input_rows_scored"] == config.n_columns
+    assert route_scoring["route_output_candidate_count"] == config.k_routing
+    assert route_scoring["route_rows_run_all_columns"] is True
+    assert route_scoring["bounded_route_scoring"] is False
+    assert route_scoring["candidate_boundary"] == (
+        "exact_full_cache_score_then_filter_select"
+    )
+    assert route_scoring["route_scoring_unbounded_reason"] == (
+        "exact_full_cache_route_scoring_before_bounded_candidate_selection"
+    )
     assert transition_report["state_transition_runs_all_columns"] is False
     assert transition_report["state_transition_mode"].startswith(
         "candidate_subset_sparse_"
@@ -474,11 +500,20 @@ def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
     assert route_filter["memory_pressure_enabled"] is True
     assert route_filter["memory_pressure_state_enabled"] is True
     assert route_filter["memory_pressure_applied"] is True
+    assert route_filter["route_input_rows_scored"] == config.n_columns
+    assert route_filter["route_output_candidate_count"] == config.k_routing
+    assert route_filter["route_rows_run_all_columns"] is True
+    assert route_filter["bounded_route_scoring"] is False
     assert route_filter["filtered_memory_pressure_count"] == 2
     assert route_filter["memory_pressure_over_threshold_count"] == 2
     assert route_filter["memory_pressure_threshold"] == 0.5
     assert route_filter["memory_pressure_source"] == "unit_test_cached_pressure"
     assert route_filter["state_sync_count"] >= 1
+    route_scoring = trainer.column_transition_runtime_report()["route_vote_scoring"]
+    assert route_scoring["route_input_rows_scored"] == config.n_columns
+    assert route_scoring["route_output_candidate_count"] == config.k_routing
+    assert route_scoring["route_rows_run_all_columns"] is True
+    assert route_scoring["bounded_route_scoring"] is False
     runtime_truth = trainer.model.column_runtime_report(
         token_count=trainer.token_count,
         last_winner=trainer.last_winner,

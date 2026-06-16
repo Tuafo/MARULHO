@@ -610,7 +610,32 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "fallback_reason": None,
                         "claim_boundary": "observed_competitive_scoring_and_state_transition_scope",
                     },
-                }
+                },
+                "column_transition_runtime": {
+                    "surface": "column_transition_runtime.v1",
+                    "route_vote_scoring": {
+                        "surface": "route_vote_scoring_scope.v1",
+                        "mode": "cuda_graph_text",
+                        "kernel_variant": "two_stage_route_vote",
+                        "total_columns": 128,
+                        "route_input_rows_scored": 128,
+                        "route_output_candidate_count": 7,
+                        "route_input_fraction": 1.0,
+                        "route_output_fraction": 0.054688,
+                        "route_rows_run_all_columns": True,
+                        "bounded_route_scoring": False,
+                        "candidate_boundary": (
+                            "exact_full_cache_score_then_filter_select"
+                        ),
+                        "route_input_source": "complete_routing_tensor_cache",
+                        "route_scoring_unbounded_reason": (
+                            "exact_full_cache_route_scoring_before_bounded_candidate_selection"
+                        ),
+                        "claim_boundary": (
+                            "route_cost_truth_separate_from_bounded_awake_specialist_execution"
+                        ),
+                    },
+                },
             }
         )
 
@@ -638,6 +663,22 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             projected["scheduler"]["execution_consumers"],
             ["predictive_vote", "competitive_scoring"],
+        )
+        self.assertEqual(
+            projected["route_vote_scoring"]["route_input_rows_scored"],
+            128,
+        )
+        self.assertEqual(
+            projected["route_vote_scoring"]["route_output_candidate_count"],
+            7,
+        )
+        self.assertTrue(
+            projected["route_vote_scoring"]["route_rows_run_all_columns"]
+        )
+        self.assertFalse(projected["route_vote_scoring"]["bounded_route_scoring"])
+        self.assertEqual(
+            projected["route_vote_scoring"]["route_scoring_unbounded_reason"],
+            "exact_full_cache_route_scoring_before_bounded_candidate_selection",
         )
         self.assertEqual(
             projected["candidate_sleep_filter_execution"]["filtered_deep_sleep_count"],
@@ -710,6 +751,10 @@ class StatusReadModelStatusTests(unittest.TestCase):
             0.945312,
         )
         self.assertEqual(projected["execution"]["state_transition_step_count"], 512)
+        self.assertEqual(projected["execution"]["route_vote_input_rows_scored"], 128)
+        self.assertEqual(projected["execution"]["route_vote_output_candidate_count"], 7)
+        self.assertTrue(projected["execution"]["route_vote_rows_run_all_columns"])
+        self.assertFalse(projected["execution"]["route_vote_bounded_route_scoring"])
         self.assertEqual(
             projected["execution"]["state_transition_materialize_mode"],
             "candidate_subset",

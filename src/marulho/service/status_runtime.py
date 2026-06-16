@@ -318,6 +318,16 @@ class RuntimeStatusCore:
     ) -> dict[str, Any]:
         scope = runtime_scope if isinstance(runtime_scope, Mapping) else {}
         report = scope.get("column_runtime") if isinstance(scope.get("column_runtime"), Mapping) else {}
+        column_transition_runtime = (
+            scope.get("column_transition_runtime")
+            if isinstance(scope.get("column_transition_runtime"), Mapping)
+            else {}
+        )
+        route_vote_scoring = (
+            column_transition_runtime.get("route_vote_scoring")
+            if isinstance(column_transition_runtime.get("route_vote_scoring"), Mapping)
+            else {}
+        )
         metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
         execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
         candidate_sleep_filter_execution = (
@@ -374,6 +384,45 @@ class RuntimeStatusCore:
             "scheduler_mode": (
                 scheduler.get("mode") if isinstance(scheduler, Mapping) else None
             ),
+            "route_vote_scoring": {
+                "surface": route_vote_scoring.get(
+                    "surface",
+                    "route_vote_scoring_scope.v1",
+                ),
+                "mode": route_vote_scoring.get("mode"),
+                "kernel_variant": route_vote_scoring.get("kernel_variant"),
+                "total_columns": int(
+                    route_vote_scoring.get("total_columns", 0) or 0
+                ),
+                "route_input_rows_scored": int(
+                    route_vote_scoring.get("route_input_rows_scored", 0) or 0
+                ),
+                "route_output_candidate_count": int(
+                    route_vote_scoring.get("route_output_candidate_count", 0) or 0
+                ),
+                "route_input_fraction": float(
+                    route_vote_scoring.get("route_input_fraction", 0.0) or 0.0
+                ),
+                "route_output_fraction": float(
+                    route_vote_scoring.get("route_output_fraction", 0.0) or 0.0
+                ),
+                "route_rows_run_all_columns": bool(
+                    route_vote_scoring.get("route_rows_run_all_columns", False)
+                ),
+                "bounded_route_scoring": bool(
+                    route_vote_scoring.get("bounded_route_scoring", False)
+                ),
+                "candidate_boundary": route_vote_scoring.get(
+                    "candidate_boundary"
+                ),
+                "route_input_source": route_vote_scoring.get(
+                    "route_input_source"
+                ),
+                "route_scoring_unbounded_reason": route_vote_scoring.get(
+                    "route_scoring_unbounded_reason"
+                ),
+                "claim_boundary": route_vote_scoring.get("claim_boundary"),
+            },
             "scheduler": {
                 "mode": scheduler.get("mode"),
                 "promoted_to_execution": bool(scheduler.get("promoted_to_execution", False)),
@@ -466,6 +515,18 @@ class RuntimeStatusCore:
                 "candidate_count": int(execution.get("candidate_count", 0) or 0),
                 "scored_column_count": int(execution.get("scored_column_count", 0) or 0),
                 "runs_all_columns": bool(execution.get("runs_all_columns", False)),
+                "route_vote_input_rows_scored": int(
+                    route_vote_scoring.get("route_input_rows_scored", 0) or 0
+                ),
+                "route_vote_output_candidate_count": int(
+                    route_vote_scoring.get("route_output_candidate_count", 0) or 0
+                ),
+                "route_vote_rows_run_all_columns": bool(
+                    route_vote_scoring.get("route_rows_run_all_columns", False)
+                ),
+                "route_vote_bounded_route_scoring": bool(
+                    route_vote_scoring.get("bounded_route_scoring", False)
+                ),
                 "state_transition_mode": execution.get("state_transition_mode"),
                 "state_transition_column_count": int(
                     execution.get("state_transition_column_count", 0) or 0
