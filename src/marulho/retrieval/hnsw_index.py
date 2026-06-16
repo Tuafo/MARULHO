@@ -1,23 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-try:
-    import faiss  # type: ignore
-except Exception:  # pragma: no cover
-    faiss = None
-
-
 class HierarchicalAssemblyIndex:
-    """Multi-backend routing index.
+    """Torch-backed exact top-k routing index.
 
-    - torch_topk: exact top-k search on the configured torch device.
-    - faiss_hnsw: CPU HNSW index when FAISS is available.
-    - exact_cosine: numpy cosine fallback over in-memory vectors.
+    The promoted scheduler route depends on this exact tensor cache. Older
+    CPU FAISS and numpy cosine modes were retired because they cannot feed the
+    CUDA graph route/vote boundary without falling back out of the real path.
     """
 
     def __init__(
@@ -26,7 +20,7 @@ class HierarchicalAssemblyIndex:
         rebuild_threshold: int = 1000,
         *,
         device: torch.device | None = None,
-        backend: str = "auto",
+        backend: str = "torch_topk",
     ) -> None:
         self.dim = int(dim)
         self.rebuild_threshold = int(rebuild_threshold)
@@ -44,37 +38,17 @@ class HierarchicalAssemblyIndex:
         self.last_search_mode: str | None = None
 
         self._backend = self._resolve_backend(backend)
-        self._use_faiss = self._backend == "faiss_hnsw"
-        self.index = None
-        if self._use_faiss:
-            self.index = self._create_faiss_index()
 
     def _resolve_backend(self, backend: str) -> str:
-        requested = str(backend).strip().lower() or "auto"
-        if requested == "auto":
-            if self.device.type == "cuda":
-                return "torch_topk"
-            return "faiss_hnsw" if faiss is not None else "exact_cosine"
-        if requested == "faiss_hnsw":
-            if faiss is None:
-                raise ValueError("faiss_hnsw backend requested but faiss is unavailable")
+        requested = str(backend).strip().lower() or "torch_topk"
+        if requested == "torch_topk":
             return requested
-        if requested in {"torch_topk", "exact_cosine"}:
-            return requested
-        raise ValueError(f"Unsupported routing backend: {backend!r}")
-
-    def _create_faiss_index(self) -> Any:
-        faiss_module = cast(Any, faiss)
-        base_index = cast(Any, faiss_module.IndexHNSWFlat(self.dim, 32))
-        base_index.hnsw.efConstruction = 200
-        base_index.hnsw.efSearch = 128
-        return cast(Any, faiss_module.IndexIDMap(base_index))
+        raise ValueError(
+            f"Unsupported routing backend: {backend!r}; only torch_topk is live"
+        )
 
     @property
     def ntotal(self) -> int:
-        if self._use_faiss:
-            assert self.index is not None
-            return int(self.index.ntotal)
         return len(self._vector_store)
 
     def add(self, vectors: torch.Tensor, ids: np.ndarray) -> None:
@@ -87,23 +61,14 @@ class HierarchicalAssemblyIndex:
         self._torch_cache_dirty = True
         self._torch_cache_generation += 1
 
-        new_positions: List[int] = []
         updated_count = 0
 
         for i, vec_id in enumerate(ids):
             key = int(vec_id)
             self.tombstones.discard(key)
-            if key not in self._vector_store:
-                new_positions.append(i)
-            else:
+            if key in self._vector_store:
                 updated_count += 1
             self._vector_store[key] = normalized[i].copy()
-
-        if self._use_faiss and new_positions:
-            index = cast(Any, self.index)
-            new_vectors = normalized[new_positions]
-            new_ids = ids[np.asarray(new_positions, dtype=np.int64)].astype(np.int64)
-            index.add_with_ids(new_vectors, new_ids)
 
         self.insertion_count += int(len(ids))
         if updated_count > 0 and self.insertion_count >= self.rebuild_threshold:
@@ -161,27 +126,7 @@ class HierarchicalAssemblyIndex:
         self._torch_cache_dirty = False
 
     def rebuild(self) -> None:
-        if self._backend == "torch_topk":
-            self._rebuild_torch_cache()
-            self.insertion_count = 0
-            self.tombstones.clear()
-            self.rebuild_count += 1
-            return
-
-        if not self._use_faiss:
-            self.insertion_count = 0
-            self.tombstones.clear()
-            self.rebuild_count += 1
-            return
-
-        valid_ids = [idx for idx in self._vector_store.keys() if idx not in self.tombstones]
-        self.index = self._create_faiss_index()
-
-        if valid_ids:
-            vectors = np.stack([self._vector_store[idx] for idx in valid_ids], axis=0)
-            ids = np.array(valid_ids, dtype=np.int64)
-            self.index.add_with_ids(vectors, ids)
-
+        self._rebuild_torch_cache()
         self.insertion_count = 0
         self.tombstones.clear()
         self.rebuild_count += 1
@@ -198,36 +143,6 @@ class HierarchicalAssemblyIndex:
                 padded[row_idx, : len(row)] = np.asarray(row, dtype=np.float32)
         return padded
 
-    def _complete_faiss_row(
-        self,
-        normalized_query: np.ndarray,
-        row_valid_ids: List[int],
-        row_valid_dists: List[float],
-        target_k: int,
-    ) -> Tuple[List[int], List[float]]:
-        if len(row_valid_ids) >= target_k:
-            pairs = sorted(zip(row_valid_dists, row_valid_ids), key=lambda item: item[0])[:target_k]
-            return [int(candidate_id) for _, candidate_id in pairs], [float(distance) for distance, _ in pairs]
-
-        seen = set(row_valid_ids)
-        remaining_ids = [
-            idx
-            for idx in self._vector_store.keys()
-            if idx not in self.tombstones and idx not in seen
-        ]
-        if not remaining_ids:
-            pairs = sorted(zip(row_valid_dists, row_valid_ids), key=lambda item: item[0])[:target_k]
-            return [int(candidate_id) for _, candidate_id in pairs], [float(distance) for distance, _ in pairs]
-
-        remaining_vectors = np.stack([self._vector_store[idx] for idx in remaining_ids], axis=0)
-        similarities = remaining_vectors @ normalized_query
-        distances = np.maximum(0.0, 2.0 - 2.0 * similarities)
-        combined = list(zip(row_valid_dists, row_valid_ids))
-        combined.extend((float(distance), int(candidate_id)) for distance, candidate_id in zip(distances.tolist(), remaining_ids))
-        combined.sort(key=lambda item: item[0])
-        top = combined[:target_k]
-        return [int(candidate_id) for _, candidate_id in top], [float(distance) for distance, _ in top]
-
     def search(self, query: torch.Tensor, k: int = 5) -> Tuple[List[List[int]], np.ndarray]:
         self.list_search_count += 1
         self.last_search_mode = "list"
@@ -235,68 +150,19 @@ class HierarchicalAssemblyIndex:
         if self.ntotal == 0:
             return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
 
-        if self._backend == "torch_topk":
-            if self._torch_cache_dirty:
-                self._rebuild_torch_cache()
-            if int(self._torch_vectors.shape[0]) <= 0:
-                return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
-            normalized_query = F.normalize(query_batch.to(self.device), dim=1)
-            sims = normalized_query @ self._torch_vectors.T
-            topk = min(max(1, int(k)), int(self._torch_vectors.shape[0]))
-            values, indices = torch.topk(sims, k=topk, dim=1)
-            _on_cpu = (self.device == torch.device("cpu"))
-            ids = self._torch_ids[indices].tolist() if _on_cpu else self._torch_ids[indices].cpu().tolist()
-            dists_t = 1.0 - values
-            dists = dists_t.numpy().astype(np.float32) if _on_cpu else dists_t.detach().cpu().numpy().astype(np.float32)
-            return [[int(candidate_id) for candidate_id in row] for row in ids], dists
-
-        norms = torch.norm(query_batch, dim=1, keepdim=True)
-        normalized = (query_batch / (norms + 1e-8)).detach().cpu().numpy().astype(np.float32)
-
-        if self._use_faiss:
-            index = cast(Any, self.index)
-            search_k = max(k + len(self.tombstones), k * 4)
-            dists, ids = index.search(normalized, search_k)
-            valid_ids: List[List[int]] = []
-            valid_dists: List[List[float]] = []
-            target_k = min(max(1, int(k)), len(self._vector_store) - len(self.tombstones))
-            for row_idx, (row_ids, row_dists) in enumerate(zip(ids, dists)):
-                row_valid_ids: List[int] = []
-                row_valid_dists: List[float] = []
-                seen: set[int] = set()
-                for candidate_id, candidate_dist in zip(row_ids.tolist(), row_dists.tolist()):
-                    idx = int(candidate_id)
-                    if idx < 0 or idx in self.tombstones or idx in seen:
-                        continue
-                    seen.add(idx)
-                    row_valid_ids.append(idx)
-                    row_valid_dists.append(float(candidate_dist))
-                    if len(row_valid_ids) >= target_k:
-                        break
-                row_valid_ids, row_valid_dists = self._complete_faiss_row(
-                    normalized[row_idx],
-                    row_valid_ids,
-                    row_valid_dists,
-                    target_k,
-                )
-                valid_ids.append(row_valid_ids)
-                valid_dists.append(row_valid_dists)
-            return valid_ids, self._pad_distance_rows(valid_dists, query_batch.shape[0])
-
-        all_ids = np.array(list(self._vector_store.keys()), dtype=np.int64)
-        all_vecs = np.stack([self._vector_store[i] for i in all_ids], axis=0)
-        sim = normalized @ all_vecs.T
-        order = np.argsort(-sim, axis=1)
-
-        out_ids: List[List[int]] = []
-        out_rows: List[List[float]] = []
-        for row_idx in range(order.shape[0]):
-            chosen = order[row_idx, : min(k, all_vecs.shape[0])]
-            ids_row = [int(all_ids[i]) for i in chosen]
-            out_ids.append(ids_row)
-            out_rows.append((1.0 - sim[row_idx, chosen]).astype(np.float32).tolist())
-
-        return out_ids, self._pad_distance_rows(out_rows, normalized.shape[0])
+        if self._torch_cache_dirty:
+            self._rebuild_torch_cache()
+        if int(self._torch_vectors.shape[0]) <= 0:
+            return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
+        normalized_query = F.normalize(query_batch.to(self.device), dim=1)
+        sims = normalized_query @ self._torch_vectors.T
+        topk = min(max(1, int(k)), int(self._torch_vectors.shape[0]))
+        values, indices = torch.topk(sims, k=topk, dim=1)
+        _on_cpu = self.device == torch.device("cpu")
+        ids = self._torch_ids[indices].tolist() if _on_cpu else self._torch_ids[indices].cpu().tolist()
+        dists_t = 1.0 - values
+        dists = dists_t.numpy().astype(np.float32) if _on_cpu else dists_t.detach().cpu().numpy().astype(np.float32)
+        return [[int(candidate_id) for candidate_id in row] for row in ids], dists
 
     def search_tensors(self, query: torch.Tensor, k: int = 5) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return candidate ids and distances as tensors on the index device.
@@ -316,46 +182,23 @@ class HierarchicalAssemblyIndex:
             empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
             return empty_ids, empty_dists
 
-        if self._backend == "torch_topk":
-            if self._torch_cache_dirty:
-                self._rebuild_torch_cache()
-            if int(self._torch_vectors.shape[0]) <= 0:
-                empty_ids = torch.empty((batch_size, 0), dtype=torch.long, device=self.device)
-                empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
-                return empty_ids, empty_dists
-            normalized_query = F.normalize(query_batch.to(self.device), dim=1)
-            sims = normalized_query @ self._torch_vectors.T
-            topk = min(target_k, int(self._torch_vectors.shape[0]))
-            values, indices = torch.topk(sims, k=topk, dim=1)
-            ids = self._torch_ids[indices]
-            dists = 1.0 - values
-            return ids.long(), dists.float()
-
-        ids_rows, dists_np = self.search(query_batch, k=target_k)
-        width = min(target_k, max((len(row) for row in ids_rows), default=0))
-        ids = torch.empty((batch_size, width), dtype=torch.long, device=self.device)
-        dists = torch.empty((batch_size, width), dtype=torch.float32, device=self.device)
-        if width == 0:
-            return ids, dists
-        ids.fill_(0)
-        dists.fill_(float("inf"))
-        for row_idx, row in enumerate(ids_rows):
-            row_width = min(width, len(row))
-            if row_width <= 0:
-                continue
-            ids[row_idx, :row_width] = torch.tensor(row[:row_width], dtype=torch.long, device=self.device)
-            dists[row_idx, :row_width] = torch.tensor(
-                dists_np[row_idx, :row_width],
-                dtype=torch.float32,
-                device=self.device,
-            )
-        return ids, dists
+        if self._torch_cache_dirty:
+            self._rebuild_torch_cache()
+        if int(self._torch_vectors.shape[0]) <= 0:
+            empty_ids = torch.empty((batch_size, 0), dtype=torch.long, device=self.device)
+            empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
+            return empty_ids, empty_dists
+        normalized_query = F.normalize(query_batch.to(self.device), dim=1)
+        sims = normalized_query @ self._torch_vectors.T
+        topk = min(target_k, int(self._torch_vectors.shape[0]))
+        values, indices = torch.topk(sims, k=topk, dim=1)
+        ids = self._torch_ids[indices]
+        dists = 1.0 - values
+        return ids.long(), dists.float()
 
     def routing_tensor_cache(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return the current exact torch routing cache without copying it."""
 
-        if self._backend != "torch_topk":
-            raise RuntimeError("routing tensor cache requires torch_topk")
         if self._torch_cache_dirty:
             self._rebuild_torch_cache()
         return self._torch_vectors, self._torch_ids
@@ -363,15 +206,11 @@ class HierarchicalAssemblyIndex:
     def routing_tensor_cache_is_dirty(self) -> bool:
         """Return whether the exact torch routing cache must be rebuilt."""
 
-        if self._backend != "torch_topk":
-            raise RuntimeError("routing tensor cache requires torch_topk")
         return bool(self._torch_cache_dirty)
 
     def routing_tensor_cache_generation(self) -> int:
         """Return a monotonic stamp for cache-invalidating routing changes."""
 
-        if self._backend != "torch_topk":
-            raise RuntimeError("routing tensor cache requires torch_topk")
         return int(self._torch_cache_generation)
 
     def stats(self) -> dict[str, Any]:
@@ -388,16 +227,15 @@ class HierarchicalAssemblyIndex:
             "tensor_search_count": int(self.tensor_search_count),
             "last_search_mode": self.last_search_mode,
         }
-        if self._backend == "torch_topk":
-            info["torch_cache_dirty"] = bool(self._torch_cache_dirty)
-            info["torch_cache_ready"] = not bool(self._torch_cache_dirty)
-            info["torch_cache_generation"] = int(self._torch_cache_generation)
-            info["torch_vector_cache_device"] = str(self._torch_vectors.device)
-            info["torch_id_cache_device"] = str(self._torch_ids.device)
-            info["torch_vector_cache_count"] = int(self._torch_vectors.shape[0])
-            info["torch_cache_cuda"] = bool(
-                self._torch_vectors.is_cuda and self._torch_ids.is_cuda
-            )
+        info["torch_cache_dirty"] = bool(self._torch_cache_dirty)
+        info["torch_cache_ready"] = not bool(self._torch_cache_dirty)
+        info["torch_cache_generation"] = int(self._torch_cache_generation)
+        info["torch_vector_cache_device"] = str(self._torch_vectors.device)
+        info["torch_id_cache_device"] = str(self._torch_ids.device)
+        info["torch_vector_cache_count"] = int(self._torch_vectors.shape[0])
+        info["torch_cache_cuda"] = bool(
+            self._torch_vectors.is_cuda and self._torch_ids.is_cuda
+        )
         return info
 
 
@@ -412,7 +250,7 @@ class ShardedHierarchicalAssemblyIndex:
         shard_candidate_factor: int = 2,
         *,
         device: torch.device | None = None,
-        backend: str = "auto",
+        backend: str = "torch_topk",
         merge_torch_shards: bool = True,
     ) -> None:
         self.dim = int(dim)
@@ -530,11 +368,6 @@ class ShardedHierarchicalAssemblyIndex:
 
     def _local_k_for_shard(self, shard: HierarchicalAssemblyIndex, requested_k: int) -> int:
         local_k = max(1, int(requested_k) * self.shard_candidate_factor)
-        shard_size = int(shard.ntotal)
-        if shard_size <= 0:
-            return local_k
-        if shard.stats()["index_type"] == "faiss_hnsw" and shard_size <= max(local_k * 4, 128):
-            return shard_size
         return local_k
 
     def search(self, query: torch.Tensor, k: int = 5) -> Tuple[List[List[int]], np.ndarray]:
@@ -662,13 +495,7 @@ class ShardedHierarchicalAssemblyIndex:
         elif not active_sizes:
             balance_ratio = 0.0
 
-        base_type = shard_stats[0]["index_type"] if shard_stats else "exact_cosine"
-        if base_type == "faiss_hnsw":
-            index_type = "sharded_hnsw"
-        elif base_type == "torch_topk":
-            index_type = "sharded_torch_topk"
-        else:
-            index_type = "sharded_exact"
+        index_type = "sharded_torch_topk"
 
         return {
             "index_type": index_type,

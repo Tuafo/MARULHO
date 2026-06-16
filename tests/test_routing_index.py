@@ -53,12 +53,12 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertGreater(index.routing_tensor_cache_generation(), generation)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
-    def test_auto_cuda_index_reports_actual_cache_devices(self) -> None:
+    def test_torch_topk_cuda_index_reports_actual_cache_devices(self) -> None:
         index = HierarchicalAssemblyIndex(
             dim=3,
             rebuild_threshold=2,
             device=torch.device("cuda"),
-            backend="auto",
+            backend="torch_topk",
         )
         vectors = torch.tensor(
             [
@@ -335,6 +335,14 @@ class RoutingIndexTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "routing_index_mode"):
             MarulhoConfig(routing_index_mode="turboquant_plus")  # type: ignore[arg-type]
 
+    def test_removed_cpu_routing_backends_fail_fast(self) -> None:
+        for backend in ("auto", "faiss_hnsw", "exact_cosine"):
+            with self.subTest(backend=backend):
+                with self.assertRaisesRegex(ValueError, "routing_index_mode"):
+                    MarulhoConfig(routing_index_mode=backend)  # type: ignore[arg-type]
+                with self.assertRaisesRegex(ValueError, "only torch_topk"):
+                    HierarchicalAssemblyIndex(dim=2, backend=backend)
+
     def test_model_can_disable_merged_torch_routing_cache(self) -> None:
         cfg = MarulhoConfig(
             n_columns=8,
@@ -367,72 +375,6 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertEqual(scope["cuda_first_runtime"]["tensor_device"], "cpu")
         self.assertEqual(scope["cuda_first_runtime"]["routing_search_device"], "cpu")
         self.assertTrue(scope["cuda_first_runtime"]["routing_backend_cuda_capable"])
-
-    def test_faiss_search_exact_fills_missing_unique_ids(self) -> None:
-        class FakeFaissIndex:
-            ntotal = 3
-
-            def search(self, query: np.ndarray, search_k: int) -> tuple[np.ndarray, np.ndarray]:
-                del query, search_k
-                return (
-                    np.asarray([[0.2, 0.2, 1.8]], dtype=np.float32),
-                    np.asarray([[0, 0, 1]], dtype=np.int64),
-                )
-
-        index = HierarchicalAssemblyIndex(
-            dim=2,
-            rebuild_threshold=2,
-            device=torch.device("cpu"),
-            backend="exact_cosine",
-        )
-        index._backend = "faiss_hnsw"
-        index._use_faiss = True
-        index.index = FakeFaissIndex()
-        index._vector_store = {
-            0: np.asarray([1.0, 0.0], dtype=np.float32),
-            1: np.asarray([0.0, 1.0], dtype=np.float32),
-            2: np.asarray([0.0, 1.0], dtype=np.float32),
-        }
-
-        found_ids, distances = index.search(torch.tensor([[0.0, 1.0]], dtype=torch.float32), k=3)
-
-        self.assertEqual(found_ids[0], [2, 0, 1])
-        self.assertEqual(distances.shape, (1, 3))
-
-    def test_sharded_hnsw_search_sweeps_full_small_shards(self) -> None:
-        class RecordingShard:
-            def __init__(self, ntotal: int, index_type: str) -> None:
-                self.ntotal = ntotal
-                self._index_type = index_type
-                self.calls: list[int] = []
-
-            def search(self, query: torch.Tensor, k: int = 5):
-                self.calls.append(int(k))
-                width = min(int(k), int(self.ntotal))
-                ids = [list(range(width)) for _ in range(query.shape[0])]
-                dists = np.zeros((query.shape[0], width), dtype=np.float32)
-                return ids, dists
-
-            def stats(self) -> dict[str, object]:
-                return {"index_type": self._index_type}
-
-        index = ShardedHierarchicalAssemblyIndex(
-            dim=2,
-            n_shards=2,
-            rebuild_threshold=2,
-            shard_candidate_factor=2,
-            device=torch.device("cpu"),
-            backend="exact_cosine",
-        )
-        small_hnsw_shard = RecordingShard(ntotal=128, index_type="faiss_hnsw")
-        large_hnsw_shard = RecordingShard(ntotal=512, index_type="faiss_hnsw")
-        index.shards = [small_hnsw_shard, large_hnsw_shard]  # type: ignore[assignment]
-
-        index.search(torch.tensor([[1.0, 0.0]], dtype=torch.float32), k=16)
-
-        self.assertEqual(small_hnsw_shard.calls, [128])
-        self.assertEqual(large_hnsw_shard.calls, [32])
-
 
 if __name__ == "__main__":
     unittest.main()

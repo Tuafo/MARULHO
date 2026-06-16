@@ -107,7 +107,7 @@ class MarulhoTrainer:
         self._cross_modal_idle_trace_reset_count: int = 0
         self._cross_modal_traces_cleared_for_idle: bool = True
 
-        # HNSW update buffer — flush every N steps to amortize add() overhead
+        # Routing-index update buffer - flush every N steps to amortize add() overhead.
         self._hnsw_buffer_ids: list[int | torch.Tensor] = []
         self._hnsw_buffer_vecs: list[torch.Tensor] = []
         self._hnsw_flush_interval = 16
@@ -1082,7 +1082,7 @@ class MarulhoTrainer:
         *,
         known_ids: list[int] | None = None,
     ) -> None:
-        """Buffer HNSW updates; flush when buffer reaches interval size."""
+        """Buffer routing-index updates; flush when buffer reaches interval size."""
         if known_ids is not None:
             ids: list[int | torch.Tensor] = [int(value) for value in known_ids]
         else:
@@ -1092,7 +1092,7 @@ class MarulhoTrainer:
             else:
                 ids = [id_tensor[i] for i in range(int(id_tensor.numel()))]
         if len(ids) != int(vectors.shape[0]):
-            raise ValueError("known_ids must align with buffered HNSW vectors")
+            raise ValueError("known_ids must align with buffered routing-index vectors")
         vecs = vectors.detach()
         for i, vid in enumerate(ids):
             self._hnsw_buffer_ids.append(vid)
@@ -1101,7 +1101,7 @@ class MarulhoTrainer:
             self._flush_hnsw_buffer()
 
     def _flush_hnsw_buffer(self) -> None:
-        """Flush buffered HNSW updates in a single batch."""
+        """Flush buffered routing-index updates in a single batch."""
         if not self._hnsw_buffer_ids:
             return
         if self._routing_index_cpu_mirror_stale:
@@ -2432,7 +2432,7 @@ class MarulhoTrainer:
 
         if applied > 0:
             if mode == "deep":
-                # HNSW approximate index rebuild AFTER consolidation loop (§4.8).
+                # Routing-index rebuild after consolidation loop.
                 # Avoids stale-cell issue: prototype positions shift during
                 # anchor_lr updates above; rebuilding now uses final positions.
                 uniq = sorted(set(updated_ids))

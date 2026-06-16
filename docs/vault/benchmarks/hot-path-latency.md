@@ -1614,3 +1614,25 @@ sequence/native failures. This is below the best 6k-ish route-vote
 sync-cadence run (`6135.026 tokens/sec`, `0.133995 ms/token`) but preserves the
 promoted execution path and shows the deletion did not force a fallback or CPU
 route.
+
+### Routing Backend Consolidation, 2026-06-16
+
+After the sparse state-transition promotion, cleanup removed the remaining
+selectable CPU routing backends: `auto`, `faiss_hnsw`, and `exact_cosine`.
+Those branches could produce candidate ids, but they could not expose
+`routing_tensor_cache()` for the promoted CUDA route/vote graph, so keeping them
+preserved a second non-promoted path. `routing_index_mode` now accepts only
+`torch_topk`; focused routing/config tests assert the retired backends fail
+fast.
+
+The follow-up long run used
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/column_scheduler_20260616/routing-backend-consolidation-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 300 --sample-interval-seconds 0.5`.
+It reached `6152.191 tokens/sec` with `train_compute=0.132471 ms/token`,
+`prepare_training=0.006478 ms/token`, `finalize_total=0.006010 ms/token`, and
+`tick_duration_ms.p95=21.526`. CUDA selected the RTX 3060, contention was
+`not_observed`, graph/sequence/native failures and fallbacks stayed zero, and
+Runtime Truth kept `state_transition_mode=candidate_subset_sparse_cuda_graph_route_transition_burst`,
+`state_transition_column_count=10`, `state_transition_cached_count=1014`, and
+`state_transition_runs_all_columns=false`. Route-score input rows remain `1024`;
+this cleanup removes dead selectable backends, not the next sparse route-candidate
+retrieval boundary.
