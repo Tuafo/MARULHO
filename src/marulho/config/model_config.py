@@ -77,10 +77,7 @@ class MarulhoConfig:
     routing_shards: int = 1
     shard_candidate_factor: int = 2
     route_candidate_bank_size: int = 0
-    predictive_dense_transition_mode: Literal[
-        "fused_eager",
-        "inplace_triton",
-    ] = "inplace_triton"
+    predictive_dense_transition_mode: Literal["inplace_triton"] = "inplace_triton"
     predictive_route_vote_mode: Literal["cuda_graph_text"] = "cuda_graph_text"
 
     eta_competitive: float = 0.01
@@ -416,12 +413,9 @@ class MarulhoConfig:
             raise ValueError(
                 "route_candidate_bank_size must be 0 or equal to k_routing; wider banks need a separate promotion gate"
             )
-        if self.predictive_dense_transition_mode not in {
-            "fused_eager",
-            "inplace_triton",
-        }:
+        if self.predictive_dense_transition_mode != "inplace_triton":
             raise ValueError(
-                "predictive_dense_transition_mode must be fused_eager or inplace_triton"
+                "predictive_dense_transition_mode is fixed at inplace_triton"
             )
         if self.predictive_route_vote_mode != "cuda_graph_text":
             raise ValueError(

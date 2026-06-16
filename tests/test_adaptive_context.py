@@ -361,12 +361,19 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cuda_graph_sequence_loop_tokens"):
             MarulhoConfig(cuda_graph_sequence_loop_tokens=24)
 
-    def test_retired_predictive_dense_transition_modes_are_rejected(self) -> None:
+    def test_predictive_dense_transition_mode_is_fixed_to_promoted_runtime(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
-        for mode in ("compiled", "legacy"):
+        self.assertEqual(
+            MarulhoConfig().predictive_dense_transition_mode,
+            "inplace_triton",
+        )
+        for mode in ("compiled", "fused_eager", "legacy"):
             with self.subTest(mode=mode):
-                with self.assertRaisesRegex(ValueError, "predictive_dense_transition_mode"):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "fixed at inplace_triton",
+                ):
                     MarulhoConfig(predictive_dense_transition_mode=mode)  # type: ignore[arg-type]
 
     def test_slow_memory_archive_interval_must_be_positive(self) -> None:

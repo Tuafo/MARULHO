@@ -34,7 +34,11 @@ _RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS = {
     "default",
     "cuda_graph_conditional_while",
 }
-_RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
+_RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {
+    "compiled",
+    "fused_eager",
+    "legacy",
+}
 _RETIRED_PREDICTIVE_ROUTE_VOTE_MODES = {"tensor", "fused_triton_text"}
 
 
@@ -323,6 +327,31 @@ def _migrate_loaded_config_snapshot(
                 "reason": route_vote_reason,
             }
         )
+    current_predictive_transition = str(
+        migrated.get("predictive_dense_transition_mode", "missing")
+    )
+    if (
+        "predictive_dense_transition_mode" not in migrated
+        or current_predictive_transition != PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE
+    ):
+        predictive_transition_reason = (
+            "promoted_inplace_triton_scheduler_boundary"
+            if current_predictive_transition in _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES
+            else "missing_predictive_dense_transition_promoted"
+            if current_predictive_transition == "missing"
+            else "unsupported_predictive_dense_transition_migrated"
+        )
+        migrated["predictive_dense_transition_mode"] = (
+            PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE
+        )
+        migrations.append(
+            {
+                "field": "predictive_dense_transition_mode",
+                "from": current_predictive_transition,
+                "to": PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
+                "reason": predictive_transition_reason,
+            }
+        )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 
@@ -370,24 +399,6 @@ def _migrate_loaded_config_snapshot(
         "cuda_graph_sequence_loop_tokens",
         PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
     )
-    current_predictive_transition = str(
-        migrated.get(
-            "predictive_dense_transition_mode",
-            PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
-        )
-    )
-    if current_predictive_transition in _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES:
-        migrated["predictive_dense_transition_mode"] = (
-            PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE
-        )
-        migrations.append(
-            {
-                "field": "predictive_dense_transition_mode",
-                "from": current_predictive_transition,
-                "to": PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
-                "reason": "promoted_inplace_triton_scheduler_boundary",
-            }
-        )
     return migrated, migrations
 
 

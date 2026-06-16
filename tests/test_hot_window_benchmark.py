@@ -36,7 +36,7 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
                 checkpoint,
                 samples=4,
                 warmup_steps=1,
-                predictive_transition_mode="fused_eager",
+                predictive_transition_mode="inplace_triton",
                 seed=123,
             )
 
@@ -47,7 +47,7 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
     assert report["warmup_steps"] == 1
     assert report["routing_candidate_mode"] == "tensor"
     assert report["routing_cache_boundary"] == "merged_torch_route_cache_required"
-    assert report["predictive_transition_mode"] == "fused_eager"
+    assert report["predictive_transition_mode"] == "inplace_triton"
     assert report["warmup_elapsed_s"] >= 0.0
     assert report["runtime_counters"]["routing_index"]["last_search_mode"] == "tensor"
     assert (

@@ -2049,6 +2049,21 @@ still captured only `candidate_subset` and remained in-band at
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
 and no observed contention.
 
+The predictive dense-transition selector cleanup removed `fused_eager` as a
+production config value while keeping dense eager tensor semantics as the
+explicit internal fallback when the promoted in-place runtime cannot start.
+Focused tests now reject `fused_eager` in new config and migrate old
+revision-stamped checkpoints to `inplace_triton`. The longer real-path check at
+`reports/column_scheduler_20260616/predictive-dense-mode-selector-cleanup-8192-131072-i32.json`
+processed `131072` tokens at `6174.224 tokens/sec`,
+`train_compute=0.131907 ms/token`, `prepare_training=0.006647 ms/token`,
+`finalize_total=0.006016 ms/token`, `tick_duration_ms.p95=22.558`,
+`route_input_rows_scored=12/8192`, `route_output_candidate_count=10`,
+`state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. This is accepted as one-path cleanup evidence, not a
+new speed ceiling.
+
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
 random-projection buckets. These are evaluation-only probes: offline precompute

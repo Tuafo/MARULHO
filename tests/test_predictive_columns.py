@@ -1426,6 +1426,12 @@ class TestPredictiveColumnsInTrainer:
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):
             MarulhoConfig(predictive_route_vote_mode="always")  # type: ignore[arg-type]
 
+    def test_predictive_dense_transition_mode_is_fixed_to_promoted_runtime(self):
+        assert MarulhoConfig().predictive_dense_transition_mode == "inplace_triton"
+        for mode in ("compiled", "fused_eager", "legacy"):
+            with pytest.raises(ValueError, match="fixed at inplace_triton"):
+                MarulhoConfig(predictive_dense_transition_mode=mode)  # type: ignore[arg-type]
+
     def test_cuda_candidate_predictive_transition_mode_is_not_user_configurable(self):
         assert not hasattr(MarulhoConfig(), "cuda_candidate_predictive_transition_mode")
         with pytest.raises(TypeError, match="cuda_candidate_predictive_transition_mode"):

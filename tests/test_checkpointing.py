@@ -255,7 +255,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
 
-        for mode in ("compiled", "legacy"):
+        for mode in ("compiled", "fused_eager", "legacy"):
             with self.subTest(mode=mode), TemporaryDirectory() as tmpdir:
                 cfg = MarulhoConfig(
                     n_columns=8,
@@ -289,6 +289,46 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                     },
                     metadata["config_migrations"],
                 )
+
+    def test_revision_stamped_checkpoint_retired_predictive_transition_migrates(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "retired-predictive-transition.pt",
+                trainer,
+            )
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["predictive_dense_transition_mode"] = "fused_eager"
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertEqual(
+                restored.config.predictive_dense_transition_mode,
+                "inplace_triton",
+            )
+            self.assertIn(
+                {
+                    "field": "predictive_dense_transition_mode",
+                    "from": "fused_eager",
+                    "to": "inplace_triton",
+                    "reason": "promoted_inplace_triton_scheduler_boundary",
+                },
+                metadata["config_migrations"],
+            )
 
     def test_legacy_checkpoint_route_vote_default_promotes_cuda_graph_text(self) -> None:
         from tempfile import TemporaryDirectory

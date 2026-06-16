@@ -45,11 +45,10 @@ def run_hot_window_benchmark(
         raise ValueError("warmup_steps must be non-negative")
     if predictive_transition_mode not in {
         None,
-        "fused_eager",
         "inplace_triton",
     }:
         raise ValueError(
-            "predictive_transition_mode must be fused_eager, inplace_triton, or None"
+            "predictive_transition_mode must be inplace_triton or None"
         )
     if sync_mode not in {"step", "window"}:
         raise ValueError("sync_mode must be step or window")
@@ -273,7 +272,7 @@ def main() -> int:
     parser.add_argument("--warmup-steps", type=int, default=64)
     parser.add_argument(
         "--predictive-transition-mode",
-        choices=("fused_eager", "inplace_triton"),
+        choices=("inplace_triton",),
     )
     parser.add_argument("--seed", type=int, default=20260611)
     parser.add_argument("--profile-trainer-stages", action="store_true")
