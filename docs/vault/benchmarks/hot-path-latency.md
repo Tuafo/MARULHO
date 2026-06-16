@@ -1961,6 +1961,30 @@ Runtime Truth reported `route_candidate_bank.probe_rows=2`,
 adding bounded outside-bank discovery; it is not evidence that the route bank is
 quality-complete on changing text.
 
+The follow-up quality gate updated
+`route_candidate_bank_quality_gate` to simulate the promoted fixed probe lane
+and the live 16-token bank refresh cadence:
+
+`python -m marulho.evaluation.route_candidate_bank_quality_gate --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-bank-probe-lane-quality-8192-default-text-s512.json --samples 512 --source-mode default_text --route-candidate-probe-rows 2 --route-candidate-bank-refresh-interval 16`
+
+| Quality shape | steady rows | exact top-1 in bank | winner match | worst miss streak | status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| probe2 q16 | `12/8192` | `0.017578125` | `0.001953125` | `134` | bounded, quality incomplete |
+| probe64 q16 | `74/8192` | `0.140625` | `0.0078125` | `52` | rejected as quality fix |
+| probe256 q16 | `266/8192` | `0.34765625` | `0.044921875` | `63` | rejected as quality fix |
+| graph32 cap256 q16 | `256/8192` | `0.640625` | `0.1484375` | `16` | quality incomplete |
+| graph64 cap512 q16 | `511.906/8192` mean | `0.796875` | `0.26171875` | `8` | quality incomplete |
+| graph128 cap1024 q16 | `985.961/8192` mean | `0.900390625` | `0.484375` | `5` | quality incomplete |
+| graph208 cap1536 q16 | `1476.677/8192` mean | `0.9453125` | `0.74609375` | `4` | still below promotion gate |
+
+The strict pass criteria remain exact top-1 and winner match at least `0.95`
+with worst exact top-1 miss streak at most `2`. The earlier graph-neighbor
+quality pass assumed per-tick refresh and did not survive the live q16 refresh
+cadence; this keeps the throughput/quality boundary honest. The next promotable
+router needs a fused/GPU-owned discovery mechanism or graph-ordered device
+refresh that can preserve burst parity, recover relevance, and keep the
+131072-token 6k-ish path.
+
 ### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
 
 Awake-ripple tagging is a replay-priority metabolism path, not a CUDA route

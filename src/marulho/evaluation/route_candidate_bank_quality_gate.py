@@ -78,6 +78,32 @@ def _ordered_unique_limited_positions(
     return torch.tensor(kept, dtype=torch.long, device=positions.device)
 
 
+def _ordered_unique_limited_candidate_ids(
+    *,
+    scores: torch.Tensor,
+    positions: torch.Tensor,
+    routing_ids: torch.Tensor,
+    limit: int,
+) -> torch.Tensor:
+    if int(limit) <= 0 or int(positions.numel()) <= 0:
+        return torch.empty((0,), dtype=torch.long, device=routing_ids.device)
+    ordered_offsets = torch.argsort(scores.flatten(), descending=True)
+    seen: set[int] = set()
+    kept: list[int] = []
+    for offset in ordered_offsets.detach().cpu().tolist():
+        position = int(positions[int(offset)].item())
+        if position < 0:
+            continue
+        candidate_id = int(routing_ids[position].item())
+        if candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        kept.append(candidate_id)
+        if len(kept) >= int(limit):
+            break
+    return torch.tensor(kept, dtype=torch.long, device=routing_ids.device)
+
+
 def _candidate_winner(
     *,
     routing_key: torch.Tensor,
@@ -121,6 +147,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     exact_reseed_interval: int = 0,
     route_candidate_graph_neighbor_count: int = 0,
     route_candidate_graph_capacity_rows: int = 0,
+    route_candidate_probe_rows: int = 0,
+    route_candidate_bank_refresh_interval: int = 1,
 ) -> dict[str, Any]:
     if routing_keys.dim() != 2:
         raise ValueError("routing_keys must be a rank-2 tensor")
@@ -152,6 +180,20 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         max(0, int(ids.numel()) - 1),
     )
     graph_enabled = graph_neighbor_count > 0
+    probe_rows = min(
+        max(0, int(route_candidate_probe_rows)),
+        max(0, int(ids.numel()) - int(bank_capacity)),
+    )
+    probe_enabled = probe_rows > 0
+    refresh_interval = max(1, int(route_candidate_bank_refresh_interval))
+    probe_offsets = torch.arange(
+        int(probe_rows),
+        dtype=torch.long,
+        device=device,
+    )
+    probe_cursor = int(bank_capacity)
+    probe_refresh_count = 0
+    probe_deferred_tick_count = 0
     default_graph_capacity = int(bank_capacity * (graph_neighbor_count + 1))
     graph_capacity = int(
         min(
@@ -188,10 +230,45 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     graph_valid_rows: list[int] = []
     seed_count = 0
     reseed_count = 0
+    probe_exact_top1_seen_count = 0
+    probe_exact_top1_discovery_count = 0
 
     current_bank_ids = exact_candidates[0, :bank_capacity].clone()
     exact_previous = int(previous_winner)
     bank_previous = int(previous_winner)
+    scored_since_refresh = 0
+    current_score_positions: torch.Tensor | None = None
+    current_bank_positions = positions_by_column.index_select(0, current_bank_ids)
+    current_probe_positions = torch.empty((0,), dtype=torch.long, device=device)
+
+    def _refresh_score_positions(bank_ids: torch.Tensor) -> None:
+        nonlocal current_score_positions
+        nonlocal current_bank_positions
+        nonlocal current_probe_positions
+        nonlocal probe_cursor
+        nonlocal probe_refresh_count
+        current_bank_positions = positions_by_column.index_select(0, bank_ids)
+        if bool((current_bank_positions < 0).any().item()):
+            raise ValueError("route bank contains id missing from routing cache")
+        if not probe_enabled:
+            current_probe_positions = torch.empty(
+                (0,),
+                dtype=torch.long,
+                device=device,
+            )
+            current_score_positions = current_bank_positions
+            return
+        route_count = int(ids.numel())
+        current_probe_positions = torch.remainder(
+            probe_offsets + int(probe_cursor),
+            route_count,
+        ).to(dtype=torch.long)
+        probe_cursor = (int(probe_cursor) + int(probe_rows)) % route_count
+        probe_refresh_count += 1
+        current_score_positions = torch.cat(
+            (current_bank_positions, current_probe_positions),
+            dim=0,
+        )
 
     for tick in range(int(keys.shape[0])):
         exact_row = exact_candidates[tick]
@@ -204,20 +281,28 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             bank_row = exact_row[:k].clone()
             current_bank_ids = exact_row[:bank_capacity].clone()
             bank_rows_scored = int(ids.numel())
+            _refresh_score_positions(current_bank_ids)
+            scored_since_refresh = 0
             if tick == 0:
                 seed_count += 1
             else:
                 reseed_count += 1
         else:
-            bank_positions = positions_by_column.index_select(0, current_bank_ids)
-            if bool((bank_positions < 0).any().item()):
-                raise ValueError("route bank contains id missing from routing cache")
+            bank_positions = current_bank_positions
             if graph_enabled:
                 assert neighbor_positions is not None
+                graph_seed_positions = (
+                    current_score_positions
+                    if current_score_positions is not None and probe_enabled
+                    else bank_positions
+                )
                 expanded_positions = torch.cat(
                     (
-                        bank_positions,
-                        neighbor_positions.index_select(0, bank_positions).flatten(),
+                        graph_seed_positions,
+                        neighbor_positions.index_select(
+                            0,
+                            graph_seed_positions,
+                        ).flatten(),
                     ),
                     dim=0,
                 )
@@ -229,34 +314,48 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                     0,
                     expanded_positions,
                 ).T
-                bank_top = torch.topk(
-                    bank_scores,
-                    k=min(k, int(expanded_positions.numel())),
-                    dim=1,
-                ).indices[0]
-                bank_row = ids.index_select(
-                    0,
-                    expanded_positions.index_select(0, bank_top),
+                bank_row = _ordered_unique_limited_candidate_ids(
+                    scores=bank_scores,
+                    positions=expanded_positions,
+                    routing_ids=ids,
+                    limit=k,
                 )
-                current_bank_ids = bank_row[:bank_capacity].clone()
                 bank_rows_scored = int(expanded_positions.numel())
                 graph_valid_rows.append(bank_rows_scored)
             else:
+                score_positions = (
+                    current_score_positions
+                    if current_score_positions is not None
+                    else bank_positions
+                )
                 bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
                     0,
-                    bank_positions,
+                    score_positions,
                 ).T
-                bank_top = torch.topk(
-                    bank_scores,
-                    k=min(k, int(current_bank_ids.numel())),
-                    dim=1,
-                ).indices[0]
-                bank_row = current_bank_ids.index_select(0, bank_top)
-                current_bank_ids = bank_row[:bank_capacity].clone()
-                bank_rows_scored = int(current_bank_ids.numel())
+                bank_row = _ordered_unique_limited_candidate_ids(
+                    scores=bank_scores,
+                    positions=score_positions,
+                    routing_ids=ids,
+                    limit=k,
+                )
+                bank_rows_scored = int(score_positions.numel())
 
         exact_set = {int(value) for value in exact_row.detach().cpu().tolist()}
         bank_set = {int(value) for value in bank_row.detach().cpu().tolist()}
+        bank_source_set = {
+            int(value)
+            for value in ids.index_select(0, current_bank_positions)
+            .detach()
+            .cpu()
+            .tolist()
+        }
+        probe_source_set = {
+            int(value)
+            for value in ids.index_select(0, current_probe_positions)
+            .detach()
+            .cpu()
+            .tolist()
+        }
         overlap = len(exact_set.intersection(bank_set))
         overlap_fractions.append(float(overlap) / float(max(1, len(exact_set))))
         exact_top1 = int(exact_row[0].item())
@@ -269,6 +368,11 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                 worst_consecutive_top1_miss,
                 consecutive_top1_miss,
             )
+        if not seeded and probe_enabled:
+            if exact_top1 in probe_source_set and exact_top1 not in bank_source_set:
+                probe_exact_top1_seen_count += 1
+                if exact_top1 in bank_set:
+                    probe_exact_top1_discovery_count += 1
 
         exact_winner, exact_positive = _candidate_winner(
             routing_key=keys[tick],
@@ -293,12 +397,25 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         exact_candidates_by_tick.append([int(value) for value in exact_row.detach().cpu().tolist()])
         bank_candidates_by_tick.append([int(value) for value in bank_row.detach().cpu().tolist()])
         bank_score_rows.append(bank_rows_scored)
+        if not seeded:
+            scored_since_refresh += 1
+            if scored_since_refresh >= refresh_interval:
+                current_bank_ids = bank_row[:bank_capacity].clone()
+                _refresh_score_positions(current_bank_ids)
+                scored_since_refresh = 0
+            elif probe_enabled:
+                probe_deferred_tick_count += 1
 
     checked = int(keys.shape[0])
     steady_ticks = max(0, checked - seed_count - reseed_count)
     top1_rate = float(exact_top1_in_bank_count) / float(max(1, checked))
     winner_rate = float(exact_winner_match_count) / float(max(1, checked))
     positive_rate = float(positive_match_count) / float(max(1, checked))
+    quality_passes = (
+        top1_rate >= 0.95
+        and winner_rate >= 0.95
+        and int(worst_consecutive_top1_miss) <= 2
+    )
     steady_bank_rows = [
         float(value)
         for index, value in enumerate(bank_score_rows)
@@ -310,10 +427,13 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     ]
     return {
         "surface": "route_candidate_bank_quality_gate.v1",
-        "scope": "evaluation_only_exact_oracle_compared_to_training_owned_route_candidate_bank",
+        "scope": (
+            "evaluation_only_exact_oracle_compared_to_training_owned_"
+            "route_candidate_bank_plus_optional_probe_lane"
+        ),
         "claim_boundary": (
             "scores full route cache only as an offline oracle; runtime steady "
-            "route bank still scores bounded rows after the explicit seed"
+            "route bank/probe lane still scores bounded rows after the explicit seed"
         ),
         "checked_ticks": checked,
         "steady_ticks": steady_ticks,
@@ -340,7 +460,29 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                 "offline_quality_simulation_of_bounded_neighbor_expansion_without_hot_path_all_column_scan"
             ),
         },
+        "route_candidate_probe": {
+            "enabled": bool(probe_enabled),
+            "probe_rows": int(probe_rows),
+            "refresh_interval_tokens": int(refresh_interval),
+            "refresh_count": int(probe_refresh_count),
+            "deferred_tick_count": int(probe_deferred_tick_count),
+            "exact_top1_seen_in_probe_rows": int(probe_exact_top1_seen_count),
+            "exact_top1_discovered_from_probe_rows": int(
+                probe_exact_top1_discovery_count
+            ),
+            "exact_top1_probe_seen_rate": float(
+                probe_exact_top1_seen_count / max(1, steady_ticks)
+            ),
+            "exact_top1_probe_discovery_rate": float(
+                probe_exact_top1_discovery_count / max(1, steady_ticks)
+            ),
+            "hot_path_all_column_probe_scan": False,
+            "claim_boundary": (
+                "offline_quality_simulation_of_live_fixed_probe_lane_without_hot_path_all_column_scan"
+            ),
+        },
         "steady_bank_score_rows": _float_stats(steady_bank_rows),
+        "steady_route_score_rows": _float_stats(steady_bank_rows),
         "oracle_score_rows": int(ids.numel()),
         "quality": {
             "mean_topk_overlap_fraction": _float_stats(overlap_fractions)["mean"],
@@ -358,9 +500,9 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         },
         "promotion_status": (
             "passes_real_source_route_bank_quality_gate"
-            if top1_rate >= 0.95
-            and winner_rate >= 0.95
-            and int(worst_consecutive_top1_miss) <= 2
+            if quality_passes
+            else "probe_lane_bounded_but_requires_stronger_discovery_router_before_quality_claim"
+            if probe_enabled
             else "requires_reseed_policy_or_wider_bank_before_quality_claim"
         ),
     }
@@ -410,6 +552,8 @@ def run_route_candidate_bank_quality_gate(
     exact_reseed_interval: int = 0,
     route_candidate_graph_neighbor_count: int = 0,
     route_candidate_graph_capacity_rows: int = 0,
+    route_candidate_probe_rows: int = 2,
+    route_candidate_bank_refresh_interval: int = 16,
 ) -> dict[str, Any]:
     trainer, metadata = load_trainer_checkpoint(checkpoint)
     device = trainer.model.device
@@ -456,6 +600,10 @@ def run_route_candidate_bank_quality_gate(
         exact_reseed_interval=int(exact_reseed_interval),
         route_candidate_graph_neighbor_count=int(route_candidate_graph_neighbor_count),
         route_candidate_graph_capacity_rows=int(route_candidate_graph_capacity_rows),
+        route_candidate_probe_rows=int(route_candidate_probe_rows),
+        route_candidate_bank_refresh_interval=int(
+            route_candidate_bank_refresh_interval
+        ),
     )
     quality.update(
         {
@@ -492,6 +640,12 @@ def main() -> int:
     parser.add_argument("--exact-reseed-interval", type=int, default=0)
     parser.add_argument("--route-candidate-graph-neighbor-count", type=int, default=0)
     parser.add_argument("--route-candidate-graph-capacity-rows", type=int, default=0)
+    parser.add_argument("--route-candidate-probe-rows", type=int, default=2)
+    parser.add_argument(
+        "--route-candidate-bank-refresh-interval",
+        type=int,
+        default=16,
+    )
     args = parser.parse_args()
     if args.source_mode == "file" and args.source_path is None:
         parser.error("--source-path is required when --source-mode=file")
@@ -509,6 +663,10 @@ def main() -> int:
         ),
         route_candidate_graph_capacity_rows=(
             args.route_candidate_graph_capacity_rows
+        ),
+        route_candidate_probe_rows=args.route_candidate_probe_rows,
+        route_candidate_bank_refresh_interval=(
+            args.route_candidate_bank_refresh_interval
         ),
     )
     encoded = json.dumps(report, indent=2, sort_keys=True)

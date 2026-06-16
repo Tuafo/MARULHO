@@ -82,6 +82,55 @@ def test_route_candidate_bank_quality_rejects_relevance_shift_without_reseed() -
     )
 
 
+def test_route_candidate_probe_lane_recovers_bounded_relevance_shift() -> None:
+    keys = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.95, 0.05],
+        ],
+        dtype=torch.float32,
+    )
+    vectors = F.normalize(
+        torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.9, 0.1, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.9, 0.1],
+                [0.0, 0.0, 1.0],
+                [0.1, 0.0, 0.9],
+            ],
+            dtype=torch.float32,
+        ),
+        dim=1,
+    )
+
+    report = evaluate_route_candidate_bank_quality_from_tensors(
+        routing_keys=F.normalize(keys.float(), dim=1),
+        routing_vectors=vectors,
+        routing_ids=torch.arange(6, dtype=torch.long),
+        prototypes=vectors.clone(),
+        thresholds=torch.zeros(6, dtype=torch.float32),
+        prediction_location=torch.eye(6, dtype=torch.float32),
+        k_routing=2,
+        bank_size=2,
+        previous_winner=0,
+        route_candidate_probe_rows=2,
+        route_candidate_bank_refresh_interval=16,
+    )
+
+    assert report["hot_path_all_column_oracle"] is False
+    assert report["route_candidate_probe"]["enabled"] is True
+    assert report["route_candidate_probe"]["probe_rows"] == 2
+    assert report["steady_route_score_rows"]["mean"] == 4.0
+    assert report["steady_route_score_rows"]["max"] < report["total_columns"]
+    assert report["route_candidate_probe"]["exact_top1_discovered_from_probe_rows"] >= 1
+    assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
+    assert report["quality"]["exact_winner_match_rate"] == 1.0
+    assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
+
+
 def test_route_candidate_graph_neighbors_recover_bounded_relevance_shift() -> None:
     keys = torch.tensor(
         [
