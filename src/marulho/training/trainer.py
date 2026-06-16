@@ -2298,10 +2298,7 @@ class MarulhoTrainer:
             else None
         )
 
-        use_dense_transition = (
-            self.model.device.type == "cuda"
-            and self.config.predictive_dense_transition_mode != "legacy"
-        )
+        use_dense_transition = self.model.device.type == "cuda"
         used_candidate_transition = False
         if use_dense_transition:
             dense_transition_mode = self.config.predictive_dense_transition_mode

@@ -190,43 +190,92 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 ],
             )
 
-    def test_legacy_checkpoint_migrates_retired_compiled_predictive_transition(self) -> None:
+    def test_legacy_checkpoint_migrates_retired_predictive_transition_modes(self) -> None:
         from tempfile import TemporaryDirectory
 
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
 
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(
-                Path(tmpdir) / "compiled_predictive.pt",
-                trainer,
-            )
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["predictive_dense_transition_mode"] = "compiled"
-            payload["metadata"].pop("hot_path_config_defaults_revision", None)
-            torch.save(payload, checkpoint)
+        for mode in ("compiled", "legacy"):
+            with self.subTest(mode=mode), TemporaryDirectory() as tmpdir:
+                cfg = MarulhoConfig(
+                    n_columns=8,
+                    column_latent_dim=4,
+                    bootstrap_tokens=0,
+                    memory_capacity=16,
+                )
+                trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+                checkpoint = save_trainer_checkpoint(
+                    Path(tmpdir) / f"{mode}_predictive.pt",
+                    trainer,
+                )
+                payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                payload["config"]["predictive_dense_transition_mode"] = mode
+                payload["metadata"].pop("hot_path_config_defaults_revision", None)
+                torch.save(payload, checkpoint)
 
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
+                with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                    restored, metadata = load_trainer_checkpoint(checkpoint)
 
-            self.assertEqual(restored.config.predictive_dense_transition_mode, "inplace_triton")
-            self.assertIn(
-                {
-                    "field": "predictive_dense_transition_mode",
-                    "from": "compiled",
-                    "to": "inplace_triton",
-                    "reason": "promoted_inplace_triton_scheduler_boundary",
-                },
-                metadata["config_migrations"],
-            )
+                self.assertEqual(
+                    restored.config.predictive_dense_transition_mode,
+                    "inplace_triton",
+                )
+                self.assertIn(
+                    {
+                        "field": "predictive_dense_transition_mode",
+                        "from": mode,
+                        "to": "inplace_triton",
+                        "reason": "promoted_inplace_triton_scheduler_boundary",
+                    },
+                    metadata["config_migrations"],
+                )
+
+    def test_legacy_checkpoint_route_vote_default_promotes_cuda_graph_text(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        for old_value in ("missing", "tensor"):
+            with self.subTest(old_value=old_value), TemporaryDirectory() as tmpdir:
+                cfg = MarulhoConfig(
+                    n_columns=8,
+                    column_latent_dim=4,
+                    bootstrap_tokens=0,
+                    memory_capacity=16,
+                )
+                trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+                checkpoint = save_trainer_checkpoint(
+                    Path(tmpdir) / f"{old_value}_route_vote.pt",
+                    trainer,
+                )
+                payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                if old_value == "missing":
+                    payload["config"].pop("predictive_route_vote_mode", None)
+                else:
+                    payload["config"]["predictive_route_vote_mode"] = old_value
+                payload["metadata"].pop("hot_path_config_defaults_revision", None)
+                torch.save(payload, checkpoint)
+
+                with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                    restored, metadata = load_trainer_checkpoint(checkpoint)
+
+                self.assertEqual(
+                    restored.config.predictive_route_vote_mode,
+                    "cuda_graph_text",
+                )
+                self.assertIn(
+                    {
+                        "field": "predictive_route_vote_mode",
+                        "from": old_value,
+                        "to": "cuda_graph_text",
+                        "reason": "promoted_cuda_graph_text_scheduler_boundary",
+                    },
+                    metadata["config_migrations"],
+                )
 
     def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:
         from tempfile import TemporaryDirectory

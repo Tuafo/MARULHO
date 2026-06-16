@@ -209,7 +209,7 @@ class PredictiveColumnState:
         self._predictive_materialize_learning_rate = 0.005
         self._last_predictive_completed_candidates: torch.Tensor | None = None
         self._last_predictive_completed_step = 0
-        self.last_dense_transition_mode = "legacy"
+        self.last_dense_transition_mode = "not_run"
         self.last_dense_transition_fallback_reason: str | None = None
         self.dense_transition_compile_count = 0
 

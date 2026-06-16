@@ -1239,7 +1239,6 @@ class TestPredictiveColumnsInTrainer:
             bootstrap_tokens=0,
             memory_capacity=16,
             routing_index_mode="torch_topk",
-            predictive_dense_transition_mode="legacy",
             dead_column_steps=3,
             candidate_homeostasis_start_tokens=0,
             candidate_predictive_update_start_tokens=0,
@@ -1312,9 +1311,16 @@ class TestPredictiveColumnsInTrainer:
         )
         assert report["predictive_vote_execution"]["updated_column_count"] == cfg.k_routing
         assert report["execution"]["homeostasis_update_count"] == cfg.k_routing
-        assert report["execution"]["state_transition_runs_all_columns"] is True
-        assert report["execution"]["fallback_reason"] == "state_transition_dense_all_columns_retained"
-        assert report["runs_all_columns"] is True
+        assert report["execution"]["state_transition_mode"] == (
+            "candidate_subset_lazy_state_transition"
+        )
+        assert report["execution"]["state_transition_column_count"] == cfg.k_routing
+        assert report["execution"]["state_transition_cached_count"] == (
+            cfg.n_columns - cfg.k_routing
+        )
+        assert report["execution"]["state_transition_runs_all_columns"] is False
+        assert report["execution"]["fallback_reason"] is None
+        assert report["runs_all_columns"] is False
 
     def test_candidate_homeostasis_start_tokens_must_be_non_negative(self):
         from marulho.config.model_config import MarulhoConfig

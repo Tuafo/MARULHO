@@ -79,7 +79,6 @@ class MarulhoConfig:
     shard_candidate_factor: int = 2
     merge_torch_routing_shards: bool = True
     predictive_dense_transition_mode: Literal[
-        "legacy",
         "fused_eager",
         "inplace_triton",
     ] = "inplace_triton"
@@ -87,7 +86,7 @@ class MarulhoConfig:
         "tensor",
         "fused_triton_text",
         "cuda_graph_text",
-    ] = "tensor"
+    ] = "cuda_graph_text"
 
     eta_competitive: float = 0.01
     eta_decay: float = 1e-6
@@ -417,12 +416,11 @@ class MarulhoConfig:
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
         if self.predictive_dense_transition_mode not in {
-            "legacy",
             "fused_eager",
             "inplace_triton",
         }:
             raise ValueError(
-                "predictive_dense_transition_mode must be legacy, fused_eager, or inplace_triton"
+                "predictive_dense_transition_mode must be fused_eager or inplace_triton"
             )
         if self.predictive_route_vote_mode not in {
             "tensor",

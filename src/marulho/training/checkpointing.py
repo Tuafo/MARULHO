@@ -15,15 +15,17 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061601
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061602
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR = "conditional_while"
 PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = 16
 PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE = "inplace_triton"
+PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE = "cuda_graph_text"
 _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
 _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
-_RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled"}
+_RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
+_RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES = {"tensor"}
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -302,6 +304,24 @@ def _migrate_loaded_config_snapshot(
                 "from": current_predictive_transition,
                 "to": PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
                 "reason": "promoted_inplace_triton_scheduler_boundary",
+            }
+        )
+    current_route_vote_mode = str(
+        migrated.get("predictive_route_vote_mode", "missing")
+    )
+    if (
+        "predictive_route_vote_mode" not in migrated
+        or current_route_vote_mode in _RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES
+    ):
+        migrated["predictive_route_vote_mode"] = (
+            PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
+        )
+        migrations.append(
+            {
+                "field": "predictive_route_vote_mode",
+                "from": current_route_vote_mode,
+                "to": PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE,
+                "reason": "promoted_cuda_graph_text_scheduler_boundary",
             }
         )
     return migrated, migrations

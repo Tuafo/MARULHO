@@ -421,6 +421,26 @@ CUDA state transition remains dense and truthfully reports
 `state_transition_runs_all_columns=true`; the scalar materialized-step metadata
 only avoids an extra hot-path CUDA bookkeeping fill.
 
+After promoting the graph route/vote scheduler from checkpoint opt-in to the
+default `predictive_route_vote_mode="cuda_graph_text"` and retiring the
+remaining configurable `legacy` dense-transition bypass, the 131072-token CUDA
+gate at
+`reports/column_scheduler_20260616/default-route-vote-promotion-current-131072-i32.json`
+processed `131072` tokens at `6014.550 tokens/sec`
+(`0.166263 ms/token` wall-clock), with `train_compute=0.136192 ms/token`,
+`prepare_training=0.006288 ms/token`, and
+`finalize_total=0.006012 ms/token`. Runtime Truth reported
+`route_vote_requested_mode=route_vote_resolved_mode=cuda_graph_text`,
+`131072` route/vote executions, `route_vote_kernel_variant=two_stage_route_vote`,
+active `route_vote_deep_sleep_filter`, `1024` route input rows selecting
+`10` awake candidates, `8190` conditional-WHILE q16 sequence successes over
+`131040` burst tokens, and zero graph, sequence, or native failures. This is a
+real-path/default cleanup gate, not a new speed ceiling: it is slightly below
+the previous `6068.986 tokens/sec` lazy-state-transition rerun and the
+benchmark reported GPU contention at the configured threshold. The path remains
+inside the maintained 6k-ish band while removing an opt-in-only scheduler
+default and the stale `legacy` transition selector.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

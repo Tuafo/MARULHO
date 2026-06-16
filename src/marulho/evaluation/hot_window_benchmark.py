@@ -49,12 +49,11 @@ def run_hot_window_benchmark(
         raise ValueError("routing_candidate_mode must be list or tensor")
     if predictive_transition_mode not in {
         None,
-        "legacy",
         "fused_eager",
         "inplace_triton",
     }:
         raise ValueError(
-            "predictive_transition_mode must be legacy, fused_eager, inplace_triton, or None"
+            "predictive_transition_mode must be fused_eager, inplace_triton, or None"
         )
     if sync_mode not in {"step", "window"}:
         raise ValueError("sync_mode must be step or window")
@@ -297,7 +296,7 @@ def main() -> int:
     parser.add_argument("--disable-merged-torch-shards", action="store_true")
     parser.add_argument(
         "--predictive-transition-mode",
-        choices=("legacy", "fused_eager", "inplace_triton"),
+        choices=("fused_eager", "inplace_triton"),
     )
     parser.add_argument("--seed", type=int, default=20260611)
     parser.add_argument("--profile-trainer-stages", action="store_true")

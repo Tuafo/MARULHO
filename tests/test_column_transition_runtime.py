@@ -2647,6 +2647,7 @@ def test_inplace_transition_compile_only_warmup_preserves_brain_state() -> None:
         k_routing=4,
         memory_capacity=16,
         predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="tensor",
         candidate_predictive_update_start_tokens=0,
         plasticity_mode="lite",
         input_weight_blend=0.0,
