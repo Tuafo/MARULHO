@@ -316,8 +316,7 @@ preserve the retained execution paths. Set
 promoted conditional-WHILE sequence executor and use repeated-child native8
 replay. `cuda_graph_native_burst_tokens` is fixed at `8` for the maintained
 repeated-child capacity; old checkpoint values are migrated back to `8`.
-Use `cuda_graph_sequence_loop_tokens=16` or
-`MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS=16` for the promoted conditional
-sequence capacity. Repeated-child `16` and `32` are retired historical
-benchmarks; a separate clean long-run gate must introduce a new reviewed
-executor path rather than restoring the old capacity knobs.
+`cuda_graph_sequence_loop_tokens` is fixed at `16` for the promoted conditional
+sequence capacity. Repeated-child `16`/`32` and conditional-WHILE q8/q32 are
+retired historical benchmarks; a separate clean long-run gate must introduce a
+new reviewed executor path rather than restoring the old capacity knobs.

@@ -15,7 +15,7 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061604
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061605
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS = 8
@@ -26,6 +26,7 @@ PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE = "cuda_graph_text"
 _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
 _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
 _RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS = {16, 32}
+_RETIRED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = {8, 32}
 _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
 _RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES = {"tensor"}
 
@@ -254,6 +255,26 @@ def _migrate_loaded_config_snapshot(
                     "reason": "retired_native_burst_capacity_prototype",
                 }
             )
+    if "cuda_graph_sequence_loop_tokens" in migrated:
+        current_sequence_loop_tokens = int(
+            migrated["cuda_graph_sequence_loop_tokens"]
+        )
+        if (
+            current_sequence_loop_tokens
+            in _RETIRED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
+            or current_sequence_loop_tokens != PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
+        ):
+            migrated["cuda_graph_sequence_loop_tokens"] = (
+                PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
+            )
+            migrations.append(
+                {
+                    "field": "cuda_graph_sequence_loop_tokens",
+                    "from": current_sequence_loop_tokens,
+                    "to": PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
+                    "reason": "retired_sequence_loop_capacity_prototype",
+                }
+            )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 
@@ -308,29 +329,10 @@ def _migrate_loaded_config_snapshot(
                 "reason": "promoted_conditional_while_sequence_executor",
             }
         )
-    current_sequence_loop_tokens = int(
-        migrated.get(
-            "cuda_graph_sequence_loop_tokens",
-            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
-        )
+    migrated.setdefault(
+        "cuda_graph_sequence_loop_tokens",
+        PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
     )
-    if current_sequence_loop_tokens != PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS:
-        migrated["cuda_graph_sequence_loop_tokens"] = (
-            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
-        )
-        migrations.append(
-            {
-                "field": "cuda_graph_sequence_loop_tokens",
-                "from": current_sequence_loop_tokens,
-                "to": PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
-                "reason": "promoted_conditional_while_sequence_capacity",
-            }
-        )
-    else:
-        migrated.setdefault(
-            "cuda_graph_sequence_loop_tokens",
-            PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
-        )
     current_predictive_transition = str(
         migrated.get(
             "predictive_dense_transition_mode",

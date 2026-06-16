@@ -350,10 +350,12 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cuda_graph_sequence_executor"):
             MarulhoConfig(cuda_graph_sequence_executor="python_wrapper")
 
-    def test_cuda_graph_sequence_loop_tokens_must_be_supported_capacity(self) -> None:
+    def test_cuda_graph_sequence_loop_tokens_is_fixed_promoted_capacity(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
-        self.assertEqual(MarulhoConfig(cuda_graph_sequence_loop_tokens=8).cuda_graph_sequence_loop_tokens, 8)
+        self.assertEqual(MarulhoConfig(cuda_graph_sequence_loop_tokens=16).cuda_graph_sequence_loop_tokens, 16)
+        with self.assertRaisesRegex(ValueError, "fixed at 16"):
+            MarulhoConfig(cuda_graph_sequence_loop_tokens=8)
         with self.assertRaisesRegex(ValueError, "cuda_graph_sequence_loop_tokens"):
             MarulhoConfig(cuda_graph_sequence_loop_tokens=24)
 

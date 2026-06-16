@@ -341,8 +341,8 @@ class MarulhoConfig:
                 "cuda_graph_sequence_executor must be native_repeated_child_graph "
                 "or conditional_while"
             )
-        if self.cuda_graph_sequence_loop_tokens not in (8, 16, 32):
-            raise ValueError("cuda_graph_sequence_loop_tokens must be one of 8, 16, or 32")
+        if self.cuda_graph_sequence_loop_tokens != 16:
+            raise ValueError("cuda_graph_sequence_loop_tokens is fixed at 16")
         if self.cross_modal_text_idle_probe_interval_tokens <= 0:
             raise ValueError("cross_modal_text_idle_probe_interval_tokens must be positive")
         if self.dead_column_steps <= 0:

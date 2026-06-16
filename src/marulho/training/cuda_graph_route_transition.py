@@ -29,7 +29,6 @@ MAX_QUANTUM_INPUT_TOKENS = 128
 PERSISTENT_EXECUTOR_BURST_TOKENS = 8
 PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS = 16
 PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 32
-PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS = (8, 16, 32)
 
 
 class CudaGraphRouteTransition:
@@ -848,32 +847,7 @@ class CudaGraphRouteTransition:
         return PERSISTENT_EXECUTOR_BURST_TOKENS
 
     def _resolve_sequence_loop_token_capacity(self) -> int:
-        raw = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS")
-        if raw is None:
-            raw = str(
-                getattr(
-                    self._trainer.config,
-                    "cuda_graph_sequence_loop_tokens",
-                    PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS,
-                )
-            )
-        try:
-            value = int(str(raw).strip())
-        except ValueError as exc:
-            raise ValueError(
-                "cuda_graph_sequence_loop_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS}"
-            ) from exc
-        if value not in PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS:
-            raise ValueError(
-                "cuda_graph_sequence_loop_tokens must be one of "
-                f"{PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS}"
-            )
-        if value > PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS:
-            raise ValueError(
-                "cuda_graph_sequence_loop_tokens must not exceed burst event capacity"
-            )
-        return value
+        return PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS
 
     def _native_burst_replay_requested(self) -> bool:
         env = os.environ.get("MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY")
@@ -2161,9 +2135,7 @@ class CudaGraphRouteTransition:
             "persistent_executor_default_sequence_loop_tokens": (
                 PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS
             ),
-            "persistent_executor_allowed_sequence_loop_tokens": list(
-                PERSISTENT_EXECUTOR_ALLOWED_SEQUENCE_LOOP_TOKENS
-            ),
+            "persistent_executor_sequence_loop_capacity_fixed": True,
             "native_burst_replay_configured": bool(
                 self._native_burst_replay_requested()
             ),

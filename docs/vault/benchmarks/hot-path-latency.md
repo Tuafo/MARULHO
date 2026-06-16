@@ -1344,6 +1344,18 @@ loop.
 The same cleanup removed native32 from the live config/env/benchmark surfaces.
 Reopening it now requires a new explicit execution-quantum decision or a
 lower-level sequence executor, not a restored repeated-child capacity knob.
+The follow-up q16 cleanup also removed conditional-WHILE q8/q32 capacity knobs:
+`cuda_graph_sequence_loop_tokens` is fixed at `16`, old checkpoint values are
+migrated back to `16`, and the stress benchmark no longer accepts
+`--sequence-loop-tokens`.
+The clean rerun at
+`reports/column_scheduler_20260616/sequence-loop-capacity-cleanup-8192-131072-i32-rerun.json`
+kept the real 8192-column path in band at `6145.401 tokens/sec` with
+`train_compute=0.129706 ms/token`, `prepare_training=0.006353 ms/token`,
+`finalize_total=0.005916 ms/token`, `tick_duration_ms.p95=21.270`,
+`route_input_rows_scored=10/8192`, `state_transition_cached_count=8182`,
+`persistent_executor_sequence_loop_capacity_fixed=true`, zero
+graph/native/sequence failures, and no observed contention.
 
 The native-burst capacity cleanup gate at
 `reports/column_scheduler_20260616/native-burst-capacity-cleanup-8192-131072-i32.json`
