@@ -2306,6 +2306,33 @@ the queue can remain checkpoint-backed and operator-reviewable without becoming
 a hot-path structural-review CPU sync; it is not a growth/prune mutation claim
 or a new top-speed ceiling.
 
+A follow-up scheduler-benchmark audit made the structural-review queue fields
+part of the retained CPU A/B report and added
+`--force-structural-review-evidence` so the benchmark can prove bounded ticket
+capture instead of only empty queue status. The forced 8192-column report
+`reports/column_scheduler_20260616/cpu-8192-structural-review-queue.json`
+preserved winner parity, kept bounded specialist work true, and queued bounded
+prune/sleep review tickets. The scoped arm evaluated `10/8192` columns, cached
+`8182`, queued `9` prune/sleep tickets, reported
+`checkpoint_backed=true`, `requires_operator_review=true`,
+`mutates_runtime_state=false`, `runs_all_columns=false`, and next gate
+`operator_review_column_structural_ticket`. It did not pass the cost gate:
+all-column mean/median complete `train_step` was `8.1027475/7.5115 ms`, while
+the scoped forced structural-review arm was `13.988625/10.4407 ms`
+(`neutral_or_better_complete_tick=false`). Treat this as truth/coverage evidence
+for the scheduler boundary, not a CPU speed promotion.
+
+The matching longer real-path check on the 32768-column promoted checkpoint,
+`reports/column_scheduler_20260616/structural-review-queue-benchmark-fields-32768-131072-i32.json`,
+processed `131072` tokens at `5862.356 tokens/sec` with
+`train_compute=0.137711 ms/token`, `prepare_training=0.007066 ms/token`,
+`finalize_total=0.006398 ms/token`, and `tick_duration_ms.p95=25.087 ms`.
+It kept route scoring bounded at `12/32768`, output `10` candidates, cached
+`32758` state-transition rows, reported `state_transition_runs_all_columns=false`,
+and had zero graph/native/sequence failures with no observed contention. This is
+below the clean `6149`/`6298` top runs, but still in the maintained 6k-ish
+band while exposing the queue fields.
+
 The follow-up cheap-discovery probe measured fixed landmark and
 random-projection buckets. Those probes were evaluation-only: offline precompute
 could inspect the full routing cache, but the simulated hot path reported

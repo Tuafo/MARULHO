@@ -18,7 +18,7 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     all_vote = report["all_column_vote"]
 
     assert report["surface"] == "column_scheduler_benchmark.v1"
-    assert report["scope"] == "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_awake_mask_ab"
+    assert report["scope"] == "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_ab"
     assert report["winner_sequence_equal"] is True
     assert report["awake_count_bounded"] is True
     assert report["column_wake_plan_bounded"] is True
@@ -26,6 +26,8 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert report["predictive_update_bounded"] is True
     assert report["predictive_location_update_bounded"] is True
     assert report["column_metabolism_bounded"] is True
+    assert report["structural_review_bounded"] is True
+    assert report["structural_review_continuation_reviewed"] is True
     assert report["candidate_sleep_filter_bounded"] is True
     assert report["bounded_specialist_work"] is True
     assert report["scoped_runs_all_columns"] is False
@@ -50,6 +52,12 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert scoped["column_metabolism_updated_columns"] == 4
     assert scoped["column_metabolism_cached_columns"] == 12
     assert scoped["column_metabolism_runs_all_columns"] is False
+    assert scoped["structural_review_last_evaluated_columns"] == 4
+    assert scoped["structural_review_last_cached_columns"] == 12
+    assert scoped["structural_review_runs_all_columns"] is False
+    assert scoped["structural_review_checkpoint_backed"] is True
+    assert scoped["structural_review_requires_operator_review"] is True
+    assert scoped["structural_review_mutates_runtime_state"] is False
     assert scoped["column_wake_plan_wake_reason"] == (
         "retrieved_candidate_before_deep_sleep_age_gate"
     )
@@ -60,6 +68,35 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert all_vote["predictive_update_runs_all_columns"] is True
     assert all_vote["predictive_location_runs_all_columns"] is True
     assert all_vote["runs_all_columns"] is True
+
+
+def test_column_scheduler_benchmark_can_queue_reviewed_structural_tickets() -> None:
+    report = run_benchmark(
+        n_columns=16,
+        column_latent_dim=8,
+        k_routing=4,
+        samples=3,
+        warmup_steps=1,
+        seed=124,
+        device="cpu",
+        force_structural_review_evidence=True,
+    )
+
+    scoped = report["scoped_cached_vote"]
+
+    assert report["forced_structural_review_evidence"] is True
+    assert report["structural_review_bounded"] is True
+    assert report["structural_review_continuation_reviewed"] is True
+    assert report["bounded_specialist_work"] is True
+    assert scoped["structural_review_pending_count"] >= 4
+    assert scoped["structural_review_prune_or_sleep_ticket_count"] >= 1
+    assert scoped["structural_review_last_evaluated_columns"] == 4
+    assert scoped["structural_review_last_cached_columns"] == 12
+    assert scoped["structural_review_next_gate"] == "operator_review_column_structural_ticket"
+    assert scoped["structural_review_checkpoint_backed"] is True
+    assert scoped["structural_review_requires_operator_review"] is True
+    assert scoped["structural_review_mutates_runtime_state"] is False
+    assert scoped["structural_review_runs_all_columns"] is False
 
 
 def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
@@ -74,7 +111,7 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     )
 
     assert report["surface"] == "column_scheduler_scaling_benchmark.v1"
-    assert report["scope"] == "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scaling"
+    assert report["scope"] == "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_scaling"
     assert report["column_counts"] == [16, 32]
     assert report["awake_count_remains_bounded"] is True
     assert report["scoped_never_runs_all_columns"] is True
@@ -85,5 +122,10 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     assert {row["candidate_sleep_filter_low_usefulness_filtered"] for row in report["runs"]} == {0}
     assert {row["predictive_location_update_columns"] for row in report["runs"]} == {4}
     assert {row["column_metabolism_updated_columns"] for row in report["runs"]} == {4}
+    assert {row["structural_review_last_evaluated_columns"] for row in report["runs"]} == {4}
     assert {row["column_wake_plan_awake_count"] for row in report["runs"]} == {4}
+    assert all(row["structural_review_checkpoint_backed"] for row in report["runs"])
+    assert all(row["structural_review_requires_operator_review"] for row in report["runs"])
+    assert not any(row["structural_review_mutates_runtime_state"] for row in report["runs"])
+    assert not any(row["structural_review_runs_all_columns"] for row in report["runs"])
     assert all(row["column_wake_plan_bounded"] for row in report["runs"])

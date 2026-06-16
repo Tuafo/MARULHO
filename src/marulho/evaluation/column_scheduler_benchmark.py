@@ -68,6 +68,16 @@ class SchedulerBenchmarkArm:
     column_metabolism_runs_all_columns: bool
     column_metabolism_memory_pressure_source: str | None
     column_metabolism_usefulness_source: str | None
+    structural_review_pending_count: int
+    structural_review_growth_ticket_count: int
+    structural_review_prune_or_sleep_ticket_count: int
+    structural_review_last_evaluated_columns: int
+    structural_review_last_cached_columns: int
+    structural_review_checkpoint_backed: bool
+    structural_review_requires_operator_review: bool
+    structural_review_mutates_runtime_state: bool
+    structural_review_runs_all_columns: bool
+    structural_review_next_gate: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -114,12 +124,31 @@ def _make_config(
     )
 
 
+def _force_structural_review_evidence(trainer: MarulhoTrainer) -> None:
+    predictive = trainer.model.predictive
+    metabolism = trainer.model.column_metabolism
+    with torch.no_grad():
+        predictive.prediction_error.fill_(0.9)
+        predictive.confidence.fill_(0.2)
+        predictive.prediction_failure_streak.fill_(
+            max(
+                3,
+                int(
+                    trainer.model.column_structural_review_queue.growth_streak_threshold
+                ),
+            )
+        )
+        metabolism.estimated_cost.fill_(0.9)
+        metabolism.memory_pressure.zero_()
+
+
 def _run_arm(
     *,
     cfg: MarulhoConfig,
     patterns: list[torch.Tensor],
     raw_prefix: str,
     force_all_column_vote: bool,
+    force_structural_review_evidence: bool,
     seed: int,
     warmup_steps: int,
 ) -> SchedulerBenchmarkArm:
@@ -150,6 +179,9 @@ def _run_arm(
             return_metrics=False,
         )
 
+    if force_structural_review_evidence:
+        _force_structural_review_evidence(trainer)
+
     timings: list[float] = []
     winner_ids: list[int] = []
     measure = patterns[warmup_steps:]
@@ -179,6 +211,7 @@ def _run_arm(
     sleep_filter = column_runtime.get("candidate_sleep_filter_execution", {})
     wake_plan = column_runtime.get("column_wake_plan", {})
     metabolism = column_runtime.get("column_metabolism_execution", {})
+    structural_review = column_runtime.get("structural_review_queue", {})
     elapsed_ms = sum(timings)
     samples = len(timings)
     return SchedulerBenchmarkArm(
@@ -321,6 +354,38 @@ def _run_arm(
             if metabolism.get("usefulness_source") is None
             else str(metabolism.get("usefulness_source"))
         ),
+        structural_review_pending_count=int(
+            structural_review.get("pending_count", 0) or 0
+        ),
+        structural_review_growth_ticket_count=int(
+            structural_review.get("growth_ticket_count", 0) or 0
+        ),
+        structural_review_prune_or_sleep_ticket_count=int(
+            structural_review.get("prune_or_sleep_ticket_count", 0) or 0
+        ),
+        structural_review_last_evaluated_columns=int(
+            structural_review.get("last_evaluated_column_count", 0) or 0
+        ),
+        structural_review_last_cached_columns=int(
+            structural_review.get("last_cached_column_count", 0) or 0
+        ),
+        structural_review_checkpoint_backed=bool(
+            structural_review.get("checkpoint_backed", False)
+        ),
+        structural_review_requires_operator_review=bool(
+            structural_review.get("requires_operator_review", False)
+        ),
+        structural_review_mutates_runtime_state=bool(
+            structural_review.get("mutates_runtime_state", False)
+        ),
+        structural_review_runs_all_columns=bool(
+            structural_review.get("runs_all_columns", False)
+        ),
+        structural_review_next_gate=(
+            None
+            if structural_review.get("next_gate") is None
+            else str(structural_review.get("next_gate"))
+        ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
         awake_budget=int(column_runtime.get("awake_budget", 0) or 0),
@@ -340,6 +405,7 @@ def run_benchmark(
     warmup_steps: int = 10,
     seed: int = 20260615,
     device: str = "cpu",
+    force_structural_review_evidence: bool = False,
 ) -> dict[str, object]:
     if samples <= 0 or warmup_steps < 0:
         raise ValueError("samples must be positive and warmup_steps non-negative")
@@ -379,6 +445,7 @@ def run_benchmark(
         patterns=patterns,
         raw_prefix="all-column vote and prediction update",
         force_all_column_vote=True,
+        force_structural_review_evidence=bool(force_structural_review_evidence),
         seed=seed,
         warmup_steps=warmup_steps,
     )
@@ -387,6 +454,7 @@ def run_benchmark(
         patterns=patterns,
         raw_prefix="scoped cached vote and prediction update",
         force_all_column_vote=False,
+        force_structural_review_evidence=bool(force_structural_review_evidence),
         seed=seed,
         warmup_steps=warmup_steps,
     )
@@ -398,7 +466,7 @@ def run_benchmark(
     ) * 100.0
     return {
         "surface": "column_scheduler_benchmark.v1",
-        "scope": "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_awake_mask_ab",
+        "scope": "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_ab",
         "torch": torch.__version__,
         "device": str(resolved_device),
         "cuda_device_name": (
@@ -412,6 +480,7 @@ def run_benchmark(
         "k_routing": int(k_routing),
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
+        "forced_structural_review_evidence": bool(force_structural_review_evidence),
         "all_column_vote": asdict(all_vote),
         "scoped_cached_vote": asdict(scoped),
         "winner_sequence_equal": all_vote.winner_ids == scoped.winner_ids,
@@ -431,6 +500,15 @@ def run_benchmark(
             scoped.column_metabolism_updated_columns <= int(k_routing)
             and not scoped.column_metabolism_runs_all_columns
         ),
+        "structural_review_bounded": (
+            scoped.structural_review_last_evaluated_columns <= int(k_routing)
+            and not scoped.structural_review_runs_all_columns
+        ),
+        "structural_review_continuation_reviewed": (
+            scoped.structural_review_checkpoint_backed
+            and scoped.structural_review_requires_operator_review
+            and not scoped.structural_review_mutates_runtime_state
+        ),
         "candidate_sleep_filter_bounded": (
             scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
             and not scoped.candidate_sleep_filter_runs_all_columns
@@ -440,10 +518,12 @@ def run_benchmark(
             and scoped.predictive_update_updated_columns <= int(k_routing)
             and scoped.predictive_location_update_columns <= int(k_routing)
             and scoped.column_metabolism_updated_columns <= int(k_routing)
+            and scoped.structural_review_last_evaluated_columns <= int(k_routing)
             and scoped.column_wake_plan_bounded
             and scoped.column_wake_plan_awake_count <= int(k_routing)
             and not scoped.column_wake_plan_runs_all_columns
             and not scoped.column_metabolism_runs_all_columns
+            and not scoped.structural_review_runs_all_columns
             and not scoped.predictive_location_runs_all_columns
             and scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
             and not scoped.candidate_sleep_filter_runs_all_columns
@@ -454,7 +534,7 @@ def run_benchmark(
         "mean_delta_percent": mean_delta_percent,
         "neutral_or_better_complete_tick": scoped.mean_ms <= all_vote.mean_ms * 1.02,
         "claim_boundary": (
-            "complete_train_step_ab_for_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
+            "complete_train_step_ab_for_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_not_service_runtime_or_structural_mutation_claim"
         ),
     }
 
@@ -468,6 +548,7 @@ def run_scaling_benchmark(
     warmup_steps: int = 5,
     seed: int = 20260615,
     device: str = "cpu",
+    force_structural_review_evidence: bool = False,
 ) -> dict[str, object]:
     reports = [
         run_benchmark(
@@ -478,6 +559,7 @@ def run_scaling_benchmark(
             warmup_steps=warmup_steps,
             seed=seed + offset,
             device=device,
+            force_structural_review_evidence=bool(force_structural_review_evidence),
         )
         for offset, n_columns in enumerate(column_counts)
     ]
@@ -515,6 +597,38 @@ def run_scaling_benchmark(
             "column_metabolism_updated_columns": int(
                 report["scoped_cached_vote"]["column_metabolism_updated_columns"]
             ),
+            "structural_review_pending_count": int(
+                report["scoped_cached_vote"]["structural_review_pending_count"]
+            ),
+            "structural_review_growth_ticket_count": int(
+                report["scoped_cached_vote"]["structural_review_growth_ticket_count"]
+            ),
+            "structural_review_prune_or_sleep_ticket_count": int(
+                report["scoped_cached_vote"][
+                    "structural_review_prune_or_sleep_ticket_count"
+                ]
+            ),
+            "structural_review_last_evaluated_columns": int(
+                report["scoped_cached_vote"][
+                    "structural_review_last_evaluated_columns"
+                ]
+            ),
+            "structural_review_checkpoint_backed": bool(
+                report["scoped_cached_vote"]["structural_review_checkpoint_backed"]
+            ),
+            "structural_review_requires_operator_review": bool(
+                report["scoped_cached_vote"][
+                    "structural_review_requires_operator_review"
+                ]
+            ),
+            "structural_review_mutates_runtime_state": bool(
+                report["scoped_cached_vote"][
+                    "structural_review_mutates_runtime_state"
+                ]
+            ),
+            "structural_review_runs_all_columns": bool(
+                report["scoped_cached_vote"]["structural_review_runs_all_columns"]
+            ),
             "column_wake_plan_bounded": bool(
                 report["scoped_cached_vote"]["column_wake_plan_bounded"]
             ),
@@ -530,7 +644,7 @@ def run_scaling_benchmark(
     ]
     return {
         "surface": "column_scheduler_scaling_benchmark.v1",
-        "scope": "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scaling",
+        "scope": "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_scaling",
         "torch": torch.__version__,
         "device": str(reports[0]["device"]) if reports else str(device),
         "column_counts": [int(value) for value in column_counts],
@@ -538,6 +652,7 @@ def run_scaling_benchmark(
         "k_routing": int(k_routing),
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
+        "forced_structural_review_evidence": bool(force_structural_review_evidence),
         "seed": int(seed),
         "runs": scoped_rows,
         "all_winner_sequences_equal": all(
@@ -550,7 +665,9 @@ def run_scaling_benchmark(
             and int(row["column_metabolism_updated_columns"]) <= int(k_routing)
             and int(row["candidate_sleep_filter_output_candidates"]) <= int(k_routing)
             and int(row["column_wake_plan_awake_count"]) <= int(k_routing)
+            and int(row["structural_review_last_evaluated_columns"]) <= int(k_routing)
             and bool(row["column_wake_plan_bounded"])
+            and not bool(row["structural_review_runs_all_columns"])
             for row in scoped_rows
         ),
         "scoped_never_runs_all_columns": all(
@@ -560,7 +677,7 @@ def run_scaling_benchmark(
             bool(row["neutral_or_better_complete_tick"]) for row in scoped_rows
         ),
         "claim_boundary": (
-            "scaling_sweep_for_constant_k_scheduler_evidence_not_growth_pruning_or_cuda_claim"
+            "scaling_sweep_for_constant_k_scheduler_and_structural_review_queue_evidence_not_structural_mutation_or_cuda_claim"
         ),
     }
 
@@ -575,6 +692,14 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260615)
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     parser.add_argument("--sweep-columns", nargs="*", type=int)
+    parser.add_argument(
+        "--force-structural-review-evidence",
+        action="store_true",
+        help=(
+            "Seed prediction/cost evidence before measurement so bounded awake "
+            "candidates queue operator-reviewed structural tickets."
+        ),
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -587,6 +712,7 @@ def main() -> int:
             warmup_steps=args.warmup_steps,
             seed=args.seed,
             device=args.device,
+            force_structural_review_evidence=args.force_structural_review_evidence,
         )
     else:
         report = run_benchmark(
@@ -597,6 +723,7 @@ def main() -> int:
             warmup_steps=args.warmup_steps,
             seed=args.seed,
             device=args.device,
+            force_structural_review_evidence=args.force_structural_review_evidence,
         )
     encoded = json.dumps(report, indent=2)
     if args.output is not None:
