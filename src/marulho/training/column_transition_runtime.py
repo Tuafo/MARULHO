@@ -122,7 +122,22 @@ class ColumnTransitionRuntime:
             dtype=torch.long,
             device=device,
         )
-        self._assembly = torch.empty(comp.n_columns, device=device)
+        self._state_transition_step_counter = torch.tensor(
+            int(comp.state_transition_step_count),
+            dtype=torch.long,
+            device=device,
+        )
+        self._state_transition_all_materialized_step = torch.tensor(
+            int(comp.state_transition_all_materialized_step),
+            dtype=torch.long,
+            device=device,
+        )
+        self._assembly = torch.zeros(comp.n_columns, device=device)
+        self._assembly_active_winner = torch.tensor(
+            [-1],
+            dtype=torch.long,
+            device=device,
+        )
         self._winner = torch.empty(1, dtype=torch.long, device=device)
         self._strength = torch.ones(1, device=device)
         self._prediction_boost = torch.empty((), device=device)
@@ -264,6 +279,15 @@ class ColumnTransitionRuntime:
                     thresholds=comp.thresholds,
                     win_rate_ema=comp.win_rate_ema,
                     steps_since_win=comp.steps_since_win,
+                    steps_since_win_last_update_step=(
+                        comp.steps_since_win_last_update_step
+                    ),
+                    state_transition_step_counter=(
+                        self._state_transition_step_counter
+                    ),
+                    state_transition_all_materialized_step=(
+                        self._state_transition_all_materialized_step
+                    ),
                     location=trainer.model.predictive.location,
                     location_velocity=trainer.model.predictive.velocity,
                     prediction_weights=trainer.model.predictive._prediction_weights,
@@ -273,7 +297,11 @@ class ColumnTransitionRuntime:
                     ),
                     confidence=trainer.model.predictive.confidence,
                     recent_spike_window=comp.recent_spike_window,
+                    recent_spike_window_active_ids=(
+                        comp.recent_spike_window_active_ids
+                    ),
                     assembly=self._assembly,
+                    assembly_active_winner=self._assembly_active_winner,
                     prediction_boost_out=self._prediction_boost,
                     effective_modulator_out=self._effective_modulator,
                     routing_key=torch.empty(comp.column_dim, device=device),
@@ -402,6 +430,13 @@ class ColumnTransitionRuntime:
                 routing_vectors=vectors,
                 routing_ids=ids,
                 steps_since_win=self._trainer.model.competitive.steps_since_win,
+                steps_since_win_last_update_step=(
+                    self._trainer.model.competitive.steps_since_win_last_update_step
+                ),
+                state_transition_step_counter=self._state_transition_step_counter,
+                state_transition_all_materialized_step=(
+                    self._state_transition_all_materialized_step
+                ),
                 prototypes=self._trainer.model.competitive.prototypes,
                 thresholds=self._trainer.model.competitive.thresholds,
                 prediction_location=self._trainer.model.predictive.location,
@@ -445,6 +480,15 @@ class ColumnTransitionRuntime:
             self.active
             and self.route_vote_resolved_mode
             in {"fused_triton_text", "cuda_graph_text"}
+        )
+
+    def _sync_state_transition_step_tensors_from_core(self) -> None:
+        comp = self._trainer.model.competitive
+        self._state_transition_step_counter.fill_(
+            int(comp.state_transition_step_count)
+        )
+        self._state_transition_all_materialized_step.fill_(
+            int(comp.state_transition_all_materialized_step)
         )
 
     def route_sleep_filter_due(self) -> bool:
@@ -612,6 +656,7 @@ class ColumnTransitionRuntime:
         if sensory_tick:
             self.route_vote_sensory_fallback_count += 1
             return None
+        self._sync_state_transition_step_tensors_from_core()
         self.prepare_route_sleep_filter_control()
         if (
             self._prepared_graph_token == self._trainer.token_count
@@ -692,6 +737,13 @@ class ColumnTransitionRuntime:
             memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
             previous_winner=self._previous_winner,
             steps_since_win=self._trainer.model.competitive.steps_since_win,
+            steps_since_win_last_update_step=(
+                self._trainer.model.competitive.steps_since_win_last_update_step
+            ),
+            state_transition_step_counter=self._state_transition_step_counter,
+            state_transition_all_materialized_step=(
+                self._state_transition_all_materialized_step
+            ),
             route_filter_control=self._route_sleep_filter_control,
             route_filter_state_out=self._route_sleep_filter_state,
             scores_out=route_scores,
@@ -1027,6 +1079,15 @@ class ColumnTransitionRuntime:
                     thresholds=comp.thresholds,
                     win_rate_ema=comp.win_rate_ema,
                     steps_since_win=comp.steps_since_win,
+                    steps_since_win_last_update_step=(
+                        comp.steps_since_win_last_update_step
+                    ),
+                    state_transition_step_counter=(
+                        self._state_transition_step_counter
+                    ),
+                    state_transition_all_materialized_step=(
+                        self._state_transition_all_materialized_step
+                    ),
                     location=trainer.model.predictive.location,
                     location_velocity=trainer.model.predictive.velocity,
                     prediction_weights=trainer.model.predictive._prediction_weights,
@@ -1036,7 +1097,11 @@ class ColumnTransitionRuntime:
                     ),
                     confidence=trainer.model.predictive.confidence,
                     recent_spike_window=comp.recent_spike_window,
+                    recent_spike_window_active_ids=(
+                        comp.recent_spike_window_active_ids
+                    ),
                     assembly=self._assembly,
+                    assembly_active_winner=self._assembly_active_winner,
                     prediction_boost_out=self._prediction_boost,
                     effective_modulator_out=self._effective_modulator,
                     routing_key=routing_key,
@@ -1192,31 +1257,54 @@ class ColumnTransitionRuntime:
             if int(homeostasis_candidates.numel()) < comp.n_columns
             else "all_columns"
         )
+        state_transition_count = int(candidates.numel())
+        sparse_state_transition = state_transition_count < int(comp.n_columns)
         comp.last_state_transition_mode = (
-            "dense_all_columns_cuda_graph_route_transition"
-            if used_cuda_graph
-            else "dense_all_columns_inplace_triton"
+            (
+                "candidate_subset_sparse_cuda_graph_route_transition"
+                if used_cuda_graph
+                else "candidate_subset_sparse_inplace_triton"
+            )
+            if sparse_state_transition
+            else (
+                "dense_all_columns_cuda_graph_route_transition"
+                if used_cuda_graph
+                else "dense_all_columns_inplace_triton"
+            )
         )
-        comp.last_state_transition_column_count = int(comp.n_columns)
-        comp.last_state_transition_cached_count = 0
-        comp.last_state_transition_materialize_mode = "dense_cuda_transition"
+        comp.last_state_transition_column_count = (
+            state_transition_count
+            if sparse_state_transition
+            else int(comp.n_columns)
+        )
+        comp.last_state_transition_cached_count = (
+            max(0, int(comp.n_columns) - state_transition_count)
+            if sparse_state_transition
+            else 0
+        )
+        comp.last_state_transition_materialize_mode = (
+            "candidate_subset_sparse_cuda_transition"
+            if sparse_state_transition
+            else "dense_cuda_transition"
+        )
         comp.last_state_transition_materialize_count = 0
         comp.last_state_transition_materialize_max_age = 0
         comp.state_transition_step_count += 1
-        mark_state_materialized = getattr(
-            comp,
-            "_mark_all_state_transition_materialized",
-            None,
-        )
-        if callable(mark_state_materialized):
-            mark_state_materialized(
-                int(comp.state_transition_step_count),
-                sync_last_update_tensor=False,
+        if not sparse_state_transition:
+            mark_state_materialized = getattr(
+                comp,
+                "_mark_all_state_transition_materialized",
+                None,
             )
-        else:
-            comp.steps_since_win_last_update_step.fill_(
-                int(comp.state_transition_step_count)
-            )
+            if callable(mark_state_materialized):
+                mark_state_materialized(
+                    int(comp.state_transition_step_count),
+                    sync_last_update_tensor=False,
+                )
+            else:
+                comp.steps_since_win_last_update_step.fill_(
+                    int(comp.state_transition_step_count)
+                )
         comp.homeostasis_last_update_step[
             homeostasis_candidates.to(comp.device).long().flatten()
         ] = int(comp.homeostasis_step_count) + 1
@@ -1296,6 +1384,24 @@ class ColumnTransitionRuntime:
             state_transition_mode != "not_run"
             and state_transition_count >= int(comp.n_columns)
         )
+        state_transition_cached_count = int(
+            max(
+                0,
+                min(
+                    int(getattr(comp, "last_state_transition_cached_count", 0)),
+                    int(comp.n_columns),
+                ),
+            )
+        )
+        state_transition_materialize_count = int(
+            max(
+                0,
+                min(
+                    int(getattr(comp, "last_state_transition_materialize_count", 0)),
+                    int(comp.n_columns),
+                ),
+            )
+        )
         return {
             "surface": "column_transition_runtime.v1",
             "requested_mode": self.requested_mode,
@@ -1313,7 +1419,19 @@ class ColumnTransitionRuntime:
             "last_execution_mode": self.last_execution_mode,
             "state_transition_mode": state_transition_mode,
             "state_transition_column_count": state_transition_count,
+            "state_transition_cached_count": state_transition_cached_count,
+            "state_transition_cached_fraction": (
+                float(state_transition_cached_count)
+                / float(max(1, int(comp.n_columns)))
+            ),
             "state_transition_runs_all_columns": state_transition_runs_all_columns,
+            "state_transition_materialize_mode": str(
+                getattr(comp, "last_state_transition_materialize_mode", "not_run")
+            ),
+            "state_transition_materialize_count": state_transition_materialize_count,
+            "state_transition_materialize_max_age": int(
+                max(0, int(getattr(comp, "last_state_transition_materialize_max_age", 0)))
+            ),
             "state_transition_fallback_reason": (
                 "dense_state_transition_retained_until_lazy_column_state"
                 if state_transition_runs_all_columns

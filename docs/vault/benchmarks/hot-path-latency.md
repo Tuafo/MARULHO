@@ -1465,6 +1465,51 @@ Compared with the previous default-route run (`6014.550 tokens/sec`,
 train compute is effectively neutral/slightly lower. Treat this as stable
 same-band Runtime Truth evidence, not a new speed ceiling.
 
+### Sparse CUDA State Transition Promotion, 2026-06-16
+
+The next cleanup moved stale-counter, recent-spike, assembly active-winner, and
+candidate homeostasis bookkeeping onto the same bounded candidate-subset CUDA
+transition path instead of leaving state transition as a dense fallback label.
+The fused transition now receives device state-step counters, an
+all-materialized-step scalar, per-row stale-age stamps, recent-spike active IDs,
+and an assembly-active-winner scalar. In candidate-subset graph/burst mode it
+updates only routed candidates plus the winner; non-awake rows remain logically
+exact through cached age instead of being physically incremented every tick.
+Route-vote deep-sleep masking reads the logical age, so cached sleep is not a
+decorative status field.
+
+Focused verification passed:
+
+- `python -m pytest tests/test_column_transition_runtime.py tests/test_fused_route_vote_triton.py tests/test_inplace_column_cuda.py -q` -> `57 passed`
+- `python -m pytest tests/test_predictive_columns.py tests/test_column_runtime.py tests/test_status_read_model.py tests/test_columns.py tests/test_column_scheduler_benchmark.py -q` -> `292 passed`
+
+The longer 131072-token run used the same checkpoint, `tick_tokens=128`,
+`quantum_tokens=16`, and host-truth interval `32` as the pressure-filter
+baseline:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/host_truth_interval_16_20260613/runtime.pt --output reports/column_scheduler_20260616/sparse-cuda-state-transition-candidate-homeostasis-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 300 --sample-interval-seconds 0.5`
+
+It processed `131072` tokens at `6007.582 tokens/sec` with
+`train_compute=0.132374 ms/token`, `prepare_training=0.006450 ms/token`,
+`finalize_total=0.005983 ms/token`, `tick_duration_ms.mean=18.763324`,
+`tick_duration_ms.p95=21.143100`, RTX 3060 CUDA selected, no observed
+CPU/GPU contention, `8190` q16 conditional sequence-loop successes over
+`131040` tokens, and zero graph/sequence/native failures or fallbacks. Runtime
+Truth reported `state_transition_mode=candidate_subset_sparse_cuda_graph_route_transition_burst`,
+`state_transition_column_count=10`, `state_transition_cached_count=1014`,
+`state_transition_cached_fraction=0.990234375`,
+`state_transition_runs_all_columns=false`, and no state-transition fallback.
+
+Against the immediate baseline
+`reports/column_scheduler_20260616/route-vote-pressure-filter-current-131072-i32-rerun.json`
+(`5947.863 tokens/sec`, `train_compute=0.136041 ms/token`,
+`prepare_training=0.006541 ms/token`, `finalize_total=0.005931 ms/token`,
+`tick_duration_ms.p95=21.867800`), the sparse CUDA state-transition path is
+faster in train compute and p95 tick while preserving the broad 6k-ish complete
+runtime band. The remaining total-column scaling blocker is route-vote input
+scoring, which still reads all route-cache rows before selecting the fixed
+`k=10` awake mask.
+
 ### Real-Path Column Scaling Probe, 2026-06-15
 
 The next probe tested the promoted path on power-of-two column growth rather
@@ -1521,13 +1566,12 @@ explicit fallback reason is
 | 1024 | `6152.495` | `0.133843` | `1024` | `10` | `1024` | dense state transition | contention observed |
 | 8192 | `3526.002` | `0.253295` | `8192` | `10` | `8192` | dense state transition | not observed |
 
-This closes the evidence gap without promoting a fake scheduler claim:
-candidate wake is bounded, but total-column scaling is still blocked by
-route-score rows and dense column-state transition. The next implementation
-target is a fused or lazy transition contract that replaces dense
-`steps_since_win`, spike-window, assembly, threshold/win-rate, and predictive
-state touches with candidate-owned or lazily materialized state while preserving
-checkpoint correctness.
+This closed the 2026-06-15 evidence gap without promoting a fake scheduler
+claim: candidate wake was bounded, but total-column scaling was still blocked by
+route-score rows and dense column-state transition. The dense column-state half
+is superseded by the 2026-06-16 sparse CUDA state-transition promotion above.
+The remaining implementation target is a sparse/GPU-owned route-candidate
+retrieval boundary so route-score input rows stop scaling with total columns.
 
 ### TurboQuant Routing Audit, 2026-06-15
 

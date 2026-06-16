@@ -741,29 +741,46 @@ class MarulhoTrainer:
             runtime._route_candidates.numel()
         )
         comp.last_homeostasis_update_mode = "candidate_subset"
+        state_transition_count = int(runtime._route_candidates.numel())
+        sparse_state_transition = state_transition_count < int(comp.n_columns)
         comp.last_state_transition_mode = (
-            "dense_all_columns_cuda_graph_route_transition_burst"
+            "candidate_subset_sparse_cuda_graph_route_transition_burst"
+            if sparse_state_transition
+            else "dense_all_columns_cuda_graph_route_transition_burst"
         )
-        comp.last_state_transition_column_count = int(comp.n_columns)
-        comp.last_state_transition_cached_count = 0
-        comp.last_state_transition_materialize_mode = "dense_cuda_graph_burst"
+        comp.last_state_transition_column_count = (
+            state_transition_count
+            if sparse_state_transition
+            else int(comp.n_columns)
+        )
+        comp.last_state_transition_cached_count = (
+            max(0, int(comp.n_columns) - state_transition_count)
+            if sparse_state_transition
+            else 0
+        )
+        comp.last_state_transition_materialize_mode = (
+            "candidate_subset_sparse_cuda_graph_burst"
+            if sparse_state_transition
+            else "dense_cuda_graph_burst"
+        )
         comp.last_state_transition_materialize_count = 0
         comp.last_state_transition_materialize_max_age = 0
         comp.state_transition_step_count += int(token_count)
-        mark_state_materialized = getattr(
-            comp,
-            "_mark_all_state_transition_materialized",
-            None,
-        )
-        if callable(mark_state_materialized):
-            mark_state_materialized(
-                int(comp.state_transition_step_count),
-                sync_last_update_tensor=False,
+        if not sparse_state_transition:
+            mark_state_materialized = getattr(
+                comp,
+                "_mark_all_state_transition_materialized",
+                None,
             )
-        else:
-            comp.steps_since_win_last_update_step.fill_(
-                int(comp.state_transition_step_count)
-            )
+            if callable(mark_state_materialized):
+                mark_state_materialized(
+                    int(comp.state_transition_step_count),
+                    sync_last_update_tensor=False,
+                )
+            else:
+                comp.steps_since_win_last_update_step.fill_(
+                    int(comp.state_transition_step_count)
+                )
         pred.last_dense_transition_mode = "inplace_triton"
         pred.last_dense_transition_fallback_reason = None
         candidate_predictive_graph = bool(

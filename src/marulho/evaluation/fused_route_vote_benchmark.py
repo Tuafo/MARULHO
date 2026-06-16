@@ -130,6 +130,16 @@ def run_fused_route_vote_benchmark(
         device=device,
     )
     route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    state_transition_step_counter = torch.tensor(
+        int(comp.state_transition_step_count),
+        dtype=torch.long,
+        device=device,
+    )
+    state_transition_all_materialized_step = torch.tensor(
+        int(comp.state_transition_all_materialized_step),
+        dtype=torch.long,
+        device=device,
+    )
 
     def production_step(key: torch.Tensor) -> torch.Tensor:
         candidates, _ = trainer.model.hnsw_index.search_tensors(
@@ -156,6 +166,11 @@ def run_fused_route_vote_benchmark(
             routing_vectors=routing_vectors,
             routing_ids=routing_ids,
             steps_since_win=comp.steps_since_win,
+            steps_since_win_last_update_step=comp.steps_since_win_last_update_step,
+            state_transition_step_counter=state_transition_step_counter,
+            state_transition_all_materialized_step=(
+                state_transition_all_materialized_step
+            ),
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=trainer.model.predictive.location,

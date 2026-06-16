@@ -52,6 +52,9 @@ if triton is not None:
         routing_scores,
         routing_ids,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         prototypes,
         thresholds,
         prediction_location,
@@ -90,6 +93,21 @@ if triton is not None:
             steps_since_win + candidate_ids_by_position,
             mask=score_mask,
             other=0,
+        )
+        candidate_last_update_step = tl.load(
+            steps_since_win_last_update_step + candidate_ids_by_position,
+            mask=score_mask,
+            other=0,
+        )
+        current_state_step = tl.load(state_transition_step_counter)
+        all_materialized_step = tl.load(state_transition_all_materialized_step)
+        effective_last_update_step = tl.maximum(
+            candidate_last_update_step,
+            all_materialized_step,
+        )
+        candidate_steps = candidate_steps + tl.maximum(
+            current_state_step - effective_last_update_step,
+            0,
         )
         candidate_pressure = tl.load(
             memory_pressure + candidate_ids_by_position,
@@ -328,6 +346,9 @@ def warmup_fused_route_vote_cuda(
     routing_vectors: torch.Tensor,
     routing_ids: torch.Tensor,
     steps_since_win: torch.Tensor,
+    steps_since_win_last_update_step: torch.Tensor,
+    state_transition_step_counter: torch.Tensor,
+    state_transition_all_materialized_step: torch.Tensor,
     prototypes: torch.Tensor,
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
@@ -364,6 +385,9 @@ def warmup_fused_route_vote_cuda(
         scores_out,
         routing_ids,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         prototypes,
         thresholds,
         prediction_location,
@@ -394,6 +418,9 @@ def fused_route_vote_cuda(
     routing_vectors: torch.Tensor,
     routing_ids: torch.Tensor,
     steps_since_win: torch.Tensor,
+    steps_since_win_last_update_step: torch.Tensor,
+    state_transition_step_counter: torch.Tensor,
+    state_transition_all_materialized_step: torch.Tensor,
     prototypes: torch.Tensor,
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
@@ -419,6 +446,9 @@ def fused_route_vote_cuda(
         routing_vectors,
         routing_ids,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         prototypes,
         thresholds,
         prediction_location,
@@ -448,6 +478,22 @@ def fused_route_vote_cuda(
         raise ValueError("steps_since_win must match prototype rows")
     if steps_since_win.dtype != torch.long:
         raise ValueError("steps_since_win must use int64")
+    if int(steps_since_win_last_update_step.numel()) != int(prototypes.shape[0]):
+        raise ValueError("steps_since_win_last_update_step must match prototype rows")
+    if steps_since_win_last_update_step.dtype != torch.long:
+        raise ValueError("steps_since_win_last_update_step must use int64")
+    if (
+        state_transition_step_counter.dtype != torch.long
+        or int(state_transition_step_counter.numel()) != 1
+    ):
+        raise ValueError("state_transition_step_counter must be one int64 value")
+    if (
+        state_transition_all_materialized_step.dtype != torch.long
+        or int(state_transition_all_materialized_step.numel()) != 1
+    ):
+        raise ValueError(
+            "state_transition_all_materialized_step must be one int64 value"
+        )
     if route_filter_control.dtype != torch.long or int(route_filter_control.numel()) < 4:
         raise ValueError("route_filter_control must contain at least four int64 values")
     if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 12:
@@ -487,6 +533,9 @@ def fused_route_vote_cuda(
         scores_out,
         routing_ids,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         prototypes,
         thresholds,
         prediction_location,

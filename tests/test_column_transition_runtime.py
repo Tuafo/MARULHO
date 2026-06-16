@@ -385,17 +385,22 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     assert route_filter["filtered_deep_sleep_count"] == 2
     assert route_filter["state_sync_count"] >= 1
     transition_report = trainer.column_transition_runtime_report()
-    assert transition_report["state_transition_runs_all_columns"] is True
-    assert (
-        transition_report["state_transition_fallback_reason"]
-        == "dense_state_transition_retained_until_lazy_column_state"
+    assert transition_report["state_transition_runs_all_columns"] is False
+    assert transition_report["state_transition_mode"].startswith(
+        "candidate_subset_sparse_"
     )
+    assert transition_report["state_transition_column_count"] == config.k_routing
+    assert (
+        transition_report["state_transition_cached_count"]
+        == config.n_columns - config.k_routing
+    )
+    assert transition_report["state_transition_fallback_reason"] is None
     runtime_truth = trainer.model.column_runtime_report(
         token_count=trainer.token_count,
         last_winner=trainer.last_winner,
     )
-    assert runtime_truth["runs_all_columns"] is True
-    assert runtime_truth["execution"]["state_transition_runs_all_columns"] is True
+    assert runtime_truth["runs_all_columns"] is False
+    assert runtime_truth["execution"]["state_transition_runs_all_columns"] is False
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

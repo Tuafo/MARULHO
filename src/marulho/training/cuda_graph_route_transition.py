@@ -393,6 +393,7 @@ class CudaGraphRouteTransition:
                 device=device,
             )
             self._input_patterns.zero_()
+            runtime._sync_state_transition_step_tensors_from_core()
             self._input_slot = torch.zeros(
                 (),
                 dtype=torch.long,
@@ -507,7 +508,11 @@ class CudaGraphRouteTransition:
                 comp.thresholds,
                 comp.win_rate_ema,
                 comp.steps_since_win,
+                comp.steps_since_win_last_update_step,
+                runtime._state_transition_step_counter,
+                runtime._state_transition_all_materialized_step,
                 comp.recent_spike_window,
+                comp.recent_spike_window_active_ids,
                 pred.location,
                 pred.velocity,
                 pred._prediction_weights,
@@ -515,6 +520,7 @@ class CudaGraphRouteTransition:
                 pred.prediction_failure_streak,
                 pred.confidence,
                 runtime._assembly,
+                runtime._assembly_active_winner,
                 runtime._winner,
                 runtime._strength,
                 runtime._prediction_boost,
@@ -618,6 +624,11 @@ class CudaGraphRouteTransition:
             routing_vectors=self._route_vectors,
             routing_ids=self._route_ids,
             steps_since_win=comp.steps_since_win,
+            steps_since_win_last_update_step=comp.steps_since_win_last_update_step,
+            state_transition_step_counter=runtime._state_transition_step_counter,
+            state_transition_all_materialized_step=(
+                runtime._state_transition_all_materialized_step
+            ),
             prototypes=comp.prototypes,
             thresholds=comp.thresholds,
             prediction_location=pred.location,
@@ -1078,6 +1089,15 @@ class CudaGraphRouteTransition:
             thresholds=comp.thresholds,
             win_rate_ema=comp.win_rate_ema,
             steps_since_win=comp.steps_since_win,
+            steps_since_win_last_update_step=(
+                comp.steps_since_win_last_update_step
+            ),
+            state_transition_step_counter=(
+                runtime._state_transition_step_counter
+            ),
+            state_transition_all_materialized_step=(
+                runtime._state_transition_all_materialized_step
+            ),
             location=pred.location,
             location_velocity=pred.velocity,
             prediction_weights=pred._prediction_weights,
@@ -1085,7 +1105,9 @@ class CudaGraphRouteTransition:
             prediction_failure_streak=pred.prediction_failure_streak,
             confidence=pred.confidence,
             recent_spike_window=comp.recent_spike_window,
+            recent_spike_window_active_ids=comp.recent_spike_window_active_ids,
             assembly=runtime._assembly,
+            assembly_active_winner=runtime._assembly_active_winner,
             prediction_boost_out=runtime._prediction_boost,
             effective_modulator_out=runtime._effective_modulator,
             result_out=self._result,

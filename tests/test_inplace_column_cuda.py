@@ -43,6 +43,9 @@ def _expected_retained_transition(
     prediction_error_ema_alpha: float,
     prediction_failure_streak_threshold: float,
     prediction_learning_rate: float,
+    steps_since_win_last_update_step: torch.Tensor | None = None,
+    state_transition_step: int = 0,
+    state_transition_all_materialized_step: int = 0,
 ) -> tuple[torch.Tensor, ...]:
     """Test-local retained semantics for the promoted in-place CUDA kernel."""
 
@@ -142,11 +145,45 @@ def _expected_retained_transition(
         next_winner_velocity,
     )
 
-    next_steps_since_win = (steps_since_win + 1).scatter(
-        0,
-        winners,
-        torch.zeros_like(winners, dtype=steps_since_win.dtype),
-    )
+    if candidate_ids.numel() < steps_since_win.numel():
+        if steps_since_win_last_update_step is None:
+            last_update = torch.zeros_like(steps_since_win)
+        else:
+            last_update = steps_since_win_last_update_step
+        selected_last_update = torch.maximum(
+            last_update.index_select(0, candidate_ids),
+            torch.full_like(
+                candidate_ids,
+                int(state_transition_all_materialized_step),
+            ),
+        )
+        selected_logical_steps = steps_since_win.index_select(0, candidate_ids)
+        selected_logical_steps = selected_logical_steps + torch.clamp(
+            torch.full_like(candidate_ids, int(state_transition_step))
+            - selected_last_update,
+            min=0,
+        )
+        next_selected_steps = torch.where(
+            candidate_ids == winners[0],
+            torch.zeros_like(selected_logical_steps),
+            selected_logical_steps + 1,
+        )
+        next_steps_since_win = steps_since_win.index_copy(
+            0,
+            candidate_ids,
+            next_selected_steps,
+        )
+        next_steps_since_win = next_steps_since_win.scatter(
+            0,
+            winners,
+            torch.zeros_like(winners, dtype=steps_since_win.dtype),
+        )
+    else:
+        next_steps_since_win = (steps_since_win + 1).scatter(
+            0,
+            winners,
+            torch.zeros_like(winners, dtype=steps_since_win.dtype),
+        )
     activity = torch.zeros_like(win_rate_ema).scatter(
         0,
         winners,
@@ -165,14 +202,23 @@ def _expected_retained_transition(
             homeostasis_ids,
             next_selected_win_rate,
         )
+        selected_competition_thresholds = torch.where(
+            has_positive,
+            thresholds.index_select(0, homeostasis_ids),
+            torch.clamp(
+                thresholds.index_select(0, homeostasis_ids) * 0.995,
+                min=float(threshold_min),
+                max=float(threshold_max),
+            ),
+        )
         next_selected_thresholds = torch.clamp(
-            competition_thresholds.index_select(0, homeostasis_ids)
+            selected_competition_thresholds
             + float(homeostasis_lr)
             * (next_selected_win_rate - float(target_firing_rate)),
             min=float(threshold_min),
             max=float(threshold_max),
         )
-        next_thresholds = competition_thresholds.index_copy(
+        next_thresholds = thresholds.index_copy(
             0,
             homeostasis_ids,
             next_selected_thresholds,
@@ -203,6 +249,47 @@ def _expected_retained_transition(
         prediction_boost,
         effective_modulator,
     )
+
+
+def _transition_state_tensors(
+    steps_since_win: torch.Tensor,
+    *,
+    state_step: int = 0,
+    all_materialized_step: int = 0,
+    last_update: torch.Tensor | None = None,
+    spike_rows: int = 4,
+    active_slots: int = 1,
+    active_ids: torch.Tensor | None = None,
+    assembly_active_winner: int = -1,
+) -> dict[str, torch.Tensor]:
+    if last_update is None:
+        last_update = torch.zeros_like(steps_since_win)
+    if active_ids is None:
+        active_ids = torch.full(
+            (spike_rows, active_slots),
+            -1,
+            dtype=torch.long,
+            device=steps_since_win.device,
+        )
+    return {
+        "steps_since_win_last_update_step": last_update,
+        "state_transition_step_counter": torch.tensor(
+            state_step,
+            dtype=torch.long,
+            device=steps_since_win.device,
+        ),
+        "state_transition_all_materialized_step": torch.tensor(
+            all_materialized_step,
+            dtype=torch.long,
+            device=steps_since_win.device,
+        ),
+        "recent_spike_window_active_ids": active_ids,
+        "assembly_active_winner": torch.tensor(
+            [assembly_active_winner],
+            dtype=torch.long,
+            device=steps_since_win.device,
+        ),
+    }
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -247,6 +334,10 @@ def test_inplace_column_transition_all_columns_warmup_uses_direct_membership() -
     consolidation = torch.zeros(n_columns, device=device)
     competition_had_positive = torch.ones((), dtype=torch.bool, device=device)
     recent_spike_row = torch.zeros((), dtype=torch.int32, device=device)
+    transition_state = _transition_state_tensors(
+        steps_since_win,
+        spike_rows=recent_spike_window.shape[0],
+    )
 
     warmup_inplace_column_transition_cuda(
         prototypes=prototypes,
@@ -254,6 +345,7 @@ def test_inplace_column_transition_all_columns_warmup_uses_direct_membership() -
         thresholds=thresholds,
         win_rate_ema=win_rate_ema,
         steps_since_win=steps_since_win,
+        **transition_state,
         location=location,
         location_velocity=location_velocity,
         prediction_weights=prediction_weights,
@@ -464,7 +556,7 @@ def test_inplace_column_transition_cuda_matches_retained_semantics(
     )
     recent_spike_window = torch.zeros(4, n_columns, device=device)
     recent_spike_row = torch.tensor(2, dtype=torch.int32, device=device)
-    assembly = torch.empty(n_columns, device=device)
+    assembly = torch.zeros(n_columns, device=device)
     prediction_boost_out = torch.empty((), device=device)
     effective_modulator_out = torch.empty((), device=device)
     reconstruction_result = torch.tensor(0.25, dtype=torch.float32, device=device)
@@ -492,6 +584,10 @@ def test_inplace_column_transition_cuda_matches_retained_semantics(
     strong_count = torch.zeros((), dtype=torch.int32, device=device)
     slot = torch.zeros((), dtype=torch.long, device=device)
     strong_threshold = -1.0 if force_fallback else 10.0
+    transition_state = _transition_state_tensors(
+        actual_state[4],
+        spike_rows=recent_spike_window.shape[0],
+    )
 
     inplace_column_transition_cuda(
         prototypes=actual_state[0],
@@ -501,6 +597,7 @@ def test_inplace_column_transition_cuda_matches_retained_semantics(
         thresholds=actual_state[2],
         win_rate_ema=actual_state[3],
         steps_since_win=actual_state[4],
+        **transition_state,
         location=actual_state[5],
         location_velocity=actual_state[6],
         prediction_weights=actual_state[7],
@@ -699,11 +796,15 @@ def test_inplace_column_transition_candidate_predictive_branch_keeps_cached_rows
     original_predictive = [tensor.clone() for tensor in actual_state[5:]]
     recent_spike_window = torch.zeros(4, n_columns, device=device)
     recent_spike_row = torch.tensor(2, dtype=torch.int32, device=device)
-    assembly = torch.empty(n_columns, device=device)
+    assembly = torch.zeros(n_columns, device=device)
     prediction_boost_out = torch.empty((), device=device)
     effective_modulator_out = torch.empty((), device=device)
     predictive_last_update_step = torch.zeros(n_columns, dtype=torch.long, device=device)
     predictive_step_counter = torch.tensor(7, dtype=torch.long, device=device)
+    transition_state = _transition_state_tensors(
+        actual_state[4],
+        spike_rows=recent_spike_window.shape[0],
+    )
 
     inplace_column_transition_cuda(
         prototypes=actual_state[0],
@@ -711,6 +812,7 @@ def test_inplace_column_transition_candidate_predictive_branch_keeps_cached_rows
         thresholds=actual_state[2],
         win_rate_ema=actual_state[3],
         steps_since_win=actual_state[4],
+        **transition_state,
         location=actual_state[5],
         location_velocity=actual_state[6],
         prediction_weights=actual_state[7],
@@ -790,3 +892,153 @@ def test_inplace_column_transition_candidate_predictive_branch_keeps_cached_rows
     assert int(predictive_step_counter.item()) == 8
     assert torch.allclose(assembly, expected[2], atol=2e-5, rtol=2e-5)
     assert prediction_boost_out.item() == pytest.approx(expected[15].item(), abs=2e-5)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_inplace_column_transition_sparse_state_updates_only_awake_rows() -> None:
+    device = torch.device("cuda")
+    generator = torch.Generator(device=device).manual_seed(20260619)
+    n_columns = 16
+    column_dim = 8
+    location_dim = 4
+    candidates = torch.tensor([1, 4, 7, 10], dtype=torch.long, device=device)
+    winner = candidates[:1]
+    prototypes = F.normalize(
+        torch.rand(n_columns, column_dim, generator=generator, device=device).clamp(
+            min=1e-6
+        ),
+        dim=1,
+    )
+    prototype_velocity = torch.zeros_like(prototypes)
+    thresholds = torch.full((n_columns,), 0.25, device=device)
+    win_rate_ema = torch.zeros(n_columns, device=device)
+    steps_since_win = torch.arange(n_columns, dtype=torch.long, device=device)
+    original_steps_since_win = steps_since_win.clone()
+    last_update = torch.arange(n_columns, dtype=torch.long, device=device) % 5
+    original_last_update = last_update.clone()
+    state_step = 7
+    all_materialized_step = 3
+    location = torch.zeros(n_columns, location_dim, device=device)
+    location_velocity = torch.zeros_like(location)
+    prediction_weights = torch.zeros_like(location)
+    prediction_error = torch.zeros(n_columns, device=device)
+    prediction_failure_streak = torch.zeros(
+        n_columns,
+        dtype=torch.int32,
+        device=device,
+    )
+    confidence = torch.zeros(n_columns, device=device)
+    recent_spike_window = torch.zeros(4, n_columns, device=device)
+    recent_spike_row = torch.tensor(2, dtype=torch.int32, device=device)
+    previous_active = torch.tensor(12, dtype=torch.long, device=device)
+    recent_spike_window[2, previous_active] = 1.0
+    active_ids = torch.full((4, 2), -1, dtype=torch.long, device=device)
+    active_ids[2, 0] = previous_active
+    assembly = torch.zeros(n_columns, device=device)
+    previous_assembly_winner = 8
+    assembly[previous_assembly_winner] = 0.75
+    routing_key = F.normalize(
+        torch.rand(column_dim, generator=generator, device=device).clamp(min=1e-6),
+        dim=0,
+    )
+    previous_routing_key = torch.zeros(column_dim, device=device)
+    prediction_boost_out = torch.empty((), device=device)
+    effective_modulator_out = torch.empty((), device=device)
+    competition_had_positive = torch.tensor(True, dtype=torch.bool, device=device)
+    transition_state = _transition_state_tensors(
+        steps_since_win,
+        state_step=state_step,
+        all_materialized_step=all_materialized_step,
+        last_update=last_update,
+        spike_rows=recent_spike_window.shape[0],
+        active_slots=active_ids.shape[1],
+        active_ids=active_ids,
+        assembly_active_winner=previous_assembly_winner,
+    )
+
+    inplace_column_transition_cuda(
+        prototypes=prototypes,
+        prototype_velocity=prototype_velocity,
+        thresholds=thresholds,
+        win_rate_ema=win_rate_ema,
+        steps_since_win=steps_since_win,
+        **transition_state,
+        location=location,
+        location_velocity=location_velocity,
+        prediction_weights=prediction_weights,
+        prediction_error=prediction_error,
+        prediction_failure_streak=prediction_failure_streak,
+        confidence=confidence,
+        recent_spike_window=recent_spike_window,
+        assembly=assembly,
+        prediction_boost_out=prediction_boost_out,
+        effective_modulator_out=effective_modulator_out,
+        routing_key=routing_key,
+        previous_routing_key=previous_routing_key,
+        winners=winner,
+        candidates=candidates,
+        consolidation=torch.zeros(n_columns, device=device),
+        base_modulator=0.3,
+        dopamine=0.0,
+        serotonin=0.0,
+        competitive_learning_rate=0.01,
+        recent_spike_row=recent_spike_row,
+        has_previous_routing_key=False,
+        competition_had_positive=competition_had_positive,
+        prototype_momentum=0.9,
+        homeostasis_beta=0.01,
+        homeostasis_lr=0.01,
+        target_firing_rate=1.0 / n_columns,
+        threshold_min=0.05,
+        threshold_max=0.95,
+        prediction_error_ema_alpha=0.2,
+        prediction_failure_streak_threshold=0.65,
+        prediction_learning_rate=0.005,
+    )
+    torch.cuda.synchronize()
+
+    candidate_effective_last_update = torch.maximum(
+        original_last_update.index_select(0, candidates),
+        torch.full_like(candidates, all_materialized_step),
+    )
+    expected_candidate_steps = original_steps_since_win.index_select(0, candidates)
+    expected_candidate_steps += torch.clamp(
+        torch.full_like(candidates, state_step) - candidate_effective_last_update,
+        min=0,
+    )
+    expected_candidate_steps = torch.where(
+        candidates == winner[0],
+        torch.zeros_like(expected_candidate_steps),
+        expected_candidate_steps + 1,
+    )
+    assert torch.equal(
+        steps_since_win.index_select(0, candidates),
+        expected_candidate_steps,
+    )
+    candidate_mask = torch.zeros(n_columns, dtype=torch.bool, device=device)
+    candidate_mask[candidates] = True
+    non_candidates = torch.arange(n_columns, device=device)[~candidate_mask]
+    assert torch.equal(
+        steps_since_win.index_select(0, non_candidates),
+        original_steps_since_win.index_select(0, non_candidates),
+    )
+    assert torch.equal(
+        last_update.index_select(0, candidates),
+        torch.full_like(candidates, state_step + 1),
+    )
+    assert torch.equal(
+        last_update.index_select(0, non_candidates),
+        original_last_update.index_select(0, non_candidates),
+    )
+    assert int(transition_state["state_transition_step_counter"].item()) == state_step + 1
+    assert (
+        int(transition_state["state_transition_all_materialized_step"].item())
+        == all_materialized_step
+    )
+    assert float(recent_spike_window[2, previous_active].item()) == pytest.approx(0.0)
+    assert float(recent_spike_window[2, winner[0]].item()) == pytest.approx(1.0)
+    assert int(active_ids[2, 0].item()) == int(winner[0].item())
+    assert int(active_ids[2, 1].item()) == -1
+    assert float(assembly[previous_assembly_winner].item()) == pytest.approx(0.0)
+    assert float(assembly[winner[0]].item()) > 0.0
+    assert int(transition_state["assembly_active_winner"].item()) == int(winner[0].item())

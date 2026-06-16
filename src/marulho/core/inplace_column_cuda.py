@@ -195,6 +195,9 @@ if triton is not None:
         thresholds,
         win_rate_ema,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         location,
         location_velocity,
         prediction_weights,
@@ -202,7 +205,9 @@ if triton is not None:
         prediction_failure_streak,
         confidence,
         recent_spike_window,
+        recent_spike_window_active_ids,
         assembly,
+        assembly_active_winner,
         prediction_boost_out,
         effective_modulator_out,
         result_out,
@@ -238,6 +243,7 @@ if triton is not None:
         update_routing_vectors: tl.constexpr,
         update_predictive_candidates: tl.constexpr,
         spike_history_window: tl.constexpr,
+        recent_spike_active_slots: tl.constexpr,
         burst_event_capacity: tl.constexpr,
         result_width: tl.constexpr,
         n_columns: tl.constexpr,
@@ -259,6 +265,7 @@ if triton is not None:
         block_d: tl.constexpr,
         block_location: tl.constexpr,
         block_candidates: tl.constexpr,
+        block_active_slots: tl.constexpr,
     ):
         if use_transition_parameters:
             base_modulator = tl.load(transition_parameters)
@@ -271,6 +278,9 @@ if triton is not None:
         column_mask = column_offsets < n_columns
         winner = tl.load(winners)
         is_winner = column_offsets == winner
+        state_step = tl.load(state_transition_step_counter)
+        next_state_step = state_step + 1
+        all_materialized_step = tl.load(state_transition_all_materialized_step)
 
         location_offsets = tl.arange(0, block_location)
         location_mask = location_offsets < location_dim
@@ -579,13 +589,10 @@ if triton is not None:
                 axis=0,
             )
         prediction_boost = tl.maximum(0.5, tl.minimum(2.0, prediction_boost))
-        winner_consolidation = tl.sum(
-            tl.where(
-                is_winner & column_mask,
-                tl.load(consolidation + column_offsets, mask=column_mask),
-                0.0,
-            ),
-            axis=0,
+        winner_consolidation = tl.load(
+            consolidation + winner,
+            mask=(winner >= 0) & (winner < n_columns),
+            other=0.0,
         )
         wake_scale = tl.maximum(0.2, 1.0 - 0.8 * winner_consolidation)
         wake_scale *= tl.maximum(0.2, 1.0 - 0.6 * serotonin)
@@ -668,7 +675,18 @@ if triton is not None:
             )
 
         next_assembly = tl.where(is_winner, winner_similarity, 0.0)
-        tl.store(assembly + column_offsets, next_assembly, mask=column_mask)
+        if all_columns_are_candidates:
+            tl.store(assembly + column_offsets, next_assembly, mask=column_mask)
+        else:
+            previous_assembly_winner = tl.load(assembly_active_winner)
+            tl.store(
+                assembly + previous_assembly_winner,
+                0.0,
+                mask=(previous_assembly_winner >= 0)
+                & (previous_assembly_winner < n_columns),
+            )
+            tl.store(assembly + winner, winner_similarity, mask=winner < n_columns)
+            tl.store(assembly_active_winner, winner)
         if use_result_packet:
             tl.store(result_out + 1, tl.load(neuromodulator_state))
             tl.store(result_out + 2, tl.load(neuromodulator_state + 1))
@@ -730,86 +748,206 @@ if triton is not None:
                 next_event_slot,
             )
             tl.store(burst_slot, next_event_slot)
-        old_steps = tl.load(steps_since_win + column_offsets, mask=column_mask)
-        tl.store(
-            steps_since_win + column_offsets,
-            tl.where(is_winner, 0, old_steps + 1),
-            mask=column_mask,
-        )
         spike_row = tl.load(recent_spike_row)
-        spike_row_ptrs = (
-            recent_spike_window
-            + spike_row * n_columns
-            + column_offsets
-        )
-        tl.store(
-            spike_row_ptrs,
-            is_winner.to(tl.float32),
-            mask=column_mask,
-        )
+        if all_columns_are_candidates:
+            old_steps = tl.load(steps_since_win + column_offsets, mask=column_mask)
+            tl.store(
+                steps_since_win + column_offsets,
+                tl.where(is_winner, 0, old_steps + 1),
+                mask=column_mask,
+            )
+            tl.store(state_transition_all_materialized_step, next_state_step)
+            spike_row_ptrs = (
+                recent_spike_window
+                + spike_row * n_columns
+                + column_offsets
+            )
+            tl.store(
+                spike_row_ptrs,
+                is_winner.to(tl.float32),
+                mask=column_mask,
+            )
+            active_offsets = tl.arange(0, block_active_slots)
+            active_mask = active_offsets < recent_spike_active_slots
+            active_base = (
+                recent_spike_window_active_ids
+                + spike_row * recent_spike_active_slots
+                + active_offsets
+            )
+            tl.store(
+                active_base,
+                tl.where(active_offsets == 0, winner, -1),
+                mask=active_mask,
+            )
+        else:
+            sparse_candidate_offsets = tl.arange(0, block_candidates)
+            sparse_candidate_mask = sparse_candidate_offsets < candidate_count
+            sparse_candidate_ids = tl.load(
+                candidates + sparse_candidate_offsets,
+                mask=sparse_candidate_mask,
+                other=0,
+            )
+            sparse_candidate_last_update = tl.load(
+                steps_since_win_last_update_step + sparse_candidate_ids,
+                mask=sparse_candidate_mask,
+                other=0,
+            )
+            sparse_effective_last_update = tl.maximum(
+                sparse_candidate_last_update,
+                all_materialized_step,
+            )
+            sparse_logical_steps = tl.load(
+                steps_since_win + sparse_candidate_ids,
+                mask=sparse_candidate_mask,
+                other=0,
+            ) + tl.maximum(state_step - sparse_effective_last_update, 0)
+            tl.store(
+                steps_since_win + sparse_candidate_ids,
+                tl.where(sparse_candidate_ids == winner, 0, sparse_logical_steps + 1),
+                mask=sparse_candidate_mask,
+            )
+            tl.store(
+                steps_since_win_last_update_step + sparse_candidate_ids,
+                next_state_step,
+                mask=sparse_candidate_mask,
+            )
+            tl.store(
+                steps_since_win + winner,
+                0,
+                mask=(winner >= 0) & (winner < n_columns),
+            )
+            tl.store(
+                steps_since_win_last_update_step + winner,
+                next_state_step,
+                mask=(winner >= 0) & (winner < n_columns),
+            )
+            active_offsets = tl.arange(0, block_active_slots)
+            active_mask = active_offsets < recent_spike_active_slots
+            active_base = (
+                recent_spike_window_active_ids
+                + spike_row * recent_spike_active_slots
+                + active_offsets
+            )
+            previous_active = tl.load(
+                active_base,
+                mask=active_mask,
+                other=-1,
+            )
+            valid_previous = (
+                active_mask
+                & (previous_active >= 0)
+                & (previous_active < n_columns)
+            )
+            tl.store(
+                recent_spike_window + spike_row * n_columns + previous_active,
+                0.0,
+                mask=valid_previous,
+            )
+            tl.store(
+                recent_spike_window + spike_row * n_columns + winner,
+                1.0,
+                mask=(winner >= 0) & (winner < n_columns),
+            )
+            tl.store(
+                active_base,
+                tl.where(active_offsets == 0, winner, -1),
+                mask=active_mask,
+            )
+        tl.store(state_transition_step_counter, next_state_step)
         if advance_recent_spike_row:
             tl.store(
                 recent_spike_row,
                 (spike_row + 1) % spike_history_window,
             )
 
+        had_positive = tl.load(competition_had_positive) != 0
         if all_columns_are_candidates:
-            homeostasis_selected = column_mask
+            old_threshold = tl.load(thresholds + column_offsets, mask=column_mask)
+            fallback_threshold = tl.maximum(
+                threshold_min,
+                tl.minimum(threshold_max, old_threshold * 0.995),
+            )
+            competition_threshold = tl.where(
+                had_positive,
+                old_threshold,
+                fallback_threshold,
+            )
+            old_win_rate = tl.load(win_rate_ema + column_offsets, mask=column_mask)
+            activity = is_winner.to(tl.float32)
+            next_win_rate = (
+                (1.0 - homeostasis_beta) * old_win_rate
+                + homeostasis_beta * activity
+            )
+            next_threshold = tl.maximum(
+                threshold_min,
+                tl.minimum(
+                    threshold_max,
+                    competition_threshold
+                    + homeostasis_lr
+                    * (next_win_rate - target_firing_rate),
+                ),
+            )
+            tl.store(
+                win_rate_ema + column_offsets,
+                next_win_rate,
+                mask=column_mask,
+            )
+            tl.store(
+                thresholds + column_offsets,
+                next_threshold,
+                mask=column_mask,
+            )
         else:
             candidate_offsets = tl.arange(0, block_candidates)
             candidate_mask = candidate_offsets < candidate_count
             candidate_ids = tl.load(
                 candidates + candidate_offsets,
                 mask=candidate_mask,
-                other=-1,
+                other=0,
             )
-            homeostasis_selected = tl.sum(
-                (
-                    column_offsets[:, None] == candidate_ids[None, :]
-                ).to(tl.int32),
-                axis=1,
-            ) > 0
-        old_threshold = tl.load(thresholds + column_offsets, mask=column_mask)
-        had_positive = tl.load(competition_had_positive) != 0
-        fallback_threshold = tl.maximum(
+            old_threshold = tl.load(
+                thresholds + candidate_ids,
+                mask=candidate_mask,
+                other=0.0,
+            )
+            fallback_threshold = tl.maximum(
                 threshold_min,
                 tl.minimum(threshold_max, old_threshold * 0.995),
-        )
-        competition_threshold = tl.where(
-            had_positive,
-            old_threshold,
-            fallback_threshold,
-        )
-        old_win_rate = tl.load(win_rate_ema + column_offsets, mask=column_mask)
-        activity = is_winner.to(tl.float32)
-        next_win_rate = (
-            (1.0 - homeostasis_beta) * old_win_rate
-            + homeostasis_beta * activity
-        )
-        next_threshold = tl.maximum(
-            threshold_min,
-            tl.minimum(
-                threshold_max,
-                competition_threshold
-                + homeostasis_lr
-                * (next_win_rate - target_firing_rate),
-            ),
-        )
-        update_homeostasis = column_mask & homeostasis_selected
-        tl.store(
-            win_rate_ema + column_offsets,
-            next_win_rate,
-            mask=update_homeostasis,
-        )
-        tl.store(
-            thresholds + column_offsets,
-            tl.where(
-                homeostasis_selected,
+            )
+            competition_threshold = tl.where(
+                had_positive,
+                old_threshold,
+                fallback_threshold,
+            )
+            old_win_rate = tl.load(
+                win_rate_ema + candidate_ids,
+                mask=candidate_mask,
+                other=0.0,
+            )
+            activity = (candidate_ids == winner).to(tl.float32)
+            next_win_rate = (
+                (1.0 - homeostasis_beta) * old_win_rate
+                + homeostasis_beta * activity
+            )
+            next_threshold = tl.maximum(
+                threshold_min,
+                tl.minimum(
+                    threshold_max,
+                    competition_threshold
+                    + homeostasis_lr
+                    * (next_win_rate - target_firing_rate),
+                ),
+            )
+            tl.store(
+                win_rate_ema + candidate_ids,
+                next_win_rate,
+                mask=candidate_mask,
+            )
+            tl.store(
+                thresholds + candidate_ids,
                 next_threshold,
-                competition_threshold,
-            ),
-            mask=column_mask,
-        )
+                mask=candidate_mask,
+            )
         if persist_previous_routing_key:
             feature_offsets = tl.arange(0, block_d)
             feature_mask = feature_offsets < column_dim
@@ -835,6 +973,9 @@ def inplace_column_transition_cuda(
     thresholds: torch.Tensor,
     win_rate_ema: torch.Tensor,
     steps_since_win: torch.Tensor,
+    steps_since_win_last_update_step: torch.Tensor,
+    state_transition_step_counter: torch.Tensor,
+    state_transition_all_materialized_step: torch.Tensor,
     location: torch.Tensor,
     location_velocity: torch.Tensor,
     prediction_weights: torch.Tensor,
@@ -842,7 +983,9 @@ def inplace_column_transition_cuda(
     prediction_failure_streak: torch.Tensor,
     confidence: torch.Tensor,
     recent_spike_window: torch.Tensor,
+    recent_spike_window_active_ids: torch.Tensor,
     assembly: torch.Tensor,
+    assembly_active_winner: torch.Tensor,
     prediction_boost_out: torch.Tensor,
     effective_modulator_out: torch.Tensor,
     routing_key: torch.Tensor,
@@ -959,6 +1102,9 @@ def inplace_column_transition_cuda(
         thresholds,
         win_rate_ema,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         location,
         location_velocity,
         prediction_weights,
@@ -966,8 +1112,10 @@ def inplace_column_transition_cuda(
         prediction_failure_streak,
         confidence,
         recent_spike_window,
+        recent_spike_window_active_ids,
         recent_spike_row,
         assembly,
+        assembly_active_winner,
         prediction_boost_out,
         effective_modulator_out,
         routing_key,
@@ -1023,6 +1171,33 @@ def inplace_column_transition_cuda(
         raise ValueError("assembly must have one value per column")
     if transition_parameters is not None and int(transition_parameters.numel()) < 5:
         raise ValueError("transition_parameters must contain at least five values")
+    if tuple(steps_since_win_last_update_step.shape) != tuple(steps_since_win.shape):
+        raise ValueError("steps_since_win_last_update_step must match steps_since_win")
+    if steps_since_win_last_update_step.dtype != torch.long:
+        raise ValueError("steps_since_win_last_update_step must use int64")
+    if (
+        state_transition_step_counter.dtype != torch.long
+        or int(state_transition_step_counter.numel()) != 1
+    ):
+        raise ValueError("state_transition_step_counter must be one int64 value")
+    if (
+        state_transition_all_materialized_step.dtype != torch.long
+        or int(state_transition_all_materialized_step.numel()) != 1
+    ):
+        raise ValueError(
+            "state_transition_all_materialized_step must be one int64 value"
+        )
+    if recent_spike_window_active_ids.dtype != torch.long:
+        raise ValueError("recent_spike_window_active_ids must use int64")
+    if recent_spike_window_active_ids.dim() != 2:
+        raise ValueError("recent_spike_window_active_ids must be rank 2")
+    if int(recent_spike_window_active_ids.shape[0]) != int(recent_spike_window.shape[0]):
+        raise ValueError("recent_spike_window_active_ids must match spike rows")
+    if (
+        assembly_active_winner.dtype != torch.long
+        or int(assembly_active_winner.numel()) != 1
+    ):
+        raise ValueError("assembly_active_winner must be one int64 value")
     result_width = int(result_tensor.numel())
     if use_result_packet and result_width < 8:
         raise ValueError("result_out must contain at least eight values")
@@ -1079,6 +1254,9 @@ def inplace_column_transition_cuda(
         thresholds,
         win_rate_ema,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         location,
         location_velocity,
         prediction_weights,
@@ -1086,7 +1264,9 @@ def inplace_column_transition_cuda(
         prediction_failure_streak,
         confidence,
         recent_spike_window,
+        recent_spike_window_active_ids,
         assembly,
+        assembly_active_winner,
         prediction_boost_out,
         effective_modulator_out,
         result_tensor,
@@ -1122,6 +1302,7 @@ def inplace_column_transition_cuda(
         update_routing_vectors=int(bool(update_routing_vectors)),
         update_predictive_candidates=int(bool(use_predictive_candidates)),
         spike_history_window=int(spike_history_window),
+        recent_spike_active_slots=int(recent_spike_window_active_ids.shape[1]),
         burst_event_capacity=int(
             burst_result_tensor.shape[0] if use_burst_event_packet else 1
         ),
@@ -1147,6 +1328,9 @@ def inplace_column_transition_cuda(
         block_d=triton.next_power_of_2(int(column_dim)),
         block_location=triton.next_power_of_2(int(location.shape[1])),
         block_candidates=triton.next_power_of_2(int(candidates.numel())),
+        block_active_slots=triton.next_power_of_2(
+            int(recent_spike_window_active_ids.shape[1])
+        ),
         num_warps=8,
     )
 
@@ -1350,6 +1534,9 @@ def warmup_inplace_column_transition_cuda(
     thresholds: torch.Tensor,
     win_rate_ema: torch.Tensor,
     steps_since_win: torch.Tensor,
+    steps_since_win_last_update_step: torch.Tensor,
+    state_transition_step_counter: torch.Tensor,
+    state_transition_all_materialized_step: torch.Tensor,
     location: torch.Tensor,
     location_velocity: torch.Tensor,
     prediction_weights: torch.Tensor,
@@ -1357,7 +1544,9 @@ def warmup_inplace_column_transition_cuda(
     prediction_failure_streak: torch.Tensor,
     confidence: torch.Tensor,
     recent_spike_window: torch.Tensor,
+    recent_spike_window_active_ids: torch.Tensor,
     assembly: torch.Tensor,
+    assembly_active_winner: torch.Tensor,
     prediction_boost_out: torch.Tensor,
     effective_modulator_out: torch.Tensor,
     routing_key: torch.Tensor,
@@ -1408,6 +1597,9 @@ def warmup_inplace_column_transition_cuda(
         thresholds,
         win_rate_ema,
         steps_since_win,
+        steps_since_win_last_update_step,
+        state_transition_step_counter,
+        state_transition_all_materialized_step,
         location,
         location_velocity,
         prediction_weights,
@@ -1415,7 +1607,9 @@ def warmup_inplace_column_transition_cuda(
         prediction_failure_streak,
         confidence,
         recent_spike_window,
+        recent_spike_window_active_ids,
         assembly,
+        assembly_active_winner,
         prediction_boost_out,
         effective_modulator_out,
         effective_modulator_out,
@@ -1451,6 +1645,7 @@ def warmup_inplace_column_transition_cuda(
         update_routing_vectors=0,
         update_predictive_candidates=int(bool(use_predictive_candidates)),
         spike_history_window=1,
+        recent_spike_active_slots=int(recent_spike_window_active_ids.shape[1]),
         burst_event_capacity=1,
         result_width=1,
         n_columns=int(n_columns),
@@ -1474,6 +1669,9 @@ def warmup_inplace_column_transition_cuda(
         block_d=triton.next_power_of_2(int(column_dim)),
         block_location=triton.next_power_of_2(int(location.shape[1])),
         block_candidates=triton.next_power_of_2(int(candidates.numel())),
+        block_active_slots=triton.next_power_of_2(
+            int(recent_spike_window_active_ids.shape[1])
+        ),
         num_warps=8,
         grid=(1,),
     )

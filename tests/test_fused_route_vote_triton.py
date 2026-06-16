@@ -10,6 +10,32 @@ from marulho.core.fused_route_vote_cuda import (
 )
 
 
+def _route_state_kwargs(
+    steps_since_win: torch.Tensor,
+    *,
+    step: int = 0,
+    all_materialized_step: int = 0,
+    last_update: torch.Tensor | None = None,
+) -> dict[str, torch.Tensor]:
+    return {
+        "steps_since_win_last_update_step": (
+            torch.zeros_like(steps_since_win)
+            if last_update is None
+            else last_update
+        ),
+        "state_transition_step_counter": torch.tensor(
+            step,
+            dtype=torch.long,
+            device=steps_since_win.device,
+        ),
+        "state_transition_all_materialized_step": torch.tensor(
+            all_materialized_step,
+            dtype=torch.long,
+            device=steps_since_win.device,
+        ),
+    }
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 @pytest.mark.parametrize(
     ("vector_count", "column_dim", "location_dim", "candidate_count"),
@@ -94,6 +120,7 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
         routing_vectors=routing_vectors,
         routing_ids=routing_ids,
         steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
         prototypes=prototypes,
         thresholds=thresholds,
         prediction_location=locations,
@@ -175,6 +202,7 @@ def test_fused_route_vote_masks_deep_sleep_before_candidate_vote() -> None:
         routing_vectors=routing_vectors,
         routing_ids=routing_ids,
         steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
         prototypes=prototypes,
         thresholds=thresholds,
         prediction_location=locations,
@@ -212,6 +240,71 @@ def test_fused_route_vote_masks_deep_sleep_before_candidate_vote() -> None:
     assert state[9] == 0
     assert state[10] == 0
     assert state[11] == vector_count - 2
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_route_vote_uses_logical_stale_age_for_deep_sleep() -> None:
+    torch.manual_seed(20260616)
+    device = torch.device("cuda")
+    vector_count = 16
+    column_dim = 8
+    location_dim = 4
+    candidate_count = 4
+    routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
+    routing_vectors = F.normalize(torch.rand(vector_count, column_dim, device=device), dim=1)
+    routing_ids = torch.arange(vector_count, dtype=torch.long, device=device)
+    prototypes = F.normalize(torch.rand(vector_count, column_dim, device=device), dim=1)
+    thresholds = torch.full((vector_count,), 0.2, device=device)
+    locations = torch.rand(vector_count, location_dim, device=device)
+    previous_winner = torch.tensor([1], dtype=torch.long, device=device)
+    steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
+    last_update = torch.full((vector_count,), 1999, dtype=torch.long, device=device)
+    scores = F.normalize(routing_key.unsqueeze(0), dim=1) @ routing_vectors.T
+    sleepy_positions = torch.topk(scores, k=2, dim=1).indices[0]
+    sleepy_ids = routing_ids[sleepy_positions]
+    last_update[sleepy_ids] = 0
+    memory_pressure = torch.zeros(vector_count, device=device)
+    route_filter_control = torch.tensor([1, 2000, 0, 950000], dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    scores_out = torch.empty(vector_count, device=device)
+    candidates_out = torch.empty(candidate_count, dtype=torch.long, device=device)
+    winner_out = torch.empty(1, dtype=torch.long, device=device)
+    strength_out = torch.empty(1, device=device)
+    had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
+
+    fused_route_vote_cuda(
+        routing_key=routing_key,
+        routing_vectors=routing_vectors,
+        routing_ids=routing_ids,
+        steps_since_win=steps_since_win,
+        **_route_state_kwargs(
+            steps_since_win,
+            step=2000,
+            all_materialized_step=0,
+            last_update=last_update,
+        ),
+        prototypes=prototypes,
+        thresholds=thresholds,
+        prediction_location=locations,
+        memory_pressure=memory_pressure,
+        previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
+        scores_out=scores_out,
+        candidates_out=candidates_out,
+        winner_out=winner_out,
+        strength_out=strength_out,
+        competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
+    )
+    torch.cuda.synchronize()
+
+    assert not torch.isin(candidates_out, sleepy_ids).any()
+    state = route_filter_state.tolist()
+    assert state[1] == 1
+    assert state[2] == 2
+    assert state[3] == vector_count - 2
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -267,6 +360,7 @@ def test_fused_route_vote_backfills_when_awake_routes_are_insufficient() -> None
         routing_vectors=routing_vectors,
         routing_ids=routing_ids,
         steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
         prototypes=prototypes,
         thresholds=thresholds,
         prediction_location=locations,
@@ -347,6 +441,7 @@ def test_fused_route_vote_masks_memory_pressure_before_candidate_vote() -> None:
         routing_vectors=routing_vectors,
         routing_ids=routing_ids,
         steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
         prototypes=prototypes,
         thresholds=thresholds,
         prediction_location=locations,
