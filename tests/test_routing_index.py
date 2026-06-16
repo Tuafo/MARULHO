@@ -29,10 +29,13 @@ class RoutingIndexTests(unittest.TestCase):
         ids = np.array([0, 1, 2], dtype=np.int64)
         index.add(vectors, ids)
 
-        found_ids, dists = index.search(torch.tensor([[0.9, 0.1, 0.0]], dtype=torch.float32), k=2)
+        found_ids, dists = index.search_tensors(
+            torch.tensor([[0.9, 0.1, 0.0]], dtype=torch.float32),
+            k=2,
+        )
 
-        self.assertEqual(found_ids[0], [0, 1])
-        self.assertEqual(dists.shape, (1, 2))
+        self.assertEqual(found_ids.tolist()[0], [0, 1])
+        self.assertEqual(tuple(dists.shape), (1, 2))
         stats = index.stats()
         self.assertEqual(stats["index_type"], "torch_topk")
         self.assertTrue(stats["torch_cache_ready"])
@@ -77,10 +80,10 @@ class RoutingIndexTests(unittest.TestCase):
             dtype=torch.float32,
             device=torch.device("cuda"),
         )
-        found_ids, _ = index.search(query, k=2)
+        found_ids, _ = index.search_tensors(query, k=2)
 
         stats = index.stats()
-        self.assertEqual(found_ids[0], [0, 1])
+        self.assertEqual(found_ids.detach().cpu().tolist()[0], [0, 1])
         self.assertEqual(stats["index_type"], "torch_topk")
         self.assertEqual(stats["search_device"], "cuda")
         self.assertTrue(str(stats["torch_vector_cache_device"]).startswith("cuda"))
@@ -108,9 +111,12 @@ class RoutingIndexTests(unittest.TestCase):
         ids = np.array([0, 1, 2, 3], dtype=np.int64)
         index.add(vectors, ids)
 
-        found_ids, _ = index.search(torch.tensor([[0.95, 0.05]], dtype=torch.float32), k=2)
+        found_ids, _ = index.search_tensors(
+            torch.tensor([[0.95, 0.05]], dtype=torch.float32),
+            k=2,
+        )
 
-        self.assertEqual(found_ids[0], [0, 1])
+        self.assertEqual(found_ids.tolist()[0], [0, 1])
         index.routing_tensor_cache()
         stats = index.stats()
         self.assertEqual(stats["index_type"], "sharded_torch_topk")
@@ -163,7 +169,6 @@ class RoutingIndexTests(unittest.TestCase):
         stats = index.stats()
         self.assertEqual(stats["last_search_mode"], "tensor")
         self.assertEqual(stats["tensor_search_count"], 1)
-        self.assertEqual(stats["list_search_count"], 0)
         self.assertTrue(stats["merged_torch_search_enabled"])
         self.assertTrue(stats["merged_torch_cache_ready"])
         self.assertEqual(stats["merged_torch_vector_cache_count"], 4)

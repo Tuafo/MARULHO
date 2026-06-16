@@ -32,7 +32,6 @@ def run_hot_window_benchmark(
     *,
     samples: int = 512,
     warmup_steps: int = 64,
-    routing_candidate_mode: str = "tensor",
     predictive_transition_mode: str | None = None,
     seed: int = 20260611,
     _trainer_setup: Callable[[object], None] | None = None,
@@ -44,8 +43,6 @@ def run_hot_window_benchmark(
         raise ValueError("samples must be positive")
     if warmup_steps < 0:
         raise ValueError("warmup_steps must be non-negative")
-    if routing_candidate_mode not in {"list", "tensor"}:
-        raise ValueError("routing_candidate_mode must be list or tensor")
     if predictive_transition_mode not in {
         None,
         "fused_eager",
@@ -72,17 +69,6 @@ def run_hot_window_benchmark(
     if _trainer_setup is not None:
         _trainer_setup(trainer)
     device = trainer.model.device
-    if routing_candidate_mode == "list":
-        def _list_routing_candidates(routing_key: torch.Tensor) -> torch.Tensor | None:
-            candidate_ids, _ = trainer.model.routing_index.search(
-                routing_key.unsqueeze(0),
-                k=trainer.config.k_routing,
-            )
-            if not candidate_ids or not candidate_ids[0]:
-                return None
-            return torch.tensor(candidate_ids[0], dtype=torch.long, device=device)
-
-        trainer._routing_candidates = _list_routing_candidates  # type: ignore[method-assign]
 
     generator = torch.Generator(device=device).manual_seed(seed)
     patterns = [
@@ -188,7 +174,7 @@ def run_hot_window_benchmark(
         "seed": int(seed),
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
-        "routing_candidate_mode": routing_candidate_mode,
+        "routing_candidate_mode": "tensor",
         "routing_cache_boundary": "merged_torch_route_cache_required",
         "sync_mode": sync_mode,
         "input_quantum_tokens": int(input_quantum_tokens),
@@ -286,11 +272,6 @@ def main() -> int:
     parser.add_argument("--samples", type=int, default=512)
     parser.add_argument("--warmup-steps", type=int, default=64)
     parser.add_argument(
-        "--routing-candidate-mode",
-        choices=("list", "tensor"),
-        default="tensor",
-    )
-    parser.add_argument(
         "--predictive-transition-mode",
         choices=("fused_eager", "inplace_triton"),
     )
@@ -313,7 +294,6 @@ def main() -> int:
         args.checkpoint,
         samples=args.samples,
         warmup_steps=args.warmup_steps,
-        routing_candidate_mode=args.routing_candidate_mode,
         predictive_transition_mode=args.predictive_transition_mode,
         seed=args.seed,
         profile_trainer_stages=args.profile_trainer_stages,

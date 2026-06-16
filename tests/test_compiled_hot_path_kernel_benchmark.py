@@ -91,42 +91,6 @@ def test_compiled_hot_path_kernel_benchmark_can_use_routing_index_candidates() -
     assert report["best_arm"]["tokens_per_second"] > 0.0
 
 
-def test_compiled_hot_path_kernel_benchmark_can_use_tensor_routing_candidates() -> None:
-    with TemporaryDirectory() as tmpdir:
-        cfg = MarulhoConfig(
-            n_columns=16,
-            column_latent_dim=4,
-            n_ascii=8,
-            k_routing=3,
-            bootstrap_tokens=0,
-            memory_capacity=16,
-            enable_context_layer=False,
-            enable_binding_layer=False,
-            enable_cross_modal=False,
-        )
-        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-        checkpoint = save_trainer_checkpoint(Path(tmpdir) / "hot-path-kernel.pt", trainer)
-
-        with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-            report = run_compiled_hot_path_kernel_benchmark(
-                checkpoint,
-                batch_size=4,
-                iterations=2,
-                warmup_iterations=0,
-                matmul_precision="default",
-                candidate_source="routing_index_tensor",
-                seed=123,
-            )
-
-    assert report["candidate_source"] == "routing_index_tensor"
-    assert report["candidate_prep"]["candidate_source"] == "routing_index_tensor"
-    assert report["candidate_prep"]["fallback_rows"] == 0
-    assert report["candidate_prep"]["candidate_prep_latency_ms"] >= 0.0
-    assert report["candidate_prep"]["routing_index_stats"]["unique_vectors"] == 16
-    assert report["arms"]
-    assert report["best_arm"]["tokens_per_second"] > 0.0
-
-
 def test_compiled_hot_path_kernel_benchmark_exact_route_compete_requires_promoted_shape() -> None:
     with TemporaryDirectory() as tmpdir:
         cfg = MarulhoConfig(
@@ -151,7 +115,7 @@ def test_compiled_hot_path_kernel_benchmark_exact_route_compete_requires_promote
                 iterations=2,
                 warmup_iterations=0,
                 matmul_precision="default",
-                candidate_source="routing_index_tensor",
+                candidate_source="routing_index",
                 exact_route_compete=True,
                 seed=123,
             )
@@ -188,7 +152,7 @@ def test_compiled_hot_path_kernel_benchmark_exact_route_compete_reports_parity()
                 iterations=2,
                 warmup_iterations=0,
                 matmul_precision="default",
-                candidate_source="routing_index_tensor",
+                candidate_source="routing_index",
                 exact_route_compete=True,
                 route_compete_last_winner=0,
                 seed=123,

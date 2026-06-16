@@ -37,7 +37,6 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
                 checkpoint,
                 samples=4,
                 warmup_steps=1,
-                routing_candidate_mode="tensor",
                 predictive_transition_mode="fused_eager",
                 seed=123,
             )

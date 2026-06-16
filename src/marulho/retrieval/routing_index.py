@@ -33,7 +33,6 @@ class HierarchicalAssemblyIndex:
         self._torch_vectors = torch.empty((0, self.dim), dtype=torch.float32, device=self.device)
         self._torch_cache_dirty = True
         self._torch_cache_generation = 0
-        self.list_search_count = 0
         self.tensor_search_count = 0
         self.last_search_mode: str | None = None
 
@@ -131,39 +130,6 @@ class HierarchicalAssemblyIndex:
         self.tombstones.clear()
         self.rebuild_count += 1
 
-    @staticmethod
-    def _pad_distance_rows(rows: List[List[float]], batch_size: int) -> np.ndarray:
-        width = max((len(row) for row in rows), default=0)
-        if width == 0:
-            return np.empty((batch_size, 0), dtype=np.float32)
-
-        padded = np.full((batch_size, width), np.inf, dtype=np.float32)
-        for row_idx, row in enumerate(rows):
-            if row:
-                padded[row_idx, : len(row)] = np.asarray(row, dtype=np.float32)
-        return padded
-
-    def search(self, query: torch.Tensor, k: int = 5) -> Tuple[List[List[int]], np.ndarray]:
-        self.list_search_count += 1
-        self.last_search_mode = "list"
-        query_batch = query if query.dim() == 2 else query.unsqueeze(0)
-        if self.ntotal == 0:
-            return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
-
-        if self._torch_cache_dirty:
-            self._rebuild_torch_cache()
-        if int(self._torch_vectors.shape[0]) <= 0:
-            return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
-        normalized_query = F.normalize(query_batch.to(self.device), dim=1)
-        sims = normalized_query @ self._torch_vectors.T
-        topk = min(max(1, int(k)), int(self._torch_vectors.shape[0]))
-        values, indices = torch.topk(sims, k=topk, dim=1)
-        _on_cpu = self.device == torch.device("cpu")
-        ids = self._torch_ids[indices].tolist() if _on_cpu else self._torch_ids[indices].cpu().tolist()
-        dists_t = 1.0 - values
-        dists = dists_t.numpy().astype(np.float32) if _on_cpu else dists_t.detach().cpu().numpy().astype(np.float32)
-        return [[int(candidate_id) for candidate_id in row] for row in ids], dists
-
     def search_tensors(self, query: torch.Tensor, k: int = 5) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return candidate ids and distances as tensors on the index device.
 
@@ -223,7 +189,6 @@ class HierarchicalAssemblyIndex:
             "rebuild_count": int(self.rebuild_count),
             "rebuild_threshold": int(self.rebuild_threshold),
             "search_device": self.device.type,
-            "list_search_count": int(self.list_search_count),
             "tensor_search_count": int(self.tensor_search_count),
             "last_search_mode": self.last_search_mode,
         }
@@ -265,7 +230,6 @@ class ShardedHierarchicalAssemblyIndex:
             )
             for _ in range(self.n_shards)
         ]
-        self.list_search_count = 0
         self.tensor_search_count = 0
         self.last_search_mode: str | None = None
         merged_device = self.shards[0].device if self.shards else torch.device("cpu")
@@ -363,43 +327,6 @@ class ShardedHierarchicalAssemblyIndex:
             self._merged_torch_vectors = torch.cat(vectors, dim=0)
         self._merged_torch_cache_dirty = False
 
-    def _local_k_for_shard(self, shard: HierarchicalAssemblyIndex, requested_k: int) -> int:
-        local_k = max(1, int(requested_k) * self.shard_candidate_factor)
-        return local_k
-
-    def search(self, query: torch.Tensor, k: int = 5) -> Tuple[List[List[int]], np.ndarray]:
-        self.list_search_count += 1
-        self.last_search_mode = "list"
-        query_batch = query if query.dim() == 2 else query.unsqueeze(0)
-        if self.ntotal == 0:
-            return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
-
-        shard_results = [
-            shard.search(query_batch, k=self._local_k_for_shard(shard, k))
-            for shard in self.shards
-        ]
-
-        merged_ids: List[List[int]] = []
-        merged_dists: List[List[float]] = []
-        for row_idx in range(query_batch.shape[0]):
-            candidates: List[Tuple[float, int]] = []
-            seen: set[int] = set()
-            for shard_ids, shard_dists in shard_results:
-                ids_row = shard_ids[row_idx]
-                for candidate_pos, candidate_id in enumerate(ids_row):
-                    if candidate_id in seen:
-                        continue
-                    seen.add(candidate_id)
-                    distance = float(shard_dists[row_idx, candidate_pos]) if candidate_pos < shard_dists.shape[1] else float("inf")
-                    candidates.append((distance, int(candidate_id)))
-
-            candidates.sort(key=lambda item: item[0])
-            top_candidates = candidates[:k]
-            merged_ids.append([candidate_id for _, candidate_id in top_candidates])
-            merged_dists.append([distance for distance, _ in top_candidates])
-
-        return merged_ids, HierarchicalAssemblyIndex._pad_distance_rows(merged_dists, query_batch.shape[0])
-
     def search_tensors(self, query: torch.Tensor, k: int = 5) -> Tuple[torch.Tensor, torch.Tensor]:
         self.tensor_search_count += 1
         self.last_search_mode = "tensor"
@@ -479,7 +406,6 @@ class ShardedHierarchicalAssemblyIndex:
             "per_shard_tombstones": [int(stat["tombstones"]) for stat in shard_stats],
             "shard_balance_ratio": balance_ratio,
             "search_device": shard_stats[0].get("search_device", "cpu") if shard_stats else "cpu",
-            "list_search_count": int(self.list_search_count),
             "tensor_search_count": int(self.tensor_search_count),
             "last_search_mode": self.last_search_mode,
             "merged_torch_search_enabled": self._uses_merged_torch_search(),

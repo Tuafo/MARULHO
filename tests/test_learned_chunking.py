@@ -64,11 +64,11 @@ class LearnedChunkingTests(unittest.TestCase):
 
         dense_assembly = competitive.assembly_from_input(pattern)
         expected_key = F.normalize(competitive.last_projected_input, dim=0)
-        candidate_ids, _ = trainer.model.routing_index.search(
+        candidate_ids, _ = trainer.model.routing_index.search_tensors(
             expected_key.unsqueeze(0),
             k=trainer.config.k_routing,
         )
-        candidates = torch.tensor(candidate_ids[0], device=trainer.model.device)
+        candidates = candidate_ids[0].to(device=trainer.model.device)
         dense_winners, _, _ = competitive.compete(
             expected_key,
             candidates,
@@ -144,7 +144,6 @@ class LearnedChunkingTests(unittest.TestCase):
 
         self.assertEqual(routing_stats["last_search_mode"], "tensor")
         self.assertGreaterEqual(routing_stats["tensor_search_count"], 1)
-        self.assertEqual(routing_stats["list_search_count"], 0)
 
     def test_non_chunking_routing_keeps_required_dense_assembly(self) -> None:
         cfg = MarulhoConfig(

@@ -114,70 +114,6 @@ def _routing_index_candidates(
         torch.cuda.synchronize()
     started = time.perf_counter_ns()
     routing_keys = _project_routing_keys(input_patterns, w_project)
-    ids, distances = trainer.model.routing_index.search(routing_keys, k=k_routing)
-    fallback_rows = 0
-    candidate_rows: list[list[int]] = []
-    fallback = list(range(min(k_routing, n_columns)))
-    while len(fallback) < k_routing:
-        fallback.extend(fallback or [0])
-    fallback = fallback[:k_routing]
-
-    for row in ids:
-        clean_row = [int(candidate_id) for candidate_id in row[:k_routing] if 0 <= int(candidate_id) < n_columns]
-        if len(clean_row) < k_routing:
-            fallback_rows += 1
-            seen = set(clean_row)
-            for candidate_id in fallback:
-                if candidate_id not in seen:
-                    clean_row.append(candidate_id)
-                    seen.add(candidate_id)
-                if len(clean_row) >= k_routing:
-                    break
-            while len(clean_row) < k_routing:
-                clean_row.append(fallback[len(clean_row) % len(fallback)])
-        candidate_rows.append(clean_row[:k_routing])
-
-    if len(candidate_rows) != batch_size:
-        fallback_rows = batch_size
-        candidate_indices = _deterministic_fallback_candidates(batch_size, k_routing, n_columns, device)
-    else:
-        candidate_indices = torch.tensor(candidate_rows, dtype=torch.long, device=device)
-
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-    prep_latency_ms = (time.perf_counter_ns() - started) / 1e6
-    finite_distances = distances[distances < float("inf")]
-    distance_stats: dict[str, float | None] = {
-        "mean": float(finite_distances.mean()) if finite_distances.size else None,
-        "min": float(finite_distances.min()) if finite_distances.size else None,
-        "max": float(finite_distances.max()) if finite_distances.size else None,
-    }
-
-    return candidate_indices, {
-        "candidate_source": "routing_index",
-        "candidate_prep_latency_ms": prep_latency_ms,
-        "candidate_prep_tokens_per_second": float(batch_size / max(prep_latency_ms / 1000.0, 1e-9)),
-        "fallback_rows": int(fallback_rows),
-        "distance_stats": distance_stats,
-        "routing_index_stats": trainer.model.routing_index.stats(),
-    }
-
-
-def _routing_index_tensor_candidates(
-    *,
-    trainer,
-    input_patterns: torch.Tensor,
-    w_project: torch.Tensor,
-) -> tuple[torch.Tensor, dict[str, object]]:
-    device = input_patterns.device
-    batch_size = int(input_patterns.shape[0])
-    k_routing = int(trainer.config.k_routing)
-    n_columns = int(trainer.config.n_columns)
-
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-    started = time.perf_counter_ns()
-    routing_keys = _project_routing_keys(input_patterns, w_project)
     ids, distances = trainer.model.routing_index.search_tensors(routing_keys, k=k_routing)
 
     fallback_rows = 0
@@ -213,7 +149,7 @@ def _routing_index_tensor_candidates(
     }
 
     return candidate_indices, {
-        "candidate_source": "routing_index_tensor",
+        "candidate_source": "routing_index",
         "candidate_prep_latency_ms": prep_latency_ms,
         "candidate_prep_tokens_per_second": float(batch_size / max(prep_latency_ms / 1000.0, 1e-9)),
         "candidate_prep_warm_latency_ms": warm_prep_latency_ms,
@@ -770,8 +706,8 @@ def run_compiled_hot_path_kernel_benchmark(
         raise ValueError("warmup_iterations must be non-negative")
     if matmul_precision not in {"default", "highest", "high", "medium"}:
         raise ValueError("matmul_precision must be default, highest, high, or medium")
-    if candidate_source not in {"random", "routing_index", "routing_index_tensor"}:
-        raise ValueError("candidate_source must be random, routing_index, or routing_index_tensor")
+    if candidate_source not in {"random", "routing_index"}:
+        raise ValueError("candidate_source must be random or routing_index")
     if matmul_precision != "default":
         torch.set_float32_matmul_precision(matmul_precision)
 
@@ -1023,12 +959,6 @@ def run_compiled_hot_path_kernel_benchmark(
             input_patterns=input_patterns,
             w_project=w_project,
         )
-    elif candidate_source == "routing_index_tensor":
-        candidate_indices, candidate_prep = _routing_index_tensor_candidates(
-            trainer=trainer,
-            input_patterns=input_patterns,
-            w_project=w_project,
-        )
     else:
         candidate_indices = _random_candidates(
             batch_size=batch_size,
@@ -1197,7 +1127,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--candidate-source",
-        choices=("random", "routing_index", "routing_index_tensor"),
+        choices=("random", "routing_index"),
         default="random",
     )
     parser.add_argument(
