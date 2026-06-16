@@ -1977,13 +1977,40 @@ and the live 16-token bank refresh cadence:
 | graph128 cap1024 q16 | `985.961/8192` mean | `0.900390625` | `0.484375` | `5` | quality incomplete |
 | graph208 cap1536 q16 | `1476.677/8192` mean | `0.9453125` | `0.74609375` | `4` | still below promotion gate |
 
+The next probe tested a CAGRA-style bounded graph walk in the same evaluation
+gate. It scores a bounded frontier from the current bank plus probe lane, keeps
+a fixed beam as graph-walk parents, and expands neighbor frontiers for fixed
+rounds. This is still evaluation-only: the full routing cache is used for the
+offline oracle and graph precompute, not as a hot-path scheduler.
+
+| Graph-walk shape | steady rows | exact top-1 | winner match | mean top-k overlap | worst miss | status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| neighbor64 beam4 round4 cap512 | `512/8192` | `0.896484375` | `0.263671875` | `0.8371093749999988` | `5` | rejected |
+| neighbor64 beam2 round6 cap512 | `512/8192` | `0.912109375` | `0.259765625` | `0.8609374999999994` | `3` | rejected |
+| neighbor128 beam8 round4 cap1024 | `1024/8192` | `0.98046875` | `0.70703125` | `0.9400390624999977` | `2` | rejected |
+| neighbor128 beam2 round6 cap1024 | `1024/8192` | `1.0` | `0.73046875` | `0.9660156249999977` | `0` | rejected |
+| neighbor208 beam12 round4 cap1536 | `1536/8192` | `0.9609375` | `0.822265625` | `0.9486328124999986` | `4` | rejected |
+| neighbor256 beam2 round6 cap1536 | `1536/8192` | `1.0` | `0.767578125` | `0.9912109374999994` | `0` | rejected |
+
 The strict pass criteria remain exact top-1 and winner match at least `0.95`
 with worst exact top-1 miss streak at most `2`. The earlier graph-neighbor
 quality pass assumed per-tick refresh and did not survive the live q16 refresh
-cadence; this keeps the throughput/quality boundary honest. The next promotable
-router needs a fused/GPU-owned discovery mechanism or graph-ordered device
-refresh that can preserve burst parity, recover relevance, and keep the
-131072-token 6k-ish path.
+cadence, and graph walking shows why exact top-1 is not enough: the
+previous-winner/location-sensitive vote needs the supporting candidate set. No
+graph-walk runtime gate was run because every tested shape failed winner parity
+before promotion. A same-session real-path recheck kept the promoted runtime
+unchanged:
+`reports/column_scheduler_20260616/graph-walk-eval-no-runtime-change-8192-131072-i32.json`
+reached `6141.295 tokens/sec`, `train_compute=0.132462 ms/token`,
+`prepare_training=0.006577 ms/token`, `finalize_total=0.006070 ms/token`,
+`tick_duration_ms.p95=22.216`, `route_input_rows_scored=12/8192`,
+`state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and `velocity_environment.v1` contention `contention_observed`, so it is
+in-band evidence rather than a new top-speed claim. The next promotable router
+needs a fused/GPU-owned discovery mechanism or graph-ordered device refresh
+that can preserve burst parity, recover relevance, and keep the 131072-token
+6k-ish path.
 
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and

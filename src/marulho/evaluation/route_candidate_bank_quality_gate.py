@@ -78,6 +78,26 @@ def _ordered_unique_limited_positions(
     return torch.tensor(kept, dtype=torch.long, device=positions.device)
 
 
+def _ordered_new_limited_positions(
+    positions: torch.Tensor,
+    *,
+    seen: set[int],
+    limit: int,
+) -> torch.Tensor:
+    if int(limit) <= 0 or int(positions.numel()) <= 0:
+        return torch.empty((0,), dtype=torch.long, device=positions.device)
+    kept: list[int] = []
+    for value in positions.detach().cpu().tolist():
+        position = int(value)
+        if position < 0 or position in seen:
+            continue
+        seen.add(position)
+        kept.append(position)
+        if len(kept) >= int(limit):
+            break
+    return torch.tensor(kept, dtype=torch.long, device=positions.device)
+
+
 def _ordered_unique_limited_candidate_ids(
     *,
     scores: torch.Tensor,
@@ -147,6 +167,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     exact_reseed_interval: int = 0,
     route_candidate_graph_neighbor_count: int = 0,
     route_candidate_graph_capacity_rows: int = 0,
+    route_candidate_graph_walk_beam: int = 0,
+    route_candidate_graph_walk_rounds: int = 0,
     route_candidate_probe_rows: int = 0,
     route_candidate_bank_refresh_interval: int = 1,
 ) -> dict[str, Any]:
@@ -204,6 +226,14 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             ),
         )
     )
+    graph_walk_beam = min(
+        max(0, int(route_candidate_graph_walk_beam)),
+        int(ids.numel()),
+    )
+    graph_walk_rounds = max(0, int(route_candidate_graph_walk_rounds))
+    graph_walk_enabled = bool(
+        graph_enabled and graph_walk_beam > 0 and graph_walk_rounds > 0
+    )
     neighbor_positions: torch.Tensor | None = None
     if graph_enabled:
         neighbor_scores = vectors @ vectors.T
@@ -228,6 +258,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     worst_consecutive_top1_miss = 0
     bank_score_rows: list[int] = []
     graph_valid_rows: list[int] = []
+    graph_walk_valid_rows: list[int] = []
     seed_count = 0
     reseed_count = 0
     probe_exact_top1_seen_count = 0
@@ -240,6 +271,47 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     current_score_positions: torch.Tensor | None = None
     current_bank_positions = positions_by_column.index_select(0, current_bank_ids)
     current_probe_positions = torch.empty((0,), dtype=torch.long, device=device)
+
+    def _graph_walk_score_positions(
+        routing_key: torch.Tensor,
+        seed_positions: torch.Tensor,
+    ) -> torch.Tensor:
+        assert neighbor_positions is not None
+        seen_positions: set[int] = set()
+        score_position_parts: list[torch.Tensor] = []
+        frontier = seed_positions
+        remaining = int(graph_capacity)
+        for walk_round in range(int(graph_walk_rounds) + 1):
+            current_frontier = _ordered_new_limited_positions(
+                frontier,
+                seen=seen_positions,
+                limit=remaining,
+            )
+            if int(current_frontier.numel()) <= 0:
+                break
+            score_position_parts.append(current_frontier)
+            remaining -= int(current_frontier.numel())
+            if remaining <= 0 or walk_round >= int(graph_walk_rounds):
+                break
+            frontier_scores = routing_key.unsqueeze(0) @ vectors.index_select(
+                0,
+                current_frontier,
+            ).T
+            parent_count = min(int(graph_walk_beam), int(current_frontier.numel()))
+            if parent_count <= 0:
+                break
+            parent_offsets = torch.topk(
+                frontier_scores.flatten(),
+                k=parent_count,
+            ).indices
+            parent_positions = current_frontier.index_select(0, parent_offsets)
+            frontier = neighbor_positions.index_select(
+                0,
+                parent_positions,
+            ).flatten()
+        if not score_position_parts:
+            return torch.empty((0,), dtype=torch.long, device=device)
+        return torch.cat(score_position_parts, dim=0)
 
     def _refresh_score_positions(bank_ids: torch.Tensor) -> None:
         nonlocal current_score_positions
@@ -296,20 +368,27 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                     if current_score_positions is not None and probe_enabled
                     else bank_positions
                 )
-                expanded_positions = torch.cat(
-                    (
+                if graph_walk_enabled:
+                    expanded_positions = _graph_walk_score_positions(
+                        keys[tick],
                         graph_seed_positions,
-                        neighbor_positions.index_select(
-                            0,
+                    )
+                    graph_walk_valid_rows.append(int(expanded_positions.numel()))
+                else:
+                    expanded_positions = torch.cat(
+                        (
                             graph_seed_positions,
-                        ).flatten(),
-                    ),
-                    dim=0,
-                )
-                expanded_positions = _ordered_unique_limited_positions(
-                    expanded_positions,
-                    limit=graph_capacity,
-                )
+                            neighbor_positions.index_select(
+                                0,
+                                graph_seed_positions,
+                            ).flatten(),
+                        ),
+                        dim=0,
+                    )
+                    expanded_positions = _ordered_unique_limited_positions(
+                        expanded_positions,
+                        limit=graph_capacity,
+                    )
                 bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
                     0,
                     expanded_positions,
@@ -448,6 +527,13 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         "evaluation_exact_reseed_only": int(exact_reseed_interval) > 0,
         "route_candidate_graph": {
             "enabled": bool(graph_enabled),
+            "mode": (
+                "bounded_walk"
+                if graph_walk_enabled
+                else "one_hop_capacity"
+                if graph_enabled
+                else "disabled"
+            ),
             "neighbor_count": int(graph_neighbor_count),
             "capacity_rows": int(graph_capacity if graph_enabled else bank_capacity),
             "default_capacity_rows": int(
@@ -458,6 +544,21 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             "hot_path_precompute": False,
             "claim_boundary": (
                 "offline_quality_simulation_of_bounded_neighbor_expansion_without_hot_path_all_column_scan"
+            ),
+        },
+        "route_candidate_graph_walk": {
+            "enabled": bool(graph_walk_enabled),
+            "beam": int(graph_walk_beam if graph_enabled else 0),
+            "rounds": int(graph_walk_rounds if graph_enabled else 0),
+            "capacity_rows": int(graph_capacity if graph_walk_enabled else 0),
+            "seed_rows": int(
+                (bank_capacity + probe_rows) if graph_walk_enabled else 0
+            ),
+            "valid_rows": _float_stats(graph_walk_valid_rows),
+            "offline_precompute_rows": int(ids.numel() if graph_walk_enabled else 0),
+            "hot_path_precompute": False,
+            "claim_boundary": (
+                "offline_quality_simulation_of_fixed_degree_graph_walk_without_hot_path_all_column_scan"
             ),
         },
         "route_candidate_probe": {
@@ -501,6 +602,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         "promotion_status": (
             "passes_real_source_route_bank_quality_gate"
             if quality_passes
+            else "graph_walk_bounded_but_requires_stronger_discovery_router_before_quality_claim"
+            if graph_walk_enabled
             else "probe_lane_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if probe_enabled
             else "requires_reseed_policy_or_wider_bank_before_quality_claim"
@@ -552,6 +655,8 @@ def run_route_candidate_bank_quality_gate(
     exact_reseed_interval: int = 0,
     route_candidate_graph_neighbor_count: int = 0,
     route_candidate_graph_capacity_rows: int = 0,
+    route_candidate_graph_walk_beam: int = 0,
+    route_candidate_graph_walk_rounds: int = 0,
     route_candidate_probe_rows: int = 2,
     route_candidate_bank_refresh_interval: int = 16,
 ) -> dict[str, Any]:
@@ -600,6 +705,8 @@ def run_route_candidate_bank_quality_gate(
         exact_reseed_interval=int(exact_reseed_interval),
         route_candidate_graph_neighbor_count=int(route_candidate_graph_neighbor_count),
         route_candidate_graph_capacity_rows=int(route_candidate_graph_capacity_rows),
+        route_candidate_graph_walk_beam=int(route_candidate_graph_walk_beam),
+        route_candidate_graph_walk_rounds=int(route_candidate_graph_walk_rounds),
         route_candidate_probe_rows=int(route_candidate_probe_rows),
         route_candidate_bank_refresh_interval=int(
             route_candidate_bank_refresh_interval
@@ -640,6 +747,8 @@ def main() -> int:
     parser.add_argument("--exact-reseed-interval", type=int, default=0)
     parser.add_argument("--route-candidate-graph-neighbor-count", type=int, default=0)
     parser.add_argument("--route-candidate-graph-capacity-rows", type=int, default=0)
+    parser.add_argument("--route-candidate-graph-walk-beam", type=int, default=0)
+    parser.add_argument("--route-candidate-graph-walk-rounds", type=int, default=0)
     parser.add_argument("--route-candidate-probe-rows", type=int, default=2)
     parser.add_argument(
         "--route-candidate-bank-refresh-interval",
@@ -664,6 +773,8 @@ def main() -> int:
         route_candidate_graph_capacity_rows=(
             args.route_candidate_graph_capacity_rows
         ),
+        route_candidate_graph_walk_beam=args.route_candidate_graph_walk_beam,
+        route_candidate_graph_walk_rounds=args.route_candidate_graph_walk_rounds,
         route_candidate_probe_rows=args.route_candidate_probe_rows,
         route_candidate_bank_refresh_interval=(
             args.route_candidate_bank_refresh_interval

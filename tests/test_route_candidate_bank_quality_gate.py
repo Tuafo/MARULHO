@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as F
 
@@ -181,3 +183,51 @@ def test_route_candidate_graph_neighbors_recover_bounded_relevance_shift() -> No
     assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
     assert report["quality"]["exact_winner_match_rate"] == 1.0
     assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
+
+
+def test_route_candidate_graph_walk_recovers_multi_hop_shift_with_bounded_rows() -> None:
+    angles = torch.tensor(
+        [math.radians(value) for value in range(0, 100, 10)],
+        dtype=torch.float32,
+    )
+    vectors = torch.stack((torch.cos(angles), torch.sin(angles)), dim=1)
+    keys = torch.stack((vectors[0], vectors[6], vectors[6]))
+
+    base_kwargs = {
+        "routing_keys": keys,
+        "routing_vectors": vectors,
+        "routing_ids": torch.arange(int(vectors.shape[0]), dtype=torch.long),
+        "prototypes": vectors.clone(),
+        "thresholds": torch.zeros(int(vectors.shape[0]), dtype=torch.float32),
+        "prediction_location": torch.zeros(
+            int(vectors.shape[0]),
+            int(vectors.shape[1]),
+            dtype=torch.float32,
+        ),
+        "k_routing": 2,
+        "bank_size": 2,
+        "previous_winner": 0,
+        "route_candidate_graph_neighbor_count": 3,
+        "route_candidate_graph_capacity_rows": 8,
+        "route_candidate_bank_refresh_interval": 16,
+    }
+
+    one_hop_report = evaluate_route_candidate_bank_quality_from_tensors(
+        **base_kwargs,
+    )
+    walk_report = evaluate_route_candidate_bank_quality_from_tensors(
+        **base_kwargs,
+        route_candidate_graph_walk_beam=1,
+        route_candidate_graph_walk_rounds=4,
+    )
+
+    assert one_hop_report["route_candidate_graph"]["mode"] == "one_hop_capacity"
+    assert one_hop_report["quality"]["exact_top1_in_bank_rate"] < 1.0
+    assert walk_report["route_candidate_graph"]["mode"] == "bounded_walk"
+    assert walk_report["route_candidate_graph_walk"]["enabled"] is True
+    assert walk_report["route_candidate_graph_walk"]["beam"] == 1
+    assert walk_report["route_candidate_graph_walk"]["rounds"] == 4
+    assert walk_report["steady_route_score_rows"]["max"] < walk_report["total_columns"]
+    assert walk_report["quality"]["exact_top1_in_bank_rate"] == 1.0
+    assert walk_report["quality"]["exact_winner_match_rate"] == 1.0
+    assert walk_report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
