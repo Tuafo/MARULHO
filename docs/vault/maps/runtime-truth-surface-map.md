@@ -53,8 +53,12 @@ truth. `route_candidate_bank` reports the training-owned bank readiness,
 size, exact seed count, refresh count, graph bypass count, fallback count, and
 last reason. The exact seed is visible as
 `exact_full_cache_score_seed_route_bank`; steady graph/burst ticks report
-`indexed_route_bank_vote` with bounded route rows. The route-owner scheduler
-filter also reports whether memory-pressure filtering was enabled from cached
-pressure evidence, how many route rows it masked, and why it fell back. Service
-may project that evidence but must not construct its own scheduler decision or
-clear route-cost truth from awake-count evidence.
+`indexed_route_bank_vote` with bounded route rows. The 2026-06-16 8192-column
+route-bank gate reports `route_input_rows_scored=10`,
+`route_input_fraction=0.001220703125`, `state_transition_column_count=10`,
+and `state_transition_cached_count=8182`, so Runtime Truth now has a measured
+1024-to-8192 steady-route scaling example after the explicit exact seed. The
+route-owner scheduler filter also reports whether memory-pressure filtering
+was enabled from cached pressure evidence, how many route rows it masked, and
+why it fell back. Service may project that evidence but must not construct its
+own scheduler decision or clear route-cost truth from awake-count evidence.

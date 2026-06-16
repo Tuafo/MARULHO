@@ -1687,7 +1687,7 @@ and `bounded_route_scoring=false`.
 
 The route-scoring truth cleanup adds `route_vote_scoring` to the training-owned
 transition report and projects it through Runtime Truth without changing the
-route/vote algorithm. Focused tests assert that the promoted exact-cache path
+route/vote algorithm. Focused tests assert that the then-promoted exact-cache path
 keeps bounded specialist execution while still reporting
 `route_input_rows_scored=total_columns`, `route_rows_run_all_columns=true`, and
 `bounded_route_scoring=false`. This prevents an exact `torch_topk`
@@ -1731,8 +1731,8 @@ cost: `train_compute.max=3859.036 ms`, while p95 was `17.919 ms/tick`. That
 exposed an implementation-path miss: the exact seed route was not warmed, so
 the full-cache seed kernel could JIT compile inside the measured window.
 
-After warming both the exact seed route and the indexed bank route, the long
-promotion gate at
+After warming both the exact seed route and the indexed bank route, the 1024
+column long promotion gate at
 `reports/column_scheduler_20260616/route-candidate-bank-warmseed-131072-i32.json`
 returned to the 6k-ish band:
 
@@ -1757,8 +1757,35 @@ The warm-seed report selected the RTX 3060, completed `131072` tokens, kept
 exact seed is counted as a truth cadence tick without pretending it was a graph
 replay.
 
-This promotes the route-bank path as the current scheduler boundary at the
-1024-column true path. It does not prove a general ANN router, wider-bank
-quality, or growth/pruning autonomy. A larger-column route-bank scaling gate is
-still required before claiming total-column-invariant route cost across 8192+
-columns.
+The larger-column scaling gate then reran the same 131072-token real path
+against the promoted 8192-column checkpoint:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-candidate-bank-8192-warmseed-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+| Metric | Old 8192 exact-cache route-vote | 1024 route-bank warmseed | 8192 route-bank warmseed |
+| --- | ---: | ---: | ---: |
+| tokens/sec | `3564.222` | `6109.301` | `6110.715` |
+| train_compute ms/token | `0.251487` | `0.130536` | `0.135007` |
+| prepare_training ms/token | `0.006526` | `0.006706` | `0.006082` |
+| finalize_total ms/token | `0.005773` | `0.005764` | `0.005988` |
+| tick_duration p95 ms | `36.002` | `21.299` | `20.370` |
+| route rows scored | `8192` | `10` | `10` |
+| state transition columns | not separately surfaced | `10/1024` | `10/8192` |
+| graph/native/sequence failures | `0` | `0` | `0` |
+| environment contention | not observed | contention observed | not observed |
+
+The 8192 route-bank report selected the RTX 3060, completed `131072` tokens,
+kept `route_vote_kernel_variant=indexed_route_bank_vote`,
+`route_candidate_bank.enabled=true`, `ready=true`, `seed_count=1`,
+`fallback_count=1`, `graph_bypass_count=1`, and
+`last_reason=bounded_route_bank_burst_refresh`. Runtime Truth reported
+`route_input_rows_scored=10`, `route_input_fraction=0.001220703125`,
+`route_rows_run_all_columns=false`, `bounded_route_scoring=true`,
+`state_transition_column_count=10`, `state_transition_cached_count=8182`, and
+`state_transition_runs_all_columns=false`.
+
+This promotes the route-bank path as the current steady scheduler boundary for
+the 1024 and 8192 real paths. It does not prove a general ANN router,
+wider-bank quality, or growth/pruning autonomy. The remaining scaling work is a
+quality/recall gate for larger banks or future GPU-owned routers, plus explicit
+growth/pruning budget policy, not another per-tick all-column route scorer.
