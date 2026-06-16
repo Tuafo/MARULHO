@@ -9,6 +9,7 @@ related_benchmarks: []
 
         # Retired Paths
 
-        - [Direct Route Vote Fusion](direct-route-vote-fusion.md)
+        - [Compiled Column Kernel Benchmark](compiled-column-kernel-benchmark.md)
+- [Direct Route Vote Fusion](direct-route-vote-fusion.md)
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
