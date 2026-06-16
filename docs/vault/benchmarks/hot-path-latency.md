@@ -1985,6 +1985,26 @@ router needs a fused/GPU-owned discovery mechanism or graph-ordered device
 refresh that can preserve burst parity, recover relevance, and keep the
 131072-token 6k-ish path.
 
+The follow-up cheap-discovery probe added
+`marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
+random-projection buckets. These are evaluation-only probes: offline precompute
+may inspect the full routing cache, but the simulated hot path reports bounded
+selector rows and route rows explicitly.
+
+| Probe shape | refresh | steady route rows | selector rows | exact top-1 | winner match | worst miss | status |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| landmark256 top8 bucket128 | q16 | `926.544/8192` mean | `256` per refresh (`16.0` amortized/tick) | `0.77734375` | `0.4296875` | `7` | rejected |
+| random-projection512 top32 bucket64 | q16 | `1790.795/8192` mean | `512` per refresh (`32.0` amortized/tick) | `0.255859375` | `0.23046875` | `26` | rejected |
+| landmark256 top8 bucket128 | q1 | `924.920/8192` mean | `256` per tick | `0.884765625` | `0.525390625` | `3` | rejected |
+| landmark512 top16 bucket128 | q1 | `1642.932/8192` mean | `512` per tick | `1.0` | `0.91015625` | `0` | rejected |
+
+These shapes do not justify a runtime path. The best landmark probe recovers
+exact top-1 but still fails winner parity while paying a larger row budget than
+the rejected graph-neighbor runtime. The random-projection bucket is worse than
+the route-bank probe lane despite far more rows. The next candidate must be a
+fused/GPU-owned graph or ANN discovery boundary that beats this quality/cost
+frontier and then survives the 131072-token real-path run.
+
 ### Wake-Plan-Scoped Awake Ripple Tagging, 2026-06-16
 
 Awake-ripple tagging is a replay-priority metabolism path, not a CUDA route
