@@ -366,9 +366,15 @@ class StatusReadModelStatusTests(unittest.TestCase):
             column_runtime["execution"]["state_transition_column_count"],
             0,
         )
+        self.assertEqual(column_runtime["execution"]["state_transition_cached_count"], 0)
+        self.assertEqual(
+            column_runtime["execution"]["state_transition_cached_fraction"],
+            0.0,
+        )
         self.assertFalse(
             column_runtime["execution"]["state_transition_runs_all_columns"]
         )
+        self.assertEqual(column_runtime["execution"]["state_transition_step_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_count"], 0)
         self.assertEqual(column_runtime["execution"]["homeostasis_update_fraction"], 0.0)
         self.assertEqual(column_runtime["execution"]["input_weight_blend"], 0.0)
@@ -550,10 +556,16 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "total_columns": 128,
                         "candidate_count": 7,
                         "scored_column_count": 7,
-                        "runs_all_columns": True,
-                        "state_transition_mode": "dense_all_columns_cuda_graph_route_transition",
-                        "state_transition_column_count": 128,
-                        "state_transition_runs_all_columns": True,
+                        "runs_all_columns": False,
+                        "state_transition_mode": "candidate_subset_lazy_state_transition",
+                        "state_transition_column_count": 7,
+                        "state_transition_cached_count": 121,
+                        "state_transition_cached_fraction": 0.945312,
+                        "state_transition_runs_all_columns": False,
+                        "state_transition_step_count": 512,
+                        "state_transition_materialize_mode": "candidate_subset",
+                        "state_transition_materialize_count": 3,
+                        "state_transition_materialize_max_age": 64,
                         "scored_column_fraction": 0.054688,
                         "homeostasis_update_mode": "candidate_subset",
                         "homeostasis_update_count": 7,
@@ -563,9 +575,9 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "input_plasticity_update_count": 0,
                         "input_plasticity_skip_count": 1,
                         "dormant_input_plasticity_skipped": True,
-                        "sparse_candidate_execution_observed": False,
+                        "sparse_candidate_execution_observed": True,
                         "tensor_device": "cpu",
-                        "fallback_reason": "state_transition_dense_all_columns_retained",
+                        "fallback_reason": None,
                         "claim_boundary": "observed_competitive_scoring_and_state_transition_scope",
                     },
                 }
@@ -632,11 +644,23 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertFalse(projected["predictive_update_execution"]["runs_all_columns"])
         self.assertEqual(
             projected["execution"]["state_transition_mode"],
-            "dense_all_columns_cuda_graph_route_transition",
+            "candidate_subset_lazy_state_transition",
         )
-        self.assertEqual(projected["execution"]["state_transition_column_count"], 128)
-        self.assertTrue(projected["execution"]["state_transition_runs_all_columns"])
-        self.assertTrue(projected["execution"]["runs_all_columns"])
+        self.assertEqual(projected["execution"]["state_transition_column_count"], 7)
+        self.assertEqual(projected["execution"]["state_transition_cached_count"], 121)
+        self.assertEqual(
+            projected["execution"]["state_transition_cached_fraction"],
+            0.945312,
+        )
+        self.assertEqual(projected["execution"]["state_transition_step_count"], 512)
+        self.assertEqual(
+            projected["execution"]["state_transition_materialize_mode"],
+            "candidate_subset",
+        )
+        self.assertEqual(projected["execution"]["state_transition_materialize_count"], 3)
+        self.assertEqual(projected["execution"]["state_transition_materialize_max_age"], 64)
+        self.assertFalse(projected["execution"]["state_transition_runs_all_columns"])
+        self.assertFalse(projected["execution"]["runs_all_columns"])
 
     def test_status_returns_memory_store(self) -> None:
         model, _, _, _ = _build_read_model()

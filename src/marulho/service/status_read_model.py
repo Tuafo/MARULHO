@@ -1317,8 +1317,26 @@ class StatusReadModel:
                 "state_transition_column_count": int(
                     execution.get("state_transition_column_count", 0) or 0
                 ),
+                "state_transition_cached_count": int(
+                    execution.get("state_transition_cached_count", 0) or 0
+                ),
+                "state_transition_cached_fraction": float(
+                    execution.get("state_transition_cached_fraction", 0.0) or 0.0
+                ),
                 "state_transition_runs_all_columns": bool(
                     execution.get("state_transition_runs_all_columns", False)
+                ),
+                "state_transition_step_count": int(
+                    execution.get("state_transition_step_count", 0) or 0
+                ),
+                "state_transition_materialize_mode": execution.get(
+                    "state_transition_materialize_mode"
+                ),
+                "state_transition_materialize_count": int(
+                    execution.get("state_transition_materialize_count", 0) or 0
+                ),
+                "state_transition_materialize_max_age": int(
+                    execution.get("state_transition_materialize_max_age", 0) or 0
                 ),
                 "scored_column_fraction": float(execution.get("scored_column_fraction", 0.0) or 0.0),
                 "homeostasis_update_mode": execution.get("homeostasis_update_mode"),

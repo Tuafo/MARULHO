@@ -100,6 +100,53 @@ class TestStateDict:
         )
         assert layer2.steps_since_win[0].item() == 999
 
+    def test_roundtrip_materializes_lazy_state_transition_snapshot(self):
+        layer = _make_layer(n_columns=6)
+        layer.steps_since_win[:] = torch.tensor([0, 1, 2, 3, 4, 5])
+        layer.state_transition_step_count = 5
+        layer.steps_since_win_last_update_step[:] = torch.tensor([5, 3, 5, 0, 4, 2])
+        expected = layer.state_transition_steps_snapshot()
+
+        snap = layer.state_dict()
+        layer2 = _make_layer(n_columns=6)
+        layer2.load_state_dict(snap)
+
+        assert torch.equal(snap["steps_since_win"], expected.cpu())
+        assert layer2.state_transition_step_count == 5
+        assert torch.equal(layer2.steps_since_win, expected)
+        assert torch.equal(layer2.state_transition_steps_snapshot(), expected)
+        assert torch.equal(
+            layer2.steps_since_win_last_update_step,
+            torch.full((6,), 5, dtype=torch.long),
+        )
+        assert layer2.state_transition_all_materialized_step == 5
+        assert layer2.state_transition_last_update_tensor_materialized_step == 5
+
+    def test_dense_materialized_marker_avoids_lazy_double_count(self):
+        layer = _make_layer(n_columns=4)
+        layer.steps_since_win[:] = torch.tensor([0, 2, 4, 6])
+        layer.state_transition_step_count = 8
+        layer.steps_since_win_last_update_step.zero_()
+
+        layer._mark_all_state_transition_materialized(
+            8,
+            sync_last_update_tensor=False,
+        )
+
+        assert torch.equal(
+            layer.state_transition_steps_snapshot(),
+            torch.tensor([0, 2, 4, 6]),
+        )
+        assert torch.equal(
+            layer.steps_since_win_last_update_step,
+            torch.zeros(4, dtype=torch.long),
+        )
+
+        layer.materialize_state_transition(torch.tensor([1]))
+
+        assert layer.steps_since_win[1].item() == 2
+        assert layer.steps_since_win_last_update_step[1].item() == 8
+
     def test_roundtrip_preserves_spike_history_window(self):
         layer = _make_layer()
         layer.recent_spike_window.zero_()
@@ -348,6 +395,33 @@ class TestStateDict:
         assert report["correlation"]["sample_count"] == 2
         assert layer.recent_spike_window_count == 2
 
+    def test_sparse_spike_window_overwrite_clears_prior_dense_row(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        layer.process(routing_key, torch.tensor([2]), modulator=0.5)
+
+        for _ in range(layer.spike_history_window - 1):
+            layer.process(
+                routing_key,
+                torch.tensor([0]),
+                modulator=0.5,
+                homeostasis_update_indices=torch.tensor([0]),
+            )
+
+        layer.process(
+            routing_key,
+            torch.tensor([1]),
+            modulator=0.5,
+            homeostasis_update_indices=torch.tensor([1]),
+        )
+
+        assert torch.equal(
+            layer.recent_spike_window[0],
+            torch.tensor([0.0, 1.0, 0.0, 0.0]),
+        )
+        assert layer.recent_spike_window_active_ids[0, 0].item() == 1
+
     def test_process_without_global_state_does_not_record_spike_window(self):
         layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
         layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
@@ -395,17 +469,81 @@ class TestStateDict:
         assert torch.allclose(layer.win_rate_ema[5], win_before[5])
         assert torch.allclose(layer.thresholds[0], thresholds_before[0])
         assert torch.allclose(layer.thresholds[4], thresholds_before[4])
-        assert torch.equal(layer.steps_since_win, torch.tensor([1, 0, 1, 1, 4, 6]))
+        assert torch.equal(layer.steps_since_win, torch.tensor([0, 0, 0, 1, 3, 5]))
+        assert torch.equal(
+            layer.state_transition_steps_snapshot(),
+            torch.tensor([1, 0, 1, 1, 4, 6]),
+        )
 
         report = layer.execution_report()
         assert report["homeostasis_update_mode"] == "candidate_subset"
         assert report["homeostasis_update_count"] == 2
         assert report["homeostasis_update_fraction"] == round(2 / 6, 6)
-        assert report["state_transition_mode"] == "dense_all_columns_process"
-        assert report["state_transition_column_count"] == 6
-        assert report["state_transition_runs_all_columns"] is True
-        assert report["runs_all_columns"] is True
-        assert report["fallback_reason"] == "state_transition_dense_all_columns_retained"
+        assert report["state_transition_mode"] == "candidate_subset_lazy_state_transition"
+        assert report["state_transition_column_count"] == 2
+        assert report["state_transition_cached_count"] == 4
+        assert report["state_transition_runs_all_columns"] is False
+        assert report["runs_all_columns"] is False
+        assert report["fallback_reason"] is None
+
+    def test_candidate_state_transition_matches_dense_logical_steps(self):
+        all_column = _make_layer(
+            n_columns=8,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+        )
+        scoped = _make_layer(
+            n_columns=8,
+            column_dim=4,
+            input_dim=8,
+            input_weight_blend=0.0,
+        )
+        scoped.load_state_dict(all_column.state_dict())
+        all_column.steps_since_win[:] = torch.arange(8, dtype=torch.long)
+        scoped.steps_since_win[:] = torch.arange(8, dtype=torch.long)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        plans = (
+            (0, torch.tensor([0, 2])),
+            (1, torch.tensor([1, 3])),
+            (0, torch.tensor([0, 4])),
+            (5, torch.tensor([5])),
+            (1, torch.tensor([1, 6])),
+        )
+
+        for winner, candidates in plans:
+            all_column.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+            scoped.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+            all_column.process(
+                routing_key,
+                torch.tensor([winner]),
+                modulator=0.0,
+                homeostasis_update_indices=None,
+            )
+            scoped.process(
+                routing_key,
+                torch.tensor([winner]),
+                modulator=0.0,
+                homeostasis_update_indices=candidates,
+            )
+
+            assert torch.equal(
+                scoped.state_transition_steps_snapshot(),
+                all_column.steps_since_win,
+            )
+            report = scoped.execution_report()
+            assert report["state_transition_mode"] == "candidate_subset_lazy_state_transition"
+            assert report["state_transition_runs_all_columns"] is False
+            assert report["state_transition_cached_count"] >= 6
+
+        assert not torch.equal(scoped.steps_since_win, all_column.steps_since_win)
+
+        scoped.materialize_state_transition(torch.tensor([7]))
+
+        assert scoped.steps_since_win[7].item() == all_column.steps_since_win[7].item()
+        assert scoped.last_state_transition_materialize_mode == "candidate_subset"
+        assert scoped.last_state_transition_materialize_count == 1
+        assert scoped.last_state_transition_materialize_max_age == len(plans)
 
     def test_candidate_compete_materializes_idle_homeostasis_before_scoring(self):
         torch.manual_seed(42)

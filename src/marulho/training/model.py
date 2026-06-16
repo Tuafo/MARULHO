@@ -393,7 +393,11 @@ class MarulhoModel:
             n_columns=int(self.config.n_columns),
             prediction_error=getattr(self.predictive, "prediction_error", None),
             confidence=getattr(self.predictive, "confidence", None),
-            steps_since_win=getattr(self.competitive, "steps_since_win", None),
+            steps_since_win=(
+                self.competitive.state_transition_steps_snapshot()
+                if hasattr(self.competitive, "state_transition_steps_snapshot")
+                else getattr(self.competitive, "steps_since_win", None)
+            ),
             win_rate_ema=getattr(self.competitive, "win_rate_ema", None),
             prediction_failure_streak=getattr(self.predictive, "prediction_failure_streak", None),
             last_winner_ids=[] if last_winner is None else [int(last_winner)],

@@ -392,6 +392,35 @@ Compared with the previous fused-candidate run (`5889.241 tokens/sec`,
 `train_compute=0.140840 ms/token`), this is neutral/stable long-run evidence,
 not proof that the retained CPU scheduler A/B is solved.
 
+The retained CPU lazy state-transition cleanup removed the last hidden
+all-column state-transition tax from the retained candidate scheduler path. The
+final 8192-column CPU A/B at
+`reports/column_scheduler_20260616/cpu-8192-lazy-state-transition-final.json`
+preserved exact winners and bounded predictive vote/update/location,
+candidate-sleep filtering, wake-plan awake count, competitive scoring, and
+state transition at `10/8192` with `scoped_runs_all_columns=false`. Scoped
+complete-step cost improved from `7.8869` to `5.7537 ms` median and from
+`9.15943125` to `8.3204845 ms` mean. The longer scaling sweep at
+`reports/column_scheduler_20260616/cpu-scaling-lazy-state-transition-long.json`
+kept awake work bounded at `10` and never ran all columns, but
+`neutral_or_better_all_sizes=false`; the 2048 arm also diverged after the
+deep-sleep filter changed the awake mask. Treat that sweep as boundedness
+evidence, not durable total-column cost completion.
+
+The matching 131072-token CUDA stress rerun at
+`reports/column_scheduler_20260616/lazy-state-transition-current-131072-i32-after-marker.json`
+processed `131072` tokens at `6068.986 tokens/sec`, about
+`0.164772 ms/token`, with `train_compute=0.135598 ms/token`,
+`prepare_training=0.006294 ms/token`, and `finalize_total=0.005997 ms/token`.
+It preserved RTX 3060 CUDA execution, conditional-WHILE q16 coverage,
+`8190` sequence-loop successes over `131040` tokens, zero sequence/native
+fallbacks or failures, host-truth cadence `4097/126975`, and active
+`route_vote_deep_sleep_filter`. This is within the maintained 6k-ish band and
+slightly below the previous `6135.026`/`6141.078 tokens/sec` fused baselines.
+CUDA state transition remains dense and truthfully reports
+`state_transition_runs_all_columns=true`; the scalar materialized-step metadata
+only avoids an extra hot-path CUDA bookkeeping fill.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

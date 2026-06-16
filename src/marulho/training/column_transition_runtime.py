@@ -1116,6 +1116,25 @@ class ColumnTransitionRuntime:
             else "dense_all_columns_inplace_triton"
         )
         comp.last_state_transition_column_count = int(comp.n_columns)
+        comp.last_state_transition_cached_count = 0
+        comp.last_state_transition_materialize_mode = "dense_cuda_transition"
+        comp.last_state_transition_materialize_count = 0
+        comp.last_state_transition_materialize_max_age = 0
+        comp.state_transition_step_count += 1
+        mark_state_materialized = getattr(
+            comp,
+            "_mark_all_state_transition_materialized",
+            None,
+        )
+        if callable(mark_state_materialized):
+            mark_state_materialized(
+                int(comp.state_transition_step_count),
+                sync_last_update_tensor=False,
+            )
+        else:
+            comp.steps_since_win_last_update_step.fill_(
+                int(comp.state_transition_step_count)
+            )
         comp.homeostasis_last_update_step[
             homeostasis_candidates.to(comp.device).long().flatten()
         ] = int(comp.homeostasis_step_count) + 1

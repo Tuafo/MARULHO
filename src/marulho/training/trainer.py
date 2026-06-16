@@ -745,6 +745,25 @@ class MarulhoTrainer:
             "dense_all_columns_cuda_graph_route_transition_burst"
         )
         comp.last_state_transition_column_count = int(comp.n_columns)
+        comp.last_state_transition_cached_count = 0
+        comp.last_state_transition_materialize_mode = "dense_cuda_graph_burst"
+        comp.last_state_transition_materialize_count = 0
+        comp.last_state_transition_materialize_max_age = 0
+        comp.state_transition_step_count += int(token_count)
+        mark_state_materialized = getattr(
+            comp,
+            "_mark_all_state_transition_materialized",
+            None,
+        )
+        if callable(mark_state_materialized):
+            mark_state_materialized(
+                int(comp.state_transition_step_count),
+                sync_last_update_tensor=False,
+            )
+        else:
+            comp.steps_since_win_last_update_step.fill_(
+                int(comp.state_transition_step_count)
+            )
         pred.last_dense_transition_mode = "inplace_triton"
         pred.last_dense_transition_fallback_reason = None
         candidate_predictive_graph = bool(
@@ -1245,7 +1264,16 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
 
-        steps = self.model.competitive.steps_since_win[candidates.to(self.model.device).long()]
+        materialize_state = getattr(
+            self.model.competitive,
+            "materialize_state_transition",
+            None,
+        )
+        if callable(materialize_state):
+            materialize_state(candidates, record_noop=False)
+        steps = self.model.competitive.steps_since_win[
+            candidates.to(self.model.device).long()
+        ]
         awake_mask = steps < int(self.config.dead_column_steps)
         awake_candidates = candidates[awake_mask]
         filtered_count = candidate_count - int(awake_candidates.numel())
@@ -2178,6 +2206,9 @@ class MarulhoTrainer:
         # Dead column census during deep sleep (§4.9)
         if mode == "deep":
             comp = self.model.competitive
+            materialize_state = getattr(comp, "materialize_state_transition", None)
+            if callable(materialize_state):
+                materialize_state(None, record_noop=False)
             dead_mask = comp.steps_since_win >= comp.dead_column_steps
             n_dead = int(dead_mask.sum().item())
             n_total = comp.n_columns

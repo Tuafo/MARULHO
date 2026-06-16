@@ -157,6 +157,18 @@ class CompetitiveColumnLayer:
             device=self.device,
             dtype=torch.long,
         )
+        self.state_transition_step_count = 0
+        self.state_transition_all_materialized_step = 0
+        self.state_transition_last_update_tensor_materialized_step = 0
+        self.steps_since_win_last_update_step = torch.zeros(
+            self.n_columns,
+            device=self.device,
+            dtype=torch.long,
+        )
+        self.last_state_transition_cached_count = 0
+        self.last_state_transition_materialize_count = 0
+        self.last_state_transition_materialize_max_age = 0
+        self.last_state_transition_materialize_mode = "not_run"
         self.threshold_relaxation_history: list[bool] = []
         self.threshold_relaxation_last_applied_step = torch.zeros(
             self.n_columns,
@@ -171,6 +183,12 @@ class CompetitiveColumnLayer:
             self.n_columns,
             device=self.device,
             dtype=torch.float32,
+        )
+        self.recent_spike_window_active_ids = torch.full(
+            (self.spike_history_window, max(1, self.n_winners)),
+            -1,
+            device=self.device,
+            dtype=torch.long,
         )
         self.recent_spike_window_cursor = 0
         self.recent_spike_window_count = 0
@@ -402,6 +420,203 @@ class CompetitiveColumnLayer:
         if self.local_plasticity is None:
             return thresholds
         return thresholds + self.local_plasticity.inhibition(candidates)
+
+    def _canonical_column_indices(
+        self,
+        candidate_indices: Optional[torch.Tensor],
+    ) -> Optional[torch.Tensor]:
+        if candidate_indices is None:
+            return None
+        indices = candidate_indices.to(self.device, dtype=torch.long).flatten()
+        if int(indices.numel()) > 0:
+            indices = indices[(indices >= 0) & (indices < self.n_columns)]
+            indices = torch.unique(indices)
+        return indices
+
+    def _state_transition_steps_snapshot(self) -> torch.Tensor:
+        if (
+            int(self.state_transition_all_materialized_step)
+            >= int(self.state_transition_step_count)
+        ):
+            return self.steps_since_win
+        if self.steps_since_win_last_update_step.device != self.device:
+            self.steps_since_win_last_update_step = (
+                self.steps_since_win_last_update_step.to(self.device)
+            )
+        self._ensure_state_transition_last_update_tensor_current()
+        elapsed = (
+            int(self.state_transition_step_count)
+            - self.steps_since_win_last_update_step
+        ).clamp(min=0)
+        return self.steps_since_win + elapsed
+
+    def _mark_all_state_transition_materialized(
+        self,
+        step: int,
+        *,
+        sync_last_update_tensor: bool,
+    ) -> None:
+        materialized_step = int(step)
+        self.state_transition_all_materialized_step = materialized_step
+        if sync_last_update_tensor:
+            self.steps_since_win_last_update_step.fill_(materialized_step)
+            self.state_transition_last_update_tensor_materialized_step = materialized_step
+
+    def _ensure_state_transition_last_update_tensor_current(self) -> None:
+        materialized_step = int(self.state_transition_all_materialized_step)
+        if (
+            materialized_step > 0
+            and int(self.state_transition_last_update_tensor_materialized_step)
+            < materialized_step
+        ):
+            self.steps_since_win_last_update_step.fill_(materialized_step)
+            self.state_transition_last_update_tensor_materialized_step = materialized_step
+
+    def _materialize_state_transition_indices(
+        self,
+        indices: torch.Tensor,
+        *,
+        mode: str,
+        record_noop: bool,
+    ) -> None:
+        self._ensure_state_transition_last_update_tensor_current()
+        if int(indices.numel()) <= 0:
+            if record_noop:
+                self.last_state_transition_materialize_mode = "empty"
+                self.last_state_transition_materialize_count = 0
+                self.last_state_transition_materialize_max_age = 0
+            return
+
+        last_steps = self.steps_since_win_last_update_step.index_select(0, indices)
+        elapsed = (int(self.state_transition_step_count) - last_steps).clamp(min=0)
+        pending_mask = elapsed > 0
+        if not bool(pending_mask.any().item()):
+            if record_noop:
+                self.last_state_transition_materialize_mode = f"{mode}_noop"
+                self.last_state_transition_materialize_count = 0
+                self.last_state_transition_materialize_max_age = 0
+            return
+
+        pending_indices = indices[pending_mask]
+        pending_elapsed = elapsed[pending_mask].to(
+            device=self.device,
+            dtype=self.steps_since_win.dtype,
+        )
+        self.steps_since_win[pending_indices] += pending_elapsed
+        self.steps_since_win_last_update_step[pending_indices] = int(
+            self.state_transition_step_count
+        )
+        if mode == "all_columns" and int(indices.numel()) >= int(self.n_columns):
+            self.state_transition_all_materialized_step = int(
+                self.state_transition_step_count
+            )
+            self.state_transition_last_update_tensor_materialized_step = int(
+                self.state_transition_step_count
+            )
+        if record_noop:
+            self.last_state_transition_materialize_mode = mode
+            self.last_state_transition_materialize_count = int(pending_indices.numel())
+            self.last_state_transition_materialize_max_age = int(
+                pending_elapsed.max().item()
+            )
+
+    def _process_state_transition_indices(
+        self,
+        homeostasis_indices: torch.Tensor,
+        winners: torch.Tensor,
+    ) -> torch.Tensor:
+        winner_ids = winners.to(self.device, dtype=torch.long).flatten()
+        winner_ids = winner_ids[
+            (winner_ids >= 0) & (winner_ids < int(self.n_columns))
+        ]
+        if int(winner_ids.numel()) <= 0:
+            return homeostasis_indices
+        if int(homeostasis_indices.numel()) <= 0:
+            return winner_ids
+        missing_mask = ~(
+            winner_ids[:, None] == homeostasis_indices[None, :]
+        ).any(dim=1)
+        if not bool(missing_mask.any().item()):
+            return homeostasis_indices
+        return torch.cat((homeostasis_indices, winner_ids[missing_mask]))
+
+    def state_transition_steps_snapshot(self) -> torch.Tensor:
+        """Return logical ``steps_since_win`` without materializing all columns."""
+
+        return self._state_transition_steps_snapshot().detach().clone()
+
+    def materialize_state_transition(
+        self,
+        candidate_indices: Optional[torch.Tensor],
+        *,
+        record_noop: bool = True,
+    ) -> None:
+        """Advance cached stale-age counters for a bounded candidate set."""
+
+        if self.steps_since_win_last_update_step.device != self.device:
+            self.steps_since_win_last_update_step = (
+                self.steps_since_win_last_update_step.to(self.device)
+            )
+        indices = self._canonical_column_indices(candidate_indices)
+        if indices is None:
+            indices = torch.arange(self.n_columns, device=self.device)
+            mode = "all_columns"
+        else:
+            mode = (
+                "candidate_subset"
+                if int(indices.numel()) < self.n_columns
+                else "all_columns"
+            )
+        self._materialize_state_transition_indices(
+            indices,
+            mode=mode,
+            record_noop=record_noop,
+        )
+
+    def _record_recent_spike_sample(
+        self,
+        winners: torch.Tensor,
+        *,
+        sparse: bool,
+    ) -> None:
+        row = int(self.recent_spike_window_cursor)
+        winner_ids = winners.to(self.device, dtype=torch.long).flatten()
+        winner_ids = winner_ids[
+            (winner_ids >= 0) & (winner_ids < int(self.n_columns))
+        ]
+        if int(winner_ids.numel()) <= 0:
+            return
+        if (
+            not sparse
+            or int(winner_ids.numel())
+            > int(self.recent_spike_window_active_ids.shape[1])
+        ):
+            spike_sample = torch.zeros(self.n_columns, device=self.device)
+            spike_sample[winner_ids] = 1.0
+            self.recent_spike_window[row] = spike_sample
+            self.recent_spike_window_active_ids[row].fill_(-1)
+            remembered = winner_ids[: self.recent_spike_window_active_ids.shape[1]]
+            self.recent_spike_window_active_ids[
+                row,
+                : int(remembered.numel()),
+            ] = remembered
+        else:
+            previous = self.recent_spike_window_active_ids[row]
+            previous = previous[(previous >= 0) & (previous < int(self.n_columns))]
+            if int(previous.numel()) > 0:
+                self.recent_spike_window[row, previous] = 0.0
+            self.recent_spike_window[row, winner_ids] = 1.0
+            self.recent_spike_window_active_ids[row].fill_(-1)
+            self.recent_spike_window_active_ids[row, : int(winner_ids.numel())] = (
+                winner_ids[: self.recent_spike_window_active_ids.shape[1]]
+            )
+        self.recent_spike_window_cursor = (
+            self.recent_spike_window_cursor + 1
+        ) % self.spike_history_window
+        self.recent_spike_window_count = min(
+            self.spike_history_window,
+            self.recent_spike_window_count + 1,
+        )
 
     def materialize_homeostasis(
         self,
@@ -828,10 +1043,6 @@ class CompetitiveColumnLayer:
 
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
         if update_global_state:
-            self.last_state_transition_mode = "dense_all_columns_process"
-            self.last_state_transition_column_count = int(self.n_columns)
-            self.steps_since_win += 1
-            self.steps_since_win[winners] = 0
             if homeostasis_update_indices is None:
                 homeostasis_indices = torch.arange(self.n_columns, device=self.device)
                 self.last_homeostasis_update_mode = "all_columns"
@@ -845,6 +1056,44 @@ class CompetitiveColumnLayer:
                     else "all_columns"
                 )
             self.last_homeostasis_update_count = int(homeostasis_indices.numel())
+
+            state_transition_next_step = int(self.state_transition_step_count) + 1
+            if int(homeostasis_indices.numel()) >= int(self.n_columns):
+                self.materialize_state_transition(None, record_noop=False)
+                self.steps_since_win += 1
+                self.steps_since_win[winners] = 0
+                self._mark_all_state_transition_materialized(
+                    state_transition_next_step,
+                    sync_last_update_tensor=True,
+                )
+                self.last_state_transition_mode = "dense_all_columns_process"
+                self.last_state_transition_column_count = int(self.n_columns)
+                self.last_state_transition_cached_count = 0
+                sparse_state_transition = False
+            else:
+                state_indices = self._process_state_transition_indices(
+                    homeostasis_indices,
+                    winners,
+                )
+                self._materialize_state_transition_indices(
+                    state_indices,
+                    mode="candidate_subset",
+                    record_noop=False,
+                )
+                if int(state_indices.numel()) > 0:
+                    self.steps_since_win[state_indices] += 1
+                    self.steps_since_win[winners] = 0
+                    self.steps_since_win_last_update_step[state_indices] = (
+                        state_transition_next_step
+                    )
+                self.last_state_transition_mode = "candidate_subset_lazy_state_transition"
+                self.last_state_transition_column_count = int(state_indices.numel())
+                self.last_state_transition_cached_count = max(
+                    0,
+                    int(self.n_columns) - int(state_indices.numel()),
+                )
+                sparse_state_transition = True
+            self.state_transition_step_count = state_transition_next_step
             self.materialize_homeostasis(homeostasis_indices, record_noop=False)
             current_homeostasis_step = int(self.homeostasis_step_count)
             if (
@@ -858,16 +1107,7 @@ class CompetitiveColumnLayer:
 
             activity = torch.zeros(self.n_columns, device=self.device)
             activity[winners] = 1.0 / max(1, winners.numel())
-            spike_sample = torch.zeros(self.n_columns, device=self.device)
-            spike_sample[winners] = 1.0
-            self.recent_spike_window[self.recent_spike_window_cursor] = spike_sample
-            self.recent_spike_window_cursor = (
-                self.recent_spike_window_cursor + 1
-            ) % self.spike_history_window
-            self.recent_spike_window_count = min(
-                self.spike_history_window,
-                self.recent_spike_window_count + 1,
-            )
+            self._record_recent_spike_sample(winners, sparse=sparse_state_transition)
             if int(homeostasis_indices.numel()) > 0:
                 self.win_rate_ema[homeostasis_indices] = (
                     (1.0 - self.homeostasis_beta) * self.win_rate_ema[homeostasis_indices]
@@ -900,6 +1140,7 @@ class CompetitiveColumnLayer:
 
         Returns the number of columns revived.
         """
+        self.materialize_state_transition(None, record_noop=False)
         dead_mask = self.steps_since_win >= self.dead_column_steps
         if not bool(dead_mask.any()):
             return 0
@@ -935,6 +1176,9 @@ class CompetitiveColumnLayer:
             self.homeostasis_step_count
         )
         self.steps_since_win[dead_mask] = 0
+        self.steps_since_win_last_update_step[dead_mask] = int(
+            self.state_transition_step_count
+        )
         self.last_revived_indices = torch.nonzero(dead_mask, as_tuple=False).squeeze(1).detach().clone()
         if self.local_plasticity is not None:
             self.local_plasticity.revive_columns(self.last_revived_indices)
@@ -969,6 +1213,26 @@ class CompetitiveColumnLayer:
             "homeostasis_step_count": int(self.homeostasis_step_count),
             "homeostasis_last_update_step_device": str(
                 self.homeostasis_last_update_step.device
+            ),
+            "state_transition_step_count": int(self.state_transition_step_count),
+            "steps_since_win_last_update_step_device": str(
+                self.steps_since_win_last_update_step.device
+            ),
+            "last_state_transition_mode": str(self.last_state_transition_mode),
+            "last_state_transition_column_count": int(
+                self.last_state_transition_column_count
+            ),
+            "last_state_transition_cached_count": int(
+                self.last_state_transition_cached_count
+            ),
+            "last_state_transition_materialize_mode": str(
+                self.last_state_transition_materialize_mode
+            ),
+            "last_state_transition_materialize_count": int(
+                self.last_state_transition_materialize_count
+            ),
+            "last_state_transition_materialize_max_age": int(
+                self.last_state_transition_materialize_max_age
             ),
             "threshold_relaxation_event_count": int(
                 sum(1 for item in self.threshold_relaxation_history if item)
@@ -1018,6 +1282,10 @@ class CompetitiveColumnLayer:
             0,
             min(int(self.last_state_transition_column_count), self.n_columns),
         )
+        state_transition_cached_count = max(
+            0,
+            min(int(self.last_state_transition_cached_count), self.n_columns),
+        )
         state_transition_runs_all_columns = bool(
             self.last_state_transition_mode != "not_run"
             and state_transition_count >= self.n_columns
@@ -1048,7 +1316,23 @@ class CompetitiveColumnLayer:
             "runs_all_columns": runs_all_columns,
             "state_transition_mode": str(self.last_state_transition_mode),
             "state_transition_column_count": state_transition_count,
+            "state_transition_cached_count": state_transition_cached_count,
+            "state_transition_cached_fraction": round(
+                float(state_transition_cached_count) / float(max(1, self.n_columns)),
+                6,
+            ),
             "state_transition_runs_all_columns": state_transition_runs_all_columns,
+            "state_transition_step_count": int(self.state_transition_step_count),
+            "state_transition_materialize_mode": str(
+                self.last_state_transition_materialize_mode
+            ),
+            "state_transition_materialize_count": max(
+                0,
+                min(int(self.last_state_transition_materialize_count), self.n_columns),
+            ),
+            "state_transition_materialize_max_age": int(
+                max(0, self.last_state_transition_materialize_max_age)
+            ),
             "scored_column_fraction": round(
                 float(scored) / float(max(1, self.n_columns)),
                 6,
@@ -1181,7 +1465,7 @@ class CompetitiveColumnLayer:
         dead_threshold = int(self.dead_column_steps)
         silent_mask = win_rate <= silent_threshold
         saturated_mask = win_rate >= saturation_threshold
-        stale_mask = self.steps_since_win.detach() >= dead_threshold
+        stale_mask = self._state_transition_steps_snapshot().detach() >= dead_threshold
 
         local_plasticity = self.local_plasticity
         last_post_spike_fraction = (
@@ -1260,6 +1544,14 @@ class CompetitiveColumnLayer:
         def _clone_opt(t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
             return None if t is None else t.detach().clone().cpu()
 
+        logical_steps_since_win = self._state_transition_steps_snapshot()
+        materialized_state_step = torch.full(
+            (self.n_columns,),
+            int(self.state_transition_step_count),
+            device=self.device,
+            dtype=torch.long,
+        )
+
         return {
             "W_project": self.W_project.detach().clone().cpu(),
             "input_weights": self.input_weights.detach().clone().cpu(),
@@ -1281,8 +1573,26 @@ class CompetitiveColumnLayer:
             "threshold_relaxation_last_applied_step": (
                 self.threshold_relaxation_last_applied_step.detach().clone().cpu()
             ),
-            "steps_since_win": self.steps_since_win.detach().clone().cpu(),
+            "state_transition_step_count": torch.tensor(
+                int(self.state_transition_step_count),
+                dtype=torch.long,
+            ),
+            "state_transition_all_materialized_step": torch.tensor(
+                int(self.state_transition_step_count),
+                dtype=torch.long,
+            ),
+            "state_transition_last_update_tensor_materialized_step": torch.tensor(
+                int(self.state_transition_step_count),
+                dtype=torch.long,
+            ),
+            "steps_since_win": logical_steps_since_win.detach().clone().cpu(),
+            "steps_since_win_last_update_step": (
+                materialized_state_step.detach().clone().cpu()
+            ),
             "recent_spike_window": self.recent_spike_window.detach().clone().cpu(),
+            "recent_spike_window_active_ids": (
+                self.recent_spike_window_active_ids.detach().clone().cpu()
+            ),
             "recent_spike_window_cursor": int(self.recent_spike_window_cursor),
             "recent_spike_window_count": int(self.recent_spike_window_count),
             "update_count": int(self.update_count),
@@ -1318,6 +1628,15 @@ class CompetitiveColumnLayer:
         self.homeostasis_step_count = int(
             snapshot.get("homeostasis_step_count", self.update_count)
         )
+        state_step = snapshot.get("state_transition_step_count")
+        if isinstance(state_step, torch.Tensor):
+            self.state_transition_step_count = int(state_step.item())
+        else:
+            self.state_transition_step_count = int(
+                snapshot.get("state_transition_step_count", self.update_count)
+            )
+        self.state_transition_all_materialized_step = 0
+        self.state_transition_last_update_tensor_materialized_step = 0
         last_homeostasis_step = snapshot.get("homeostasis_last_update_step")
         if (
             isinstance(last_homeostasis_step, torch.Tensor)
@@ -1333,6 +1652,56 @@ class CompetitiveColumnLayer:
                 int(self.homeostasis_step_count),
                 device=self.device,
                 dtype=torch.long,
+            )
+        last_state_step = snapshot.get("steps_since_win_last_update_step")
+        state_last_is_uniform_current = False
+        if (
+            isinstance(last_state_step, torch.Tensor)
+            and tuple(last_state_step.shape) == (self.n_columns,)
+        ):
+            self.steps_since_win_last_update_step = last_state_step.to(
+                self.device,
+                dtype=torch.long,
+            )
+            state_last_is_uniform_current = bool(
+                torch.all(
+                    self.steps_since_win_last_update_step
+                    == int(self.state_transition_step_count)
+                ).item()
+            )
+        else:
+            self.steps_since_win_last_update_step = torch.full(
+                (self.n_columns,),
+                int(self.state_transition_step_count),
+                device=self.device,
+                dtype=torch.long,
+            )
+            state_last_is_uniform_current = True
+        all_materialized_step = snapshot.get("state_transition_all_materialized_step")
+        tensor_materialized_step = snapshot.get(
+            "state_transition_last_update_tensor_materialized_step"
+        )
+        if isinstance(all_materialized_step, torch.Tensor):
+            self.state_transition_all_materialized_step = int(
+                all_materialized_step.item()
+            )
+        elif all_materialized_step is not None:
+            self.state_transition_all_materialized_step = int(all_materialized_step)
+        elif state_last_is_uniform_current:
+            self.state_transition_all_materialized_step = int(
+                self.state_transition_step_count
+            )
+        if isinstance(tensor_materialized_step, torch.Tensor):
+            self.state_transition_last_update_tensor_materialized_step = int(
+                tensor_materialized_step.item()
+            )
+        elif tensor_materialized_step is not None:
+            self.state_transition_last_update_tensor_materialized_step = int(
+                tensor_materialized_step
+            )
+        elif state_last_is_uniform_current:
+            self.state_transition_last_update_tensor_materialized_step = int(
+                self.state_transition_step_count
             )
         relaxation_history = snapshot.get("threshold_relaxation_history")
         if isinstance(relaxation_history, torch.Tensor):
@@ -1367,6 +1736,34 @@ class CompetitiveColumnLayer:
             self.spike_history_window,
             max(0, int(snapshot.get("recent_spike_window_count", 0))),
         )
+        active_ids = snapshot.get("recent_spike_window_active_ids")
+        if (
+            isinstance(active_ids, torch.Tensor)
+            and tuple(active_ids.shape)
+            == (self.spike_history_window, max(1, self.n_winners))
+        ):
+            self.recent_spike_window_active_ids = active_ids.to(
+                self.device,
+                dtype=torch.long,
+            )
+        else:
+            self.recent_spike_window_active_ids = torch.full(
+                (self.spike_history_window, max(1, self.n_winners)),
+                -1,
+                device=self.device,
+                dtype=torch.long,
+            )
+            dense_rows = self.recent_spike_window.detach()
+            for row in range(min(self.spike_history_window, int(dense_rows.shape[0]))):
+                active = torch.nonzero(dense_rows[row] > 0.0, as_tuple=False).flatten()
+                active = active[: max(1, self.n_winners)].to(
+                    self.device,
+                    dtype=torch.long,
+                )
+                if int(active.numel()) > 0:
+                    self.recent_spike_window_active_ids[row, : int(active.numel())] = (
+                        active
+                    )
         revived = snapshot.get("last_revived_indices")
         if isinstance(revived, torch.Tensor):
             self.last_revived_indices = revived.to(self.device)
