@@ -58,6 +58,26 @@ def _position_map(
     return positions
 
 
+def _ordered_unique_limited_positions(
+    positions: torch.Tensor,
+    *,
+    limit: int,
+) -> torch.Tensor:
+    if int(limit) <= 0 or int(positions.numel()) <= 0:
+        return torch.empty((0,), dtype=torch.long, device=positions.device)
+    seen: set[int] = set()
+    kept: list[int] = []
+    for value in positions.detach().cpu().tolist():
+        position = int(value)
+        if position < 0 or position in seen:
+            continue
+        seen.add(position)
+        kept.append(position)
+        if len(kept) >= int(limit):
+            break
+    return torch.tensor(kept, dtype=torch.long, device=positions.device)
+
+
 def _candidate_winner(
     *,
     routing_key: torch.Tensor,
@@ -99,6 +119,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     bank_size: int,
     previous_winner: int = 0,
     exact_reseed_interval: int = 0,
+    route_candidate_graph_neighbor_count: int = 0,
+    route_candidate_graph_capacity_rows: int = 0,
 ) -> dict[str, Any]:
     if routing_keys.dim() != 2:
         raise ValueError("routing_keys must be a rank-2 tensor")
@@ -125,6 +147,30 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         int(ids.max().item()) + 1 if int(ids.numel()) > 0 else 0,
     )
     positions_by_column = _position_map(ids, total_columns=total_columns)
+    graph_neighbor_count = min(
+        max(0, int(route_candidate_graph_neighbor_count)),
+        max(0, int(ids.numel()) - 1),
+    )
+    graph_enabled = graph_neighbor_count > 0
+    default_graph_capacity = int(bank_capacity * (graph_neighbor_count + 1))
+    graph_capacity = int(
+        min(
+            int(ids.numel()),
+            max(
+                int(bank_capacity),
+                int(route_candidate_graph_capacity_rows or default_graph_capacity),
+            ),
+        )
+    )
+    neighbor_positions: torch.Tensor | None = None
+    if graph_enabled:
+        neighbor_scores = vectors @ vectors.T
+        neighbor_scores.fill_diagonal_(-float("inf"))
+        neighbor_positions = torch.topk(
+            neighbor_scores,
+            k=graph_neighbor_count,
+            dim=1,
+        ).indices.to(dtype=torch.long)
 
     exact_scores = keys @ vectors.T
     exact_offsets = torch.topk(exact_scores, k=k, dim=1).indices
@@ -139,6 +185,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     consecutive_top1_miss = 0
     worst_consecutive_top1_miss = 0
     bank_score_rows: list[int] = []
+    graph_valid_rows: list[int] = []
     seed_count = 0
     reseed_count = 0
 
@@ -165,18 +212,48 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             bank_positions = positions_by_column.index_select(0, current_bank_ids)
             if bool((bank_positions < 0).any().item()):
                 raise ValueError("route bank contains id missing from routing cache")
-            bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
-                0,
-                bank_positions,
-            ).T
-            bank_top = torch.topk(
-                bank_scores,
-                k=min(k, int(current_bank_ids.numel())),
-                dim=1,
-            ).indices[0]
-            bank_row = current_bank_ids.index_select(0, bank_top)
-            current_bank_ids = bank_row[:bank_capacity].clone()
-            bank_rows_scored = int(current_bank_ids.numel())
+            if graph_enabled:
+                assert neighbor_positions is not None
+                expanded_positions = torch.cat(
+                    (
+                        bank_positions,
+                        neighbor_positions.index_select(0, bank_positions).flatten(),
+                    ),
+                    dim=0,
+                )
+                expanded_positions = _ordered_unique_limited_positions(
+                    expanded_positions,
+                    limit=graph_capacity,
+                )
+                bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
+                    0,
+                    expanded_positions,
+                ).T
+                bank_top = torch.topk(
+                    bank_scores,
+                    k=min(k, int(expanded_positions.numel())),
+                    dim=1,
+                ).indices[0]
+                bank_row = ids.index_select(
+                    0,
+                    expanded_positions.index_select(0, bank_top),
+                )
+                current_bank_ids = bank_row[:bank_capacity].clone()
+                bank_rows_scored = int(expanded_positions.numel())
+                graph_valid_rows.append(bank_rows_scored)
+            else:
+                bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
+                    0,
+                    bank_positions,
+                ).T
+                bank_top = torch.topk(
+                    bank_scores,
+                    k=min(k, int(current_bank_ids.numel())),
+                    dim=1,
+                ).indices[0]
+                bank_row = current_bank_ids.index_select(0, bank_top)
+                current_bank_ids = bank_row[:bank_capacity].clone()
+                bank_rows_scored = int(current_bank_ids.numel())
 
         exact_set = {int(value) for value in exact_row.detach().cpu().tolist()}
         bank_set = {int(value) for value in bank_row.detach().cpu().tolist()}
@@ -249,6 +326,20 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         "hot_path_all_column_oracle": False,
         "offline_oracle_score_rows_per_tick": int(ids.numel()),
         "evaluation_exact_reseed_only": int(exact_reseed_interval) > 0,
+        "route_candidate_graph": {
+            "enabled": bool(graph_enabled),
+            "neighbor_count": int(graph_neighbor_count),
+            "capacity_rows": int(graph_capacity if graph_enabled else bank_capacity),
+            "default_capacity_rows": int(
+                default_graph_capacity if graph_enabled else bank_capacity
+            ),
+            "valid_rows": _float_stats(graph_valid_rows),
+            "offline_precompute_rows": int(ids.numel() if graph_enabled else 0),
+            "hot_path_precompute": False,
+            "claim_boundary": (
+                "offline_quality_simulation_of_bounded_neighbor_expansion_without_hot_path_all_column_scan"
+            ),
+        },
         "steady_bank_score_rows": _float_stats(steady_bank_rows),
         "oracle_score_rows": int(ids.numel()),
         "quality": {
@@ -317,6 +408,8 @@ def run_route_candidate_bank_quality_gate(
     source_path: Path | None = None,
     bank_size: int = 0,
     exact_reseed_interval: int = 0,
+    route_candidate_graph_neighbor_count: int = 0,
+    route_candidate_graph_capacity_rows: int = 0,
 ) -> dict[str, Any]:
     trainer, metadata = load_trainer_checkpoint(checkpoint)
     device = trainer.model.device
@@ -361,6 +454,8 @@ def run_route_candidate_bank_quality_gate(
         bank_size=int(bank_size or trainer.config.route_candidate_bank_size or trainer.config.k_routing),
         previous_winner=0 if trainer.last_winner is None else int(trainer.last_winner),
         exact_reseed_interval=int(exact_reseed_interval),
+        route_candidate_graph_neighbor_count=int(route_candidate_graph_neighbor_count),
+        route_candidate_graph_capacity_rows=int(route_candidate_graph_capacity_rows),
     )
     quality.update(
         {
@@ -395,6 +490,8 @@ def main() -> int:
     parser.add_argument("--source-path", type=Path)
     parser.add_argument("--bank-size", type=int, default=0)
     parser.add_argument("--exact-reseed-interval", type=int, default=0)
+    parser.add_argument("--route-candidate-graph-neighbor-count", type=int, default=0)
+    parser.add_argument("--route-candidate-graph-capacity-rows", type=int, default=0)
     args = parser.parse_args()
     if args.source_mode == "file" and args.source_path is None:
         parser.error("--source-path is required when --source-mode=file")
@@ -407,6 +504,12 @@ def main() -> int:
         source_path=source_path,
         bank_size=args.bank_size,
         exact_reseed_interval=args.exact_reseed_interval,
+        route_candidate_graph_neighbor_count=(
+            args.route_candidate_graph_neighbor_count
+        ),
+        route_candidate_graph_capacity_rows=(
+            args.route_candidate_graph_capacity_rows
+        ),
     )
     encoded = json.dumps(report, indent=2, sort_keys=True)
     if args.output is not None:

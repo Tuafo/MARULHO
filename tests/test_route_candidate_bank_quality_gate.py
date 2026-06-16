@@ -80,3 +80,55 @@ def test_route_candidate_bank_quality_rejects_relevance_shift_without_reseed() -
         report["promotion_status"]
         == "requires_reseed_policy_or_wider_bank_before_quality_claim"
     )
+
+
+def test_route_candidate_graph_neighbors_recover_bounded_relevance_shift() -> None:
+    keys = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.95, 0.05],
+        ],
+        dtype=torch.float32,
+    )
+
+    report = evaluate_route_candidate_bank_quality_from_tensors(
+        routing_keys=F.normalize(keys.float(), dim=1),
+        routing_vectors=F.normalize(
+            torch.tensor(
+                [
+                    [1.0, 0.0, 0.0],
+                    [0.9, 0.1, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.9, 0.1],
+                ],
+                dtype=torch.float32,
+            ),
+            dim=1,
+        ),
+        routing_ids=torch.arange(4, dtype=torch.long),
+        prototypes=F.normalize(
+            torch.tensor(
+                [
+                    [1.0, 0.0, 0.0],
+                    [0.9, 0.1, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.9, 0.1],
+                ],
+                dtype=torch.float32,
+            ),
+            dim=1,
+        ),
+        thresholds=torch.zeros(4, dtype=torch.float32),
+        prediction_location=torch.eye(4, dtype=torch.float32),
+        k_routing=2,
+        bank_size=2,
+        route_candidate_graph_neighbor_count=3,
+    )
+
+    assert report["route_candidate_graph"]["enabled"] is True
+    assert report["route_candidate_graph"]["valid_rows"]["mean"] == 4.0
+    assert report["steady_bank_score_rows"]["mean"] == 4.0
+    assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
+    assert report["quality"]["exact_winner_match_rate"] == 1.0
+    assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"

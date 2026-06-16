@@ -1802,13 +1802,45 @@ it does not add a hot-path all-column scan and the report keeps steady
 | `route-candidate-bank-quality-8192-default-text-s512.json` | default text | `8192` | `10` | `0` | `0.009765625` | `0.001953125` | `0.02578125` | `134` | rejected |
 | `route-candidate-bank-quality-8192-default-text-s512-reseed32.json` | default text | `8192` | `10` | `15` | `0.486328125` | `0.001953125` | `0.33046875` | `30` | rejected |
 | `route-candidate-bank-quality-8192-random-s256.json` | random/stable control | `8192` | `10` | `0` | `1.0` | `1.0` | `0.86875` | `0` | passed control |
+| `route-candidate-graph-quality-8192-default-text-s512-neighbor208-cap1536.json` | default text, offline graph-neighbor probe | `8192` | `1481.068` mean, max `1534` | `0` | `0.994140625` | `0.98828125` | `0.9748046875` | `1` | passed offline quality |
 
 The control proves the gate can pass when the route distribution stays local.
-The default-text runs prove the current k-only self-refreshing bank can trap the
-scheduler in an old relevance neighborhood. That does not invalidate the
-131072-token throughput gate above; it limits the claim to bounded steady
-execution. A runtime exact reseed would be an explicit full-cache fallback or
-maintenance cadence, not a hidden promotion. The next route scheduler needs a
-bounded discovery mechanism such as a GPU-owned candidate router, multi-bank
-exploration policy, or quality-aware refresh that can find outside the current
-bank without making every tick score all columns.
+The default-text k-only runs prove the current self-refreshing bank can trap the
+scheduler in an old relevance neighborhood. The graph-neighbor probe proves a
+bounded discovery policy can recover relevance drift in offline evaluation
+without adding a runtime all-column oracle, but it is not a promotion by itself.
+The attempted live implementation built a fixed neighbor graph and scored the
+bank plus bounded neighbors on the 8192 real path:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-candidate-graph-neighbor208-cap1536-8192-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5 --route-candidate-graph-neighbor-count 208 --route-candidate-graph-capacity-rows 1536`
+
+| Metric | Promoted 8192 k-only route bank | Runtime graph-neighbor probe |
+| --- | ---: | ---: |
+| tokens/sec | `6110.715` | `4682.167` |
+| train_compute ms/token | `0.135007` | `0.183927` |
+| prepare_training ms/token | `0.006082` | `0.006079` |
+| finalize_total ms/token | `0.005988` | `0.005763` |
+| tick_duration p95 ms | `20.370` | `30.584` |
+| route rows scored | `10/8192` | `1509/8192` |
+| graph/native/sequence failures | `0` | `0` |
+| environment contention | not observed | not observed |
+
+So the route-neighbor runtime shape is rejected and removed from the live path:
+it improved quality, but lost too much of the 6k-ish long-run throughput. A
+runtime exact reseed would be an explicit full-cache fallback or maintenance
+cadence, not a hidden promotion. The next route scheduler needs a bounded
+GPU-owned discovery mechanism, multi-bank exploration policy, or quality-aware
+refresh that can find outside the current bank without making every tick score
+all columns and without falling below the promoted ms/token baseline.
+
+The post-cleanup longer rerun confirmed the live path still uses the promoted
+k-only bank:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-candidate-bank-8192-warmseed-131072-i32-after-graph-reject-cleanup.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+That run reached `6150.296 tokens/sec`, `train_compute=0.130390 ms/token`,
+`prepare_training=0.006365 ms/token`, `finalize_total=0.005874 ms/token`,
+`tick_duration_ms.p95=21.097`, `route_input_rows_scored=10`,
+`state_transition_column_count=10`, `state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and `velocity_environment.v1` contention `not_observed`.
