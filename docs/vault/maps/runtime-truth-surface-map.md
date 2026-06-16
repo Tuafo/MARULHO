@@ -62,7 +62,9 @@ probe-lane gate reports `route_input_rows_scored=12/8192`,
 `route_output_candidate_count=10`, `state_transition_column_count=10`,
 and `state_transition_cached_count=8182`, so Runtime Truth now has a measured
 steady-route example where scored rows and awake rows are both bounded after
-the explicit exact seed. The
+the explicit exact seed. The corrected 16384-column scale gate reports the same
+`route_input_rows_scored=12` and `route_output_candidate_count=10` with
+`state_transition_cached_count=16374`. The
 route-owner scheduler filter also reports whether memory-pressure filtering
 was enabled from cached pressure evidence, how many route rows it masked, and
 why it fell back. Service may project that evidence but must not construct its

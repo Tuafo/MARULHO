@@ -2097,6 +2097,45 @@ no observed contention, and checkpoint migration evidence for the retired
 selector. This is one-path cleanup evidence, not a new quality or throughput
 claim.
 
+The promoted scheduler checkpoint builder makes larger-column scale gates
+reproducible instead of relying on a hand-built checkpoint artifact:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-16384-seeded.pt --report reports\column_scheduler_20260616\promoted-scheduler-16384-checkpoint.json --n-columns 16384 --column-latent-dim 64 --k-routing 10 --seed 20260616 --device cuda`
+
+The builder pays the explicit full-cache route-bank seed before save, verifies
+restore, and disables micro/deep sleep maintenance for the scale gate so the
+run measures the promoted scheduler path rather than sleep replay. Its builder
+report showed the seed scored `16384/16384`; the restored first tick scored
+`12/16384`, output `10` candidates, cached `16374` state-transition columns,
+and kept `state_transition_runs_all_columns=false`.
+
+The first 16384-column long-run attempt used an earlier synthetic checkpoint
+with micro/deep sleep intervals left at defaults. It failed as scheduler
+evidence before the corrected rerun overwrote the output path: the partial
+report reached only `2499/131072` tokens before timeout, reported repeated
+`sleep_boundary` text-burst fallbacks, and measured `6.935 tokens/sec` overall.
+The bounded route/state truth was still intact (`route_input_rows_scored=12`,
+`state_transition_cached_count=16374`), but the run measured sleep-maintenance
+interruption, not the promoted scale path. The builder now guards against this
+by setting `micro_sleep_interval_tokens=1e9` and
+`deep_sleep_interval_tokens=1e9`, matching the 8192 promoted checkpoint shape.
+
+The corrected 16384-column longer gate then used the same command and output
+path after rebuilding the checkpoint:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-16384-seeded.pt --output reports\column_scheduler_20260616\promoted-scheduler-16384-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 360 --sample-interval-seconds 0.5`
+
+It processed `131072` tokens at `6154.503 tokens/sec`,
+`train_compute=0.130874 ms/token`, `prepare_training=0.006364 ms/token`,
+`finalize_total=0.005948 ms/token`, and `tick_duration_ms.p95=21.419`, with
+`route_input_rows_scored=12/16384`, `route_output_candidate_count=10`,
+`state_transition_cached_count=16374`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. This is stronger scaling evidence for the promoted
+route-bank/probe-lane scheduler: total columns doubled from 8192 to 16384
+while scored route rows, awake/state-transition columns, and ms/token stayed in
+the same 6k-ish band.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
