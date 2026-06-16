@@ -508,6 +508,23 @@ class MarulhoTrainer:
             last_micro_sleep_token=self.last_micro_sleep_token,
         )
 
+    def _host_truth_limited_burst_len(
+        self,
+        *,
+        requested_len: int,
+        cadence_tick_count: int,
+    ) -> int:
+        sync_interval = max(
+            1,
+            int(self.config.cuda_graph_host_truth_sync_interval_tokens),
+        )
+        requested = max(1, int(requested_len))
+        cadence = max(0, int(cadence_tick_count))
+        next_sync = sync_interval - (cadence % sync_interval)
+        if next_sync <= 0:
+            next_sync = sync_interval
+        return max(1, min(requested, int(next_sync)))
+
     def _can_prestage_text_quantum(
         self,
         *,
@@ -522,10 +539,17 @@ class MarulhoTrainer:
         if graph is None:
             return False
         simulated_token = int(self.token_count)
-        simulated_replay = int(graph.replay_count)
-        for chunk_start in range(start, end, burst_capacity):
-            chunk_end = min(end, chunk_start + burst_capacity)
-            chunk_len = int(chunk_end - chunk_start)
+        simulated_cadence = int(
+            getattr(graph, "_host_truth_cadence_tick_count", graph.replay_count)
+        )
+        chunk_start = int(start)
+        while chunk_start < int(end):
+            requested_len = min(int(burst_capacity), int(end) - chunk_start)
+            chunk_len = self._host_truth_limited_burst_len(
+                requested_len=requested_len,
+                cadence_tick_count=simulated_cadence,
+            )
+            chunk_end = chunk_start + chunk_len
             reason = self._text_burst_precheck_fallback_reason(
                 token_count=chunk_len,
                 raw_window_count=chunk_len,
@@ -550,12 +574,13 @@ class MarulhoTrainer:
             sync_offsets = [
                 offset
                 for offset in range(1, chunk_len + 1)
-                if (simulated_replay + offset) % sync_interval == 0
+                if (simulated_cadence + offset) % sync_interval == 0
             ]
             if sync_offsets not in ([], [chunk_len]):
                 return False
             simulated_token += chunk_len
-            simulated_replay += chunk_len
+            simulated_cadence += chunk_len
+            chunk_start = chunk_end
         return True
 
     def _stageable_text_sequence_end(
@@ -578,10 +603,17 @@ class MarulhoTrainer:
         graph = self._column_transition_runtime._cuda_graph_runtime
         assert graph is not None
         simulated_token = int(self.token_count)
-        simulated_replay = int(graph.replay_count)
-        for chunk_start in range(start, max_end, burst_capacity):
-            chunk_end = min(max_end, chunk_start + burst_capacity)
-            chunk_len = int(chunk_end - chunk_start)
+        simulated_cadence = int(
+            getattr(graph, "_host_truth_cadence_tick_count", graph.replay_count)
+        )
+        chunk_start = int(start)
+        while chunk_start < int(max_end):
+            requested_len = min(int(burst_capacity), int(max_end) - chunk_start)
+            chunk_len = self._host_truth_limited_burst_len(
+                requested_len=requested_len,
+                cadence_tick_count=simulated_cadence,
+            )
+            chunk_end = chunk_start + chunk_len
             if requested_metrics.intersection(range(chunk_start, chunk_end)):
                 break
             reason = self._text_burst_precheck_fallback_reason(
@@ -608,13 +640,14 @@ class MarulhoTrainer:
             sync_offsets = [
                 offset
                 for offset in range(1, chunk_len + 1)
-                if (simulated_replay + offset) % sync_interval == 0
+                if (simulated_cadence + offset) % sync_interval == 0
             ]
             if sync_offsets not in ([], [chunk_len]):
                 break
             best_end = chunk_end
             simulated_token += chunk_len
-            simulated_replay += chunk_len
+            simulated_cadence += chunk_len
+            chunk_start = chunk_end
         return best_end
 
     @torch.no_grad()
@@ -676,7 +709,18 @@ class MarulhoTrainer:
         sync_offsets = [
             offset
             for offset in range(1, token_count + 1)
-            if (graph.replay_count + offset) % sync_interval == 0
+            if (
+                int(
+                    getattr(
+                        graph,
+                        "_host_truth_cadence_tick_count",
+                        graph.replay_count,
+                    )
+                )
+                + offset
+            )
+            % sync_interval
+            == 0
         ]
         if sync_offsets not in ([], [token_count]):
             return self._text_burst_fallback("host_truth_boundary")
@@ -1017,9 +1061,23 @@ class MarulhoTrainer:
                         elapsed_ms,
                     )
                     self._record_train_step_profile_stage("total", elapsed_ms)
-            for chunk_start in range(start, end, burst_capacity):
+            chunk_start = start
+            while chunk_start < end:
                 stage_sequence_segment(chunk_start)
-                chunk_end = min(end, chunk_start + burst_capacity)
+                chunk_len = min(burst_capacity, end - chunk_start)
+                graph = self._column_transition_runtime._cuda_graph_runtime
+                if graph is not None:
+                    chunk_len = self._host_truth_limited_burst_len(
+                        requested_len=chunk_len,
+                        cadence_tick_count=int(
+                            getattr(
+                                graph,
+                                "_host_truth_cadence_tick_count",
+                                graph.replay_count,
+                            )
+                        ),
+                    )
+                chunk_end = min(end, chunk_start + chunk_len)
                 chunk_patterns = list(patterns[chunk_start:chunk_end])
                 chunk_windows = [
                     str(value) for value in raw_windows[chunk_start:chunk_end]
@@ -1057,6 +1115,7 @@ class MarulhoTrainer:
                             if metrics:
                                 last_metrics = dict(metrics)
                 trained += len(chunk_patterns)
+                chunk_start = chunk_end
             quantum_count += 1
 
         self.flush_text_burst_events(reason="text_sequence_complete")

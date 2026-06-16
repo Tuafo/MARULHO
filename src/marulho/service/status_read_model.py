@@ -1124,6 +1124,11 @@ class StatusReadModel:
             if isinstance(column_transition_runtime.get("route_vote_scoring"), Mapping)
             else {}
         )
+        route_candidate_bank = (
+            column_transition_runtime.get("route_candidate_bank")
+            if isinstance(column_transition_runtime.get("route_candidate_bank"), Mapping)
+            else {}
+        )
         metabolism = report.get("metabolism") if isinstance(report.get("metabolism"), Mapping) else {}
         execution = report.get("execution") if isinstance(report.get("execution"), Mapping) else {}
         candidate_sleep_filter_execution = (
@@ -1228,6 +1233,23 @@ class StatusReadModel:
                     "route_scoring_unbounded_reason"
                 ),
                 "claim_boundary": route_vote_scoring.get("claim_boundary"),
+            },
+            "route_candidate_bank": {
+                "enabled": bool(route_candidate_bank.get("enabled", False)),
+                "ready": bool(route_candidate_bank.get("ready", False)),
+                "bank_size": int(route_candidate_bank.get("bank_size", 0) or 0),
+                "seed_count": int(route_candidate_bank.get("seed_count", 0) or 0),
+                "refresh_count": int(
+                    route_candidate_bank.get("refresh_count", 0) or 0
+                ),
+                "graph_bypass_count": int(
+                    route_candidate_bank.get("graph_bypass_count", 0) or 0
+                ),
+                "fallback_count": int(
+                    route_candidate_bank.get("fallback_count", 0) or 0
+                ),
+                "last_reason": route_candidate_bank.get("last_reason"),
+                "claim_boundary": route_candidate_bank.get("claim_boundary"),
             },
             "scheduler": {
                 "mode": scheduler.get("mode"),

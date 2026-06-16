@@ -635,6 +635,19 @@ class StatusReadModelStatusTests(unittest.TestCase):
                             "route_cost_truth_separate_from_bounded_awake_specialist_execution"
                         ),
                     },
+                    "route_candidate_bank": {
+                        "enabled": True,
+                        "ready": True,
+                        "bank_size": 7,
+                        "seed_count": 1,
+                        "refresh_count": 12,
+                        "graph_bypass_count": 1,
+                        "fallback_count": 1,
+                        "last_reason": "bounded_route_bank_graph_refresh",
+                        "claim_boundary": (
+                            "training_owned_bounded_route_rows_seeded_from_exact_route_without_hot_path_all_column_rescore"
+                        ),
+                    },
                 },
             }
         )
@@ -679,6 +692,20 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             projected["route_vote_scoring"]["route_scoring_unbounded_reason"],
             "exact_full_cache_route_scoring_before_bounded_candidate_selection",
+        )
+        self.assertTrue(projected["route_candidate_bank"]["enabled"])
+        self.assertTrue(projected["route_candidate_bank"]["ready"])
+        self.assertEqual(projected["route_candidate_bank"]["bank_size"], 7)
+        self.assertEqual(projected["route_candidate_bank"]["seed_count"], 1)
+        self.assertEqual(projected["route_candidate_bank"]["refresh_count"], 12)
+        self.assertEqual(
+            projected["route_candidate_bank"]["graph_bypass_count"],
+            1,
+        )
+        self.assertEqual(projected["route_candidate_bank"]["fallback_count"], 1)
+        self.assertEqual(
+            projected["route_candidate_bank"]["last_reason"],
+            "bounded_route_bank_graph_refresh",
         )
         self.assertEqual(
             projected["candidate_sleep_filter_execution"]["filtered_deep_sleep_count"],

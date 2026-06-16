@@ -322,10 +322,10 @@ def test_checkpoint_opt_in_fused_route_vote_matches_tensor_candidates() -> None:
     assert torch.equal(candidates, expected[0])
     assert runtime.handles_route_vote is True
     assert runtime.route_vote_execution_count == 1
-    assert runtime.route_vote_kernel_variant == "two_stage_route_vote"
+    assert runtime.route_vote_kernel_variant == "indexed_route_bank_vote"
     assert (
         trainer.column_transition_runtime_report()["route_vote_kernel_variant"]
-        == "two_stage_route_vote"
+        == "indexed_route_bank_vote"
     )
     assert runtime.route_vote_clean_cache_reuse_count == 1
     assert runtime.route_candidates(routing_key, sensory_tick=True) is None
@@ -405,11 +405,9 @@ def test_route_vote_sleep_filter_updates_trainer_wake_plan(
     assert route_scoring["route_output_candidate_count"] == config.k_routing
     assert route_scoring["route_rows_run_all_columns"] is True
     assert route_scoring["bounded_route_scoring"] is False
-    assert route_scoring["candidate_boundary"] == (
-        "exact_full_cache_score_then_filter_select"
-    )
+    assert route_scoring["candidate_boundary"] == "exact_full_cache_score_seed_route_bank"
     assert route_scoring["route_scoring_unbounded_reason"] == (
-        "exact_full_cache_route_scoring_before_bounded_candidate_selection"
+        "route_candidate_bank_not_ready_exact_seed"
     )
     assert transition_report["state_transition_runs_all_columns"] is False
     assert transition_report["state_transition_mode"].startswith(
@@ -526,6 +524,70 @@ def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan(
     ] == 2
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_route_candidate_bank_bounds_route_scoring_after_seed() -> None:
+    torch.manual_seed(20260616)
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        route_candidate_bank_size=0,
+        memory_capacity=16,
+        routing_index_mode="torch_topk",
+        predictive_dense_transition_mode="inplace_triton",
+        predictive_route_vote_mode="cuda_graph_text",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        dead_column_steps=1000,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        candidate_memory_pressure_filter_start_tokens=10**9,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="route bank exact seed",
+        allow_sleep_maintenance=False,
+    )
+    seed_report = trainer.column_transition_runtime_report()
+    assert seed_report["route_candidate_bank"]["ready"] is True
+    assert seed_report["route_candidate_bank"]["seed_count"] == 1
+    assert seed_report["route_vote_scoring"]["route_input_rows_scored"] == config.n_columns
+    assert seed_report["route_vote_scoring"]["bounded_route_scoring"] is False
+
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="route bank bounded graph",
+        allow_sleep_maintenance=False,
+    )
+    torch.cuda.synchronize()
+
+    report = trainer.column_transition_runtime_report()
+    scoring = report["route_vote_scoring"]
+    assert report["route_vote_kernel_variant"] == "indexed_route_bank_vote"
+    assert report["route_candidate_bank"]["enabled"] is True
+    assert report["route_candidate_bank"]["ready"] is True
+    assert report["route_candidate_bank"]["bank_size"] == config.k_routing
+    assert report["route_candidate_bank"]["graph_bypass_count"] == 1
+    assert scoring["route_input_rows_scored"] == config.k_routing
+    assert scoring["route_output_candidate_count"] == config.k_routing
+    assert scoring["route_rows_run_all_columns"] is False
+    assert scoring["bounded_route_scoring"] is True
+    assert scoring["candidate_boundary"] == "bounded_route_bank_score_then_filter_select"
+    assert scoring["route_input_source"] == "training_owned_route_candidate_bank"
+    assert scoring["route_scoring_unbounded_reason"] is None
+    assert report["cuda_graph_route_transition"]["tick_replay_count"] >= 1
+    assert report["state_transition_runs_all_columns"] is False
+
+
 def test_cuda_graph_route_transition_reports_pre_mutation_fallback_on_cpu() -> None:
     config = MarulhoConfig(
         n_columns=8,
@@ -581,10 +643,10 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
     graph_report = graph.column_transition_runtime_report()
     assert graph_report["cuda_graph_route_transition"]["active"] is True
-    assert graph_report["route_vote_kernel_variant"] == "two_stage_route_vote"
+    assert graph_report["route_vote_kernel_variant"] == "indexed_route_bank_vote"
     assert (
         graph_report["cuda_graph_route_transition"]["route_vote_kernel_variant"]
-        == "two_stage_route_vote"
+        == "indexed_route_bank_vote"
     )
     assert graph_report["execution_count"] == 0
     consolidation_lookup_count = 0
@@ -697,36 +759,37 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
         atol=1e-7,
     )
     assert final_report["last_execution_mode"] == "cuda_graph_route_transition"
-    assert graph_runtime["pre_route_replay_count"] == 16
-    assert graph_runtime["tick_replay_count"] == 16
-    assert graph_runtime["replay_count"] == 16
-    assert graph_runtime["host_truth_sync_count"] == 16
+    assert graph_runtime["pre_route_replay_count"] == 15
+    assert graph_runtime["tick_replay_count"] == 15
+    assert graph_runtime["replay_count"] == 15
+    assert graph_runtime["host_truth_cadence_tick_count"] == 16
+    assert graph_runtime["host_truth_sync_count"] == 15
     assert graph_runtime["host_truth_skip_count"] == 0
-    assert graph_runtime["surprise_update_count"] == 16
+    assert graph_runtime["surprise_update_count"] == 15
     assert graph_runtime["host_truth_mirror_update_count"] == 16
-    assert graph_runtime["competitive_surprise_update_count"] == 16
-    assert graph_runtime["route_cache_generation_fastpath_count"] == 16
+    assert graph_runtime["competitive_surprise_update_count"] == 15
+    assert graph_runtime["route_cache_generation_fastpath_count"] == 15
     assert graph_runtime["route_cache_clean_fastpath_count"] == 0
     assert graph_runtime["route_cache_generation_mismatch_count"] == 0
     assert graph_runtime["route_cache_device_owned"] is True
-    assert graph_runtime["route_cache_device_update_count"] == 16
+    assert graph_runtime["route_cache_device_update_count"] == 15
     assert graph_runtime["reconstruction_error_source"] == "fused_route_score_max"
-    assert graph_runtime["route_vote_kernel_variant"] == "two_stage_route_vote"
+    assert graph_runtime["route_vote_kernel_variant"] == "indexed_route_bank_vote"
     assert graph_runtime["fused_reconstruction_error_active"] is True
-    assert graph_runtime["fused_reconstruction_error_update_count"] == 16
+    assert graph_runtime["fused_reconstruction_error_update_count"] == 15
     assert graph_runtime["persistent_tick_graph"] is True
     assert graph_runtime["owns_competitive_surprise"] is True
     assert graph_runtime["owns_neuromodulator_update"] is True
     assert graph_runtime["failure_count"] == 0
-    assert graph_runtime["previous_flag_device_owned_count"] == 16
-    assert graph_runtime["learning_rate_device_owned_count"] == 16
-    assert graph_runtime["learning_rate_host_resync_count"] == 0
-    assert graph_runtime["modulator_stage_copy_count"] == 16
+    assert graph_runtime["previous_flag_device_owned_count"] == 15
+    assert graph_runtime["learning_rate_device_owned_count"] == 15
+    assert graph_runtime["learning_rate_host_resync_count"] == 1
+    assert graph_runtime["modulator_stage_copy_count"] == 15
     assert graph_runtime["modulator_stage_skip_count"] == 0
-    assert final_report["route_vote_prepared_graph_reuse_count"] == 16
-    assert final_report["graph_consolidation_lookup_skip_count"] == 16
-    assert final_report["graph_empty_revival_tensor_reuse_count"] == 16
-    assert consolidation_lookup_count == 0
+    assert final_report["route_vote_prepared_graph_reuse_count"] == 15
+    assert final_report["graph_consolidation_lookup_skip_count"] == 15
+    assert final_report["graph_empty_revival_tensor_reuse_count"] == 15
+    assert consolidation_lookup_count == 1
     assert graph.model.competitive.last_revived_indices is empty_revival_tensor
     assert graph_metrics["routing_index_device_update_count"] == 16
     assert graph_metrics["routing_index_buffer_skip_count"] == 16
@@ -860,18 +923,19 @@ def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
         )
 
     report = trainer.column_transition_runtime_report()["cuda_graph_route_transition"]
-    assert report["tick_replay_count"] == 8
-    assert report["surprise_update_count"] == 8
+    assert report["tick_replay_count"] == 7
+    assert report["host_truth_cadence_tick_count"] == 8
+    assert report["surprise_update_count"] == 7
     assert report["host_truth_sync_interval_tokens"] == 4
-    assert report["host_truth_sync_count"] == 3
+    assert report["host_truth_sync_count"] == 2
     assert report["host_truth_skip_count"] == 5
     assert report["host_truth_mirror_update_count"] == 3
     assert report["last_result_from_host_sync"] is True
-    assert report["competitive_surprise_update_count"] == 3
+    assert report["competitive_surprise_update_count"] == 2
     assert report["failure_count"] == 0
     runtime_report = trainer.column_transition_runtime_report()
-    assert runtime_report["graph_host_winner_reuse_count"] == 3
-    assert runtime_report["winner_consolidation_cpu_metric_count"] == 1
+    assert runtime_report["graph_host_winner_reuse_count"] == 2
+    assert runtime_report["winner_consolidation_cpu_metric_count"] == 0
     assert runtime_report["winner_consolidation_cached_metric_count"] == 3
     assert runtime_report["winner_host_mirror_sync_count"] == 3
     assert runtime_report["winner_host_mirror_skip_count"] == 5
@@ -913,6 +977,14 @@ def test_cuda_graph_quantum_input_staging_preserves_sequential_trajectory() -> N
     )
     torch.manual_seed(20260614)
     staged = MarulhoTrainer(MarulhoModel(config), config)
+    warm_pattern = torch.rand(config.input_dim, device="cuda")
+    for trainer in (retained, staged):
+        trainer.train_step(
+            warm_pattern,
+            raw_window="quantum staging route-bank seed",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
     patterns = [
         torch.rand(config.input_dim, device="cuda")
         for _ in range(12)
@@ -2393,13 +2465,13 @@ def test_training_owned_sequence_input_staging_segments_around_host_truth_phase(
     report = trainer.column_transition_runtime_report()
     graph_report = report["cuda_graph_route_transition"]
     assert result["trained"] == 128
-    assert report["text_sequence_input_stage_count"] == 4
-    assert report["text_sequence_input_staged_token_count"] == 96
+    assert report["text_sequence_input_stage_count"] == 1
+    assert report["text_sequence_input_staged_token_count"] == 128
     assert report["text_sequence_input_stage_skip_count"] == 0
-    assert report["text_burst_execution_count"] == 12
-    assert report["text_burst_token_count"] == 96
-    assert report["text_burst_fallback_reasons"] == {"host_truth_boundary": 4}
-    assert graph_report["quantum_input_stage_count"] == 8
+    assert report["text_burst_execution_count"] == 20
+    assert report["text_burst_token_count"] == 128
+    assert report["text_burst_fallback_reasons"] == {}
+    assert graph_report["quantum_input_stage_count"] == 1
     assert graph_report["quantum_input_staged_token_count"] == 128
     assert graph_report["quantum_input_reuse_count"] == 128
 
@@ -2547,6 +2619,11 @@ def test_cuda_graph_quantum_input_staging_discards_mismatched_order() -> None:
         device="cuda",
     )
     trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.train_step(
+        torch.rand(config.input_dim, device="cuda"),
+        raw_window="mismatched staged order route-bank seed",
+        allow_sleep_maintenance=False,
+    )
     patterns = [
         torch.rand(config.input_dim, device="cuda")
         for _ in range(3)
@@ -2674,9 +2751,10 @@ def test_cuda_graph_learning_rate_counter_resyncs_after_sensory_fallback() -> No
     report = trainer.column_transition_runtime_report()[
         "cuda_graph_route_transition"
     ]
-    assert report["tick_replay_count"] == 2
+    assert report["tick_replay_count"] == 1
+    assert report["host_truth_cadence_tick_count"] == 3
     assert report["pre_route_sensory_bypass_count"] == 1
-    assert report["learning_rate_device_owned_count"] == 2
+    assert report["learning_rate_device_owned_count"] == 1
     assert report["learning_rate_host_resync_count"] == 1
 
 
@@ -2771,9 +2849,11 @@ def test_cuda_graph_modulator_stage_is_revision_cached_between_host_syncs() -> N
     report = trainer.column_transition_runtime_report()[
         "cuda_graph_route_transition"
     ]
-    assert report["tick_replay_count"] == 8
-    assert report["host_truth_sync_count"] == 3
-    assert report["modulator_stage_copy_count"] == 3
+    assert report["tick_replay_count"] == 7
+    assert report["host_truth_cadence_tick_count"] == 8
+    assert report["host_truth_sync_count"] == 2
+    assert report["host_truth_mirror_update_count"] == 3
+    assert report["modulator_stage_copy_count"] == 2
     assert report["modulator_stage_skip_count"] == 5
 
 

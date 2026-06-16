@@ -53,6 +53,7 @@ class CudaGraphRouteTransition:
         self.host_truth_skip_count = 0
         self.surprise_update_count = 0
         self.host_truth_mirror_update_count = 0
+        self._host_truth_cadence_tick_count = 0
         self.competitive_surprise_update_count = 0
         self.route_cache_clean_fastpath_count = 0
         self.route_cache_rebuild_check_count = 0
@@ -357,6 +358,9 @@ class CudaGraphRouteTransition:
             self.route_vote_kernel_variant = fused_route_vote_kernel_variant(
                 vectors,
                 runtime._route_candidates,
+                runtime._route_bank_positions
+                if runtime.route_candidate_bank_enabled
+                else None,
             )
             route_ids_cpu = ids.detach().to(device="cpu", dtype=torch.long)
             if int(route_ids_cpu.numel()) != int(comp.n_columns):
@@ -519,6 +523,7 @@ class CudaGraphRouteTransition:
                 pred.prediction_error,
                 pred.prediction_failure_streak,
                 pred.confidence,
+                pred.predictive_last_update_step,
                 runtime._assembly,
                 runtime._assembly_active_winner,
                 runtime._winner,
@@ -623,6 +628,11 @@ class CudaGraphRouteTransition:
             routing_key=routing_key,
             routing_vectors=self._route_vectors,
             routing_ids=self._route_ids,
+            route_positions=(
+                runtime._route_bank_positions
+                if runtime.route_candidate_bank_enabled
+                else None
+            ),
             steps_since_win=comp.steps_since_win,
             steps_since_win_last_update_step=comp.steps_since_win_last_update_step,
             state_transition_step_counter=runtime._state_transition_step_counter,
@@ -1328,6 +1338,7 @@ class CudaGraphRouteTransition:
             != self._previous_routing_key.data_ptr()
         ):
             self._previous_routing_key.copy_(trainer._prev_routing_key)
+        self._parameters[4].fill_(1.0 if has_previous else 0.0)
         _profile_mark("cuda_graph_prepare_previous_key")
         if int(comp.update_count) != int(self._learning_rate_update_count_mirror):
             self._learning_rate_update_count.fill_(float(comp.update_count))
@@ -1397,6 +1408,7 @@ class CudaGraphRouteTransition:
         ) % MAX_QUANTUM_INPUT_TOKENS
         self.tick_replay_count += 1
         self.replay_count += 1
+        self._host_truth_cadence_tick_count += 1
         self.route_cache_device_update_count += 1
         self._runtime.mark_route_sleep_filter_state_dirty()
         self._last_graph_name = graph_name
@@ -1417,7 +1429,7 @@ class CudaGraphRouteTransition:
         sync_due = (
             self._last_result is None
             or sync_interval <= 1
-            or self.replay_count % sync_interval == 0
+            or self._host_truth_cadence_tick_count % sync_interval == 0
         )
         if sync_due:
             result = tuple(float(value) for value in outputs["result"].tolist())
@@ -1604,7 +1616,11 @@ class CudaGraphRouteTransition:
         sync_offsets = [
             offset
             for offset in range(1, len(patterns) + 1)
-            if (self.replay_count + offset) % sync_interval == 0
+            if (
+                self._host_truth_cadence_tick_count + offset
+            )
+            % sync_interval
+            == 0
         ]
         if sync_offsets not in ([], [len(patterns)]):
             raise RuntimeError(
@@ -1632,12 +1648,15 @@ class CudaGraphRouteTransition:
         assert self._predictive_step_counter is not None
         assert self._predictive_step_count_mirror is not None
         comp = trainer.model.competitive
+        has_previous = trainer._prev_routing_key is not None
         if (
-            trainer._prev_routing_key is not None
+            has_previous
+            and trainer._prev_routing_key is not None
             and trainer._prev_routing_key.data_ptr()
             != self._previous_routing_key.data_ptr()
         ):
             self._previous_routing_key.copy_(trainer._prev_routing_key)
+        self._parameters[4].fill_(1.0 if has_previous else 0.0)
         if int(comp.update_count) != int(self._learning_rate_update_count_mirror):
             self._learning_rate_update_count.fill_(float(comp.update_count))
             self._learning_rate_update_count_mirror = int(comp.update_count)
@@ -1681,6 +1700,7 @@ class CudaGraphRouteTransition:
         self.quantum_input_reuse_count += token_count
         self.tick_replay_count += token_count
         self.replay_count += token_count
+        self._host_truth_cadence_tick_count += token_count
         self.burst_replay_count += 1
         self.burst_replayed_token_count += token_count
         self.route_cache_device_update_count += token_count
@@ -1700,6 +1720,34 @@ class CudaGraphRouteTransition:
         comp.last_execution_mode = "candidate_subset_persistent_burst_graph"
         comp.last_scored_column_count = int(self._runtime._route_candidates.numel())
         comp.last_candidate_count = int(self._runtime._route_candidates.numel())
+        if self._runtime.route_candidate_bank_enabled:
+            route_input_rows = (
+                int(self._runtime._route_bank_positions.numel())
+                if self._runtime._route_bank_positions is not None
+                else int(self._runtime._route_candidates.numel())
+            )
+            self._runtime._record_route_scoring(
+                input_rows=route_input_rows,
+                output_candidates=int(self._runtime._route_candidates.numel()),
+                candidate_boundary="bounded_route_bank_burst_score_then_filter_select",
+                route_input_source="training_owned_route_candidate_bank",
+                unbounded_reason=None,
+            )
+            self._runtime._refresh_route_bank_from_candidates(
+                self._runtime._route_candidates,
+                reason="bounded_route_bank_burst_refresh",
+                validate=False,
+            )
+        elif self._route_ids is not None:
+            self._runtime._record_route_scoring(
+                input_rows=int(self._route_ids.numel()),
+                output_candidates=int(self._runtime._route_candidates.numel()),
+                candidate_boundary="exact_full_cache_burst_score_then_filter_select",
+                route_input_source="complete_routing_tensor_cache",
+                unbounded_reason=(
+                    "exact_full_cache_route_scoring_before_bounded_candidate_selection"
+                ),
+            )
         comp.recent_spike_window_cursor = (
             comp.recent_spike_window_cursor + token_count
         ) % comp.spike_history_window
@@ -1910,6 +1958,78 @@ class CudaGraphRouteTransition:
         self._staged_pattern_pointers = []
         self._staged_pattern_offset = 0
 
+    @torch.no_grad()
+    def sync_after_external_transition(
+        self,
+        *,
+        reconstruction_error: float,
+        winner_id: int | None,
+        effective_modulator: float,
+    ) -> None:
+        if not self.active:
+            return
+        trainer = self._trainer
+        comp = trainer.model.competitive
+        pred = trainer.model.predictive
+        if self._learning_rate_update_count is not None:
+            self._learning_rate_update_count.fill_(float(comp.update_count))
+            self._learning_rate_update_count_mirror = int(comp.update_count)
+        if self._predictive_step_counter is not None:
+            self._predictive_step_counter.fill_(int(pred.predictive_step_count))
+            self._predictive_step_count_mirror = int(pred.predictive_step_count)
+        if (
+            self._previous_routing_key is not None
+            and trainer._prev_routing_key is not None
+        ):
+            self._previous_routing_key.copy_(trainer._prev_routing_key)
+        if self._parameters is not None:
+            self._parameters[4].fill_(
+                1.0 if trainer._prev_routing_key is not None else 0.0
+            )
+        surprise = trainer.model.surprise
+        if self._neuromodulator_state is not None:
+            self._neuromodulator_state.copy_(
+                torch.tensor(
+                    [
+                        float(surprise.predicted_error),
+                        float(surprise.dopamine),
+                        float(surprise.acetylcholine),
+                        float(surprise.norepinephrine),
+                        float(surprise.serotonin),
+                    ],
+                    dtype=self._neuromodulator_state.dtype,
+                    device=self._neuromodulator_state.device,
+                )
+            )
+        self._cached_modulator_revision = int(
+            getattr(surprise, "modulator_revision", 0)
+        )
+        self._cached_modulator_value = float(surprise.get_modulator("competitive"))
+        if (
+            self._host_parameters is not None
+            and self._parameter_device_prefix is not None
+            and self._parameter_host_prefix is not None
+        ):
+            self._host_parameters[0] = self._cached_modulator_value
+            self._parameter_device_prefix.copy_(
+                self._parameter_host_prefix,
+                non_blocking=True,
+            )
+        result = (
+            float(reconstruction_error),
+            float(surprise.predicted_error),
+            float(surprise.dopamine),
+            float(surprise.acetylcholine),
+            float(surprise.norepinephrine),
+            float(surprise.serotonin),
+            float(-1 if winner_id is None else int(winner_id)),
+            float(effective_modulator),
+        )
+        self._last_result = result
+        self._last_result_from_host_sync = True
+        self.host_truth_mirror_update_count += 1
+        self._host_truth_cadence_tick_count += 1
+
     def consume_result(self) -> tuple[float, ...]:
         if self._last_result is None:
             raise RuntimeError("persistent tick result is unavailable")
@@ -1971,6 +2091,9 @@ class CudaGraphRouteTransition:
             "capture_count": int(self.capture_count),
             "pre_route_replay_count": int(self.tick_replay_count),
             "tick_replay_count": int(self.tick_replay_count),
+            "host_truth_cadence_tick_count": int(
+                self._host_truth_cadence_tick_count
+            ),
             "pre_route_sensory_bypass_count": int(
                 self.pre_route_sensory_bypass_count
             ),

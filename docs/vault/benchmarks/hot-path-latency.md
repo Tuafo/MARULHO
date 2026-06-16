@@ -1705,3 +1705,60 @@ Runtime Truth showed `route_vote_scoring.route_input_rows_scored=1024`,
 `bounded_route_scoring=false`, `state_transition_column_count=10`,
 `state_transition_cached_count=1014`, `state_transition_runs_all_columns=false`,
 and zero graph, sequence, or native failures/fallbacks.
+
+### Route Candidate Bank Scheduler, 2026-06-16
+
+The route-candidate-bank slice changes the CUDA route/vote contract from
+full-cache route scoring on every eligible text tick to an explicit two-phase
+scheduler boundary:
+
+- first eligible tick: exact complete-cache seed,
+  `candidate_boundary=exact_full_cache_score_seed_route_bank`,
+  `route_scoring_unbounded_reason=route_candidate_bank_not_ready_exact_seed`
+- steady fused/graph ticks: indexed bank scoring with
+  `route_vote_kernel_variant=indexed_route_bank_vote`
+- graph/burst boundaries refresh the bank from device route/vote candidates
+  without a hot-path all-column scan
+- `service` only projects `route_candidate_bank` and `route_vote_scoring`; it
+  does not choose the bank, wake columns, or decide sleep
+
+The first complete run,
+`reports/column_scheduler_20260616/route-candidate-bank-131072-i32.json`,
+proved bounded route rows (`route_input_rows_scored=10`,
+`bounded_route_scoring=true`) but reached only `5323.085 tokens/sec` and
+`train_compute=0.158101 ms/token`. The outlier was visible in measured train
+cost: `train_compute.max=3859.036 ms`, while p95 was `17.919 ms/tick`. That
+exposed an implementation-path miss: the exact seed route was not warmed, so
+the full-cache seed kernel could JIT compile inside the measured window.
+
+After warming both the exact seed route and the indexed bank route, the long
+promotion gate at
+`reports/column_scheduler_20260616/route-candidate-bank-warmseed-131072-i32.json`
+returned to the 6k-ish band:
+
+| Metric | Prior list-surface cleanup | First route-bank run | Warm-seed route-bank |
+| --- | ---: | ---: | ---: |
+| tokens/sec | `6142.710` | `5323.085` | `6109.301` |
+| train_compute ms/token | `0.132356` | `0.158101` | `0.130536` |
+| prepare_training ms/token | `0.006332` | `0.006173` | `0.006706` |
+| finalize_total ms/token | `0.005919` | `0.005740` | `0.005764` |
+| tick_duration p95 ms | `21.142` | `20.070` | `21.299` |
+| route rows scored | `1024` | `10` | `10` |
+| bounded_route_scoring | `false` | `true` | `true` |
+| graph/native/sequence failures | `0` | `0` | `0` |
+
+The warm-seed report selected the RTX 3060, completed `131072` tokens, kept
+`state_transition_column_count=10`, `state_transition_cached_count=1014`, and
+`state_transition_runs_all_columns=false`, and exposed
+`route_candidate_bank.enabled=true`, `ready=true`, `bank_size=10`,
+`seed_count=1`, `refresh_count=8222`, `graph_bypass_count=1`, and
+`fallback_count=1`. Runtime Truth also showed
+`host_truth_cadence_tick_count=131072` with `tick_replay_count=131071`, so the
+exact seed is counted as a truth cadence tick without pretending it was a graph
+replay.
+
+This promotes the route-bank path as the current scheduler boundary at the
+1024-column true path. It does not prove a general ANN router, wider-bank
+quality, or growth/pruning autonomy. A larger-column route-bank scaling gate is
+still required before claiming total-column-invariant route cost across 8192+
+columns.

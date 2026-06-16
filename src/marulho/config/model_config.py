@@ -77,6 +77,7 @@ class MarulhoConfig:
     routing_index_mode: Literal["torch_topk"] = "torch_topk"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
+    route_candidate_bank_size: int = 0
     predictive_dense_transition_mode: Literal[
         "fused_eager",
         "inplace_triton",
@@ -423,6 +424,14 @@ class MarulhoConfig:
             )
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
+        if self.route_candidate_bank_size < 0:
+            raise ValueError("route_candidate_bank_size must be non-negative")
+        if (
+            self.route_candidate_bank_size not in {0, int(self.k_routing)}
+        ):
+            raise ValueError(
+                "route_candidate_bank_size must be 0 or equal to k_routing; wider banks need a separate promotion gate"
+            )
         if self.predictive_dense_transition_mode not in {
             "fused_eager",
             "inplace_triton",

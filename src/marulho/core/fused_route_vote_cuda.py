@@ -25,12 +25,15 @@ if triton is not None:
     def _routing_scores_kernel(
         routing_key,
         routing_vectors,
+        route_positions,
         scores_out,
         vector_count: tl.constexpr,
         column_dim: tl.constexpr,
         block_d: tl.constexpr,
+        has_route_positions: tl.constexpr,
     ):
         row = tl.program_id(0)
+        vector_row = tl.load(route_positions + row) if has_route_positions else row
         dimensions = tl.arange(0, block_d)
         dimension_mask = dimensions < column_dim
         query = tl.load(
@@ -39,7 +42,7 @@ if triton is not None:
             other=0.0,
         )
         vector = tl.load(
-            routing_vectors + row * column_dim + dimensions,
+            routing_vectors + vector_row * column_dim + dimensions,
             mask=dimension_mask,
             other=0.0,
         )
@@ -51,6 +54,7 @@ if triton is not None:
         routing_key,
         routing_scores,
         routing_ids,
+        route_positions,
         steps_since_win,
         steps_since_win_last_update_step,
         state_transition_step_counter,
@@ -74,6 +78,7 @@ if triton is not None:
         block_n: tl.constexpr,
         block_d: tl.constexpr,
         block_location: tl.constexpr,
+        has_route_positions: tl.constexpr,
     ):
         score_offsets = tl.arange(0, block_n)
         score_mask = score_offsets < vector_count
@@ -82,8 +87,18 @@ if triton is not None:
             mask=score_mask,
             other=-float("inf"),
         )
+        routing_positions = tl.load(
+            route_positions + score_offsets,
+            mask=score_mask,
+            other=0,
+        )
+        routing_positions = tl.where(
+            has_route_positions,
+            routing_positions,
+            score_offsets,
+        )
         candidate_ids_by_position = tl.load(
-            routing_ids + score_offsets,
+            routing_ids + routing_positions,
             mask=score_mask,
             other=0,
         )
@@ -191,7 +206,10 @@ if triton is not None:
 
         for candidate_offset in tl.static_range(0, candidate_count):
             routing_position = tl.argmax(primary_scores, axis=0)
-            candidate_id = tl.load(routing_ids + routing_position)
+            routing_cache_position = tl.load(
+                route_positions + routing_position,
+            ) if has_route_positions else routing_position
+            candidate_id = tl.load(routing_ids + routing_cache_position)
             tl.store(candidates_out + candidate_offset, candidate_id)
             primary_scores = tl.where(
                 score_offsets == routing_position,
@@ -325,10 +343,13 @@ def fused_route_vote_available() -> bool:
 def fused_route_vote_kernel_variant(
     routing_vectors: torch.Tensor,
     candidates_out: torch.Tensor,
+    route_positions: torch.Tensor | None = None,
 ) -> str:
     if triton is None or routing_vectors.dim() != 2:
         return "unavailable"
     vector_count, column_dim = map(int, routing_vectors.shape)
+    if route_positions is not None:
+        vector_count = int(route_positions.numel())
     candidate_count = int(candidates_out.numel())
     if (
         vector_count > 0
@@ -336,6 +357,8 @@ def fused_route_vote_kernel_variant(
         and candidate_count <= vector_count
         and column_dim > 0
     ):
+        if route_positions is not None:
+            return "indexed_route_bank_vote"
         return "two_stage_route_vote"
     return "unavailable"
 
@@ -345,6 +368,7 @@ def warmup_fused_route_vote_cuda(
     routing_key: torch.Tensor,
     routing_vectors: torch.Tensor,
     routing_ids: torch.Tensor,
+    route_positions: torch.Tensor | None = None,
     steps_since_win: torch.Tensor,
     steps_since_win_last_update_step: torch.Tensor,
     state_transition_step_counter: torch.Tensor,
@@ -367,16 +391,28 @@ def warmup_fused_route_vote_cuda(
 
     if triton is None:
         raise RuntimeError("Triton is not installed")
-    vector_count, column_dim = map(int, routing_vectors.shape)
+    full_vector_count, column_dim = map(int, routing_vectors.shape)
+    vector_count = (
+        int(route_positions.numel())
+        if route_positions is not None
+        else int(full_vector_count)
+    )
     candidate_count = int(candidates_out.numel())
+    route_position_tensor = (
+        route_positions
+        if route_positions is not None
+        else routing_ids
+    )
     ensure_windows_triton_compiler()
     _routing_scores_kernel.warmup(
         routing_key,
         routing_vectors,
+        route_position_tensor,
         scores_out,
         vector_count=vector_count,
         column_dim=column_dim,
         block_d=triton.next_power_of_2(column_dim),
+        has_route_positions=route_positions is not None,
         num_warps=1,
         grid=(vector_count,),
     )
@@ -384,6 +420,7 @@ def warmup_fused_route_vote_cuda(
         routing_key,
         scores_out,
         routing_ids,
+        route_position_tensor,
         steps_since_win,
         steps_since_win_last_update_step,
         state_transition_step_counter,
@@ -407,6 +444,7 @@ def warmup_fused_route_vote_cuda(
         block_n=triton.next_power_of_2(vector_count),
         block_d=triton.next_power_of_2(column_dim),
         block_location=triton.next_power_of_2(int(prediction_location.shape[1])),
+        has_route_positions=route_positions is not None,
         num_warps=8,
         grid=(1,),
     )
@@ -417,6 +455,7 @@ def fused_route_vote_cuda(
     routing_key: torch.Tensor,
     routing_vectors: torch.Tensor,
     routing_ids: torch.Tensor,
+    route_positions: torch.Tensor | None = None,
     steps_since_win: torch.Tensor,
     steps_since_win_last_update_step: torch.Tensor,
     state_transition_step_counter: torch.Tensor,
@@ -445,6 +484,7 @@ def fused_route_vote_cuda(
         routing_key,
         routing_vectors,
         routing_ids,
+        *((route_positions,) if route_positions is not None else ()),
         steps_since_win,
         steps_since_win_last_update_step,
         state_transition_step_counter,
@@ -467,13 +507,24 @@ def fused_route_vote_cuda(
         raise ValueError("all fused route/vote tensors must share one CUDA device")
     if routing_vectors.dim() != 2:
         raise ValueError("routing_vectors must be rank 2")
-    vector_count, column_dim = map(int, routing_vectors.shape)
-    if vector_count <= 0:
+    full_vector_count, column_dim = map(int, routing_vectors.shape)
+    if full_vector_count <= 0:
         raise ValueError("routing cache must not be empty")
     if int(routing_key.numel()) != column_dim:
         raise ValueError("routing_key must match routing vector width")
-    if int(routing_ids.numel()) != vector_count:
+    if int(routing_ids.numel()) != full_vector_count:
         raise ValueError("routing_ids must match routing vector rows")
+    vector_count = int(full_vector_count)
+    route_position_tensor = routing_ids
+    if route_positions is not None:
+        if route_positions.dtype != torch.long:
+            raise ValueError("route_positions must use int64")
+        if route_positions.device != routing_key.device:
+            raise ValueError("route_positions must share the route/vote device")
+        vector_count = int(route_positions.numel())
+        if vector_count <= 0:
+            raise ValueError("route_positions must not be empty")
+        route_position_tensor = route_positions
     if int(steps_since_win.numel()) != int(prototypes.shape[0]):
         raise ValueError("steps_since_win must match prototype rows")
     if steps_since_win.dtype != torch.long:
@@ -499,7 +550,7 @@ def fused_route_vote_cuda(
     if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 12:
         raise ValueError("route_filter_state_out must contain at least twelve int64 values")
     if int(scores_out.numel()) != vector_count:
-        raise ValueError("scores_out must match routing vector rows")
+        raise ValueError("scores_out must match active routing rows")
     candidate_count = int(candidates_out.numel())
     if candidate_count <= 0 or candidate_count > vector_count:
         raise ValueError("candidate output count must be within routing cache size")
@@ -522,16 +573,19 @@ def fused_route_vote_cuda(
     _routing_scores_kernel[(vector_count,)](
         routing_key,
         routing_vectors,
+        route_position_tensor,
         scores_out,
         vector_count=vector_count,
         column_dim=column_dim,
         block_d=triton.next_power_of_2(column_dim),
+        has_route_positions=route_positions is not None,
         num_warps=1,
     )
     _select_route_vote_kernel[(1,)](
         routing_key,
         scores_out,
         routing_ids,
+        route_position_tensor,
         steps_since_win,
         steps_since_win_last_update_step,
         state_transition_step_counter,
@@ -555,5 +609,6 @@ def fused_route_vote_cuda(
         block_n=triton.next_power_of_2(vector_count),
         block_d=triton.next_power_of_2(column_dim),
         block_location=triton.next_power_of_2(int(prediction_location.shape[1])),
+        has_route_positions=route_positions is not None,
         num_warps=8,
     )

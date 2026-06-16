@@ -43,13 +43,18 @@ flowchart TD
 Runtime Truth must keep route input rows, awake output candidates, graph capture
 policy, state-transition scope, fallback reason, and `runs_all_columns` truth
 separate. The promoted CUDA/text path can truthfully report `10` awake columns
-while still exposing route-score input rows that scale with total columns.
+while exposing whether route-score input rows came from the exact seed or the
+bounded route-candidate bank.
 `route_vote_scoring` is the explicit training-owned route-cost surface:
 `route_input_rows_scored`, `route_output_candidate_count`,
 `route_rows_run_all_columns`, and `bounded_route_scoring` must stay separate
 from `state_transition_runs_all_columns` and the wake-plan `runs_all_columns`
-truth. The route-owner scheduler filter now also reports whether
-memory-pressure filtering was enabled from cached pressure evidence, how many
-route rows it masked, and why it fell back. Service may project that evidence
-but must not construct its own scheduler decision or clear route-cost truth from
-awake-count evidence.
+truth. `route_candidate_bank` reports the training-owned bank readiness,
+size, exact seed count, refresh count, graph bypass count, fallback count, and
+last reason. The exact seed is visible as
+`exact_full_cache_score_seed_route_bank`; steady graph/burst ticks report
+`indexed_route_bank_vote` with bounded route rows. The route-owner scheduler
+filter also reports whether memory-pressure filtering was enabled from cached
+pressure evidence, how many route rows it masked, and why it fell back. Service
+may project that evidence but must not construct its own scheduler decision or
+clear route-cost truth from awake-count evidence.
