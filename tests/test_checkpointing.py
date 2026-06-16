@@ -356,6 +356,47 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 64)
             self.assertNotIn("config_migrations", metadata)
 
+    def test_checkpoint_loader_drops_retired_shard_merge_switch(self) -> None:
+        from dataclasses import fields
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "retired-merge-shards.pt",
+                trainer,
+            )
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["merge_torch_routing_shards"] = False
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertNotIn(
+                "merge_torch_routing_shards",
+                {field.name for field in fields(restored.config)},
+            )
+            self.assertIn(
+                {
+                    "field": "merge_torch_routing_shards",
+                    "from": False,
+                    "to": "merged_torch_route_cache_required",
+                    "reason": "retired_non_promoted_sharded_route_cache_switch",
+                },
+                metadata["config_migrations"],
+            )
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_checkpoint_cuda_graph_capture_happens_after_state_restore(self) -> None:
         from tempfile import TemporaryDirectory

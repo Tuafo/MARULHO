@@ -230,7 +230,6 @@ class MarulhoModel:
                 shard_candidate_factor=self.config.shard_candidate_factor,
                 device=self.device,
                 backend=self.config.routing_index_mode,
-                merge_torch_shards=self.config.merge_torch_routing_shards,
             )
         else:
             self.routing_index = HierarchicalAssemblyIndex(

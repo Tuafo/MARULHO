@@ -15,7 +15,7 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061602
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061603
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR = "conditional_while"
@@ -214,6 +214,16 @@ def _migrate_loaded_config_snapshot(
         revision = int(metadata.get("hot_path_config_defaults_revision", 0) or 0)
     except (TypeError, ValueError):
         revision = 0
+    if "merge_torch_routing_shards" in migrated:
+        retired_value = bool(migrated.pop("merge_torch_routing_shards"))
+        migrations.append(
+            {
+                "field": "merge_torch_routing_shards",
+                "from": retired_value,
+                "to": "merged_torch_route_cache_required",
+                "reason": "retired_non_promoted_sharded_route_cache_switch",
+            }
+        )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 

@@ -33,7 +33,6 @@ def run_hot_window_benchmark(
     samples: int = 512,
     warmup_steps: int = 64,
     routing_candidate_mode: str = "tensor",
-    merge_torch_shards: bool = True,
     predictive_transition_mode: str | None = None,
     seed: int = 20260611,
     _trainer_setup: Callable[[object], None] | None = None,
@@ -73,8 +72,6 @@ def run_hot_window_benchmark(
     if _trainer_setup is not None:
         _trainer_setup(trainer)
     device = trainer.model.device
-    if hasattr(trainer.model.routing_index, "merge_torch_shards"):
-        trainer.model.routing_index.merge_torch_shards = bool(merge_torch_shards)
     if routing_candidate_mode == "list":
         def _list_routing_candidates(routing_key: torch.Tensor) -> torch.Tensor | None:
             candidate_ids, _ = trainer.model.routing_index.search(
@@ -192,7 +189,7 @@ def run_hot_window_benchmark(
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
         "routing_candidate_mode": routing_candidate_mode,
-        "merge_torch_shards": bool(merge_torch_shards),
+        "routing_cache_boundary": "merged_torch_route_cache_required",
         "sync_mode": sync_mode,
         "input_quantum_tokens": int(input_quantum_tokens),
         "quantum_input_stage_elapsed_ms": float(
@@ -293,7 +290,6 @@ def main() -> int:
         choices=("list", "tensor"),
         default="tensor",
     )
-    parser.add_argument("--disable-merged-torch-shards", action="store_true")
     parser.add_argument(
         "--predictive-transition-mode",
         choices=("fused_eager", "inplace_triton"),
@@ -318,7 +314,6 @@ def main() -> int:
         samples=args.samples,
         warmup_steps=args.warmup_steps,
         routing_candidate_mode=args.routing_candidate_mode,
-        merge_torch_shards=not args.disable_merged_torch_shards,
         predictive_transition_mode=args.predictive_transition_mode,
         seed=args.seed,
         profile_trainer_stages=args.profile_trainer_stages,

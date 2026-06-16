@@ -758,7 +758,6 @@ def run_compiled_hot_path_kernel_benchmark(
     warmup_iterations: int = 8,
     matmul_precision: str = "high",
     candidate_source: str = "random",
-    merge_torch_shards: bool = True,
     exact_route_compete: bool = False,
     route_compete_last_winner: int | None = None,
     seed: int = 20260611,
@@ -778,8 +777,6 @@ def run_compiled_hot_path_kernel_benchmark(
 
     trainer, _ = load_trainer_checkpoint(checkpoint)
     device = trainer.model.device
-    if hasattr(trainer.model.routing_index, "merge_torch_shards"):
-        trainer.model.routing_index.merge_torch_shards = bool(merge_torch_shards)
     comp = trainer.model.competitive
     predictive = trainer.model.predictive
 
@@ -1158,7 +1155,7 @@ def run_compiled_hot_path_kernel_benchmark(
         "warmup_iterations": int(warmup_iterations),
         "matmul_precision": matmul_precision,
         "candidate_source": candidate_source,
-        "merge_torch_shards": bool(merge_torch_shards),
+        "routing_cache_boundary": "merged_torch_route_cache_required",
         "candidate_prep": candidate_prep,
         "exact_route_compete": exact_route_compete_report or {"enabled": False},
         "n_columns": int(trainer.config.n_columns),
@@ -1203,7 +1200,6 @@ def main() -> int:
         choices=("random", "routing_index", "routing_index_tensor"),
         default="random",
     )
-    parser.add_argument("--disable-merged-torch-shards", action="store_true")
     parser.add_argument(
         "--exact-route-compete",
         action="store_true",
@@ -1224,7 +1220,6 @@ def main() -> int:
         warmup_iterations=args.warmup_iterations,
         matmul_precision=args.matmul_precision,
         candidate_source=args.candidate_source,
-        merge_torch_shards=not args.disable_merged_torch_shards,
         exact_route_compete=args.exact_route_compete,
         route_compete_last_winner=args.route_compete_last_winner,
         seed=args.seed,

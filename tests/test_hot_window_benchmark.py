@@ -38,7 +38,6 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
                 samples=4,
                 warmup_steps=1,
                 routing_candidate_mode="tensor",
-                merge_torch_shards=True,
                 predictive_transition_mode="fused_eager",
                 seed=123,
             )
@@ -49,7 +48,7 @@ def test_hot_window_benchmark_reports_encoded_tensor_scope() -> None:
     assert report["samples"] == 4
     assert report["warmup_steps"] == 1
     assert report["routing_candidate_mode"] == "tensor"
-    assert report["merge_torch_shards"] is True
+    assert report["routing_cache_boundary"] == "merged_torch_route_cache_required"
     assert report["predictive_transition_mode"] == "fused_eager"
     assert report["warmup_elapsed_s"] >= 0.0
     assert report["runtime_counters"]["routing_index"]["last_search_mode"] == "tensor"

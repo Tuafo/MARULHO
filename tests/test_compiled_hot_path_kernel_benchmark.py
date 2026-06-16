@@ -37,7 +37,6 @@ def test_compiled_hot_path_kernel_benchmark_reports_non_mutating_scope() -> None
                 warmup_iterations=1,
                 matmul_precision="default",
                 candidate_source="random",
-                merge_torch_shards=True,
                 seed=123,
             )
 
@@ -47,7 +46,7 @@ def test_compiled_hot_path_kernel_benchmark_reports_non_mutating_scope() -> None
     assert report["iterations"] == 2
     assert report["matmul_precision"] == "default"
     assert report["candidate_source"] == "random"
-    assert report["merge_torch_shards"] is True
+    assert report["routing_cache_boundary"] == "merged_torch_route_cache_required"
     assert report["candidate_prep"]["candidate_source"] == "random"
     assert report["candidate_prep"]["fallback_rows"] == 0
     assert report["device"] == "cpu"

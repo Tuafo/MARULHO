@@ -251,13 +251,11 @@ class ShardedHierarchicalAssemblyIndex:
         *,
         device: torch.device | None = None,
         backend: str = "torch_topk",
-        merge_torch_shards: bool = True,
     ) -> None:
         self.dim = int(dim)
         self.n_shards = max(1, int(n_shards))
         self.rebuild_threshold = int(rebuild_threshold)
         self.shard_candidate_factor = max(1, int(shard_candidate_factor))
-        self.merge_torch_shards = bool(merge_torch_shards)
         self.shards = [
             HierarchicalAssemblyIndex(
                 dim=self.dim,
@@ -337,8 +335,7 @@ class ShardedHierarchicalAssemblyIndex:
 
     def _uses_merged_torch_search(self) -> bool:
         return bool(
-            self.merge_torch_shards
-            and self.shards
+            self.shards
             and all(shard._backend == "torch_topk" for shard in self.shards)
         )
 
@@ -415,46 +412,18 @@ class ShardedHierarchicalAssemblyIndex:
             empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=device)
             return empty_ids, empty_dists
 
-        if self._uses_merged_torch_search():
-            if self._merged_torch_cache_dirty:
-                self._rebuild_merged_torch_cache()
-            if int(self._merged_torch_ids.numel()) <= 0:
-                device = self.shards[0].device if self.shards else torch.device("cpu")
-                empty_ids = torch.empty((batch_size, 0), dtype=torch.long, device=device)
-                empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=device)
-                return empty_ids, empty_dists
-            normalized_query = F.normalize(query_batch.to(self._merged_torch_vectors.device), dim=1)
-            similarities = normalized_query @ self._merged_torch_vectors.T
-            topk = min(target_k, int(self._merged_torch_ids.shape[0]))
-            values, positions = torch.topk(similarities, k=topk, dim=1)
-            return self._merged_torch_ids[positions].long(), (1.0 - values).float()
-
-        shard_ids: list[torch.Tensor] = []
-        shard_dists: list[torch.Tensor] = []
-        for shard in self.shards:
-            if shard.ntotal <= 0:
-                continue
-            ids, dists = shard.search_tensors(
-                query_batch,
-                k=self._local_k_for_shard(shard, target_k),
-            )
-            if ids.numel() <= 0:
-                continue
-            shard_ids.append(ids)
-            shard_dists.append(dists)
-
-        if not shard_ids:
+        if self._merged_torch_cache_dirty:
+            self._rebuild_merged_torch_cache()
+        if int(self._merged_torch_ids.numel()) <= 0:
             device = self.shards[0].device if self.shards else torch.device("cpu")
             empty_ids = torch.empty((batch_size, 0), dtype=torch.long, device=device)
             empty_dists = torch.empty((batch_size, 0), dtype=torch.float32, device=device)
             return empty_ids, empty_dists
-
-        all_ids = torch.cat(shard_ids, dim=1)
-        all_dists = torch.cat(shard_dists, dim=1)
-        topk = min(target_k, int(all_ids.shape[1]))
-        top_dists, top_positions = torch.topk(all_dists, k=topk, largest=False, dim=1)
-        top_ids = torch.gather(all_ids, 1, top_positions)
-        return top_ids.long(), top_dists.float()
+        normalized_query = F.normalize(query_batch.to(self._merged_torch_vectors.device), dim=1)
+        similarities = normalized_query @ self._merged_torch_vectors.T
+        topk = min(target_k, int(self._merged_torch_ids.shape[0]))
+        values, positions = torch.topk(similarities, k=topk, dim=1)
+        return self._merged_torch_ids[positions].long(), (1.0 - values).float()
 
     def routing_tensor_cache(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return one merged exact torch cache for fused routing."""

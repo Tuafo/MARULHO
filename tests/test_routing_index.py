@@ -168,7 +168,7 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertTrue(stats["merged_torch_cache_ready"])
         self.assertEqual(stats["merged_torch_vector_cache_count"], 4)
 
-    def test_merged_torch_cache_matches_per_shard_tensor_search(self) -> None:
+    def test_sharded_tensor_search_uses_merged_cache_contract(self) -> None:
         vectors = torch.tensor(
             [
                 [1.0, 0.0, 0.0],
@@ -181,22 +181,13 @@ class RoutingIndexTests(unittest.TestCase):
             dtype=torch.float32,
         )
         ids = np.arange(6, dtype=np.int64)
-        merged = ShardedHierarchicalAssemblyIndex(
+        index = ShardedHierarchicalAssemblyIndex(
             dim=3,
             n_shards=3,
             device=torch.device("cpu"),
             backend="torch_topk",
-            merge_torch_shards=True,
         )
-        per_shard = ShardedHierarchicalAssemblyIndex(
-            dim=3,
-            n_shards=3,
-            device=torch.device("cpu"),
-            backend="torch_topk",
-            merge_torch_shards=False,
-        )
-        merged.add(vectors, ids)
-        per_shard.add(vectors, ids)
+        index.add(vectors, ids)
         queries = torch.tensor(
             [
                 [0.95, 0.05, 0.0],
@@ -206,11 +197,18 @@ class RoutingIndexTests(unittest.TestCase):
             dtype=torch.float32,
         )
 
-        merged_ids, merged_dists = merged.search_tensors(queries, k=3)
-        shard_ids, shard_dists = per_shard.search_tensors(queries, k=3)
+        found_ids, found_dists = index.search_tensors(queries, k=3)
+        stats = index.stats()
+        normalized_vectors = torch.nn.functional.normalize(vectors, dim=1)
+        normalized_queries = torch.nn.functional.normalize(queries, dim=1)
+        values, positions = torch.topk(normalized_queries @ normalized_vectors.T, k=3, dim=1)
+        expected_ids = ids[positions.numpy()].tolist()
 
-        self.assertTrue(torch.equal(merged_ids, shard_ids))
-        self.assertTrue(torch.allclose(merged_dists, shard_dists, atol=1e-6))
+        self.assertEqual(found_ids.tolist(), expected_ids)
+        self.assertTrue(torch.allclose(found_dists, 1.0 - values, atol=1e-6))
+        self.assertEqual(tuple(found_dists.shape), (3, 3))
+        self.assertTrue(stats["merged_torch_search_enabled"])
+        self.assertTrue(stats["merged_torch_cache_ready"])
 
     def test_merged_torch_cache_invalidates_after_update_and_remove(self) -> None:
         index = ShardedHierarchicalAssemblyIndex(
@@ -343,22 +341,21 @@ class RoutingIndexTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "only torch_topk"):
                     HierarchicalAssemblyIndex(dim=2, backend=backend)
 
-    def test_model_can_disable_merged_torch_routing_cache(self) -> None:
+    def test_model_sharded_routing_always_exposes_merged_cache(self) -> None:
         cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=4,
             routing_index_mode="torch_topk",
             routing_shards=2,
-            merge_torch_routing_shards=False,
             device="cpu",
         )
         model = MarulhoModel(cfg)
         model.routing_index.search_tensors(torch.rand(1, cfg.column_latent_dim), k=2)
         routing_stats = model.runtime_scope_report()["routing_index"]
 
-        self.assertFalse(routing_stats["merged_torch_search_enabled"])
-        self.assertFalse(routing_stats["merged_torch_cache_ready"])
-        self.assertEqual(routing_stats["merged_torch_cache_bytes"], 0)
+        self.assertTrue(routing_stats["merged_torch_search_enabled"])
+        self.assertTrue(routing_stats["merged_torch_cache_ready"])
+        self.assertGreater(routing_stats["merged_torch_cache_bytes"], 0)
 
     def test_model_runtime_scope_reports_cuda_first_device_evidence(self) -> None:
         cfg = MarulhoConfig(

@@ -77,7 +77,6 @@ class MarulhoConfig:
     routing_index_mode: Literal["torch_topk"] = "torch_topk"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
-    merge_torch_routing_shards: bool = True
     predictive_dense_transition_mode: Literal[
         "fused_eager",
         "inplace_triton",
