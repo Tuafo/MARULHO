@@ -199,16 +199,16 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored.config.cuda_graph_native_burst_tokens, 8)
             self.assertEqual(
                 metadata["config_migrations"][-1]["reason"],
-                "promoted_conditional_while_sequence_executor",
+                "retired_host_truth_sync_interval_cadence",
             )
             self.assertEqual(
                 [item["reason"] for item in metadata["config_migrations"][-5:]],
                 [
                     "retired_native_burst_capacity_prototype",
                     "retired_sequence_loop_capacity_prototype",
+                    "retired_sequence_executor_selector",
                     "retired_hot_path_memory_archive_cadence",
                     "retired_host_truth_sync_interval_cadence",
-                    "promoted_conditional_while_sequence_executor",
                 ],
             )
 
@@ -243,8 +243,8 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(
                 [item["reason"] for item in metadata["config_migrations"][-2:]],
                 [
+                    "retired_sequence_executor_selector",
                     "retired_host_truth_sync_interval_cadence",
-                    "promoted_conditional_while_sequence_executor",
                 ],
             )
 

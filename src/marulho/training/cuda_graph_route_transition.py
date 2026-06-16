@@ -862,43 +862,10 @@ class CudaGraphRouteTransition:
         )
 
     def _native_sequence_executor_mode(self) -> str:
-        env = os.environ.get("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR")
-        if env is not None:
-            raw = env
-        else:
-            raw = str(
-                getattr(
-                    self._trainer.config,
-                    "cuda_graph_sequence_executor",
-                    "native_repeated_child_graph",
-                )
-            )
-        value = raw.strip().lower().replace("-", "_")
-        if value in {
-            "conditional_while",
-            "cuda_graph_conditional_while",
-            "conditional_loop",
-        }:
-            return "cuda_graph_conditional_while"
-        if value in {
-            "",
-            "0",
-            "false",
-            "no",
-            "off",
-            "default",
-            "native8",
-            "repeated_child",
-            "native_repeated_child_graph",
-        }:
-            return "native_repeated_child_graph"
-        return f"unknown:{value}"
+        return "cuda_graph_conditional_while"
 
     def _native_sequence_loop_requested(self) -> bool:
-        return (
-            self._native_sequence_executor_mode()
-            == "cuda_graph_conditional_while"
-        )
+        return True
 
     def _warm_native_burst_replay(self) -> None:
         self._native_burst_graph_execs.clear()

@@ -338,7 +338,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cuda_graph_native_burst_tokens"):
             MarulhoConfig(cuda_graph_native_burst_tokens=24)
 
-    def test_cuda_graph_sequence_executor_must_be_supported(self) -> None:
+    def test_cuda_graph_sequence_executor_is_fixed_promoted_executor(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
         self.assertEqual(
@@ -347,6 +347,8 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
             ).cuda_graph_sequence_executor,
             "conditional_while",
         )
+        with self.assertRaisesRegex(ValueError, "fixed at conditional_while"):
+            MarulhoConfig(cuda_graph_sequence_executor="native_repeated_child_graph")
         with self.assertRaisesRegex(ValueError, "cuda_graph_sequence_executor"):
             MarulhoConfig(cuda_graph_sequence_executor="python_wrapper")
 

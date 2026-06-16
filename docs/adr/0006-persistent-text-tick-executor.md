@@ -268,13 +268,13 @@ cognitive-quality evidence, and grounded fallback gates.
   `8190` conditional launches covering `131040` tokens, zero sequence/native
   fallbacks or failures, host-truth cadence `4097/126975`, startup capture
   `5482.6059 ms`, conditional compile `4970.7865 ms`, and
-  `velocity_environment.v1` contention `not_observed`. The explicit native8
-  opt-out run stayed clean at `5329.542 tokens/sec`.
+  `velocity_environment.v1` contention `not_observed`. The former native8
+  comparison run stayed clean at `5329.542 tokens/sec`.
 - The promotion separates capacities: `cuda_graph_sequence_loop_tokens=16`
   owns the conditional sequence loop, while `cuda_graph_native_burst_tokens=8`
-  remains the maintained repeated-child parent capacity for fallback and
-  explicit opt-out. This avoids promoting the rejected native16 repeated-child
-  path by changing the wrong default.
+  remains the maintained repeated-child parent capacity for internal fallback.
+  This avoids promoting the rejected native16 repeated-child path by changing
+  the wrong default.
 - ADR 0007 captures the follow-on boundary: the next promotable text executor
   must move below local CUDA Graph wrappers into a lower-level sequence owner.
 - Wider event/truth cadences remain rejected. A sixty-four-token event window
@@ -312,11 +312,13 @@ the persistent graph while restoring exact per-token input copies. Set
 `MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY=0` to keep the current persistent graph
 while restoring the retained Python `CUDAGraph.replay()` loop. Checkpoints
 preserve the retained execution paths. Set
-`cuda_graph_sequence_executor=native_repeated_child_graph` to opt out of the
-promoted conditional-WHILE sequence executor and use repeated-child native8
-replay. `cuda_graph_native_burst_tokens` is fixed at `8` for the maintained
+The promoted conditional-WHILE sequence executor is fixed for eligible CUDA text
+sequences; repeated-child native8 replay is retained only as internal
+pre-mutation fallback when conditional construction is unavailable.
+`cuda_graph_native_burst_tokens` is fixed at `8` for the maintained
 repeated-child capacity; old checkpoint values are migrated back to `8`.
 `cuda_graph_sequence_loop_tokens` is fixed at `16` for the promoted conditional
-sequence capacity. Repeated-child `16`/`32` and conditional-WHILE q8/q32 are
-retired historical benchmarks; a separate clean long-run gate must introduce a
-new reviewed executor path rather than restoring the old capacity knobs.
+sequence capacity. Repeated-child `16`/`32`, conditional-WHILE q8/q32, and the
+old sequence-executor selector are retired historical benchmarks; a separate
+clean long-run gate must introduce a new reviewed executor path rather than
+restoring old capacity or selector knobs.

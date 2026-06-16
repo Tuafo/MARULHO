@@ -83,7 +83,7 @@ related_benchmarks: []
         retained one-tick graph in a startup-warmed conditional-WHILE parent
         CUDA graph and launches that parent once per sixteen-token q16 sequence.
         The repeated-child native parent graph remains exact eight-token replay
-        for fallback and explicit opt-out. Runtime Truth reports active,
+        for internal fallback only. Runtime Truth reports active,
         default, and allowed effective burst capacities plus separate
         repeated-child and sequence-loop capacities so a conditional q16
         promotion is not confused with the rejected native16 repeated-child
@@ -130,7 +130,7 @@ related_benchmarks: []
 
         The maintained service execution quantum is `16`. The promoted
         conditional-WHILE executor consumes that q16 quantum as one ordered
-        native sequence loop, while the repeated-child native fallback/opt-out
+        native sequence loop, while the repeated-child native internal fallback
         path still consumes exact ordered eight-token parent graphs. In both
         cases the persistent CUDA graph body, event ring, host-truth boundary,
         and SNN transition order remain unchanged. This removes the old q16

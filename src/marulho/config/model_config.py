@@ -332,15 +332,8 @@ class MarulhoConfig:
             raise ValueError("cuda_graph_host_truth_sync_interval_tokens must be positive")
         if self.cuda_graph_native_burst_tokens != 8:
             raise ValueError("cuda_graph_native_burst_tokens is fixed at 8")
-        if self.cuda_graph_sequence_executor not in (
-            "native_repeated_child_graph",
-            "conditional_while",
-            "cuda_graph_conditional_while",
-        ):
-            raise ValueError(
-                "cuda_graph_sequence_executor must be native_repeated_child_graph "
-                "or conditional_while"
-            )
+        if self.cuda_graph_sequence_executor != "conditional_while":
+            raise ValueError("cuda_graph_sequence_executor is fixed at conditional_while")
         if self.cuda_graph_sequence_loop_tokens != 16:
             raise ValueError("cuda_graph_sequence_loop_tokens is fixed at 16")
         if self.cross_modal_text_idle_probe_interval_tokens <= 0:

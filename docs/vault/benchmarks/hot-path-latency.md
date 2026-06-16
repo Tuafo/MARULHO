@@ -86,8 +86,8 @@ used no executor override and reached `6116.646 tokens/sec` with
 `131040` tokens, zero sequence/native fallbacks or failures, host-truth cadence
 `4097/126975`, `capture_latency_ms=5482.6059`,
 `native_sequence_loop_compile_latency_ms=4970.7865`, and
-`velocity_environment.v1` contention `not_observed`. The explicit opt-out
-native8 run at
+`velocity_environment.v1` contention `not_observed`. The former native8
+comparison run at
 `post-promotion-native8-131072-i32.json` stayed clean at
 `5329.542 tokens/sec`.
 
@@ -104,6 +104,20 @@ failures, host-truth cadence `4097/126975`, `capture_latency_ms=5164.9948`,
 `persistent_executor_sequence_loop_tokens=16`,
 `native_sequence_loop_sequential_state_parity_gate_passed=true`, and
 `native_sequence_loop_bounded_quality_gate_passed=true`.
+
+The 2026-06-16 selector-cleanup run removed the old sequence-executor override
+surface while keeping conditional-WHILE q16 fixed as the promoted path. The
+131072-token CUDA stress gate at
+`reports/column_scheduler_20260616/sequence-executor-selector-cleanup-8192-131072-i32.json`
+reached `6133.925 tokens/sec`, `train_compute=0.129945 ms/token`,
+`prepare_training=0.006425 ms/token`, `finalize_total=0.005955 ms/token`, and
+`tick_p95=21.499 ms` with no observed contention. Runtime Truth reported
+`cuda_graph_sequence_executor=conditional_while`,
+`native_sequence_executor_requested=cuda_graph_conditional_while`,
+`native_sequence_loop_success_count=8191`, `native_sequence_loop_token_count=131056`,
+zero graph/native/sequence failures, `route_input_rows_scored=10/8192`,
+`state_transition_cached_count=8182`, and
+`state_transition_runs_all_columns=false`.
 
 The post column-scheduler long-run check used the same 131072-token default
 conditional16 stress shape after promoting retained CPU candidate deep-sleep
@@ -243,9 +257,9 @@ successes over `131040` tokens, and zero sequence/native failures or fallbacks.
 This is below the recent `5.8k-6.1k` sustained band, so throughput parity is not
 proven. The excluded
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-wake-plan-truth-projection.json`
-run used `--sequence-executor default`, selected the native repeated-child
+run used the old sequence-selector surface, selected the native repeated-child
 fallback instead of conditional-WHILE, and observed contention; do not compare
-that run to the 6k-ish baseline.
+that run to the 6k-ish baseline. That selector surface has since been removed.
 
 The fused retained CPU candidate-transition cleanup moved prediction-error,
 location/velocity, prediction-weight, and cached predictive materialization
@@ -1382,17 +1396,16 @@ the evidence basis for [ADR 0007](../../adr/0007-lower-level-text-sequence-execu
 the next promotable text executor must move below the current Python/CUDA Graph
 replay boundary.
 
-### Conditional-WHILE Sequence Executor Prototype, 2026-06-15
+### Conditional-WHILE Sequence Executor Promotion, 2026-06-15/16
 
-The first lower-level CUDA sequence executor prototype now exists behind
-`cuda_graph_sequence_executor=conditional_while`,
-`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=conditional_while`, and
-`continuous_runtime_stress_benchmark --sequence-executor conditional_while`.
-It is not another repeated-child capacity wrapper: the native extension builds a
-CUDA Graph conditional `WHILE` parent around the retained one-tick child graph
-and uses a tiny device counter kernel to decide whether the loop body runs
-again. Failed construction falls back before mutation to retained repeated-child
-replay; launch failures remain fail-closed.
+The first lower-level CUDA sequence executor is now the fixed eligible CUDA text
+sequence path. It is not another repeated-child capacity wrapper: the native
+extension builds a CUDA Graph conditional `WHILE` parent around the retained
+one-tick child graph and uses a tiny device counter kernel to decide whether the
+loop body runs again. Failed construction falls back before mutation to retained
+repeated-child replay; launch failures remain fail-closed. The former
+config/env/CLI selector was removed after promotion so native8 is fallback, not
+a live alternate path.
 
 The clean same-session comparison on the RTX 3060 used the same checkpoint,
 `tick_tokens=128`, `quantum_tokens=16`, host-truth cadence `32`, and
@@ -1428,7 +1441,7 @@ This first probe became promotion-candidate evidence. The follow-up promotion
 gate supplied repeated paired clean long runs in both orders, fallback tests for
 unavailable conditional construction, fail-closed launch-failure coverage, and
 an ADR/config decision. Conditional-WHILE q16 is now the maintained eligible
-default, while native8 repeated-child replay remains fallback and opt-out.
+default, while native8 repeated-child replay remains internal fallback only.
 
 ### Route-Vote Scheduler Filter In Fused CUDA Route, 2026-06-15/16
 

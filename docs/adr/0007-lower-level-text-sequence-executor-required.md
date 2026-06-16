@@ -45,15 +45,14 @@ point to moving recurrent sequence ownership into a purpose-built C++/CUDA,
 Triton, or hybrid executor rather than adding another host-side wrapper around
 the same one-tick graph body.
 
-On 2026-06-15, MARULHO added an opt-in CUDA conditional-WHILE parent graph
-prototype selected by `cuda_graph_sequence_executor=conditional_while`,
-`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=conditional_while`, or the stress
-benchmark `--sequence-executor conditional_while`. It keeps the retained
-one-tick PyTorch CUDA Graph body, but moves the burst loop into a CUDA Graph
-conditional node and a tiny device counter kernel. The executor preserves the
-existing pre-mutation fallback and fail-closed launch behavior because failed
-conditional parent construction returns to retained repeated-child replay, while
-post-launch errors still raise.
+On 2026-06-15, MARULHO added a CUDA conditional-WHILE parent graph and then
+promoted it as the fixed eligible CUDA text sequence executor. It keeps the
+retained one-tick PyTorch CUDA Graph body, but moves the burst loop into a CUDA
+Graph conditional node and a tiny device counter kernel. The executor preserves
+the existing pre-mutation fallback and fail-closed launch behavior because
+failed conditional parent construction returns to retained repeated-child replay,
+while post-launch errors still raise. The former config/env/CLI selector is now
+retired so the promoted path is not shadowed by a selectable native8 path.
 
 The first clean long evidence made it a promotion candidate rather than another
 rejected local wrapper. With the same text-only checkpoint and q16 shape,
@@ -75,7 +74,7 @@ at `5485.105 tokens/sec` and conditional q16 at `5883.805`. Pair B measured
 conditional q16 at `6027.856` and native8 at `5816.477`. All four paired runs
 reported `velocity_environment.v1` contention `not_observed`, host-truth
 cadence `4097/126975`, and zero native/sequence fallbacks or failures. After
-the default change, an explicit native8 opt-out reached `5329.542 tokens/sec`,
+the default change, the former native8 comparison reached `5329.542 tokens/sec`,
 while the promoted default conditional q16 run reached `6116.646 tokens/sec`,
 `train_compute=0.134167 ms/token`, `8190` conditional launches, `131040`
 conditional-owned tokens, startup capture `5482.6059 ms`, conditional compile
@@ -99,14 +98,15 @@ Do not promote another local CUDA Graph wrapper, parent-capacity change,
 truth-cadence change, Python burst grouping change, or route/vote wrapper as
 the next executor boundary for the promoted text path.
 
-Promote the CUDA conditional-WHILE sequence executor as the default for
+Promote the CUDA conditional-WHILE sequence executor as the fixed default for
 eligible q16 CUDA text sequences. The retained repeated-child native parent
-graph remains exact eight-token replay for fallback and explicit opt-out.
+graph remains exact eight-token replay for internal pre-mutation fallback only.
 Benchmark/prototype knobs may remain for controlled rejection evidence only
 while they are actively being evaluated. The repeated-child native16/native32,
-conditional-WHILE q8/q32, and partial-tail replay probes are now retired from
-the live config/env/CLI surface; future probes must fail closed or fail early
-when they cannot exercise the requested executor.
+conditional-WHILE q8/q32, partial-tail replay probes, and the old sequence
+executor selector are now retired from the live config/env/CLI surface; future
+probes must fail closed or fail early when they cannot exercise the requested
+executor.
 
 The conditional-WHILE executor is the first accepted lower-level executor that
 meets the directional requirement and beats the sustained native8 ceiling in
@@ -132,8 +132,7 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 
 - The conditional-WHILE q16 parent graph is the promoted eligible CUDA text
   sequence executor.
-- The native8 repeated-child parent graph remains the fallback and explicit
-  opt-out path.
+- The native8 repeated-child parent graph remains the internal fallback path.
 - Native16 remains a rejected safe prototype, not a default.
 - Native32 is rejected under q16 unless a separate execution-quantum decision is
   made; the stress benchmark rejects misaligned capacity probes before startup.
@@ -152,10 +151,11 @@ conditional/device launch code, or a hybrid of those. It must preserve:
 
 ## Reversal
 
-Revert by setting `cuda_graph_sequence_executor=native_repeated_child_graph` or
-`MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR=native_repeated_child_graph`, which returns
-eligible bursts to the retained repeated-child native8 executor. This decision
-should be revisited only if the promoted conditional executor loses repeated
-clean 131072-token CUDA comparisons, weakens exact sequential state or
-fail-closed fallback, or stops exposing complete Runtime Truth evidence. Short,
-contended, or counter-only regressions are not enough.
+Revert by changing this ADR and code together; there is no live selector that
+returns ordinary eligible bursts to the retained repeated-child native8 executor.
+The native8 executor remains available only as internal pre-mutation fallback
+when conditional parent construction is unavailable. This decision should be
+revisited only if the promoted conditional executor loses repeated clean
+131072-token CUDA comparisons, weakens exact sequential state or fail-closed
+fallback, or stops exposing complete Runtime Truth evidence. Short, contended,
+or counter-only regressions are not enough.

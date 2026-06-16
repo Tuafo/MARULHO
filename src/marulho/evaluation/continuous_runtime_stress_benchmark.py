@@ -499,7 +499,6 @@ def run_continuous_runtime_stress(
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
-    sequence_executor: str | None = None,
 ) -> dict[str, Any]:
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
@@ -514,24 +513,6 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
-    if sequence_executor is not None:
-        normalized_sequence_executor = (
-            str(sequence_executor).strip().lower().replace("-", "_")
-        )
-        if normalized_sequence_executor not in {
-            "native_repeated_child_graph",
-            "repeated_child",
-            "native8",
-            "default",
-            "conditional_while",
-            "cuda_graph_conditional_while",
-        }:
-            raise ValueError(
-                "sequence_executor must be native_repeated_child_graph "
-                "or conditional_while"
-            )
-    else:
-        normalized_sequence_executor = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -540,16 +521,9 @@ def run_continuous_runtime_stress(
     previous_native_replay_env = os.environ.get(
         "MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"
     )
-    previous_sequence_executor_env = os.environ.get(
-        "MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"
-    )
     if native_burst_replay is not None:
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
-        )
-    if normalized_sequence_executor is not None:
-        os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
-            normalized_sequence_executor
         )
     manager = MarulhoServiceManager(
         checkpoint,
@@ -584,18 +558,6 @@ def run_continuous_runtime_stress(
             config_overrides["cuda_graph_native_burst_replay"] = {
                 "from": previous_native_replay,
                 "to": bool(native_burst_replay),
-            }
-        if normalized_sequence_executor is not None:
-            with manager._lock:
-                previous_sequence_executor = str(
-                    manager._trainer.config.cuda_graph_sequence_executor
-                )
-                manager._trainer.config.cuda_graph_sequence_executor = (
-                    normalized_sequence_executor
-                )
-            config_overrides["cuda_graph_sequence_executor"] = {
-                "from": previous_sequence_executor,
-                "to": normalized_sequence_executor,
             }
         runtime.configure_terminus(
             source_bank=[
@@ -844,14 +806,6 @@ def run_continuous_runtime_stress(
                 os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
                     previous_native_replay_env
                 )
-        if normalized_sequence_executor is not None:
-            if previous_sequence_executor_env is None:
-                os.environ.pop("MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR", None)
-            else:
-                os.environ["MARULHO_CUDA_GRAPH_SEQUENCE_EXECUTOR"] = (
-                    previous_sequence_executor_env
-                )
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
@@ -895,25 +849,6 @@ def main() -> int:
             "loop for A/B comparison."
         ),
     )
-    parser.add_argument(
-        "--sequence-executor",
-        choices=(
-            "native_repeated_child_graph",
-            "repeated_child",
-            "native8",
-            "default",
-            "conditional_while",
-            "cuda_graph_conditional_while",
-        ),
-        default=None,
-        help=(
-            "Evaluation-only override for the native text sequence executor. "
-            "Default keeps the checkpoint or production config, currently "
-            "the promoted CUDA conditional-WHILE sequence executor. Use "
-            "native_repeated_child_graph to opt out to the retained native8 "
-            "fallback path."
-        ),
-    )
     args = parser.parse_args()
     report = run_continuous_runtime_stress(
         args.checkpoint,
@@ -927,7 +862,6 @@ def main() -> int:
         profile_trainer_stages=args.profile_trainer_stages,
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
         native_burst_replay=False if args.disable_native_burst_replay else None,
-        sequence_executor=args.sequence_executor,
     )
     print(json.dumps(report, indent=2))
     return 0 if report["success"] else 1

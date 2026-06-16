@@ -15,7 +15,7 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061605
+HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061606
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS = 8
@@ -27,6 +27,13 @@ _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
 _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
 _RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS = {16, 32}
 _RETIRED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = {8, 32}
+_RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS = {
+    "native_repeated_child_graph",
+    "repeated_child",
+    "native8",
+    "default",
+    "cuda_graph_conditional_while",
+}
 _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {"compiled", "legacy"}
 _RETIRED_PREDICTIVE_ROUTE_VOTE_DEFAULT_MODES = {"tensor"}
 
@@ -275,6 +282,24 @@ def _migrate_loaded_config_snapshot(
                     "reason": "retired_sequence_loop_capacity_prototype",
                 }
             )
+    if "cuda_graph_sequence_executor" in migrated:
+        current_sequence_executor = str(migrated["cuda_graph_sequence_executor"])
+        if (
+            current_sequence_executor
+            in _RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS
+            or current_sequence_executor != PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
+        ):
+            migrated["cuda_graph_sequence_executor"] = (
+                PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
+            )
+            migrations.append(
+                {
+                    "field": "cuda_graph_sequence_executor",
+                    "from": current_sequence_executor,
+                    "to": PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
+                    "reason": "retired_sequence_executor_selector",
+                }
+            )
     if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
         return migrated, migrations
 
@@ -314,21 +339,10 @@ def _migrate_loaded_config_snapshot(
                 "reason": "retired_host_truth_sync_interval_cadence",
             }
         )
-    current_sequence_executor = str(
-        migrated.get("cuda_graph_sequence_executor", "native_repeated_child_graph")
+    migrated.setdefault(
+        "cuda_graph_sequence_executor",
+        PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
     )
-    if current_sequence_executor == "native_repeated_child_graph":
-        migrated["cuda_graph_sequence_executor"] = (
-            PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
-        )
-        migrations.append(
-            {
-                "field": "cuda_graph_sequence_executor",
-                "from": current_sequence_executor,
-                "to": PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
-                "reason": "promoted_conditional_while_sequence_executor",
-            }
-        )
     migrated.setdefault(
         "cuda_graph_sequence_loop_tokens",
         PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
