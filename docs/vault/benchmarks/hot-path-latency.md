@@ -319,10 +319,11 @@ dense with maximum absolute deltas of `2.384185791015625e-07` for location,
 `1.4901161193847656e-08` for velocity, `2.2351741790771484e-08` for prediction
 weights, `1.7881393432617188e-07` for prediction error, and
 `5.960464477539063e-08` for confidence; prediction failure streaks matched
-exactly. This promotes the fused Triton candidate writeback to the next runtime
-integration candidate, not to live scheduler truth: `ColumnTransitionRuntime`
-still reports dense predictive update/location until the kernel is integrated
-with the transition state boundary and wins complete `train_step` evidence.
+exactly. This promoted the candidate predictive writeback idea only when it is
+inside the existing transition state boundary, not as a separate side launch:
+the standalone helper and benchmark arm are removed from active code after
+`ColumnTransitionRuntime` integrated candidate predictive updates into the
+promoted fused in-place/graph transition and won complete `train_step` evidence.
 
 A direct live-runtime integration attempt was rejected and removed. The valid
 1024-column direct `inplace_triton` A/B at
@@ -353,6 +354,18 @@ predictive executions, `132647424` cached predictive rows, zero graph/sequence
 fallbacks, and `contention.verdict=not_observed`. This restores the 6k-ish
 sustained band while making candidate predictive update/location a real
 scheduler execution effect rather than a report-only claim.
+
+After removing the leftover standalone candidate predictive writeback helper
+and benchmark arm, the cleanup verification run at
+`reports/cleanup_candidate_predictive_writeback_20260616/current-131072-i32.json`
+processed `131072` tokens at `6044.116 tokens/sec` with
+`train_compute=0.135451 ms/token`, `prepare_training=0.006398 ms/token`, and
+`finalize_total=0.006237 ms/token`. CUDA selected the RTX 3060, contention was
+not observed, `candidate_predictive_transition_mode=fused_inplace` stayed
+active with `130816` executions and `132647424` cached rows, and graph/sequence
+failures remained zero. This is neutral cleanup evidence: the single promoted
+fused transition path kept the sustained band after the retired side path was
+deleted.
 
 The longer CUDA gate the user requested stayed healthy. The 131072-token run at
 `reports/column_scheduler_20260615/current-default-conditional16-131072-i32-after-age-gate-materialization-cache.json`

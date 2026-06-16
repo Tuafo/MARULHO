@@ -33,7 +33,6 @@ def test_predictive_transition_benchmark_reports_non_mutating_scope() -> None:
                 iterations=2,
                 warmup_iterations=1,
                 seed=123,
-                candidate_count=3,
             )
 
     assert report["surface"] == "predictive_transition_benchmark.v1"
@@ -42,19 +41,4 @@ def test_predictive_transition_benchmark_reports_non_mutating_scope() -> None:
     assert report["arms"][0]["name"] == "eager"
     assert report["best_arm"]["tokens_per_second"] > 0.0
     assert len(report["output_shapes"]) == 6
-    assert report["candidate_count"] == 3
-    writeback = report["writeback_experiment"]
-    assert writeback["scope"] == "isolated_predictive_state_writeback_candidate_scope_experiment"
-    assert writeback["candidate_count"] == 3
-    assert writeback["total_columns"] == 8
-    assert writeback["candidate_rows_match_dense"] is True
-    assert writeback["arms"][0]["name"] == "dense_all_columns_writeback"
-    assert writeback["arms"][0]["runs_all_columns"] is True
-    assert writeback["arms"][1]["name"] == "candidate_scoped_eager_writeback"
-    assert writeback["arms"][1]["runs_all_columns"] is False
-    assert writeback["arms"][1]["updated_column_count"] == 3
-    assert writeback["arms"][1]["cached_state_count"] == 5
-    assert writeback["promotion_decision"] in {
-        "promote_candidate_scoped_writeback_for_further_runtime_testing",
-        "retain_dense_cuda_predictive_update",
-    }
+    assert "writeback_experiment" not in report

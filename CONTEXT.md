@@ -224,7 +224,9 @@ device so non-awake columns remain truthful cached state. The old
 than preserved as a dense-retained compatibility switch. Current evidence: an
 isolated RTX 3060 writeback rerun matched dense candidate rows and measured
 `0.300185 ms` mean for fused Triton candidate writeback versus `5.378011 ms`
-dense; the promoted 131072-token conditional-WHILE stress gate at
+dense, but the standalone side-launch/helper path is removed because the
+maintained CUDA owner is the fused transition launch itself; the promoted
+131072-token conditional-WHILE stress gate at
 `reports/column_scheduler_20260615/promoted-fused-candidate-predictive-131072-i32.json`
 reached `6141.078 tokens/sec` with `0.126682 ms/token` train compute,
 `0.006629 ms/token` prepare, `0.004710 ms/token` finalize, zero sequence/native
