@@ -18,7 +18,7 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     all_vote = report["all_column_vote"]
 
     assert report["surface"] == "column_scheduler_benchmark.v1"
-    assert report["scope"] == "complete_train_step_deep_sleep_filter_predictive_update_and_vote_awake_mask_ab"
+    assert report["scope"] == "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_awake_mask_ab"
     assert report["winner_sequence_equal"] is True
     assert report["awake_count_bounded"] is True
     assert report["column_wake_plan_bounded"] is True
@@ -40,9 +40,11 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert scoped["predictive_location_runs_all_columns"] is False
     assert scoped["candidate_sleep_filter_output_candidates"] == 4
     assert scoped["candidate_sleep_filter_memory_pressure_filtered"] == 0
+    assert scoped["candidate_sleep_filter_low_usefulness_filtered"] == 0
     assert scoped["candidate_sleep_filter_runs_all_columns"] is False
     assert scoped["column_wake_plan_awake_count"] == 4
     assert scoped["column_wake_plan_memory_pressure_filtered"] == 0
+    assert scoped["column_wake_plan_low_usefulness_filtered"] == 0
     assert scoped["column_wake_plan_bounded"] is True
     assert scoped["column_wake_plan_runs_all_columns"] is False
     assert scoped["column_metabolism_updated_columns"] == 4
@@ -72,7 +74,7 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     )
 
     assert report["surface"] == "column_scheduler_scaling_benchmark.v1"
-    assert report["scope"] == "constant_k_candidate_deep_sleep_filter_predictive_update_and_vote_scaling"
+    assert report["scope"] == "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scaling"
     assert report["column_counts"] == [16, 32]
     assert report["awake_count_remains_bounded"] is True
     assert report["scoped_never_runs_all_columns"] is True
@@ -80,6 +82,7 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     assert all("winner_sequence_equal" in row for row in report["runs"])
     assert {row["candidate_sleep_filter_output_candidates"] for row in report["runs"]} == {4}
     assert {row["candidate_sleep_filter_memory_pressure_filtered"] for row in report["runs"]} == {0}
+    assert {row["candidate_sleep_filter_low_usefulness_filtered"] for row in report["runs"]} == {0}
     assert {row["predictive_location_update_columns"] for row in report["runs"]} == {4}
     assert {row["column_metabolism_updated_columns"] for row in report["runs"]} == {4}
     assert {row["column_wake_plan_awake_count"] for row in report["runs"]} == {4}

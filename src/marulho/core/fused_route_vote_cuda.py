@@ -63,6 +63,7 @@ if triton is not None:
         thresholds,
         prediction_location,
         memory_pressure,
+        usefulness,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -129,12 +130,22 @@ if triton is not None:
             mask=score_mask,
             other=0.0,
         )
+        candidate_usefulness = tl.load(
+            usefulness + candidate_ids_by_position,
+            mask=score_mask,
+            other=1.0,
+        )
         route_awake_mask = candidate_steps < deep_sleep_threshold
         pressure_enabled = tl.load(route_filter_control + 2) != 0
         pressure_threshold = (
             tl.load(route_filter_control + 3).to(tl.float32) * 0.000001
         )
         route_pressure_mask = candidate_pressure <= pressure_threshold
+        usefulness_enabled = tl.load(route_filter_control + 4) != 0
+        usefulness_threshold = (
+            tl.load(route_filter_control + 5).to(tl.float32) * 0.000001
+        )
+        route_usefulness_mask = candidate_usefulness >= usefulness_threshold
         deep_eligible_mask = score_mask & tl.where(
             filter_enabled,
             route_awake_mask,
@@ -159,10 +170,26 @@ if triton is not None:
             eligible_count - pressure_eligible_count,
             0,
         )
-        any_filter_enabled = filter_enabled | pressure_enabled
-        apply_filter = any_filter_enabled & (pressure_eligible_count >= candidate_count)
+        usefulness_eligible_mask = final_eligible_mask & tl.where(
+            usefulness_enabled,
+            route_usefulness_mask,
+            True,
+        )
+        usefulness_eligible_count = tl.sum(
+            tl.where(usefulness_eligible_mask, 1, 0),
+            axis=0,
+        )
+        usefulness_filtered_count = tl.where(
+            usefulness_enabled,
+            pressure_eligible_count - usefulness_eligible_count,
+            0,
+        )
+        any_filter_enabled = filter_enabled | pressure_enabled | usefulness_enabled
+        apply_filter = any_filter_enabled & (
+            usefulness_eligible_count >= candidate_count
+        )
         primary_scores = tl.where(
-            apply_filter & score_mask & (~final_eligible_mask),
+            apply_filter & score_mask & (~usefulness_eligible_mask),
             -float("inf"),
             remaining_scores,
         )
@@ -303,12 +330,22 @@ if triton is not None:
                 pressure_enabled & (~apply_filter) & (pressure_eligible_count <= 0),
                 4,
                 tl.where(
-                    pressure_enabled & (~apply_filter),
-                    3,
+                    usefulness_enabled
+                    & (~apply_filter)
+                    & (usefulness_eligible_count <= 0),
+                    6,
                     tl.where(
-                        filter_enabled & (~apply_filter),
-                        1,
-                        0,
+                        usefulness_enabled & (~apply_filter),
+                        5,
+                        tl.where(
+                            pressure_enabled & (~apply_filter),
+                            3,
+                            tl.where(
+                                filter_enabled & (~apply_filter),
+                                1,
+                                0,
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -334,6 +371,13 @@ if triton is not None:
         )
         tl.store(route_filter_state_out + 10, pressure_filtered_count)
         tl.store(route_filter_state_out + 11, pressure_eligible_count)
+        tl.store(route_filter_state_out + 12, tl.where(usefulness_enabled, 1, 0))
+        tl.store(
+            route_filter_state_out + 13,
+            tl.where(apply_filter & usefulness_enabled, 1, 0),
+        )
+        tl.store(route_filter_state_out + 14, usefulness_filtered_count)
+        tl.store(route_filter_state_out + 15, usefulness_eligible_count)
 
 
 def fused_route_vote_available() -> bool:
@@ -377,6 +421,7 @@ def warmup_fused_route_vote_cuda(
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
     memory_pressure: torch.Tensor,
+    usefulness: torch.Tensor,
     previous_winner: torch.Tensor,
     route_filter_control: torch.Tensor,
     route_filter_state_out: torch.Tensor,
@@ -429,6 +474,7 @@ def warmup_fused_route_vote_cuda(
         thresholds,
         prediction_location,
         memory_pressure,
+        usefulness,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -463,6 +509,7 @@ def fused_route_vote_cuda(
     thresholds: torch.Tensor,
     prediction_location: torch.Tensor,
     memory_pressure: torch.Tensor,
+    usefulness: torch.Tensor,
     previous_winner: torch.Tensor,
     route_filter_control: torch.Tensor,
     route_filter_state_out: torch.Tensor,
@@ -492,6 +539,7 @@ def fused_route_vote_cuda(
         thresholds,
         prediction_location,
         memory_pressure,
+        usefulness,
         previous_winner,
         route_filter_control,
         route_filter_state_out,
@@ -544,10 +592,10 @@ def fused_route_vote_cuda(
         raise ValueError(
             "state_transition_all_materialized_step must be one int64 value"
         )
-    if route_filter_control.dtype != torch.long or int(route_filter_control.numel()) < 4:
-        raise ValueError("route_filter_control must contain at least four int64 values")
-    if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 12:
-        raise ValueError("route_filter_state_out must contain at least twelve int64 values")
+    if route_filter_control.dtype != torch.long or int(route_filter_control.numel()) < 6:
+        raise ValueError("route_filter_control must contain at least six int64 values")
+    if route_filter_state_out.dtype != torch.long or int(route_filter_state_out.numel()) < 16:
+        raise ValueError("route_filter_state_out must contain at least sixteen int64 values")
     if int(scores_out.numel()) != vector_count:
         raise ValueError("scores_out must match active routing rows")
     candidate_count = int(candidates_out.numel())
@@ -561,6 +609,8 @@ def fused_route_vote_cuda(
         raise ValueError("prediction locations must match prototype rows")
     if int(memory_pressure.numel()) != int(prototypes.shape[0]):
         raise ValueError("memory pressure must match prototype rows")
+    if int(usefulness.numel()) != int(prototypes.shape[0]):
+        raise ValueError("usefulness must match prototype rows")
     if previous_winner.dtype != torch.long or int(previous_winner.numel()) != 1:
         raise ValueError("previous_winner must be one int64 value")
     if candidates_out.dtype != torch.long:
@@ -593,6 +643,7 @@ def fused_route_vote_cuda(
         thresholds,
         prediction_location,
         memory_pressure,
+        usefulness,
         previous_winner,
         route_filter_control,
         route_filter_state_out,

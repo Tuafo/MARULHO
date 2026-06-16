@@ -153,8 +153,21 @@ class ColumnTransitionRuntime:
                 * 1_000_000.0
             )
         )
+        usefulness_threshold = int(
+            round(
+                float(trainer.config.candidate_usefulness_threshold)
+                * 1_000_000.0
+            )
+        )
         self._route_sleep_filter_control = torch.tensor(
-            [0, int(trainer.config.dead_column_steps), 0, pressure_threshold],
+            [
+                0,
+                int(trainer.config.dead_column_steps),
+                0,
+                pressure_threshold,
+                0,
+                usefulness_threshold,
+            ],
             dtype=torch.long,
             device=device,
         )
@@ -163,6 +176,8 @@ class ColumnTransitionRuntime:
             int(trainer.config.dead_column_steps),
             0,
             pressure_threshold,
+            0,
+            usefulness_threshold,
         )
         self._route_memory_pressure_source_mirror = str(
             getattr(
@@ -171,12 +186,19 @@ class ColumnTransitionRuntime:
                 "not_run",
             )
         )
+        self._route_usefulness_source_mirror = str(
+            getattr(
+                trainer.model.column_metabolism,
+                "last_usefulness_source",
+                "not_run",
+            )
+        )
         self._route_sleep_filter_state = torch.zeros(
-            12,
+            16,
             dtype=torch.long,
             device=device,
         )
-        self._route_sleep_filter_state_host = [0] * 12
+        self._route_sleep_filter_state_host = [0] * 16
         self._route_sleep_filter_state_dirty = False
         self.route_vote_deep_sleep_filter_control_update_count = 0
         self.route_vote_deep_sleep_filter_state_sync_count = 0
@@ -792,6 +814,7 @@ class ColumnTransitionRuntime:
                     thresholds=self._trainer.model.competitive.thresholds,
                     prediction_location=self._trainer.model.predictive.location,
                     memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
+                    usefulness=self._trainer.model.column_metabolism.usefulness,
                     previous_winner=self._previous_winner,
                     route_filter_control=self._route_sleep_filter_control,
                     route_filter_state_out=self._route_sleep_filter_state,
@@ -826,6 +849,7 @@ class ColumnTransitionRuntime:
                 thresholds=self._trainer.model.competitive.thresholds,
                 prediction_location=self._trainer.model.predictive.location,
                 memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
+                usefulness=self._trainer.model.column_metabolism.usefulness,
                 previous_winner=self._previous_winner,
                 route_filter_control=self._route_sleep_filter_control,
                 route_filter_state_out=self._route_sleep_filter_state,
@@ -906,14 +930,40 @@ class ColumnTransitionRuntime:
             and has_pressure_evidence
         )
 
+    def route_usefulness_filter_due(self) -> bool:
+        source = str(
+            getattr(
+                self._trainer.model.column_metabolism,
+                "last_usefulness_source",
+                "not_run",
+            )
+        )
+        has_usefulness_evidence = source not in {
+            "not_run",
+            "no_awake_candidates",
+        }
+        return bool(
+            self._trainer.token_count
+            >= int(self._trainer.config.candidate_usefulness_filter_start_tokens)
+            and has_usefulness_evidence
+        )
+
     def prepare_route_sleep_filter_control(self) -> None:
         enabled = 1 if self.route_sleep_filter_due() else 0
         threshold = int(self._trainer.config.dead_column_steps)
         pressure_enabled = 1 if self.route_memory_pressure_filter_due() else 0
+        usefulness_enabled = 1 if self.route_usefulness_filter_due() else 0
         self._route_memory_pressure_source_mirror = str(
             getattr(
                 self._trainer.model.column_metabolism,
                 "last_memory_pressure_source",
+                "not_run",
+            )
+        )
+        self._route_usefulness_source_mirror = str(
+            getattr(
+                self._trainer.model.column_metabolism,
+                "last_usefulness_source",
                 "not_run",
             )
         )
@@ -923,13 +973,28 @@ class ColumnTransitionRuntime:
                 * 1_000_000.0
             )
         )
-        desired = (enabled, threshold, pressure_enabled, pressure_threshold)
+        usefulness_threshold = int(
+            round(
+                float(self._trainer.config.candidate_usefulness_threshold)
+                * 1_000_000.0
+            )
+        )
+        desired = (
+            enabled,
+            threshold,
+            pressure_enabled,
+            pressure_threshold,
+            usefulness_enabled,
+            usefulness_threshold,
+        )
         if desired == self._route_sleep_filter_control_mirror:
             return
         self._route_sleep_filter_control[0].fill_(enabled)
         self._route_sleep_filter_control[1].fill_(threshold)
         self._route_sleep_filter_control[2].fill_(pressure_enabled)
         self._route_sleep_filter_control[3].fill_(pressure_threshold)
+        self._route_sleep_filter_control[4].fill_(usefulness_enabled)
+        self._route_sleep_filter_control[5].fill_(usefulness_threshold)
         self._route_sleep_filter_control_mirror = desired
         self.route_vote_deep_sleep_filter_control_update_count += 1
 
@@ -1063,18 +1128,38 @@ class ColumnTransitionRuntime:
         pressure_threshold = (
             float(self._route_sleep_filter_control_mirror[3]) / 1_000_000.0
         )
+        usefulness_enabled = bool(
+            len(self._route_sleep_filter_control_mirror) > 4
+            and self._route_sleep_filter_control_mirror[4]
+        )
+        usefulness_threshold = (
+            float(self._route_sleep_filter_control_mirror[5]) / 1_000_000.0
+            if len(self._route_sleep_filter_control_mirror) > 5
+            else None
+        )
         state_enabled = bool(state[0])
         pressure_state_enabled = bool(state[8]) if len(state) > 8 else False
         pressure_applied = bool(state[9]) if len(state) > 9 else False
         pressure_over_threshold_count = (
             int(state[10]) if pressure_state_enabled and len(state) > 10 else 0
         )
-        fallback_code = int(state[4]) if state_enabled or pressure_state_enabled else 0
+        usefulness_state_enabled = bool(state[12]) if len(state) > 12 else False
+        usefulness_applied = bool(state[13]) if len(state) > 13 else False
+        low_usefulness_count = (
+            int(state[14]) if usefulness_state_enabled and len(state) > 14 else 0
+        )
+        fallback_code = (
+            int(state[4])
+            if state_enabled or pressure_state_enabled or usefulness_state_enabled
+            else 0
+        )
         fallback_reason = {
             1: "insufficient_awake_route_scores_after_deep_sleep_filter",
             2: "all_route_scores_deep_sleep",
             3: "insufficient_awake_route_scores_after_memory_pressure_filter",
             4: "all_route_scores_over_memory_pressure_threshold",
+            5: "insufficient_awake_route_scores_after_usefulness_filter",
+            6: "all_route_scores_below_usefulness_threshold",
         }.get(fallback_code)
         route_input_count, route_output_count, total_columns = (
             self._route_score_count_snapshot(state)
@@ -1092,6 +1177,7 @@ class ColumnTransitionRuntime:
         state_current_for_control = bool(
             state_enabled == enabled
             and pressure_state_enabled == pressure_enabled
+            and usefulness_state_enabled == usefulness_enabled
             and int(state[5]) == int(route_input_count)
             and int(state[6]) == int(route_output_count)
         )
@@ -1102,6 +1188,9 @@ class ColumnTransitionRuntime:
             "memory_pressure_enabled": pressure_enabled,
             "memory_pressure_state_enabled": pressure_state_enabled,
             "memory_pressure_applied": pressure_applied,
+            "usefulness_enabled": usefulness_enabled,
+            "usefulness_state_enabled": usefulness_state_enabled,
+            "usefulness_applied": usefulness_applied,
             "state_current_for_control": state_current_for_control,
             "input_candidate_count": route_input_count,
             "output_candidate_count": route_output_count,
@@ -1118,7 +1207,11 @@ class ColumnTransitionRuntime:
             "filtered_memory_pressure_count": (
                 pressure_over_threshold_count if pressure_applied else 0
             ),
+            "filtered_low_usefulness_count": (
+                low_usefulness_count if usefulness_applied else 0
+            ),
             "memory_pressure_over_threshold_count": pressure_over_threshold_count,
+            "low_usefulness_count": low_usefulness_count,
             "eligible_route_count": (
                 int(state[3])
                 if state_enabled
@@ -1129,11 +1222,22 @@ class ColumnTransitionRuntime:
                 if pressure_state_enabled and len(state) > 11
                 else int(route_input_count)
             ),
+            "usefulness_eligible_route_count": (
+                int(state[15])
+                if usefulness_state_enabled and len(state) > 15
+                else int(route_input_count)
+            ),
             "memory_pressure_threshold": (
                 pressure_threshold if pressure_enabled else None
             ),
             "memory_pressure_source": str(
                 self._route_memory_pressure_source_mirror
+            ),
+            "usefulness_threshold": (
+                usefulness_threshold if usefulness_enabled else None
+            ),
+            "usefulness_source": str(
+                getattr(self, "_route_usefulness_source_mirror", "not_run")
             ),
             "sleep_backfill_count": int(state[7]) if state_enabled else 0,
             "fallback_reason": fallback_reason,
@@ -1146,7 +1250,7 @@ class ColumnTransitionRuntime:
             "state_dirty": bool(self._route_sleep_filter_state_dirty),
             "tensor_device": str(self._route_sleep_filter_state.device),
             "claim_boundary": (
-                "training_owned_route_vote_masks_sleep_and_memory_pressure_inside_existing_route_selection"
+                "training_owned_route_vote_masks_sleep_pressure_and_usefulness_inside_existing_route_selection"
             ),
             "route_cost_claim_boundary": (
                 "sleep_and_pressure_are_masked_before_selection_but_route_score_rows_remain_explicit"
@@ -1320,6 +1424,7 @@ class ColumnTransitionRuntime:
             thresholds=self._trainer.model.competitive.thresholds,
             prediction_location=self._trainer.model.predictive.location,
             memory_pressure=self._trainer.model.column_metabolism.memory_pressure,
+            usefulness=self._trainer.model.column_metabolism.usefulness,
             previous_winner=self._previous_winner,
             steps_since_win=self._trainer.model.competitive.steps_since_win,
             steps_since_win_last_update_step=(

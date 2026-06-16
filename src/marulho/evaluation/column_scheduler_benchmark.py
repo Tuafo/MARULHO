@@ -46,6 +46,9 @@ class SchedulerBenchmarkArm:
     candidate_sleep_filter_memory_pressure_filtered: int
     candidate_sleep_filter_memory_pressure_threshold: float | None
     candidate_sleep_filter_memory_pressure_source: str | None
+    candidate_sleep_filter_low_usefulness_filtered: int
+    candidate_sleep_filter_usefulness_threshold: float | None
+    candidate_sleep_filter_usefulness_source: str | None
     candidate_sleep_filter_runs_all_columns: bool
     candidate_sleep_filter_fallback_reason: str | None
     column_wake_plan_mode: str
@@ -53,6 +56,9 @@ class SchedulerBenchmarkArm:
     column_wake_plan_memory_pressure_filtered: int
     column_wake_plan_memory_pressure_threshold: float | None
     column_wake_plan_memory_pressure_source: str | None
+    column_wake_plan_low_usefulness_filtered: int
+    column_wake_plan_usefulness_threshold: float | None
+    column_wake_plan_usefulness_source: str | None
     column_wake_plan_bounded: bool
     column_wake_plan_runs_all_columns: bool
     column_wake_plan_wake_reason: str | None
@@ -61,6 +67,7 @@ class SchedulerBenchmarkArm:
     column_metabolism_cached_columns: int
     column_metabolism_runs_all_columns: bool
     column_metabolism_memory_pressure_source: str | None
+    column_metabolism_usefulness_source: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -232,6 +239,19 @@ def _run_arm(
             if sleep_filter.get("memory_pressure_source") is None
             else str(sleep_filter.get("memory_pressure_source"))
         ),
+        candidate_sleep_filter_low_usefulness_filtered=int(
+            sleep_filter.get("filtered_low_usefulness_count", 0) or 0
+        ),
+        candidate_sleep_filter_usefulness_threshold=(
+            None
+            if sleep_filter.get("usefulness_threshold") is None
+            else float(sleep_filter.get("usefulness_threshold"))
+        ),
+        candidate_sleep_filter_usefulness_source=(
+            None
+            if sleep_filter.get("usefulness_source") is None
+            else str(sleep_filter.get("usefulness_source"))
+        ),
         candidate_sleep_filter_runs_all_columns=bool(
             sleep_filter.get("runs_all_columns", False)
         ),
@@ -254,6 +274,19 @@ def _run_arm(
             None
             if wake_plan.get("memory_pressure_source") is None
             else str(wake_plan.get("memory_pressure_source"))
+        ),
+        column_wake_plan_low_usefulness_filtered=int(
+            wake_plan.get("filtered_low_usefulness_count", 0) or 0
+        ),
+        column_wake_plan_usefulness_threshold=(
+            None
+            if wake_plan.get("usefulness_threshold") is None
+            else float(wake_plan.get("usefulness_threshold"))
+        ),
+        column_wake_plan_usefulness_source=(
+            None
+            if wake_plan.get("usefulness_source") is None
+            else str(wake_plan.get("usefulness_source"))
         ),
         column_wake_plan_bounded=bool(wake_plan.get("bounded", False)),
         column_wake_plan_runs_all_columns=bool(
@@ -282,6 +315,11 @@ def _run_arm(
             None
             if metabolism.get("memory_pressure_source") is None
             else str(metabolism.get("memory_pressure_source"))
+        ),
+        column_metabolism_usefulness_source=(
+            None
+            if metabolism.get("usefulness_source") is None
+            else str(metabolism.get("usefulness_source"))
         ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
@@ -360,7 +398,7 @@ def run_benchmark(
     ) * 100.0
     return {
         "surface": "column_scheduler_benchmark.v1",
-        "scope": "complete_train_step_deep_sleep_filter_predictive_update_and_vote_awake_mask_ab",
+        "scope": "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_awake_mask_ab",
         "torch": torch.__version__,
         "device": str(resolved_device),
         "cuda_device_name": (
@@ -416,7 +454,7 @@ def run_benchmark(
         "mean_delta_percent": mean_delta_percent,
         "neutral_or_better_complete_tick": scoped.mean_ms <= all_vote.mean_ms * 1.02,
         "claim_boundary": (
-            "complete_train_step_ab_for_candidate_deep_sleep_filter_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
+            "complete_train_step_ab_for_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scheduler_not_service_runtime_or_growth_pruning_claim"
         ),
     }
 
@@ -466,6 +504,11 @@ def run_scaling_benchmark(
                     "candidate_sleep_filter_memory_pressure_filtered"
                 ]
             ),
+            "candidate_sleep_filter_low_usefulness_filtered": int(
+                report["scoped_cached_vote"][
+                    "candidate_sleep_filter_low_usefulness_filtered"
+                ]
+            ),
             "column_wake_plan_awake_count": int(
                 report["scoped_cached_vote"]["column_wake_plan_awake_count"]
             ),
@@ -487,7 +530,7 @@ def run_scaling_benchmark(
     ]
     return {
         "surface": "column_scheduler_scaling_benchmark.v1",
-        "scope": "constant_k_candidate_deep_sleep_filter_predictive_update_and_vote_scaling",
+        "scope": "constant_k_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_and_vote_scaling",
         "torch": torch.__version__,
         "device": str(reports[0]["device"]) if reports else str(device),
         "column_counts": [int(value) for value in column_counts],

@@ -202,10 +202,13 @@ second report-local top-k mask. The standalone report helper may still use the
 top-k scheduler score only when no execution plan is supplied. Per-column report
 rows now expose role, state, prediction, surprise, usefulness, estimated cost,
 memory-pressure truth, cached-vote state, and wake/sleep reason from
-training-owned metabolism state. Focused tests prove service remains read-only
-projection and does not own scheduler decisions. The current benchmark evidence
-keeps awake work bounded but does not prove complete-runtime neutrality, so this
-is a truth-boundary correction rather than a scheduler speed promotion.
+training-owned metabolism state. Cached usefulness is now a checkpointed
+`ColumnMetabolismState` signal, updated only for awake candidates from
+predictive confidence/error, win-rate, and estimated cost; report-derived
+usefulness is a Runtime Truth fallback only. Focused tests prove service remains
+read-only projection and does not own scheduler decisions. The current benchmark
+evidence keeps awake work bounded but does not prove complete-runtime neutrality,
+so this is a truth-boundary correction rather than a scheduler speed promotion.
 
 The column-metabolism cleanup promoted memory pressure from report placeholder
 to checkpointed training-owned state. `ColumnMetabolismState` tracks estimated
@@ -242,6 +245,32 @@ processed `131072` tokens at `5947.863 tokens/sec` with
 observed contention, and truthful pressure fallback:
 `memory_pressure_applied=false` because only `6` pressure-eligible rows remained
 for `k=10`.
+
+The follow-up usefulness slice moved cached column usefulness into the same
+route-vote owner. `ColumnMetabolismState.usefulness` is checkpoint-backed
+training/core state, updated only for the awake mask, and the CUDA control packet
+enables the usefulness gate only after `last_usefulness_source` proves cached
+evidence exists. `core.fused_route_vote_cuda` now masks low-usefulness route rows
+before top-k candidate and winner selection, and Runtime Truth reports
+`filtered_low_usefulness_count`, `low_usefulness_count`,
+`usefulness_eligible_route_count`, `usefulness_threshold`,
+`usefulness_source`, and fallback reasons without service ownership. Focused
+CUDA tests prove low-usefulness top route candidates are skipped before vote,
+the trainer wake plan reports `candidate_usefulness_filter_route_vote`, cached
+state survives checkpoint restore, and service projection only maps the
+training/core packet. The 32768-column longer gate at
+`reports/column_scheduler_20260616/usefulness-scheduler-32768-131072-i32.json`
+processed `131072` tokens at `5886.235 tokens/sec` with
+`train_compute=0.134212 ms/token`, `route_input_rows_scored=12/32768`,
+`route_output_candidate_count=10`, `state_transition_cached_count=32758`,
+`candidate_predictive_transition_cached_count=32758`, zero graph/sequence/native
+failures, no observed contention, and route filter truth
+`filtered_deep_sleep_count=2`, `filtered_memory_pressure_count=0`,
+`filtered_low_usefulness_count=0`, `usefulness_applied=true`. Compared with the
+same-shape previous fixed-count gate
+`promoted-scheduler-32768-131072-i32-truth-counts-fixed.json`
+(`6163.265 tokens/sec`, `0.132789 ms/token`, GPU contention observed), this is
+still in the sustained 6k-ish band but not a new speed ceiling.
 
 The sparse CUDA state-transition slice then removed another fake-sleep risk from
 the real graph/burst path. The transition kernel now updates physical

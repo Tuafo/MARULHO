@@ -28,6 +28,12 @@ class ColumnMetabolismState:
             dtype=torch.float32,
             device=self.device,
         )
+        self.usefulness = torch.full(
+            (self.n_columns,),
+            0.5,
+            dtype=torch.float32,
+            device=self.device,
+        )
         self.memory_pressure = torch.zeros(
             self.n_columns,
             dtype=torch.float32,
@@ -41,6 +47,7 @@ class ColumnMetabolismState:
         self.last_update_count = 0
         self.last_cached_count = self.n_columns
         self.last_memory_pressure_source = "not_run"
+        self.last_usefulness_source = "not_run"
         self.last_filter_report: dict[str, Any] = self._empty_filter_report()
 
     def _candidate_indices(self, candidates: torch.Tensor | None) -> torch.Tensor:
@@ -52,20 +59,48 @@ class ColumnMetabolismState:
 
     def _empty_filter_report(self) -> dict[str, Any]:
         return {
-            "surface": "column_memory_pressure_filter.v1",
+            "surface": "column_metabolism_filter.v1",
             "mode": "not_run",
             "input_candidate_count": 0,
             "output_candidate_count": 0,
             "filtered_memory_pressure_count": 0,
+            "filtered_low_usefulness_count": 0,
             "threshold": None,
             "memory_pressure_source": str(self.last_memory_pressure_source),
+            "usefulness_threshold": None,
+            "usefulness_source": str(self.last_usefulness_source),
             "fallback_reason": None,
             "runs_all_columns": False,
             "tensor_device": str(self.device),
             "claim_boundary": (
-                "training_owned_candidate_memory_pressure_filter_uses_cached_candidate_state_without_all_column_scan"
+                "training_owned_candidate_metabolism_filter_uses_cached_candidate_state_without_all_column_scan"
             ),
         }
+
+    def _candidate_signal(
+        self,
+        signal: torch.Tensor | None,
+        ids: torch.Tensor,
+        *,
+        fill: float,
+    ) -> torch.Tensor:
+        if (
+            isinstance(signal, torch.Tensor)
+            and int(signal.numel()) == int(self.n_columns)
+        ):
+            return (
+                signal.detach()
+                .to(device=self.device, dtype=torch.float32)
+                .flatten()
+                .index_select(0, ids)
+                .clamp(0.0, 1.0)
+            )
+        return torch.full(
+            (int(ids.numel()),),
+            float(fill),
+            dtype=torch.float32,
+            device=self.device,
+        )
 
     def record_awake(
         self,
@@ -75,6 +110,9 @@ class ColumnMetabolismState:
         awake_budget: int,
         input_candidate_count: int,
         memory_consolidation: torch.Tensor | None = None,
+        confidence: torch.Tensor | None = None,
+        prediction_error: torch.Tensor | None = None,
+        win_rate_ema: torch.Tensor | None = None,
     ) -> None:
         ids = self._candidate_indices(candidates)
         count = int(ids.numel())
@@ -82,6 +120,7 @@ class ColumnMetabolismState:
         self.last_cached_count = max(0, int(self.n_columns) - count)
         if count <= 0:
             self.last_memory_pressure_source = "no_awake_candidates"
+            self.last_usefulness_source = "no_awake_candidates"
             return
 
         route_pressure = min(
@@ -102,6 +141,48 @@ class ColumnMetabolismState:
         self.estimated_cost[ids] = (
             self.ema_decay * old_cost + (1.0 - self.ema_decay) * cost_value
         ).clamp(0.0, 1.0)
+        updated_cost = self.estimated_cost.index_select(0, ids)
+        confidence_value = self._candidate_signal(confidence, ids, fill=0.5)
+        prediction_health = 1.0 - self._candidate_signal(
+            prediction_error,
+            ids,
+            fill=0.5,
+        )
+        if (
+            isinstance(win_rate_ema, torch.Tensor)
+            and int(win_rate_ema.numel()) == int(self.n_columns)
+        ):
+            raw_win_rate = (
+                win_rate_ema.detach()
+                .to(device=self.device, dtype=torch.float32)
+                .flatten()
+                .index_select(0, ids)
+                .clamp(min=0.0)
+            )
+            win_health = (
+                raw_win_rate / max(1.0 / float(max(1, self.n_columns)), 1e-6)
+            ).clamp(0.0, 1.0)
+        else:
+            win_health = torch.full(
+                (count,),
+                0.5,
+                dtype=torch.float32,
+                device=self.device,
+            )
+        usefulness_value = (
+            0.45 * confidence_value
+            + 0.25 * prediction_health
+            + 0.20 * win_health
+            + 0.10 * (1.0 - updated_cost)
+        ).clamp(0.0, 1.0)
+        old_usefulness = self.usefulness.index_select(0, ids)
+        self.usefulness[ids] = (
+            self.ema_decay * old_usefulness
+            + (1.0 - self.ema_decay) * usefulness_value
+        ).clamp(0.0, 1.0)
+        self.last_usefulness_source = (
+            "predictive_confidence_error_win_rate_and_cost_candidate_cache"
+        )
 
         if (
             isinstance(memory_consolidation, torch.Tensor)
@@ -128,45 +209,85 @@ class ColumnMetabolismState:
         *,
         target_count: int,
         threshold: float,
+        usefulness_threshold: float | None = None,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         ids = self._candidate_indices(candidates)
         candidate_count = int(ids.numel())
         target = max(0, min(int(target_count), int(self.n_columns)))
         threshold_value = max(0.0, min(1.0, float(threshold)))
+        usefulness_threshold_value = (
+            None
+            if usefulness_threshold is None
+            else max(0.0, min(1.0, float(usefulness_threshold)))
+        )
         if candidate_count <= 0 or target <= 0:
             report = {
                 **self._empty_filter_report(),
                 "mode": "candidate_memory_pressure_filter_empty",
                 "threshold": threshold_value,
+                "usefulness_threshold": usefulness_threshold_value,
                 "fallback_reason": "no_candidates",
             }
             self.last_filter_report = report
             return ids[:0], report
 
         pressure = self.memory_pressure.index_select(0, ids)
-        keep_mask = pressure <= threshold_value
+        pressure_mask = pressure <= threshold_value
+        usefulness = self.usefulness.index_select(0, ids)
+        usefulness_enabled = usefulness_threshold_value is not None
+        usefulness_mask = (
+            usefulness >= float(usefulness_threshold_value)
+            if usefulness_enabled
+            else torch.ones_like(pressure_mask, dtype=torch.bool)
+        )
+        keep_mask = pressure_mask & usefulness_mask
         kept = ids[keep_mask]
-        filtered_count = candidate_count - int(kept.numel())
+        pressure_filtered_count = candidate_count - int(pressure_mask.sum().item())
+        pressure_eligible_count = int(pressure_mask.sum().item())
+        usefulness_filtered_count = (
+            pressure_eligible_count - int(keep_mask.sum().item())
+            if usefulness_enabled
+            else 0
+        )
         if int(kept.numel()) <= 0:
             output = ids[:target]
-            fallback_reason = "all_candidates_over_memory_pressure_threshold"
-            mode = "candidate_memory_pressure_filter_fallback"
+            fallback_reason = (
+                "all_candidates_below_usefulness_threshold"
+                if usefulness_enabled and pressure_eligible_count > 0
+                else "all_candidates_over_memory_pressure_threshold"
+            )
+            mode = "candidate_metabolism_filter_fallback"
         else:
             output = kept[:target]
             fallback_reason = (
                 None
                 if int(output.numel()) >= min(target, candidate_count)
+                else "insufficient_useful_low_pressure_candidates"
+                if usefulness_enabled
                 else "insufficient_low_pressure_candidates"
             )
-            mode = "candidate_memory_pressure_filter"
+            mode = (
+                "candidate_memory_pressure_usefulness_filter"
+                if usefulness_enabled
+                else "candidate_memory_pressure_filter"
+            )
         report = {
             **self._empty_filter_report(),
             "mode": mode,
             "input_candidate_count": candidate_count,
             "output_candidate_count": int(output.numel()),
-            "filtered_memory_pressure_count": max(0, int(filtered_count)),
+            "filtered_memory_pressure_count": max(
+                0,
+                int(pressure_filtered_count),
+            ),
+            "filtered_low_usefulness_count": max(
+                0,
+                int(usefulness_filtered_count),
+            ),
             "threshold": threshold_value,
             "memory_pressure_source": str(self.last_memory_pressure_source),
+            "usefulness_threshold": usefulness_threshold_value,
+            "usefulness_source": str(self.last_usefulness_source),
             "fallback_reason": fallback_reason,
         }
         self.last_filter_report = report
@@ -179,28 +300,31 @@ class ColumnMetabolismState:
             "updated_column_count": int(self.last_update_count),
             "cached_column_count": int(self.last_cached_count),
             "memory_pressure_source": str(self.last_memory_pressure_source),
+            "usefulness_source": str(self.last_usefulness_source),
             "runs_all_columns": False,
             "tensor_device": str(self.device),
             "filter": dict(self.last_filter_report),
             "claim_boundary": (
-                "training_owned_awake_mask_cost_and_memory_pressure_updates_without_all_column_scan"
+                "training_owned_awake_mask_cost_pressure_and_usefulness_updates_without_all_column_scan"
             ),
         }
 
     def state_dict(self) -> dict[str, Any]:
         return {
             "estimated_cost": self.estimated_cost.detach().clone().cpu(),
+            "usefulness": self.usefulness.detach().clone().cpu(),
             "memory_pressure": self.memory_pressure.detach().clone().cpu(),
             "last_update_step": self.last_update_step.detach().clone().cpu(),
             "last_update_count": int(self.last_update_count),
             "last_cached_count": int(self.last_cached_count),
             "last_memory_pressure_source": str(self.last_memory_pressure_source),
+            "last_usefulness_source": str(self.last_usefulness_source),
             "last_filter_report": dict(self.last_filter_report),
             "ema_decay": float(self.ema_decay),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:
-        for name in ("estimated_cost", "memory_pressure"):
+        for name in ("estimated_cost", "usefulness", "memory_pressure"):
             value = snapshot.get(name)
             if isinstance(value, torch.Tensor) and int(value.numel()) == self.n_columns:
                 setattr(
@@ -220,6 +344,9 @@ class ColumnMetabolismState:
         )
         self.last_memory_pressure_source = str(
             snapshot.get("last_memory_pressure_source", "not_run")
+        )
+        self.last_usefulness_source = str(
+            snapshot.get("last_usefulness_source", "not_run")
         )
         filter_report = snapshot.get("last_filter_report")
         self.last_filter_report = (

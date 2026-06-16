@@ -34,8 +34,8 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert report["scheduler"]["runs_all_columns"] is False
     assert report["scheduler"]["promoted_to_execution"] is True
     assert report["scheduler"]["execution_scope"] == (
-        "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
-        "predictive_update_and_vote_cache"
+        "candidate_deep_sleep_memory_pressure_usefulness_filter_scoring_"
+        "homeostasis_predictive_update_and_vote_cache"
     )
     assert 5 in report["scheduler"]["awake_column_ids"]
     assert report["registry"]["surface"] == "column_registry.v1"
@@ -75,7 +75,7 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     )
 
 
-def test_column_runtime_report_projects_training_owned_cost_and_memory_pressure() -> None:
+def test_column_runtime_report_projects_training_owned_cost_pressure_and_usefulness() -> None:
     report = build_column_runtime_report(
         n_columns=4,
         prediction_error=torch.zeros(4),
@@ -83,14 +83,18 @@ def test_column_runtime_report_projects_training_owned_cost_and_memory_pressure(
         steps_since_win=torch.zeros(4),
         win_rate_ema=torch.ones(4) / 4.0,
         estimated_cost=torch.tensor([0.1, 0.2, 0.3, 0.4]),
+        cached_usefulness=torch.tensor([0.9, 0.8, 0.7, 0.6]),
         memory_pressure=torch.tensor([0.05, 0.95, 0.4, 0.0]),
         memory_pressure_source="unit_test_cached_pressure",
+        usefulness_source="unit_test_cached_usefulness",
         execution_awake_indices=torch.tensor([1, 2]),
         awake_limit=2,
     )
 
     by_id = {vote["column_id"]: vote for vote in report["votes"]}
     assert by_id[1]["estimated_cost"] == 0.2
+    assert by_id[1]["usefulness"] == 0.8
+    assert by_id[1]["usefulness_source"] == "unit_test_cached_usefulness"
     assert by_id[1]["memory_pressure"] == 0.95
     assert by_id[1]["memory_pressure_source"] == "unit_test_cached_pressure"
     registry_by_id = {
@@ -98,6 +102,8 @@ def test_column_runtime_report_projects_training_owned_cost_and_memory_pressure(
         for row in report["registry"]["columns_sample"]
     }
     assert registry_by_id[2]["estimated_cost"] == 0.3
+    assert registry_by_id[2]["usefulness"] == 0.7
+    assert registry_by_id[2]["usefulness_source"] == "unit_test_cached_usefulness"
     assert registry_by_id[2]["memory_pressure"] == 0.4
 
 

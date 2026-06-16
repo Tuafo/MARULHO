@@ -125,11 +125,18 @@ def run_fused_route_vote_benchmark(
                     * 1_000_000.0
                 )
             ),
+            0,
+            int(
+                round(
+                    float(trainer.config.candidate_usefulness_threshold)
+                    * 1_000_000.0
+                )
+            ),
         ],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     state_transition_step_counter = torch.tensor(
         int(comp.state_transition_step_count),
         dtype=torch.long,
@@ -175,6 +182,7 @@ def run_fused_route_vote_benchmark(
             thresholds=comp.thresholds,
             prediction_location=trainer.model.predictive.location,
             memory_pressure=trainer.model.column_metabolism.memory_pressure,
+            usefulness=trainer.model.column_metabolism.usefulness,
             previous_winner=fused_previous,
             route_filter_control=route_filter_control,
             route_filter_state_out=route_filter_state,

@@ -246,12 +246,15 @@ class MarulhoModel:
             "output_candidate_count": 0,
             "filtered_deep_sleep_count": 0,
             "filtered_memory_pressure_count": 0,
+            "filtered_low_usefulness_count": 0,
             "backfill_candidate_count": 0,
             "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
             "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
             "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
             "memory_pressure_threshold": None,
             "memory_pressure_source": None,
+            "usefulness_threshold": None,
+            "usefulness_source": None,
             "runs_all_columns": False,
             "fallback_reason": None,
             "tensor_device": str(self.device),
@@ -268,6 +271,7 @@ class MarulhoModel:
             "input_candidate_count": 0,
             "filtered_deep_sleep_count": 0,
             "filtered_memory_pressure_count": 0,
+            "filtered_low_usefulness_count": 0,
             "backfill_candidate_count": 0,
             "bounded": True,
             "runs_all_columns": False,
@@ -276,6 +280,8 @@ class MarulhoModel:
             "fallback_reason": None,
             "memory_pressure_threshold": None,
             "memory_pressure_source": None,
+            "usefulness_threshold": None,
+            "usefulness_source": None,
             "tensor_device": str(self.device),
             "awake_column_ids_sample": [],
             "execution_consumers": [],
@@ -415,10 +421,16 @@ class MarulhoModel:
             win_rate_ema=getattr(self.competitive, "win_rate_ema", None),
             prediction_failure_streak=getattr(self.predictive, "prediction_failure_streak", None),
             estimated_cost=getattr(self.column_metabolism, "estimated_cost", None),
+            cached_usefulness=getattr(self.column_metabolism, "usefulness", None),
             memory_pressure=getattr(self.column_metabolism, "memory_pressure", None),
             memory_pressure_source=getattr(
                 self.column_metabolism,
                 "last_memory_pressure_source",
+                None,
+            ),
+            usefulness_source=getattr(
+                self.column_metabolism,
+                "last_usefulness_source",
                 None,
             ),
             last_winner_ids=[] if last_winner is None else [int(last_winner)],
@@ -455,6 +467,7 @@ class MarulhoModel:
                     "input_candidate_count": 0,
                     "filtered_deep_sleep_count": 0,
                     "filtered_memory_pressure_count": 0,
+                    "filtered_low_usefulness_count": 0,
                     "backfill_candidate_count": 0,
                     "bounded": True,
                     "runs_all_columns": False,
@@ -463,6 +476,8 @@ class MarulhoModel:
                     "fallback_reason": None,
                     "memory_pressure_threshold": None,
                     "memory_pressure_source": None,
+                    "usefulness_threshold": None,
+                    "usefulness_source": None,
                     "tensor_device": str(self.device),
                     "awake_column_ids_sample": [],
                     "execution_consumers": [],
@@ -484,6 +499,7 @@ class MarulhoModel:
                         "output_candidate_count": 0,
                         "filtered_deep_sleep_count": 0,
                         "filtered_memory_pressure_count": 0,
+                        "filtered_low_usefulness_count": 0,
                         "backfill_candidate_count": 0,
                         "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
                         "start_token": int(
@@ -494,6 +510,8 @@ class MarulhoModel:
                         ),
                         "memory_pressure_threshold": None,
                         "memory_pressure_source": None,
+                        "usefulness_threshold": None,
+                        "usefulness_source": None,
                         "runs_all_columns": False,
                         "fallback_reason": None,
                         "tensor_device": str(self.device),
@@ -532,8 +550,8 @@ class MarulhoModel:
         if isinstance(report.get("scheduler"), dict):
             report["scheduler"]["runs_all_columns"] = runs_all_columns
             report["scheduler"]["execution_scope"] = (
-                "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
-                "predictive_update_and_vote_cache"
+                "candidate_deep_sleep_memory_pressure_usefulness_filter_scoring_"
+                "homeostasis_predictive_update_and_vote_cache"
             )
             report["scheduler"]["fallback_reason"] = (
                 "one_or_more_specialists_ran_all_columns"

@@ -205,6 +205,13 @@ def build_column_runtime_evidence(
                 )
                 or 0
             ),
+            "filtered_low_usefulness_count": int(
+                candidate_sleep_filter_execution.get(
+                    "filtered_low_usefulness_count",
+                    0,
+                )
+                or 0
+            ),
             "backfill_candidate_count": int(
                 candidate_sleep_filter_execution.get("backfill_candidate_count", 0)
                 or 0
@@ -227,6 +234,12 @@ def build_column_runtime_evidence(
             ),
             "memory_pressure_source": candidate_sleep_filter_execution.get(
                 "memory_pressure_source"
+            ),
+            "usefulness_threshold": candidate_sleep_filter_execution.get(
+                "usefulness_threshold"
+            ),
+            "usefulness_source": candidate_sleep_filter_execution.get(
+                "usefulness_source"
             ),
             "runs_all_columns": bool(
                 candidate_sleep_filter_execution.get("runs_all_columns", False)
@@ -252,6 +265,9 @@ def build_column_runtime_evidence(
             "filtered_memory_pressure_count": int(
                 column_wake_plan.get("filtered_memory_pressure_count", 0) or 0
             ),
+            "filtered_low_usefulness_count": int(
+                column_wake_plan.get("filtered_low_usefulness_count", 0) or 0
+            ),
             "backfill_candidate_count": int(
                 column_wake_plan.get("backfill_candidate_count", 0) or 0
             ),
@@ -268,6 +284,10 @@ def build_column_runtime_evidence(
             "memory_pressure_source": column_wake_plan.get(
                 "memory_pressure_source"
             ),
+            "usefulness_threshold": column_wake_plan.get(
+                "usefulness_threshold"
+            ),
+            "usefulness_source": column_wake_plan.get("usefulness_source"),
             "tensor_device": column_wake_plan.get("tensor_device"),
             "awake_column_ids_sample": [int(value) for value in wake_ids],
             "execution_consumers": [str(value) for value in wake_consumers],
@@ -518,6 +538,9 @@ def build_column_runtime_evidence(
             "memory_pressure_source": column_metabolism_execution.get(
                 "memory_pressure_source"
             ),
+            "usefulness_source": column_metabolism_execution.get(
+                "usefulness_source"
+            ),
             "runs_all_columns": bool(
                 column_metabolism_execution.get("runs_all_columns", False)
             ),
@@ -528,7 +551,7 @@ def build_column_runtime_evidence(
             "claim_boundary": column_metabolism_execution.get("claim_boundary"),
         },
         "claim_boundary": (
-            "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
-            "predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed"
+            "candidate_deep_sleep_memory_pressure_usefulness_filter_scoring_"
+            "homeostasis_predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed"
         ),
     }

@@ -110,14 +110,15 @@ def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter()
         10,  # over-threshold rows observed
         2,  # pressure-eligible rows
     ]
-    runtime._route_sleep_filter_control_mirror = (0, 2000, 1, 500000)
+    runtime._route_sleep_filter_control_mirror = (0, 2000, 1, 500000, 0, 100000)
     runtime._route_ids = None
     runtime._route_candidates = None
     runtime._route_sleep_filter_state_dirty = False
-    runtime._route_sleep_filter_state = torch.zeros(12, dtype=torch.long)
+    runtime._route_sleep_filter_state = torch.zeros(16, dtype=torch.long)
     runtime.route_vote_deep_sleep_filter_control_update_count = 1
     runtime.route_vote_deep_sleep_filter_state_sync_count = 1
     runtime._route_memory_pressure_source_mirror = "unit_test_cached_pressure"
+    runtime._route_usefulness_source_mirror = "not_run"
     runtime._trainer = SimpleNamespace(
         model=SimpleNamespace(
             column_metabolism=SimpleNamespace(
@@ -130,6 +131,8 @@ def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter()
 
     assert snapshot["memory_pressure_enabled"] is True
     assert snapshot["memory_pressure_applied"] is False
+    assert snapshot["usefulness_enabled"] is False
+    assert snapshot["usefulness_applied"] is False
     assert snapshot["filtered_memory_pressure_count"] == 0
     assert snapshot["memory_pressure_over_threshold_count"] == 10
     assert snapshot["route_input_rows_scored"] == 12
@@ -529,6 +532,96 @@ def test_route_vote_memory_pressure_filter_updates_trainer_wake_plan() -> None:
     ] == 2
     assert runtime_truth["candidate_sleep_filter_execution"][
         "filtered_memory_pressure_count"
+    ] == 2
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_route_vote_usefulness_filter_updates_trainer_wake_plan() -> None:
+    torch.manual_seed(20260616)
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        predictive_dense_transition_mode="inplace_triton",
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        dead_column_steps=1000,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        candidate_memory_pressure_filter_start_tokens=10**9,
+        candidate_usefulness_filter_start_tokens=0,
+        candidate_usefulness_threshold=0.5,
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+        device="cuda",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    trainer.token_count = 1
+    pattern = torch.rand(config.input_dim, device=trainer.model.device)
+    routing_key = trainer.model.routing_key_from_pattern(pattern)
+    expected, _ = trainer.model.routing_index.search_tensors(
+        routing_key.unsqueeze(0),
+        k=config.k_routing,
+    )
+    low_usefulness_ids = expected[0, :2].detach().clone()
+    trainer.model.column_metabolism.usefulness.fill_(1.0)
+    trainer.model.column_metabolism.usefulness[low_usefulness_ids] = 0.0
+    trainer.model.column_metabolism.last_usefulness_source = (
+        "unit_test_cached_usefulness"
+    )
+
+    trainer.train_step(
+        pattern,
+        allow_sleep_maintenance=False,
+    )
+    torch.cuda.synchronize()
+
+    wake_plan = trainer.model.last_column_wake_plan
+    assert wake_plan.mode == "candidate_usefulness_filter_route_vote"
+    assert wake_plan.runs_all_columns is False
+    assert wake_plan.awake_count == config.k_routing
+    assert wake_plan.input_candidate_count == config.n_columns
+    assert wake_plan.filtered_deep_sleep_count == 0
+    assert wake_plan.filtered_memory_pressure_count == 0
+    assert wake_plan.filtered_low_usefulness_count == 2
+    assert wake_plan.usefulness_threshold == 0.5
+    assert wake_plan.usefulness_source == "unit_test_cached_usefulness"
+    assert (
+        wake_plan.sleep_reason
+        == "low_usefulness_route_score_masked_before_topk_vote"
+    )
+    assert not torch.isin(wake_plan.candidates(), low_usefulness_ids).any()
+    route_filter = trainer.column_transition_runtime_report()[
+        "route_vote_deep_sleep_filter"
+    ]
+    assert route_filter["enabled"] is False
+    assert route_filter["memory_pressure_enabled"] is False
+    assert route_filter["usefulness_enabled"] is True
+    assert route_filter["usefulness_state_enabled"] is True
+    assert route_filter["usefulness_applied"] is True
+    assert route_filter["route_input_rows_scored"] == config.n_columns
+    assert route_filter["route_output_candidate_count"] == config.k_routing
+    assert route_filter["route_rows_run_all_columns"] is True
+    assert route_filter["bounded_route_scoring"] is False
+    assert route_filter["filtered_low_usefulness_count"] == 2
+    assert route_filter["low_usefulness_count"] == 2
+    assert route_filter["usefulness_threshold"] == 0.5
+    assert route_filter["usefulness_source"] == "unit_test_cached_usefulness"
+    assert route_filter["state_sync_count"] >= 1
+    runtime_truth = trainer.model.column_runtime_report(
+        token_count=trainer.token_count,
+        last_winner=trainer.last_winner,
+    )
+    assert runtime_truth["column_wake_plan"][
+        "filtered_low_usefulness_count"
+    ] == 2
+    assert runtime_truth["candidate_sleep_filter_execution"][
+        "filtered_low_usefulness_count"
     ] == 2
 
 

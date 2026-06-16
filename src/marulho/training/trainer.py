@@ -1279,6 +1279,9 @@ class MarulhoTrainer:
         filtered_memory_pressure_count: int = 0,
         memory_pressure_threshold: float | None = None,
         memory_pressure_source: str | None = None,
+        filtered_low_usefulness_count: int = 0,
+        usefulness_threshold: float | None = None,
+        usefulness_source: str | None = None,
     ) -> dict[str, Any]:
         total_columns = int(self.config.n_columns)
         return {
@@ -1292,12 +1295,17 @@ class MarulhoTrainer:
             "filtered_memory_pressure_count": int(
                 max(0, filtered_memory_pressure_count)
             ),
+            "filtered_low_usefulness_count": int(
+                max(0, filtered_low_usefulness_count)
+            ),
             "backfill_candidate_count": int(max(0, backfill_candidate_count)),
             "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
             "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
             "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
             "memory_pressure_threshold": memory_pressure_threshold,
             "memory_pressure_source": memory_pressure_source,
+            "usefulness_threshold": usefulness_threshold,
+            "usefulness_source": usefulness_source,
             "runs_all_columns": False,
             "fallback_reason": fallback_reason,
             "tensor_device": str(self.model.device),
@@ -1320,6 +1328,9 @@ class MarulhoTrainer:
         filtered_memory_pressure_count: int = 0,
         memory_pressure_threshold: float | None = None,
         memory_pressure_source: str | None = None,
+        filtered_low_usefulness_count: int = 0,
+        usefulness_threshold: float | None = None,
+        usefulness_source: str | None = None,
     ) -> ColumnWakePlan:
         total_columns = int(self.config.n_columns)
         return ColumnWakePlan(
@@ -1342,6 +1353,11 @@ class MarulhoTrainer:
             ),
             memory_pressure_threshold=memory_pressure_threshold,
             memory_pressure_source=memory_pressure_source,
+            filtered_low_usefulness_count=int(
+                max(0, filtered_low_usefulness_count)
+            ),
+            usefulness_threshold=usefulness_threshold,
+            usefulness_source=usefulness_source,
             runs_all_columns=False,
         )
 
@@ -1392,6 +1408,25 @@ class MarulhoTrainer:
             and has_pressure_evidence
         )
 
+    def _candidate_usefulness_filter_due(self, *, apply_sleep_filter: bool) -> bool:
+        source = str(
+            getattr(
+                getattr(self.model, "column_metabolism", None),
+                "last_usefulness_source",
+                "not_run",
+            )
+        )
+        has_usefulness_evidence = source not in {
+            "not_run",
+            "no_awake_candidates",
+        }
+        return bool(
+            apply_sleep_filter
+            and int(self.token_count)
+            >= int(self.config.candidate_usefulness_filter_start_tokens)
+            and has_usefulness_evidence
+        )
+
     def _filter_candidate_memory_pressure_plan(
         self,
         candidates: torch.Tensor,
@@ -1432,9 +1467,17 @@ class MarulhoTrainer:
             candidates,
             target_count=target_count,
             threshold=float(self.config.candidate_memory_pressure_threshold),
+            usefulness_threshold=(
+                float(self.config.candidate_usefulness_threshold)
+                if self._candidate_usefulness_filter_due(apply_sleep_filter=True)
+                else None
+            ),
         )
         pressure_filtered_count = int(
             report.get("filtered_memory_pressure_count", 0) or 0
+        )
+        usefulness_filtered_count = int(
+            report.get("filtered_low_usefulness_count", 0) or 0
         )
         pressure_fallback = report.get("fallback_reason")
         plan = self._build_column_wake_plan(
@@ -1443,6 +1486,7 @@ class MarulhoTrainer:
             input_candidate_count=candidate_count,
             filtered_deep_sleep_count=deep_sleep_filtered_count,
             filtered_memory_pressure_count=pressure_filtered_count,
+            filtered_low_usefulness_count=usefulness_filtered_count,
             backfill_candidate_count=max(0, candidate_count - int(filtered.numel())),
             fallback_reason=(
                 fallback_reason
@@ -1453,8 +1497,12 @@ class MarulhoTrainer:
             ),
             wake_reason=wake_reason,
             sleep_reason=(
-                "memory_pressure_candidate_filtered_from_awake_mask"
+                "memory_pressure_or_low_usefulness_candidate_filtered_from_awake_mask"
+                if pressure_filtered_count > 0 and usefulness_filtered_count > 0
+                else "memory_pressure_candidate_filtered_from_awake_mask"
                 if pressure_filtered_count > 0
+                else "low_usefulness_candidate_filtered_from_awake_mask"
+                if usefulness_filtered_count > 0
                 else None
             ),
             memory_pressure_threshold=float(report.get("threshold", 0.0) or 0.0),
@@ -1462,6 +1510,17 @@ class MarulhoTrainer:
                 report.get(
                     "memory_pressure_source",
                     getattr(metabolism, "last_memory_pressure_source", "unknown"),
+                )
+            ),
+            usefulness_threshold=(
+                None
+                if report.get("usefulness_threshold") is None
+                else float(report.get("usefulness_threshold"))
+            ),
+            usefulness_source=str(
+                report.get(
+                    "usefulness_source",
+                    getattr(metabolism, "last_usefulness_source", "unknown"),
                 )
             ),
         )
@@ -1553,6 +1612,11 @@ class MarulhoTrainer:
             if pressure_plan is None
             else int(pressure_plan.filtered_memory_pressure_count)
         )
+        usefulness_filtered_count = (
+            0
+            if pressure_plan is None
+            else int(pressure_plan.filtered_low_usefulness_count)
+        )
         pressure_threshold = (
             None
             if pressure_plan is None
@@ -1562,6 +1626,16 @@ class MarulhoTrainer:
             None
             if pressure_plan is None
             else pressure_plan.memory_pressure_source
+        )
+        usefulness_threshold = (
+            None
+            if pressure_plan is None
+            else pressure_plan.usefulness_threshold
+        )
+        usefulness_source = (
+            None
+            if pressure_plan is None
+            else pressure_plan.usefulness_source
         )
         pressure_fallback = (
             None
@@ -1578,6 +1652,7 @@ class MarulhoTrainer:
             input_candidate_count=candidate_count,
             filtered_deep_sleep_count=filtered_count,
             filtered_memory_pressure_count=pressure_filtered_count,
+            filtered_low_usefulness_count=usefulness_filtered_count,
             backfill_candidate_count=max(0, candidate_count - int(filtered.numel())),
             fallback_reason=(
                 pressure_fallback
@@ -1592,12 +1667,18 @@ class MarulhoTrainer:
                 else "retrieved_candidate_not_in_deep_sleep"
             ),
             sleep_reason=(
-                "deep_sleep_or_memory_pressure_candidate_filtered_from_awake_mask"
+                "deep_sleep_memory_pressure_or_low_usefulness_candidate_filtered_from_awake_mask"
+                if pressure_filtered_count > 0 and usefulness_filtered_count > 0
+                else "deep_sleep_or_memory_pressure_candidate_filtered_from_awake_mask"
                 if pressure_filtered_count > 0
+                else "deep_sleep_or_low_usefulness_candidate_filtered_from_awake_mask"
+                if usefulness_filtered_count > 0
                 else "deep_sleep_candidate_filtered_from_awake_mask"
             ),
             memory_pressure_threshold=pressure_threshold,
             memory_pressure_source=pressure_source,
+            usefulness_threshold=usefulness_threshold,
+            usefulness_source=usefulness_source,
         )
         self._record_column_wake_plan(plan)
         return plan
@@ -1624,36 +1705,70 @@ class MarulhoTrainer:
         pressure_filtered_count = int(
             snapshot.get("filtered_memory_pressure_count", 0) or 0
         )
+        usefulness_enabled = bool(snapshot.get("usefulness_enabled", False))
+        usefulness_filtered_count = int(
+            snapshot.get("filtered_low_usefulness_count", 0) or 0
+        )
         pressure_threshold = snapshot.get("memory_pressure_threshold")
         pressure_source = snapshot.get("memory_pressure_source")
-        if filter_enabled or pressure_enabled:
-            mode = (
-                "candidate_deep_sleep_memory_pressure_filter_route_vote"
-                if filter_enabled and pressure_enabled and not fallback_reason
-                else "candidate_deep_sleep_memory_pressure_filter_route_vote_fallback"
-                if filter_enabled and pressure_enabled
-                else "candidate_deep_sleep_filter_route_vote_fallback"
-                if filter_enabled and fallback_reason
-                else "candidate_deep_sleep_filter_route_vote"
-                if filter_enabled
-                else "candidate_memory_pressure_filter_route_vote_fallback"
-                if fallback_reason
-                else "candidate_memory_pressure_filter_route_vote"
-            )
-            wake_reason = (
-                "route_vote_primary_score_not_in_deep_sleep_or_memory_pressure"
-                if filter_enabled and pressure_enabled
-                else "route_vote_primary_score_not_in_deep_sleep"
-                if filter_enabled
-                else "route_vote_primary_score_below_memory_pressure_threshold"
-            )
-            sleep_reason = (
-                "deep_sleep_or_memory_pressure_route_score_masked_before_topk_vote"
-                if filter_enabled and pressure_enabled and pressure_filtered_count > 0
-                else "deep_sleep_route_score_masked_before_topk_vote"
-                if filter_enabled and pressure_filtered_count <= 0
-                else "memory_pressure_route_score_masked_before_topk_vote"
-            )
+        usefulness_threshold = snapshot.get("usefulness_threshold")
+        usefulness_source = snapshot.get("usefulness_source")
+        if filter_enabled or pressure_enabled or usefulness_enabled:
+            if usefulness_enabled:
+                filter_parts: list[str] = []
+                if filter_enabled:
+                    filter_parts.append("deep_sleep")
+                if pressure_enabled:
+                    filter_parts.append("memory_pressure")
+                filter_parts.append("usefulness")
+                mode = "candidate_" + "_".join(filter_parts) + "_filter_route_vote"
+                if fallback_reason:
+                    mode = f"{mode}_fallback"
+                wake_reason = (
+                    "route_vote_primary_score_passed_"
+                    + "_".join(filter_parts)
+                    + "_gates"
+                )
+                sleep_parts: list[str] = []
+                if filter_enabled:
+                    sleep_parts.append("deep_sleep")
+                if pressure_filtered_count > 0:
+                    sleep_parts.append("memory_pressure")
+                if usefulness_filtered_count > 0:
+                    sleep_parts.append("low_usefulness")
+                sleep_reason = (
+                    "_or_".join(sleep_parts) + "_route_score_masked_before_topk_vote"
+                    if sleep_parts
+                    else "usefulness_route_score_gate_evaluated_before_topk_vote"
+                )
+            else:
+                mode = (
+                    "candidate_deep_sleep_memory_pressure_filter_route_vote"
+                    if filter_enabled and pressure_enabled and not fallback_reason
+                    else "candidate_deep_sleep_memory_pressure_filter_route_vote_fallback"
+                    if filter_enabled and pressure_enabled
+                    else "candidate_deep_sleep_filter_route_vote_fallback"
+                    if filter_enabled and fallback_reason
+                    else "candidate_deep_sleep_filter_route_vote"
+                    if filter_enabled
+                    else "candidate_memory_pressure_filter_route_vote_fallback"
+                    if fallback_reason
+                    else "candidate_memory_pressure_filter_route_vote"
+                )
+                wake_reason = (
+                    "route_vote_primary_score_not_in_deep_sleep_or_memory_pressure"
+                    if filter_enabled and pressure_enabled
+                    else "route_vote_primary_score_not_in_deep_sleep"
+                    if filter_enabled
+                    else "route_vote_primary_score_below_memory_pressure_threshold"
+                )
+                sleep_reason = (
+                    "deep_sleep_or_memory_pressure_route_score_masked_before_topk_vote"
+                    if filter_enabled and pressure_enabled and pressure_filtered_count > 0
+                    else "deep_sleep_route_score_masked_before_topk_vote"
+                    if filter_enabled and pressure_filtered_count <= 0
+                    else "memory_pressure_route_score_masked_before_topk_vote"
+                )
             filtered_count = int(snapshot.get("filtered_deep_sleep_count", 0) or 0)
             backfill_count = int(snapshot.get("sleep_backfill_count", 0) or 0)
         else:
@@ -1675,6 +1790,7 @@ class MarulhoTrainer:
             ),
             filtered_deep_sleep_count=filtered_count,
             filtered_memory_pressure_count=pressure_filtered_count,
+            filtered_low_usefulness_count=usefulness_filtered_count,
             backfill_candidate_count=backfill_count,
             fallback_reason=fallback_reason,
             wake_reason=wake_reason,
@@ -1687,6 +1803,16 @@ class MarulhoTrainer:
             memory_pressure_source=(
                 str(pressure_source)
                 if pressure_source is not None
+                else None
+            ),
+            usefulness_threshold=(
+                float(usefulness_threshold)
+                if usefulness_threshold is not None
+                else None
+            ),
+            usefulness_source=(
+                str(usefulness_source)
+                if usefulness_source is not None
                 else None
             ),
         )
@@ -1712,6 +1838,9 @@ class MarulhoTrainer:
         memory_pressure_due = self._candidate_memory_pressure_filter_due(
             apply_sleep_filter=apply_sleep_filter,
         )
+        usefulness_due = self._candidate_usefulness_filter_due(
+            apply_sleep_filter=apply_sleep_filter,
+        )
         search_k = target_k
         backfill_factor = 1
         if filter_due and self.model.device.type != "cuda":
@@ -1723,6 +1852,11 @@ class MarulhoTrainer:
             backfill_factor = max(
                 backfill_factor,
                 int(self.config.candidate_memory_pressure_backfill_factor),
+            )
+        if usefulness_due:
+            backfill_factor = max(
+                backfill_factor,
+                int(self.config.candidate_usefulness_backfill_factor),
             )
         if backfill_factor > 1:
             search_k = min(
@@ -1774,7 +1908,7 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
         if not filter_start_due:
-            if memory_pressure_due:
+            if memory_pressure_due or usefulness_due:
                 plan = self._filter_candidate_memory_pressure_plan(
                     candidates,
                     target_count=target_k,
@@ -1794,7 +1928,7 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
         if not filter_age_ready:
-            if memory_pressure_due:
+            if memory_pressure_due or usefulness_due:
                 plan = self._filter_candidate_memory_pressure_plan(
                     candidates,
                     target_count=target_k,
@@ -1860,6 +1994,9 @@ class MarulhoTrainer:
             awake_budget=awake_budget,
             input_candidate_count=input_candidate_count,
             memory_consolidation=self._cached_bucket_consolidation_for_column_metabolism(),
+            confidence=getattr(self.model.predictive, "confidence", None),
+            prediction_error=getattr(self.model.predictive, "prediction_error", None),
+            win_rate_ema=getattr(self.model.competitive, "win_rate_ema", None),
         )
 
     def _record_column_structural_review(
@@ -3664,6 +3801,18 @@ class MarulhoTrainer:
             self._column_wake_plan.filtered_memory_pressure_count
         )
         metrics["candidate_memory_pressure_filter_mode"] = str(
+            self._column_wake_plan.mode
+        )
+        metrics["candidate_usefulness_filter_start_tokens"] = int(
+            self.config.candidate_usefulness_filter_start_tokens
+        )
+        metrics["candidate_usefulness_filter_due"] = int(
+            self._candidate_usefulness_filter_due(apply_sleep_filter=True)
+        )
+        metrics["candidate_low_usefulness_filtered_count"] = int(
+            self._column_wake_plan.filtered_low_usefulness_count
+        )
+        metrics["candidate_usefulness_filter_mode"] = str(
             self._column_wake_plan.mode
         )
         if self.model.abstraction_layer is not None and _telemetry_tick:

@@ -201,8 +201,10 @@ def build_column_runtime_report(
     last_winner_ids: Sequence[int] | torch.Tensor | None = None,
     prediction_failure_streak: torch.Tensor | None = None,
     estimated_cost: torch.Tensor | None = None,
+    cached_usefulness: torch.Tensor | None = None,
     memory_pressure: torch.Tensor | None = None,
     memory_pressure_source: str | None = None,
+    usefulness_source: str | None = None,
     awake_limit: int = 8,
     sleep_after_steps: int = 64,
     deep_sleep_after_steps: int = 512,
@@ -279,6 +281,12 @@ def build_column_runtime_report(
         fill=0.0,
         device=source_device,
     ).clamp(0.0, 1.0)
+    cached_usefulness_tensor = _safe_tensor(
+        cached_usefulness,
+        n_columns=total_columns,
+        fill=0.5,
+        device=source_device,
+    ).clamp(0.0, 1.0)
     memory_pressure_source_value = (
         str(memory_pressure_source)
         if isinstance(memory_pressure_source, str) and memory_pressure_source
@@ -286,6 +294,14 @@ def build_column_runtime_report(
         if isinstance(memory_pressure, torch.Tensor)
         and int(memory_pressure.numel()) == total_columns
         else "not_tracked_per_column"
+    )
+    usefulness_source_value = (
+        str(usefulness_source)
+        if isinstance(usefulness_source, str) and usefulness_source
+        else "cached_column_metabolism"
+        if isinstance(cached_usefulness, torch.Tensor)
+        and int(cached_usefulness.numel()) == total_columns
+        else "report_derived_confidence_win_rate_fallback"
     )
     last_ids = _ids_to_list(last_winner_ids, n_columns=total_columns)
     last_id_set = set(last_ids)
@@ -305,7 +321,15 @@ def build_column_runtime_report(
             dtype=torch.float32,
         ).flatten()
     if source_device.type != "cpu":
-        snapshot_rows = [pred_error, conf, steps, win_rate, cost, memory_pressure_tensor]
+        snapshot_rows = [
+            pred_error,
+            conf,
+            steps,
+            win_rate,
+            cost,
+            memory_pressure_tensor,
+            cached_usefulness_tensor,
+        ]
         if streak_tensor is not None:
             snapshot_rows.append(streak_tensor)
         snapshot = torch.stack(snapshot_rows, dim=0).detach().cpu()
@@ -315,13 +339,19 @@ def build_column_runtime_report(
         win_rate = snapshot[3]
         cost = snapshot[4]
         memory_pressure_tensor = snapshot[5]
+        cached_usefulness_tensor = snapshot[6]
         if streak_tensor is not None:
-            streak_tensor = snapshot[6]
+            streak_tensor = snapshot[7]
         source_device = torch.device("cpu")
 
     surprise_norm = pred_error.clamp(min=0.0, max=1.0)
     confidence_gap = 1.0 - conf
-    usefulness = torch.clamp(0.65 * conf + 0.35 * win_rate, min=0.0, max=1.0)
+    usefulness = (
+        cached_usefulness_tensor
+        if isinstance(cached_usefulness, torch.Tensor)
+        and int(cached_usefulness.numel()) == total_columns
+        else torch.clamp(0.65 * conf + 0.35 * win_rate, min=0.0, max=1.0)
+    )
     recent = torch.zeros(total_columns, dtype=torch.float32, device=source_device)
     for idx in last_ids:
         recent[idx] = 1.0
@@ -476,6 +506,7 @@ def build_column_runtime_report(
                 "prediction_error": prediction_error_value,
                 "surprise": surprise_value,
                 "usefulness": round(float(export_table[3, export_offset].item()), 6),
+                "usefulness_source": usefulness_source_value,
                 "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
                 "memory_pressure": round(float(export_table[5, export_offset].item()), 6),
                 "memory_pressure_source": memory_pressure_source_value,
@@ -486,6 +517,7 @@ def build_column_runtime_report(
                     "confidence_gap": round(float(export_table[8, export_offset].item()), 6),
                     "win_rate_ema": round(float(export_table[6, export_offset].item()), 6),
                     "steps_since_win": int(export_table[7, export_offset].item()),
+                    "usefulness_source": usefulness_source_value,
                 },
                 "wake_reason": wake_reason,
                 "sleep_reason": (
@@ -540,6 +572,7 @@ def build_column_runtime_report(
                     "confidence": confidence_value,
                     "surprise": surprise_value,
                     "usefulness": round(float(export_table[3, export_offset].item()), 6),
+                    "usefulness_source": usefulness_source_value,
                     "estimated_cost": round(float(export_table[4, export_offset].item()), 6),
                     "memory_pressure": round(float(export_table[5, export_offset].item()), 6),
                     "memory_pressure_source": memory_pressure_source_value,
@@ -636,8 +669,8 @@ def build_column_runtime_report(
             "runs_all_columns": False,
             "promoted_to_execution": True,
             "execution_scope": (
-                "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
-                "predictive_update_and_vote_cache"
+                "candidate_deep_sleep_memory_pressure_usefulness_filter_scoring_"
+                "homeostasis_predictive_update_and_vote_cache"
             ),
             "selection_inputs": (
                 ["training_owned_column_wake_plan"]

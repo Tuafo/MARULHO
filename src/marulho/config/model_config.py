@@ -98,6 +98,9 @@ class MarulhoConfig:
     candidate_memory_pressure_filter_start_tokens: int = 512
     candidate_memory_pressure_backfill_factor: int = 2
     candidate_memory_pressure_threshold: float = 0.95
+    candidate_usefulness_filter_start_tokens: int = 512
+    candidate_usefulness_backfill_factor: int = 2
+    candidate_usefulness_threshold: float = 0.10
     dead_column_noise: float = 0.05
 
     silhouette_min: float = 0.20
@@ -346,6 +349,12 @@ class MarulhoConfig:
             raise ValueError("candidate_memory_pressure_backfill_factor must be positive")
         if not 0.0 <= float(self.candidate_memory_pressure_threshold) <= 1.0:
             raise ValueError("candidate_memory_pressure_threshold must be between 0 and 1")
+        if self.candidate_usefulness_filter_start_tokens < 0:
+            raise ValueError("candidate_usefulness_filter_start_tokens must be non-negative")
+        if self.candidate_usefulness_backfill_factor <= 0:
+            raise ValueError("candidate_usefulness_backfill_factor must be positive")
+        if not 0.0 <= float(self.candidate_usefulness_threshold) <= 1.0:
+            raise ValueError("candidate_usefulness_threshold must be between 0 and 1")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:

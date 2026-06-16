@@ -136,8 +136,17 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 steps=8,
                 device=trainer.model.device,
             )
+            trainer.model.column_metabolism.usefulness[:] = torch.linspace(
+                0.2,
+                0.9,
+                steps=8,
+                device=trainer.model.device,
+            )
             trainer.model.column_metabolism.last_memory_pressure_source = (
                 "unit_test_cached_pressure"
+            )
+            trainer.model.column_metabolism.last_usefulness_source = (
+                "unit_test_cached_usefulness"
             )
             checkpoint = save_trainer_checkpoint(
                 Path(tmpdir) / "column_metabolism.pt",
@@ -159,9 +168,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                     torch.linspace(0.8, 0.1, steps=8),
                 )
             )
+            self.assertTrue(
+                torch.allclose(
+                    restored.model.column_metabolism.usefulness.cpu(),
+                    torch.linspace(0.2, 0.9, steps=8),
+                )
+            )
             self.assertEqual(
                 restored.model.column_metabolism.last_memory_pressure_source,
                 "unit_test_cached_pressure",
+            )
+            self.assertEqual(
+                restored.model.column_metabolism.last_usefulness_source,
+                "unit_test_cached_usefulness",
             )
 
     def test_checkpoint_roundtrip_preserves_column_structural_review_queue(self) -> None:

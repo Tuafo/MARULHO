@@ -73,12 +73,13 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
     previous_winner = torch.tensor([7], dtype=torch.long, device=device)
     steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     route_filter_control = torch.tensor(
-        [0, 2000, 0, 950000],
+        [0, 2000, 0, 950000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
 
     search_key = F.normalize(routing_key.unsqueeze(0), dim=1)
     scores = search_key @ routing_vectors.T
@@ -125,6 +126,7 @@ def test_fused_route_vote_matches_tensor_routing_and_vote(
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -181,12 +183,13 @@ def test_fused_route_vote_scores_indexed_route_bank_only() -> None:
     previous_winner = torch.tensor([7], dtype=torch.long, device=device)
     steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     route_filter_control = torch.tensor(
-        [0, 2000, 0, 950000],
+        [0, 2000, 0, 950000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     bank_scores = routing_key.unsqueeze(0) @ routing_vectors[bank_positions].T
     expected_offsets = torch.topk(
         bank_scores,
@@ -220,6 +223,7 @@ def test_fused_route_vote_scores_indexed_route_bank_only() -> None:
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -271,12 +275,13 @@ def test_fused_route_vote_de_duplicates_repeated_indexed_route_rows() -> None:
     previous_winner = torch.tensor([7], dtype=torch.long, device=device)
     steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     route_filter_control = torch.tensor(
-        [0, 2000, 0, 950000],
+        [0, 2000, 0, 950000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     bank_scores = routing_key.unsqueeze(0) @ routing_vectors[bank_positions].T
     ordered_offsets = torch.argsort(bank_scores[0], descending=True)
     ordered_ids = routing_ids[bank_positions[ordered_offsets]].detach().cpu().tolist()
@@ -304,6 +309,7 @@ def test_fused_route_vote_de_duplicates_repeated_indexed_route_rows() -> None:
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -343,12 +349,13 @@ def test_fused_route_vote_masks_deep_sleep_before_candidate_vote() -> None:
     steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
     steps_since_win[deep_sleep_ids] = 2000
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     route_filter_control = torch.tensor(
-        [1, 2000, 0, 950000],
+        [1, 2000, 0, 950000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     prototypes = F.normalize(
         torch.rand(vector_count, column_dim, device=device),
         dim=1,
@@ -377,6 +384,7 @@ def test_fused_route_vote_masks_deep_sleep_before_candidate_vote() -> None:
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -434,8 +442,13 @@ def test_fused_route_vote_uses_logical_stale_age_for_deep_sleep() -> None:
     sleepy_ids = routing_ids[sleepy_positions]
     last_update[sleepy_ids] = 0
     memory_pressure = torch.zeros(vector_count, device=device)
-    route_filter_control = torch.tensor([1, 2000, 0, 950000], dtype=torch.long, device=device)
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    usefulness = torch.ones(vector_count, device=device)
+    route_filter_control = torch.tensor(
+        [1, 2000, 0, 950000, 0, 100000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     scores_out = torch.empty(vector_count, device=device)
     candidates_out = torch.empty(candidate_count, dtype=torch.long, device=device)
     winner_out = torch.empty(1, dtype=torch.long, device=device)
@@ -458,6 +471,7 @@ def test_fused_route_vote_uses_logical_stale_age_for_deep_sleep() -> None:
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -501,12 +515,13 @@ def test_fused_route_vote_backfills_when_awake_routes_are_insufficient() -> None
     )
     steps_since_win[awake_ids] = 0
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     route_filter_control = torch.tensor(
-        [1, 2000, 0, 950000],
+        [1, 2000, 0, 950000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     prototypes = F.normalize(
         torch.rand(vector_count, column_dim, device=device),
         dim=1,
@@ -535,6 +550,7 @@ def test_fused_route_vote_backfills_when_awake_routes_are_insufficient() -> None
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -581,13 +597,14 @@ def test_fused_route_vote_masks_memory_pressure_before_candidate_vote() -> None:
     pressure_ids = routing_ids[torch.topk(scores, k=candidate_count, dim=1).indices[0][:2]]
     steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
     memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
     memory_pressure[pressure_ids] = 0.99
     route_filter_control = torch.tensor(
-        [0, 2000, 1, 500000],
+        [0, 2000, 1, 500000, 0, 100000],
         dtype=torch.long,
         device=device,
     )
-    route_filter_state = torch.zeros(12, dtype=torch.long, device=device)
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
     prototypes = F.normalize(
         torch.rand(vector_count, column_dim, device=device),
         dim=1,
@@ -616,6 +633,7 @@ def test_fused_route_vote_masks_memory_pressure_before_candidate_vote() -> None:
         thresholds=thresholds,
         prediction_location=locations,
         memory_pressure=memory_pressure,
+        usefulness=usefulness,
         previous_winner=previous_winner,
         route_filter_control=route_filter_control,
         route_filter_state_out=route_filter_state,
@@ -647,3 +665,91 @@ def test_fused_route_vote_masks_memory_pressure_before_candidate_vote() -> None:
     assert state[9] == 1
     assert state[10] == 2
     assert state[11] == vector_count - 2
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_fused_route_vote_masks_low_usefulness_before_candidate_vote() -> None:
+    torch.manual_seed(20260616)
+    device = torch.device("cuda")
+    vector_count = 16
+    column_dim = 8
+    location_dim = 4
+    candidate_count = 4
+    routing_key = F.normalize(torch.rand(column_dim, device=device), dim=0)
+    routing_vectors = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    routing_ids = torch.arange(vector_count, device=device, dtype=torch.long)
+    scores = routing_key.unsqueeze(0) @ routing_vectors.T
+    low_usefulness_ids = routing_ids[
+        torch.topk(scores, k=candidate_count, dim=1).indices[0][:2]
+    ]
+    steps_since_win = torch.zeros(vector_count, dtype=torch.long, device=device)
+    memory_pressure = torch.zeros(vector_count, device=device)
+    usefulness = torch.ones(vector_count, device=device)
+    usefulness[low_usefulness_ids] = 0.0
+    route_filter_control = torch.tensor(
+        [0, 2000, 0, 950000, 1, 500000],
+        dtype=torch.long,
+        device=device,
+    )
+    route_filter_state = torch.zeros(16, dtype=torch.long, device=device)
+    prototypes = F.normalize(
+        torch.rand(vector_count, column_dim, device=device),
+        dim=1,
+    )
+    thresholds = torch.full((vector_count,), 0.2, device=device)
+    locations = torch.rand(vector_count, location_dim, device=device)
+    previous_winner = torch.tensor([3], dtype=torch.long, device=device)
+    scores_out = torch.empty(vector_count, device=device)
+    candidates_out = torch.empty(
+        candidate_count,
+        dtype=torch.long,
+        device=device,
+    )
+    winner_out = torch.empty(1, dtype=torch.long, device=device)
+    strength_out = torch.empty(1, device=device)
+    had_positive = torch.empty((), dtype=torch.bool, device=device)
+    reconstruction_error_out = torch.empty(1, device=device)
+
+    fused_route_vote_cuda(
+        routing_key=routing_key,
+        routing_vectors=routing_vectors,
+        routing_ids=routing_ids,
+        steps_since_win=steps_since_win,
+        **_route_state_kwargs(steps_since_win),
+        prototypes=prototypes,
+        thresholds=thresholds,
+        prediction_location=locations,
+        memory_pressure=memory_pressure,
+        usefulness=usefulness,
+        previous_winner=previous_winner,
+        route_filter_control=route_filter_control,
+        route_filter_state_out=route_filter_state,
+        scores_out=scores_out,
+        candidates_out=candidates_out,
+        winner_out=winner_out,
+        strength_out=strength_out,
+        competition_had_positive=had_positive,
+        reconstruction_error_out=reconstruction_error_out,
+    )
+    torch.cuda.synchronize()
+
+    expected_positions = torch.topk(
+        scores.masked_fill(usefulness.unsqueeze(0) < 0.5, -float("inf")),
+        k=candidate_count,
+        dim=1,
+    ).indices[0]
+    expected_candidates = routing_ids[expected_positions]
+    assert torch.equal(candidates_out, expected_candidates)
+    assert not torch.isin(candidates_out, low_usefulness_ids).any()
+    assert not torch.isin(winner_out, low_usefulness_ids).any()
+    state = route_filter_state.tolist()
+    assert state[0] == 0
+    assert state[1] == 1
+    assert state[4] == 0
+    assert state[12] == 1
+    assert state[13] == 1
+    assert state[14] == 2
+    assert state[15] == vector_count - 2

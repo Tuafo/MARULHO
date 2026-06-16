@@ -512,6 +512,25 @@ post-selection pressure filtering: CUDA masks high-pressure route rows before
 candidate and winner selection when cached pressure evidence exists, and keeps
 the pressure gate disabled when evidence is absent.
 
+The next route-owner usefulness slice keeps the same promoted path and adds one
+cached scheduler signal to the fused route-vote mask. The 32768-column
+131072-token gate at
+`reports/column_scheduler_20260616/usefulness-scheduler-32768-131072-i32.json`
+processed `131072` tokens at `5886.235 tokens/sec` with
+`train_compute=0.134212 ms/token`, `tick_duration_ms.p95=22.614`,
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`, and
+`candidate_predictive_transition_cached_count=32758`. Runtime Truth reported
+`usefulness_enabled=true`, `usefulness_applied=true`,
+`filtered_low_usefulness_count=0`, `usefulness_threshold=0.1`,
+`usefulness_source=predictive_confidence_error_win_rate_and_cost_candidate_cache`,
+zero route/state/predictive fallback reasons, zero graph/native/sequence
+failures, and no observed contention. The same-shape previous fixed-count gate
+was `6163.265 tokens/sec` with `train_compute=0.132789 ms/token` but observed
+GPU contention, so this result is throughput-neutral enough for the scheduler
+truth claim and remains inside the expected 6k-ish sustained band; it is not a
+new speed ceiling.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

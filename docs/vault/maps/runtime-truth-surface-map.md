@@ -66,10 +66,12 @@ the explicit exact seed. The corrected 16384- and 32768-column scale gates
 report the same `route_input_rows_scored=12` and
 `route_output_candidate_count=10` with `state_transition_cached_count=16374`
 and `32758`, respectively. The
-route-owner scheduler filter also reports whether memory-pressure filtering
-was enabled from cached pressure evidence, how many route rows it masked, and
-why it fell back. Service may project that evidence but must not construct its
-own scheduler decision or clear route-cost truth from awake-count evidence.
+route-owner scheduler filter also reports whether memory-pressure and
+usefulness filtering were enabled from cached metabolism evidence, how many
+route rows they masked, eligible counts after each gate, thresholds, sources,
+and why either gate fell back. Service may project that evidence but must not
+construct its own scheduler decision or clear route-cost truth from awake-count
+evidence.
 Both active service projections now use
 `service.column_runtime_projection.build_column_runtime_evidence`, so
 `StatusReadModel` and `RuntimeStatusCore` expose the same probe-lane,

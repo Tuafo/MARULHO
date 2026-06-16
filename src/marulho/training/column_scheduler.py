@@ -50,6 +50,9 @@ class ColumnWakePlan:
     filtered_memory_pressure_count: int = 0
     memory_pressure_threshold: float | None = None
     memory_pressure_source: str | None = None
+    filtered_low_usefulness_count: int = 0
+    usefulness_threshold: float | None = None
+    usefulness_source: str | None = None
     runs_all_columns: bool = False
     claim_boundary: str = WAKE_PLAN_CLAIM_BOUNDARY
 
@@ -84,6 +87,11 @@ class ColumnWakePlan:
             "filtered_memory_pressure_count",
             max(0, int(self.filtered_memory_pressure_count)),
         )
+        object.__setattr__(
+            self,
+            "filtered_low_usefulness_count",
+            max(0, int(self.filtered_low_usefulness_count)),
+        )
 
     @property
     def awake_count(self) -> int:
@@ -108,12 +116,17 @@ class ColumnWakePlan:
             "filtered_memory_pressure_count": int(
                 self.filtered_memory_pressure_count
             ),
+            "filtered_low_usefulness_count": int(
+                self.filtered_low_usefulness_count
+            ),
             "backfill_candidate_count": int(self.backfill_candidate_count),
             "deep_sleep_threshold_steps": int(self.deep_sleep_threshold_steps),
             "start_token": int(self.start_token),
             "backfill_factor": int(self.backfill_factor),
             "memory_pressure_threshold": self.memory_pressure_threshold,
             "memory_pressure_source": self.memory_pressure_source,
+            "usefulness_threshold": self.usefulness_threshold,
+            "usefulness_source": self.usefulness_source,
             "runs_all_columns": bool(self.runs_all_columns),
             "fallback_reason": self.fallback_reason,
             "tensor_device": str(self.tensor_device),
@@ -134,6 +147,9 @@ class ColumnWakePlan:
             "filtered_memory_pressure_count": int(
                 self.filtered_memory_pressure_count
             ),
+            "filtered_low_usefulness_count": int(
+                self.filtered_low_usefulness_count
+            ),
             "backfill_candidate_count": int(self.backfill_candidate_count),
             "bounded": bool(self.bounded),
             "runs_all_columns": bool(self.runs_all_columns),
@@ -142,6 +158,8 @@ class ColumnWakePlan:
             "fallback_reason": self.fallback_reason,
             "memory_pressure_threshold": self.memory_pressure_threshold,
             "memory_pressure_source": self.memory_pressure_source,
+            "usefulness_threshold": self.usefulness_threshold,
+            "usefulness_source": self.usefulness_source,
             "tensor_device": str(self.tensor_device),
             "awake_column_ids_sample": _bounded_id_sample(self.awake_indices),
             "execution_consumers": list(WAKE_PLAN_EXECUTION_CONSUMERS),
