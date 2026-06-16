@@ -267,6 +267,16 @@ def _migrate_loaded_config_snapshot(
                 "reason": "retired_routing_backend_config_surface",
             }
         )
+    if "route_candidate_bank_size" in migrated:
+        retired_value = int(migrated.pop("route_candidate_bank_size") or 0)
+        migrations.append(
+            {
+                "field": "route_candidate_bank_size",
+                "from": retired_value,
+                "to": "k_routing_promoted_route_bank",
+                "reason": "retired_route_candidate_bank_size_selector",
+            }
+        )
     if "cuda_graph_native_burst_tokens" in migrated:
         current_native_burst_tokens = int(migrated["cuda_graph_native_burst_tokens"])
         if (

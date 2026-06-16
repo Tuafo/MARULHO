@@ -2080,6 +2080,23 @@ and no observed contention. Throughput stayed in band at
 `tick_duration_ms.p95=21.637`. This is restore/startup scheduler evidence, not
 a new route-quality claim.
 
+The route-bank size selector cleanup removed `route_candidate_bank_size` from
+production config so the promoted runtime has one live bank-capacity path:
+`ColumnTransitionRuntime` derives the route bank from `k_routing`, old
+checkpoints drop the retired key with `retired_route_candidate_bank_size_selector`
+migration evidence, and wider-bank work remains explicit evaluation-only
+input. The longer real-path check at
+`reports/column_scheduler_20260616/route-bank-size-selector-removal-8192-131072-i32.json`
+processed `131072` tokens at `6281.314 tokens/sec`,
+`train_compute=0.129934 ms/token`, `prepare_training=0.006244 ms/token`,
+`finalize_total=0.005841 ms/token`, and `tick_duration_ms.p95=21.686`, with
+`route_input_rows_scored=12/8192`, `route_output_candidate_count=10`,
+`state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+no observed contention, and checkpoint migration evidence for the retired
+selector. This is one-path cleanup evidence, not a new quality or throughput
+claim.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:

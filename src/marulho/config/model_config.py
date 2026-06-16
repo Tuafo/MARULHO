@@ -76,7 +76,6 @@ class MarulhoConfig:
     index_rebuild_threshold: int = 256
     routing_shards: int = 1
     shard_candidate_factor: int = 2
-    route_candidate_bank_size: int = 0
     predictive_dense_transition_mode: Literal["inplace_triton"] = "inplace_triton"
     predictive_route_vote_mode: Literal["cuda_graph_text"] = "cuda_graph_text"
 
@@ -405,14 +404,6 @@ class MarulhoConfig:
             raise ValueError("routing_shards must be less than or equal to n_columns")
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
-        if self.route_candidate_bank_size < 0:
-            raise ValueError("route_candidate_bank_size must be non-negative")
-        if (
-            self.route_candidate_bank_size not in {0, int(self.k_routing)}
-        ):
-            raise ValueError(
-                "route_candidate_bank_size must be 0 or equal to k_routing; wider banks need a separate promotion gate"
-            )
         if self.predictive_dense_transition_mode != "inplace_triton":
             raise ValueError(
                 "predictive_dense_transition_mode is fixed at inplace_triton"

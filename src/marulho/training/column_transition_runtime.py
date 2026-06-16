@@ -111,12 +111,9 @@ class ColumnTransitionRuntime:
         self._route_candidates: torch.Tensor | None = None
         comp = trainer.model.competitive
         device = trainer.model.device
-        requested_route_bank = int(
-            getattr(trainer.config, "route_candidate_bank_size", 0) or 0
-        )
         self.route_candidate_bank_size = min(
             int(comp.n_columns),
-            max(1, requested_route_bank or int(trainer.config.k_routing)),
+            max(1, int(trainer.config.k_routing)),
         )
         self.route_candidate_bank_enabled = bool(
             self.route_candidate_bank_size < int(comp.n_columns)

@@ -546,6 +546,48 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 metadata["config_migrations"],
             )
 
+    def test_checkpoint_loader_drops_retired_route_candidate_bank_size_selector(self) -> None:
+        from dataclasses import fields
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=16,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                k_routing=4,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "retired-route-bank-size.pt",
+                trainer,
+            )
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["route_candidate_bank_size"] = 8
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertNotIn(
+                "route_candidate_bank_size",
+                {field.name for field in fields(restored.config)},
+            )
+            self.assertIn(
+                {
+                    "field": "route_candidate_bank_size",
+                    "from": 8,
+                    "to": "k_routing_promoted_route_bank",
+                    "reason": "retired_route_candidate_bank_size_selector",
+                },
+                metadata["config_migrations"],
+            )
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_checkpoint_cuda_graph_capture_happens_after_state_restore(self) -> None:
         from tempfile import TemporaryDirectory

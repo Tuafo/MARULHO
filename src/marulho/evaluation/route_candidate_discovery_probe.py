@@ -394,11 +394,7 @@ def run_discovery_probe(
         thresholds=trainer.model.competitive.thresholds,
         prediction_location=trainer.model.predictive.location,
         k_routing=int(trainer.config.k_routing),
-        bank_size=int(
-            bank_size
-            or trainer.config.route_candidate_bank_size
-            or trainer.config.k_routing
-        ),
+        bank_size=int(bank_size or trainer.config.k_routing),
         refresh_interval=int(refresh_interval),
         landmark_count=int(landmark_count),
         top_landmarks=int(top_landmarks),

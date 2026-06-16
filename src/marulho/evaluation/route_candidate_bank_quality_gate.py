@@ -700,7 +700,7 @@ def run_route_candidate_bank_quality_gate(
         thresholds=trainer.model.competitive.thresholds,
         prediction_location=trainer.model.predictive.location,
         k_routing=int(trainer.config.k_routing),
-        bank_size=int(bank_size or trainer.config.route_candidate_bank_size or trainer.config.k_routing),
+        bank_size=int(bank_size or trainer.config.k_routing),
         previous_winner=0 if trainer.last_winner is None else int(trainer.last_winner),
         exact_reseed_interval=int(exact_reseed_interval),
         route_candidate_graph_neighbor_count=int(route_candidate_graph_neighbor_count),

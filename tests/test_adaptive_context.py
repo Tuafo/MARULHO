@@ -376,6 +376,18 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
                 ):
                     MarulhoConfig(predictive_dense_transition_mode=mode)  # type: ignore[arg-type]
 
+    def test_route_candidate_bank_size_is_not_a_production_config_selector(self) -> None:
+        from dataclasses import fields
+
+        from marulho.config.model_config import MarulhoConfig
+
+        self.assertNotIn(
+            "route_candidate_bank_size",
+            {field.name for field in fields(MarulhoConfig)},
+        )
+        with self.assertRaisesRegex(TypeError, "route_candidate_bank_size"):
+            MarulhoConfig(route_candidate_bank_size=16)  # type: ignore[call-arg]
+
     def test_slow_memory_archive_interval_must_be_positive(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
