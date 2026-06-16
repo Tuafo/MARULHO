@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import torch
 import pytest
 
@@ -58,15 +60,9 @@ class TestPredictiveColumnState:
         assert str(report["location_device"]).startswith("cuda")
         assert str(report["prediction_weights_device"]).startswith("cuda")
 
-    def test_dense_transition_rejects_retired_compiled_mode(self):
-        state = PredictiveColumnState(n_columns=16, location_dim=4)
-        with pytest.raises(ValueError, match="transition_mode must be fused_eager"):
-            state.apply_dense_transition(
-                torch.tensor([1], dtype=torch.long),
-                torch.randn(16),
-                torch.randn(16),
-                transition_mode="compiled",
-            )
+    def test_dense_transition_has_no_retired_mode_selector(self):
+        signature = inspect.signature(PredictiveColumnState.apply_dense_transition)
+        assert "transition_mode" not in signature.parameters
 
     def test_predict_returns_correct_shape(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)
@@ -127,19 +123,19 @@ class TestPredictiveColumnState:
         assert error.max() <= 1.0
 
     @pytest.mark.parametrize("with_previous", [False, True])
-    def test_dense_transition_matches_legacy_predictive_sequence(self, with_previous):
+    def test_dense_transition_matches_retained_predictive_sequence(self, with_previous):
         torch.manual_seed(17)
-        legacy = PredictiveColumnState(n_columns=16, location_dim=4)
+        retained = PredictiveColumnState(n_columns=16, location_dim=4)
         fused = PredictiveColumnState(n_columns=16, location_dim=4)
-        fused.load_state_dict(legacy.state_dict())
+        fused.load_state_dict(retained.state_dict())
         routing_key = torch.randn(16)
         previous = torch.randn(16) if with_previous else None
         winner_ids = [2]
         winners = torch.tensor(winner_ids, dtype=torch.long)
 
-        legacy_error = legacy.compute_prediction_error(winner_ids, routing_key)
-        legacy.update_location(winner_ids, routing_key, previous)
-        legacy.update_predictions(winner_ids, learning_rate=0.005)
+        retained_error = retained.compute_prediction_error(winner_ids, routing_key)
+        retained.update_location(winner_ids, routing_key, previous)
+        retained.update_predictions(winner_ids, learning_rate=0.005)
         fused_error = fused.apply_dense_transition(
             winners,
             routing_key,
@@ -147,20 +143,24 @@ class TestPredictiveColumnState:
             learning_rate=0.005,
         )
 
-        assert torch.allclose(fused_error, legacy_error, atol=1e-6)
-        assert torch.allclose(fused.location, legacy.location, atol=1e-6)
-        assert torch.allclose(fused.velocity, legacy.velocity, atol=1e-6)
+        assert torch.allclose(fused_error, retained_error, atol=1e-6)
+        assert torch.allclose(fused.location, retained.location, atol=1e-6)
+        assert torch.allclose(fused.velocity, retained.velocity, atol=1e-6)
         assert torch.allclose(
             fused._prediction_weights,
-            legacy._prediction_weights,
+            retained._prediction_weights,
             atol=1e-6,
         )
-        assert torch.allclose(fused.prediction_error, legacy.prediction_error, atol=1e-6)
+        assert torch.allclose(
+            fused.prediction_error,
+            retained.prediction_error,
+            atol=1e-6,
+        )
         assert torch.equal(
             fused.prediction_failure_streak,
-            legacy.prediction_failure_streak,
+            retained.prediction_failure_streak,
         )
-        assert torch.allclose(fused.confidence, legacy.confidence, atol=1e-6)
+        assert torch.allclose(fused.confidence, retained.confidence, atol=1e-6)
 
     def test_candidate_scoped_prediction_error_keeps_idle_state_cached(self):
         state = PredictiveColumnState(n_columns=6, location_dim=3)
@@ -1467,7 +1467,7 @@ class TestPredictiveColumnsInTrainer:
         assert report["last_prediction_update_fallback_reason"] == (
             "cuda_sparse_prediction_update_launch_bound_dense_retained"
         )
-        assert report["last_dense_transition_mode"] == "fused_eager"
+        assert report["last_dense_transition_mode"] == "dense_eager_fallback"
         assert report["dense_transition_compile_count"] == 0
         assert report["last_dense_transition_fallback_reason"] == (
             "inplace_triton_requires_zero_input_weight_blend"

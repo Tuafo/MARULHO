@@ -220,9 +220,8 @@ class PredictiveColumnState:
         previous_routing_key: torch.Tensor | None,
         *,
         learning_rate: float = 0.005,
-        transition_mode: str = "fused_eager",
     ) -> torch.Tensor:
-        """Apply one all-column predictive transition with explicit writeback."""
+        """Apply the retained all-column predictive fallback/oracle."""
 
         previous = (
             torch.zeros_like(routing_key)
@@ -238,10 +237,7 @@ class PredictiveColumnState:
             "learning_rate": learning_rate,
         }
         self.last_dense_transition_fallback_reason = None
-        if transition_mode == "fused_eager":
-            self.last_dense_transition_mode = "fused_eager"
-        else:
-            raise ValueError("transition_mode must be fused_eager")
+        self.last_dense_transition_mode = "dense_eager_fallback"
 
         outputs = transition_fn(
             self.location,

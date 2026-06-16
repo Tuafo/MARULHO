@@ -2150,6 +2150,23 @@ processed `131072` tokens at `6174.224 tokens/sec`,
 and no observed contention. This is accepted as one-path cleanup evidence, not a
 new speed ceiling.
 
+A follow-up cleanup removed the remaining internal
+`PredictiveColumnState.apply_dense_transition(..., transition_mode=...)`
+selector and renamed the fallback Runtime Truth mode from `fused_eager` to
+`dense_eager_fallback`. Dense eager tensor semantics remain available only as
+fallback/oracle behavior when the promoted in-place runtime cannot start, not as
+a selectable runtime path. The 32768-column longer real-path check at
+`reports/column_scheduler_20260616/dense-fallback-selector-cleanup-32768-131072-i32.json`
+processed `131072` tokens at `6011.640 tokens/sec`,
+`train_compute=0.132767 ms/token`, `prepare_training=0.006491 ms/token`,
+`finalize_total=0.006139 ms/token`, and `tick_duration_ms.p95=22.446`.
+Runtime Truth stayed on the promoted CUDA path:
+`route_vote_kernel_variant=indexed_route_bank_vote_device_refresh`,
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_column_count=10`, `state_transition_cached_count=32758`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention.
+
 The route-bank checkpoint restore cleanup removed the first live exact-cache
 seed after a checkpoint already has a ready route bank. A seeded checkpoint was
 created from the promoted 8192-column scheduler checkpoint by paying the exact

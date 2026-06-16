@@ -2872,10 +2872,8 @@ class MarulhoTrainer:
         use_dense_transition = self.model.device.type == "cuda"
         used_candidate_transition = False
         if use_dense_transition:
-            dense_transition_mode = self.config.predictive_dense_transition_mode
             transition_runtime_fallback = None
-            if dense_transition_mode == "inplace_triton":
-                dense_transition_mode = "fused_eager"
+            if self.config.predictive_dense_transition_mode == "inplace_triton":
                 transition_runtime_fallback = (
                     self._column_transition_runtime.fallback_reason
                 )
@@ -2884,7 +2882,6 @@ class MarulhoTrainer:
                 routing_key,
                 self._prev_routing_key,
                 learning_rate=0.005,
-                transition_mode=dense_transition_mode,
             )
             if predictive_scope_cuda_fallback:
                 self.model.predictive.last_prediction_update_fallback_reason = (
