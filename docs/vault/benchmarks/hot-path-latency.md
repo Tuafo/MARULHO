@@ -2136,6 +2136,28 @@ route-bank/probe-lane scheduler: total columns doubled from 8192 to 16384
 while scored route rows, awake/state-transition columns, and ms/token stayed in
 the same 6k-ish band.
 
+The same builder and long gate were then extended to `32768` columns:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-32768-seeded.pt --report reports\column_scheduler_20260616\promoted-scheduler-32768-checkpoint.json --n-columns 32768 --column-latent-dim 64 --k-routing 10 --seed 20260616 --device cuda`
+
+The builder report kept the warm-up honest: the explicit seed tick scored
+`32768/32768`, while the restored bounded tick scored `12/32768`, output `10`
+candidates, cached `32758` state-transition columns, and reported
+`state_transition_runs_all_columns=false`.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260616\checkpoints\promoted-scheduler-32768-seeded.pt --output reports\column_scheduler_20260616\promoted-scheduler-32768-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 420 --sample-interval-seconds 0.5`
+
+It processed `131072` tokens at `6298.380 tokens/sec`,
+`train_compute=0.130618 ms/token`, `prepare_training=0.006178 ms/token`,
+`finalize_total=0.005816 ms/token`, and `tick_duration_ms.p95=20.991`, with
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. This strengthens the scheduler-boundary claim:
+total columns grew from 8192 to 32768, but steady route scoring stayed at
+`12` rows, awake mutation stayed at `10` rows, and complete runtime stayed in
+the same 6k-ish band.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
