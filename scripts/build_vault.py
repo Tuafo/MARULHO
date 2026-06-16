@@ -136,8 +136,8 @@ MODULES = {
         "concepts": ["Replay Window", "Runtime Evidence"],
     },
     "retrieval": {
-        "responsibility": "Vector/routing indexes such as TurboQuant, IVF, HNSW, and decoder support.",
-        "owns": "Lookup and routing experiments with explicit performance/device evidence.",
+        "responsibility": "Promoted HNSW, exact torch-cache routing, and decoder support.",
+        "owns": "Lookup and routing experiments with explicit performance/device evidence and no retired backend language.",
         "not_own": "Claiming CUDA acceleration without observed telemetry.",
         "concepts": ["Hot Path", "Slow Path", "CUDA Evidence"],
     },
