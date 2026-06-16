@@ -281,14 +281,7 @@ class ColumnTransitionRuntime:
             and trainer.model.abstraction_layer is None
             and trainer.model.binding_layer is None
         )
-        if int(trainer.config.candidate_predictive_update_start_tokens) > int(
-            trainer.config.candidate_homeostasis_start_tokens
-        ):
-            self.candidate_predictive_transition_fallback_reason = (
-                "fused_inplace_requires_predictive_gate_no_later_than_graph_candidate_gate"
-            )
-        else:
-            self.candidate_predictive_transition_active = True
+        self.candidate_predictive_transition_active = True
 
         self.warmup_attempted = True
         started = time.perf_counter_ns()

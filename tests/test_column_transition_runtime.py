@@ -959,6 +959,92 @@ def test_cuda_graph_candidate_predictive_transition_matches_non_graph_path() -> 
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_cuda_graph_respects_delayed_candidate_predictive_gate() -> None:
+    config = MarulhoConfig(
+        n_columns=32,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=5,
+        memory_capacity=16,
+        predictive_dense_transition_mode="inplace_triton",
+        candidate_homeostasis_start_tokens=0,
+        candidate_predictive_update_start_tokens=3,
+        candidate_deep_sleep_filter_start_tokens=10**9,
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        device="cuda",
+    )
+    torch.manual_seed(20260616)
+    retained = MarulhoTrainer(MarulhoModel(config), config)
+    _force_route_vote_mode_for_evaluation(retained, "fused_triton_text")
+    graph_config = replace(
+        config,
+        cuda_graph_host_truth_sync_interval_tokens=1,
+    )
+    torch.manual_seed(20260616)
+    graph = MarulhoTrainer(MarulhoModel(graph_config), graph_config)
+    graph_runtime = graph.column_transition_runtime_report()[
+        "cuda_graph_route_transition"
+    ]
+    assert "candidate_subset_dense_predictive" in graph_runtime["graph_names"]
+    assert "candidate_subset" in graph_runtime["graph_names"]
+
+    generator = torch.Generator(device="cuda").manual_seed(20260617)
+    patterns = [
+        torch.rand(config.input_dim, generator=generator, device="cuda")
+        for _ in range(5)
+    ]
+    for index, pattern in enumerate(patterns):
+        cpu_rng = torch.random.get_rng_state()
+        cuda_rng = torch.cuda.get_rng_state()
+        retained.train_step(
+            pattern,
+            raw_window=f"delayed predictive gate retained {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+        torch.random.set_rng_state(cpu_rng)
+        torch.cuda.set_rng_state(cuda_rng)
+        graph.train_step(
+            pattern,
+            raw_window=f"delayed predictive gate graph {index}",
+            allow_sleep_maintenance=False,
+            return_metrics=False,
+        )
+        update = graph.model.predictive.prediction_update_execution_report()
+        if index < config.candidate_predictive_update_start_tokens:
+            assert update["mode"] == "all_columns"
+            assert update["runs_all_columns"] is True
+        else:
+            assert update["mode"] == "candidate_subset"
+            assert update["updated_column_count"] == config.k_routing
+            assert update["runs_all_columns"] is False
+        assert retained.last_winner == graph.last_winner
+
+    for retained_tensor, graph_tensor in (
+        (retained.model.predictive.location, graph.model.predictive.location),
+        (retained.model.predictive.velocity, graph.model.predictive.velocity),
+        (
+            retained.model.predictive._prediction_weights,
+            graph.model.predictive._prediction_weights,
+        ),
+        (
+            retained.model.predictive.prediction_error,
+            graph.model.predictive.prediction_error,
+        ),
+        (retained.model.predictive.confidence, graph.model.predictive.confidence),
+    ):
+        assert torch.allclose(retained_tensor, graph_tensor, rtol=0.0, atol=1e-7)
+    runtime = graph.column_transition_runtime_report()
+    assert runtime["candidate_predictive_transition_execution_count"] == (
+        len(patterns) - config.candidate_predictive_update_start_tokens
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_cuda_graph_host_truth_mirror_is_cadenced() -> None:
     config = MarulhoConfig(
         n_columns=32,

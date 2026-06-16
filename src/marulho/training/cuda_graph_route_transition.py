@@ -278,6 +278,7 @@ class CudaGraphRouteTransition:
         candidates: torch.Tensor,
         *,
         write_burst_event: bool = False,
+        use_candidate_predictive_transition: bool = False,
     ) -> dict[str, torch.Tensor]:
         trainer = self._trainer
         normalized_input, projected, routing_key = self._pre_route_ops()
@@ -300,6 +301,7 @@ class CudaGraphRouteTransition:
             candidates,
             routing_key=routing_key,
             write_burst_event=write_burst_event,
+            use_candidate_predictive_transition=use_candidate_predictive_transition,
         )
         self._learning_rate_update_count.add_(1.0)
         assert self._neuromodulator_state is not None
@@ -318,17 +320,66 @@ class CudaGraphRouteTransition:
     def _burst_tick_ops(
         self,
         candidates: torch.Tensor,
+        *,
+        use_candidate_predictive_transition: bool = False,
     ) -> dict[str, torch.Tensor]:
-        return self._tick_ops(candidates, write_burst_event=True)
-
-    def _capture_candidate_sets(self) -> tuple[tuple[str, torch.Tensor], ...]:
-        threshold = int(self._trainer.config.candidate_homeostasis_start_tokens)
-        if int(self._trainer.token_count) >= threshold:
-            return (("candidate_subset", self._runtime._route_candidates),)
-        return (
-            ("all_columns", self._runtime._all_columns),
-            ("candidate_subset", self._runtime._route_candidates),
+        return self._tick_ops(
+            candidates,
+            write_burst_event=True,
+            use_candidate_predictive_transition=use_candidate_predictive_transition,
         )
+
+    def _candidate_graph_plan_for_token(self, token: int) -> tuple[str, torch.Tensor, bool]:
+        trainer = self._trainer
+        runtime = self._runtime
+        homeostasis_threshold = int(trainer.config.candidate_homeostasis_start_tokens)
+        predictive_threshold = int(trainer.config.candidate_predictive_update_start_tokens)
+        if int(token) < homeostasis_threshold:
+            return ("all_columns", runtime._all_columns, False)
+        use_candidate_predictive = bool(
+            runtime.candidate_predictive_transition_active
+            and int(token) >= predictive_threshold
+        )
+        if use_candidate_predictive:
+            return ("candidate_subset", runtime._route_candidates, True)
+        if runtime.candidate_predictive_transition_active:
+            return (
+                "candidate_subset_dense_predictive",
+                runtime._route_candidates,
+                False,
+            )
+        return ("candidate_subset", runtime._route_candidates, False)
+
+    def _capture_candidate_sets(self) -> tuple[tuple[str, torch.Tensor, bool], ...]:
+        trainer = self._trainer
+        start_token = int(trainer.token_count)
+        homeostasis_threshold = int(trainer.config.candidate_homeostasis_start_tokens)
+        predictive_threshold = int(trainer.config.candidate_predictive_update_start_tokens)
+        plans: list[tuple[str, torch.Tensor, bool]] = []
+        if start_token < homeostasis_threshold:
+            plans.append(("all_columns", self._runtime._all_columns, False))
+        if (
+            self._runtime.candidate_predictive_transition_active
+            and predictive_threshold > max(start_token, homeostasis_threshold)
+        ):
+            plans.append(
+                (
+                    "candidate_subset_dense_predictive",
+                    self._runtime._route_candidates,
+                    False,
+                )
+            )
+        candidate_uses_predictive = bool(
+            self._runtime.candidate_predictive_transition_active
+        )
+        plans.append(
+            (
+                "candidate_subset",
+                self._runtime._route_candidates,
+                candidate_uses_predictive,
+            )
+        )
+        return tuple(plans)
 
     def _capture(self) -> None:
         trainer = self._trainer
@@ -551,18 +602,24 @@ class CudaGraphRouteTransition:
             )
             snapshots = tuple(tensor.clone() for tensor in mutable)
             stream = torch.cuda.Stream(device=device)
-            for name, candidates in self._capture_candidate_sets():
+            for name, candidates, use_candidate_predictive in self._capture_candidate_sets():
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
-                self._tick_ops(candidates)
+                self._tick_ops(
+                    candidates,
+                    use_candidate_predictive_transition=use_candidate_predictive,
+                )
                 torch.cuda.synchronize(device)
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph, stream=stream):
-                    outputs = self._tick_ops(candidates)
+                    outputs = self._tick_ops(
+                        candidates,
+                        use_candidate_predictive_transition=use_candidate_predictive,
+                    )
                 torch.cuda.synchronize(device)
                 self._graphs[name] = graph
                 self._graph_outputs[name] = outputs
@@ -570,14 +627,20 @@ class CudaGraphRouteTransition:
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
-                self._burst_tick_ops(candidates)
+                self._burst_tick_ops(
+                    candidates,
+                    use_candidate_predictive_transition=use_candidate_predictive,
+                )
                 torch.cuda.synchronize(device)
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
                 burst_graph = torch.cuda.CUDAGraph(keep_graph=True)
                 with torch.cuda.graph(burst_graph, stream=stream):
-                    burst_outputs = self._burst_tick_ops(candidates)
+                    burst_outputs = self._burst_tick_ops(
+                        candidates,
+                        use_candidate_predictive_transition=use_candidate_predictive,
+                    )
                 torch.cuda.synchronize(device)
                 burst_graph.instantiate()
                 self._burst_graphs[name] = burst_graph
@@ -976,11 +1039,17 @@ class CudaGraphRouteTransition:
         *,
         routing_key: torch.Tensor,
         write_burst_event: bool = False,
+        use_candidate_predictive_transition: bool | None = None,
     ) -> None:
         trainer = self._trainer
         runtime = self._runtime
         comp = trainer.model.competitive
         pred = trainer.model.predictive
+        if use_candidate_predictive_transition is None:
+            use_candidate_predictive_transition = bool(
+                runtime.candidate_predictive_transition_active
+                and int(candidates.numel()) < int(comp.n_columns)
+            )
         assert self._previous_routing_key is not None
         assert self._parameters is not None
         assert self._neuromodulator_state is not None
@@ -1052,27 +1121,16 @@ class CudaGraphRouteTransition:
             candidates=candidates,
             consolidation=self._consolidation,
             predictive_candidates=(
-                candidates
-                if (
-                    runtime.candidate_predictive_transition_active
-                    and int(candidates.numel()) < int(comp.n_columns)
-                )
-                else None
+                candidates if use_candidate_predictive_transition else None
             ),
             predictive_last_update_step=(
                 pred.predictive_last_update_step
-                if (
-                    runtime.candidate_predictive_transition_active
-                    and int(candidates.numel()) < int(comp.n_columns)
-                )
+                if use_candidate_predictive_transition
                 else None
             ),
             predictive_step_counter=(
                 self._predictive_step_counter
-                if (
-                    runtime.candidate_predictive_transition_active
-                    and int(candidates.numel()) < int(comp.n_columns)
-                )
+                if use_candidate_predictive_transition
                 else None
             ),
             transition_parameters=self._parameters,
@@ -1293,11 +1351,8 @@ class CudaGraphRouteTransition:
             self.quantum_input_fallback_copy_count += 1
         _profile_mark("cuda_graph_prepare_input_stage")
         _profile_mark("cuda_graph_prepare_input_copy")
-        graph_name = (
-            "candidate_subset"
-            if trainer.token_count
-            >= int(trainer.config.candidate_homeostasis_start_tokens)
-            else "all_columns"
+        graph_name, _, _ = self._candidate_graph_plan_for_token(
+            int(trainer.token_count)
         )
         self._runtime.prepare_route_sleep_filter_control()
         try:
@@ -1509,10 +1564,12 @@ class CudaGraphRouteTransition:
             raise RuntimeError(self.fallback_reason or "cuda_graph_not_active")
         trainer = self._trainer
         start_token = int(trainer.token_count)
-        threshold = int(trainer.config.candidate_homeostasis_start_tokens)
-        graph_name = "candidate_subset" if start_token >= threshold else "all_columns"
-        if start_token < threshold < start_token + len(patterns):
-            raise RuntimeError("persistent executor burst crosses routing-mode boundary")
+        graph_name, _, _ = self._candidate_graph_plan_for_token(start_token)
+        end_graph_name, _, _ = self._candidate_graph_plan_for_token(
+            start_token + len(patterns) - 1
+        )
+        if graph_name != end_graph_name:
+            raise RuntimeError("persistent executor burst crosses graph boundary")
         _profile_mark("text_burst_runtime_eligibility")
         sync_interval = max(
             1,

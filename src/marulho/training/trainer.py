@@ -585,8 +585,11 @@ class MarulhoTrainer:
             )
             if boundary_plan.fallback_reason is not None:
                 return False
-            threshold = int(self.config.candidate_homeostasis_start_tokens)
-            if simulated_token < threshold < simulated_token + chunk_len:
+            graph_start = graph._candidate_graph_plan_for_token(simulated_token)[0]
+            graph_end = graph._candidate_graph_plan_for_token(
+                simulated_token + chunk_len - 1
+            )[0]
+            if graph_start != graph_end:
                 return False
             sync_interval = max(
                 1,
@@ -651,8 +654,11 @@ class MarulhoTrainer:
             )
             if boundary_plan.fallback_reason is not None:
                 break
-            threshold = int(self.config.candidate_homeostasis_start_tokens)
-            if simulated_token < threshold < simulated_token + chunk_len:
+            graph_start = graph._candidate_graph_plan_for_token(simulated_token)[0]
+            graph_end = graph._candidate_graph_plan_for_token(
+                simulated_token + chunk_len - 1
+            )[0]
+            if graph_start != graph_end:
                 break
             sync_interval = max(
                 1,
@@ -851,7 +857,7 @@ class MarulhoTrainer:
         candidate_predictive_graph = bool(
             runtime.candidate_predictive_transition_active
             and start
-            >= int(self.config.candidate_homeostasis_start_tokens)
+            >= int(self.config.candidate_predictive_update_start_tokens)
             and runtime._route_candidates is not None
         )
         if candidate_predictive_graph:

@@ -2031,6 +2031,24 @@ observed), this is neutral-ish same-band evidence rather than a speed
 promotion; the value is that fallback truth now preserves the bounded vote
 contract.
 
+The delayed predictive-gate graph split removes the old CUDA fallback that
+disabled fused candidate predictive transition when
+`candidate_predictive_update_start_tokens` was later than
+`candidate_homeostasis_start_tokens`. The focused CUDA parity test captures
+both `candidate_subset_dense_predictive` and `candidate_subset`: before the
+predictive gate, prediction update reports all-column dense truth; after the
+gate, it reports candidate-subset updates and matches the retained path's
+winner and predictive tensors. The current promoted checkpoint has aligned
+gates, so the 131072-token real-path run at
+`reports/column_scheduler_20260616/predictive-gate-graph-split-8192-131072-i32.json`
+still captured only `candidate_subset` and remained in-band at
+`6135.996 tokens/sec`, `train_compute=0.131881 ms/token`,
+`prepare_training=0.006492 ms/token`, `finalize_total=0.006019 ms/token`,
+`tick_duration_ms.p95=21.566`, `route_input_rows_scored=12/8192`,
+`route_output_candidate_count=10`, `state_transition_cached_count=8182`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention.
+
 The follow-up cheap-discovery probe added
 `marulho.evaluation.route_candidate_discovery_probe` for fixed landmark and
 random-projection buckets. These are evaluation-only probes: offline precompute
