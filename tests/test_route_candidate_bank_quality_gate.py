@@ -141,6 +141,63 @@ def test_route_candidate_probe_lane_recovers_bounded_relevance_shift() -> None:
     assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
 
 
+def test_route_candidate_hypercube_neighbors_recover_local_bitflip_shift() -> None:
+    keys = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.05, 0.95],
+        ],
+        dtype=torch.float32,
+    )
+    vectors = F.normalize(
+        torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.9, 0.1, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.9, 0.1],
+                [0.0, 0.0, 1.0],
+                [0.1, 0.0, 0.9],
+                [0.1, 0.9, 0.0],
+                [0.2, 0.8, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+        dim=1,
+    )
+    kwargs = {
+        "routing_keys": F.normalize(keys.float(), dim=1),
+        "routing_vectors": vectors,
+        "routing_ids": torch.arange(8, dtype=torch.long),
+        "prototypes": vectors.clone(),
+        "thresholds": torch.zeros(8, dtype=torch.float32),
+        "prediction_location": torch.zeros(8, 3, dtype=torch.float32),
+        "k_routing": 2,
+        "bank_size": 2,
+        "previous_winner": 0,
+        "route_candidate_bank_refresh_interval": 1,
+    }
+
+    base_report = evaluate_route_candidate_bank_quality_from_tensors(**kwargs)
+    neighbor_report = evaluate_route_candidate_bank_quality_from_tensors(
+        **kwargs,
+        route_candidate_hypercube_neighbor_rows=3,
+    )
+
+    assert base_report["quality"]["exact_top1_in_bank_rate"] < 1.0
+    assert neighbor_report["route_candidate_hypercube_neighbors"]["enabled"] is True
+    assert neighbor_report["route_candidate_hypercube_neighbors"]["neighbor_rows"] == 3
+    assert neighbor_report["route_candidate_hypercube_neighbors"]["valid_rows"]["max"] <= 3
+    assert neighbor_report["steady_route_score_rows"]["max"] < neighbor_report["total_columns"]
+    assert neighbor_report["quality"]["exact_top1_in_bank_rate"] == 1.0
+    assert neighbor_report["quality"]["exact_winner_match_rate"] == 1.0
+    assert (
+        neighbor_report["promotion_status"]
+        == "passes_real_source_route_bank_quality_gate"
+    )
+
+
 def test_route_candidate_graph_neighbors_recover_bounded_relevance_shift() -> None:
     keys = torch.tensor(
         [

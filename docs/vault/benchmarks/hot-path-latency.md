@@ -2050,6 +2050,20 @@ probe64 puts the exact winner into the bounded bank on nearly half the ticks,
 the live previous-winner path still matches only `0.046875`, and the oracle
 previous-winner diagnostic is still below `0.95`.
 
+The same gate also tested an evaluation-only column-ID hypercube-neighbor lane:
+score the current route bank, the fixed probe rows, and a bounded set of bit-flip
+neighbors of the runtime previous winner. A focused toy fixture proves this can
+recover a deliberately local bit-flip shift, but the real 32768-column checkpoint
+showed that current column IDs are not routing locality. With
+`--route-candidate-hypercube-neighbor-rows 16`, the default-text gate at
+`reports/column_scheduler_20260616/route-bank-hypercube-neighbor-quality-32768-default-text-s512.json`
+reported `25.215/32768` mean steady route rows, exact top-1 `0.2734375`,
+exact-winner-in-bank `0.09375`, winner match `0.046875`, and oracle-previous
+diagnostic `0.08984375`, with
+`promotion_status=hypercube_neighbors_bounded_but_requires_stronger_discovery_router_before_quality_claim`.
+This rejects column-ID bit flips as a scheduler promotion, not the bounded route
+bank itself.
+
 Because this diagnostic changed only the offline quality gate and docs, the
 runtime path was rerun unchanged against the same 32768-column seeded
 checkpoint:
@@ -2062,6 +2076,18 @@ It completed `131072` tokens at `6148.022 tokens/sec` with
 zero graph/native/sequence failures, and no observed contention. This verifies
 the diagnostic/rejection cycle did not move the real scheduler path or weaken
 the 6k-ish baseline.
+
+After adding the hypercube-neighbor rejection evidence, the same real path was
+checked again at
+`reports/column_scheduler_20260616/route-bank-hypercube-neighbor-rejection-32768-131072-i32.json`.
+It processed `131072` tokens at `6149.283 tokens/sec` with
+`train_compute=0.131785 ms/token`, `prepare_training=0.006355 ms/token`,
+`finalize_total=0.005877 ms/token`, `tick_duration_ms.p95=21.274`,
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`, `state_transition_runs_all_columns=false`,
+zero graph/native/sequence failures, and `velocity_environment.v1` contention
+observed. The promoted path still scores the route bank plus fixed probe lane;
+the hypercube-neighbor probe is not used in runtime.
 
 The next probe tested a CAGRA-style bounded graph walk in the same evaluation
 gate. It scores a bounded frontier from the current bank plus probe lane, keeps

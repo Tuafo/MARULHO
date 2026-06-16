@@ -152,6 +152,34 @@ def _candidate_winner(
     return int(candidate_ids[local_index].item()), positive
 
 
+def _hypercube_neighbor_positions(
+    *,
+    column_id: int,
+    positions_by_column: torch.Tensor,
+    total_columns: int,
+    seen_positions: set[int],
+    limit: int,
+) -> torch.Tensor:
+    """Return bounded bit-flip neighbor route positions for evaluation only."""
+
+    if int(limit) <= 0 or int(total_columns) <= 1 or int(column_id) < 0:
+        return torch.empty((0,), dtype=torch.long, device=positions_by_column.device)
+    max_bits = max(1, int(max(1, total_columns - 1).bit_length()))
+    kept: list[int] = []
+    for bit in range(max_bits):
+        candidate = int(column_id) ^ (1 << bit)
+        if candidate < 0 or candidate >= int(total_columns):
+            continue
+        position = int(positions_by_column[candidate].item())
+        if position < 0 or position in seen_positions:
+            continue
+        seen_positions.add(position)
+        kept.append(position)
+        if len(kept) >= int(limit):
+            break
+    return torch.tensor(kept, dtype=torch.long, device=positions_by_column.device)
+
+
 @torch.no_grad()
 def evaluate_route_candidate_bank_quality_from_tensors(
     *,
@@ -170,6 +198,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     route_candidate_graph_walk_beam: int = 0,
     route_candidate_graph_walk_rounds: int = 0,
     route_candidate_probe_rows: int = 0,
+    route_candidate_hypercube_neighbor_rows: int = 0,
     route_candidate_bank_refresh_interval: int = 1,
 ) -> dict[str, Any]:
     if routing_keys.dim() != 2:
@@ -207,6 +236,11 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         max(0, int(ids.numel()) - int(bank_capacity)),
     )
     probe_enabled = probe_rows > 0
+    hypercube_neighbor_rows = min(
+        max(0, int(route_candidate_hypercube_neighbor_rows)),
+        max(0, int(ids.numel()) - int(bank_capacity)),
+    )
+    hypercube_enabled = hypercube_neighbor_rows > 0
     refresh_interval = max(1, int(route_candidate_bank_refresh_interval))
     probe_offsets = torch.arange(
         int(probe_rows),
@@ -261,6 +295,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     bank_score_rows: list[int] = []
     graph_valid_rows: list[int] = []
     graph_walk_valid_rows: list[int] = []
+    hypercube_valid_rows: list[int] = []
     seed_count = 0
     reseed_count = 0
     probe_exact_top1_seen_count = 0
@@ -409,6 +444,24 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                     if current_score_positions is not None
                     else bank_positions
                 )
+                if hypercube_enabled:
+                    seen_positions = {
+                        int(value)
+                        for value in score_positions.detach().cpu().tolist()
+                    }
+                    hypercube_positions = _hypercube_neighbor_positions(
+                        column_id=int(bank_previous),
+                        positions_by_column=positions_by_column,
+                        total_columns=total_columns,
+                        seen_positions=seen_positions,
+                        limit=hypercube_neighbor_rows,
+                    )
+                    hypercube_valid_rows.append(int(hypercube_positions.numel()))
+                    if int(hypercube_positions.numel()) > 0:
+                        score_positions = torch.cat(
+                            (score_positions, hypercube_positions),
+                            dim=0,
+                        )
                 bank_scores = keys[tick].unsqueeze(0) @ vectors.index_select(
                     0,
                     score_positions,
@@ -602,6 +655,16 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                 "offline_quality_simulation_of_live_fixed_probe_lane_without_hot_path_all_column_scan"
             ),
         },
+        "route_candidate_hypercube_neighbors": {
+            "enabled": bool(hypercube_enabled),
+            "neighbor_rows": int(hypercube_neighbor_rows),
+            "valid_rows": _float_stats(hypercube_valid_rows),
+            "source": "column_id_bitflip_neighbors_of_runtime_previous_winner",
+            "hot_path_all_column_neighbor_scan": False,
+            "claim_boundary": (
+                "offline_quality_simulation_of_bounded_column_id_hypercube_neighbors_without_hot_path_all_column_scan"
+            ),
+        },
         "steady_bank_score_rows": _float_stats(steady_bank_rows),
         "steady_route_score_rows": _float_stats(steady_bank_rows),
         "oracle_score_rows": int(ids.numel()),
@@ -635,6 +698,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             if quality_passes
             else "graph_walk_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if graph_walk_enabled
+            else "hypercube_neighbors_bounded_but_requires_stronger_discovery_router_before_quality_claim"
+            if hypercube_enabled
             else "probe_lane_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if probe_enabled
             else "requires_reseed_policy_or_wider_bank_before_quality_claim"
@@ -689,6 +754,7 @@ def run_route_candidate_bank_quality_gate(
     route_candidate_graph_walk_beam: int = 0,
     route_candidate_graph_walk_rounds: int = 0,
     route_candidate_probe_rows: int = 2,
+    route_candidate_hypercube_neighbor_rows: int = 0,
     route_candidate_bank_refresh_interval: int = 16,
 ) -> dict[str, Any]:
     trainer, metadata = load_trainer_checkpoint(checkpoint)
@@ -739,6 +805,9 @@ def run_route_candidate_bank_quality_gate(
         route_candidate_graph_walk_beam=int(route_candidate_graph_walk_beam),
         route_candidate_graph_walk_rounds=int(route_candidate_graph_walk_rounds),
         route_candidate_probe_rows=int(route_candidate_probe_rows),
+        route_candidate_hypercube_neighbor_rows=int(
+            route_candidate_hypercube_neighbor_rows
+        ),
         route_candidate_bank_refresh_interval=int(
             route_candidate_bank_refresh_interval
         ),
@@ -782,6 +851,11 @@ def main() -> int:
     parser.add_argument("--route-candidate-graph-walk-rounds", type=int, default=0)
     parser.add_argument("--route-candidate-probe-rows", type=int, default=2)
     parser.add_argument(
+        "--route-candidate-hypercube-neighbor-rows",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(
         "--route-candidate-bank-refresh-interval",
         type=int,
         default=16,
@@ -807,6 +881,9 @@ def main() -> int:
         route_candidate_graph_walk_beam=args.route_candidate_graph_walk_beam,
         route_candidate_graph_walk_rounds=args.route_candidate_graph_walk_rounds,
         route_candidate_probe_rows=args.route_candidate_probe_rows,
+        route_candidate_hypercube_neighbor_rows=(
+            args.route_candidate_hypercube_neighbor_rows
+        ),
         route_candidate_bank_refresh_interval=(
             args.route_candidate_bank_refresh_interval
         ),
