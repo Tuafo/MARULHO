@@ -253,6 +253,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     overlap_fractions: list[float] = []
     exact_top1_in_bank_count = 0
     exact_winner_match_count = 0
+    exact_winner_in_bank_count = 0
+    exact_previous_winner_match_count = 0
     positive_match_count = 0
     consecutive_top1_miss = 0
     worst_consecutive_top1_miss = 0
@@ -469,7 +471,19 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             prediction_location=prediction_rows,
             previous_winner=bank_previous,
         )
+        exact_previous_bank_winner, _ = _candidate_winner(
+            routing_key=keys[tick],
+            candidates=bank_row,
+            prototypes=prototype_rows,
+            thresholds=threshold_rows,
+            prediction_location=prediction_rows,
+            previous_winner=exact_previous,
+        )
         exact_winner_match_count += int(exact_winner == bank_winner)
+        exact_winner_in_bank_count += int(exact_winner in bank_set)
+        exact_previous_winner_match_count += int(
+            exact_winner == exact_previous_bank_winner
+        )
         positive_match_count += int(exact_positive == bank_positive)
         exact_previous = exact_winner if exact_winner >= 0 else exact_previous
         bank_previous = bank_winner if bank_winner >= 0 else bank_previous
@@ -489,6 +503,12 @@ def evaluate_route_candidate_bank_quality_from_tensors(
     steady_ticks = max(0, checked - seed_count - reseed_count)
     top1_rate = float(exact_top1_in_bank_count) / float(max(1, checked))
     winner_rate = float(exact_winner_match_count) / float(max(1, checked))
+    exact_winner_in_bank_rate = float(exact_winner_in_bank_count) / float(
+        max(1, checked)
+    )
+    exact_previous_winner_rate = float(exact_previous_winner_match_count) / float(
+        max(1, checked)
+    )
     positive_rate = float(positive_match_count) / float(max(1, checked))
     quality_passes = (
         top1_rate >= 0.95
@@ -590,8 +610,19 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             "min_topk_overlap_fraction": _float_stats(overlap_fractions)["min"],
             "exact_top1_in_bank_rate": top1_rate,
             "exact_winner_match_rate": winner_rate,
+            "exact_winner_in_bank_rate": exact_winner_in_bank_rate,
+            "bank_candidates_with_exact_previous_winner_match_rate": (
+                exact_previous_winner_rate
+            ),
+            "bank_previous_winner_drift_match_gap": (
+                exact_previous_winner_rate - winner_rate
+            ),
             "positive_branch_match_rate": positive_rate,
             "worst_consecutive_exact_top1_miss": int(worst_consecutive_top1_miss),
+            "winner_diagnostic_claim_boundary": (
+                "exact-previous winner matching is an offline oracle diagnostic; "
+                "runtime must not use it to hide missing candidate discovery"
+            ),
         },
         "candidate_samples": {
             "exact_first": exact_candidates_by_tick[: min(5, len(exact_candidates_by_tick))],

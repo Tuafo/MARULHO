@@ -59,6 +59,12 @@ def test_route_candidate_bank_quality_passes_stable_local_source() -> None:
     assert report["steady_bank_score_rows"]["mean"] == 2.0
     assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
     assert report["quality"]["exact_winner_match_rate"] == 1.0
+    assert report["quality"]["exact_winner_in_bank_rate"] == 1.0
+    assert (
+        report["quality"]["bank_candidates_with_exact_previous_winner_match_rate"]
+        == 1.0
+    )
+    assert report["quality"]["bank_previous_winner_drift_match_gap"] == 0.0
     assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
 
 
@@ -77,6 +83,7 @@ def test_route_candidate_bank_quality_rejects_relevance_shift_without_reseed() -
     assert report["hot_path_all_column_oracle"] is False
     assert report["quality"]["exact_top1_in_bank_rate"] < 1.0
     assert report["quality"]["exact_winner_match_rate"] < 1.0
+    assert report["quality"]["exact_winner_in_bank_rate"] < 1.0
     assert report["quality"]["worst_consecutive_exact_top1_miss"] >= 1
     assert (
         report["promotion_status"]
@@ -130,6 +137,7 @@ def test_route_candidate_probe_lane_recovers_bounded_relevance_shift() -> None:
     assert report["route_candidate_probe"]["exact_top1_discovered_from_probe_rows"] >= 1
     assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
     assert report["quality"]["exact_winner_match_rate"] == 1.0
+    assert report["quality"]["exact_winner_in_bank_rate"] == 1.0
     assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
 
 

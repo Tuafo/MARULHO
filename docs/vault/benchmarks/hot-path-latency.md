@@ -2029,6 +2029,40 @@ and the live 16-token bank refresh cadence:
 | graph128 cap1024 q16 | `985.961/8192` mean | `0.900390625` | `0.484375` | `5` | quality incomplete |
 | graph208 cap1536 q16 | `1476.677/8192` mean | `0.9453125` | `0.74609375` | `4` | still below promotion gate |
 
+The 32768-column same-checkpoint diagnostic then added
+`exact_winner_in_bank_rate` and
+`bank_candidates_with_exact_previous_winner_match_rate` to separate missing
+candidate discovery from previous-winner/reference-frame drift:
+
+| Quality shape | steady rows | exact top-1 in bank | exact winner in bank | winner match | exact-previous diagnostic | status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| probe2 per-token | `12/32768` | `0.2734375` | `0.09375` | `0.046875` | `0.087890625` | quality incomplete |
+| probe16 per-token | `26/32768` | `0.279296875` | `0.095703125` | `0.046875` | `0.08984375` | rejected as quality fix |
+| probe64 per-token | `74/32768` | `0.591796875` | `0.486328125` | `0.046875` | `0.455078125` | rejected as quality fix |
+
+Those reports are
+`reports/column_scheduler_20260616/route-bank-probe2-device-diagnostic-quality-32768-default-text-s512.json`,
+`reports/column_scheduler_20260616/route-bank-probe16-device-diagnostic-quality-32768-default-text-s512.json`,
+and
+`reports/column_scheduler_20260616/route-bank-probe64-device-diagnostic-quality-32768-default-text-s512.json`.
+They reject blind probe widening more strongly than top-1 alone: even when
+probe64 puts the exact winner into the bounded bank on nearly half the ticks,
+the live previous-winner path still matches only `0.046875`, and the oracle
+previous-winner diagnostic is still below `0.95`.
+
+Because this diagnostic changed only the offline quality gate and docs, the
+runtime path was rerun unchanged against the same 32768-column seeded
+checkpoint:
+`reports/column_scheduler_20260616/probe-diagnostic-no-runtime-change-32768-131072-i32.json`.
+It completed `131072` tokens at `6148.022 tokens/sec` with
+`train_compute=0.132288 ms/token`, `prepare_training=0.006419 ms/token`,
+`finalize_total=0.005910 ms/token`, `tick_duration_ms.p95=21.421`,
+`route_input_rows_scored=12/32768`, `route_output_candidate_count=10`,
+`state_transition_cached_count=32758`, `state_transition_runs_all_columns=false`,
+zero graph/native/sequence failures, and no observed contention. This verifies
+the diagnostic/rejection cycle did not move the real scheduler path or weaken
+the 6k-ish baseline.
+
 The next probe tested a CAGRA-style bounded graph walk in the same evaluation
 gate. It scores a bounded frontier from the current bank plus probe lane, keeps
 a fixed beam as graph-walk parents, and expands neighbor frontiers for fixed
