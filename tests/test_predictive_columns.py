@@ -1227,6 +1227,60 @@ class TestPredictiveColumnsInTrainer:
         )
         assert ready.awake_count == cfg.k_routing
 
+    def test_candidate_memory_pressure_filter_skips_retrieved_high_pressure_candidates(self, monkeypatch):
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=4,
+            k_routing=2,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            routing_index_mode="torch_topk",
+            dead_column_steps=100,
+            candidate_deep_sleep_filter_start_tokens=10**9,
+            candidate_memory_pressure_filter_start_tokens=0,
+            candidate_memory_pressure_backfill_factor=2,
+            candidate_memory_pressure_threshold=0.5,
+            device="cpu",
+        )
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
+        model.column_metabolism.memory_pressure[:] = torch.tensor(
+            [0.95, 0.9, 0.1, 0.2, 0.0, 0.0, 0.0, 0.0],
+            dtype=torch.float32,
+        )
+        model.column_metabolism.last_memory_pressure_source = (
+            "unit_test_cached_pressure"
+        )
+        requested_k: list[int] = []
+
+        def fake_search_tensors(query, *, k):
+            requested_k.append(int(k))
+            ids = torch.arange(int(k), dtype=torch.long).unsqueeze(0)
+            distances = torch.arange(int(k), dtype=torch.float32).unsqueeze(0)
+            return ids, distances
+
+        monkeypatch.setattr(model.hnsw_index, "search_tensors", fake_search_tensors)
+
+        plan = trainer._routing_wake_plan(
+            torch.randn(cfg.column_latent_dim),
+            apply_sleep_filter=True,
+        )
+
+        assert requested_k[-1] == cfg.k_routing * cfg.candidate_memory_pressure_backfill_factor
+        assert plan is not None
+        assert plan.mode == "candidate_memory_pressure_filter"
+        assert plan.input_candidate_count == 4
+        assert plan.filtered_memory_pressure_count == 2
+        assert plan.filtered_deep_sleep_count == 0
+        assert plan.memory_pressure_threshold == 0.5
+        assert plan.memory_pressure_source == "unit_test_cached_pressure"
+        assert plan.candidates().tolist() == [2, 3]
+        assert plan.runs_all_columns is False
+
     def test_trainer_filters_deep_sleep_candidates_before_update_and_vote(self, monkeypatch):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
@@ -1345,6 +1399,24 @@ class TestPredictiveColumnsInTrainer:
 
         with pytest.raises(ValueError, match="candidate_deep_sleep_backfill_factor"):
             MarulhoConfig(candidate_deep_sleep_backfill_factor=0)
+
+    def test_candidate_memory_pressure_filter_start_tokens_must_be_non_negative(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_memory_pressure_filter_start_tokens"):
+            MarulhoConfig(candidate_memory_pressure_filter_start_tokens=-1)
+
+    def test_candidate_memory_pressure_backfill_factor_must_be_positive(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_memory_pressure_backfill_factor"):
+            MarulhoConfig(candidate_memory_pressure_backfill_factor=0)
+
+    def test_candidate_memory_pressure_threshold_must_be_between_zero_and_one(self):
+        from marulho.config.model_config import MarulhoConfig
+
+        with pytest.raises(ValueError, match="candidate_memory_pressure_threshold"):
+            MarulhoConfig(candidate_memory_pressure_threshold=1.1)
 
     def test_predictive_route_vote_mode_must_be_supported(self):
         with pytest.raises(ValueError, match="predictive_route_vote_mode"):

@@ -2,7 +2,7 @@
 type: generated
 source: graphify
 generated_by: "python scripts/build_vault.py"
-last_verified: 2026-06-15
+last_verified: 2026-06-16
 ---
 
 # Generated Module Index
@@ -10,12 +10,12 @@ last_verified: 2026-06-15
 ## marulho.core
 
 - `src/marulho/core/hypercube.py`: 75 nodes
+- `src/marulho/core/columns.py`: 61 nodes
 - `src/marulho/core/topographic.py`: 53 nodes
 - `src/marulho/core/cross_modal.py`: 50 nodes
-- `src/marulho/core/columns.py`: 47 nodes
 - `src/marulho/core/context.py`: 46 nodes
+- `src/marulho/core/predictive_columns.py`: 43 nodes
 - `src/marulho/core/native_cuda_graph_replay.cpp`: 38 nodes
-- `src/marulho/core/predictive_columns.py`: 37 nodes
 - `src/marulho/core/binding.py`: 33 nodes
 - `src/marulho/core/plasticity.py`: 32 nodes
 - `src/marulho/core/sparsity.py`: 32 nodes
@@ -57,14 +57,14 @@ last_verified: 2026-06-15
 - `src/marulho/service/snn_language_plasticity_executor.py`: 54 nodes
 ## marulho.training
 
-- `src/marulho/training/trainer.py`: 81 nodes
+- `src/marulho/training/trainer.py`: 95 nodes
 - `src/marulho/training/developmental_runner.py`: 56 nodes
 - `src/marulho/training/autonomy_acquisition_runner.py`: 54 nodes
-- `src/marulho/training/cuda_graph_route_transition.py`: 46 nodes
+- `src/marulho/training/cuda_graph_route_transition.py`: 49 nodes
 - `src/marulho/training/autonomy_runner.py`: 45 nodes
 - `src/marulho/training/query_runner.py`: 38 nodes
+- `src/marulho/training/column_transition_runtime.py`: 32 nodes
 - `src/marulho/training/long_test_runner.py`: 30 nodes
-- `src/marulho/training/column_transition_runtime.py`: 27 nodes
 - `src/marulho/training/replay_adapter_experiment.py`: 22 nodes
 - `src/marulho/training/warm_bootstrap.py`: 19 nodes
 ## marulho.evaluation
@@ -85,9 +85,7 @@ last_verified: 2026-06-15
 - `src/marulho/consolidation/__init__.py`: 1 nodes
 ## marulho.retrieval
 
-- `src/marulho/retrieval/hnsw_index.py`: 53 nodes
-- `src/marulho/retrieval/turboquant_store.py`: 36 nodes
-- `src/marulho/retrieval/ivf_router.py`: 20 nodes
+- `src/marulho/retrieval/hnsw_index.py`: 51 nodes
 - `src/marulho/retrieval/decoder.py`: 17 nodes
 - `src/marulho/retrieval/__init__.py`: 1 nodes
 ## marulho.interaction

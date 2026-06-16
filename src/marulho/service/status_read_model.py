@@ -1136,6 +1136,11 @@ class StatusReadModel:
             if isinstance(report.get("predictive_update_execution"), Mapping)
             else {}
         )
+        column_metabolism_execution = (
+            report.get("column_metabolism_execution")
+            if isinstance(report.get("column_metabolism_execution"), Mapping)
+            else {}
+        )
         registry = report.get("registry") if isinstance(report.get("registry"), Mapping) else {}
         scheduler = report.get("scheduler") if isinstance(report.get("scheduler"), Mapping) else {}
         recall = (
@@ -1216,6 +1221,13 @@ class StatusReadModel:
                 "filtered_deep_sleep_count": int(
                     candidate_sleep_filter_execution.get("filtered_deep_sleep_count", 0) or 0
                 ),
+                "filtered_memory_pressure_count": int(
+                    candidate_sleep_filter_execution.get(
+                        "filtered_memory_pressure_count",
+                        0,
+                    )
+                    or 0
+                ),
                 "backfill_candidate_count": int(
                     candidate_sleep_filter_execution.get("backfill_candidate_count", 0) or 0
                 ),
@@ -1227,6 +1239,12 @@ class StatusReadModel:
                 ),
                 "backfill_factor": int(
                     candidate_sleep_filter_execution.get("backfill_factor", 0) or 0
+                ),
+                "memory_pressure_threshold": candidate_sleep_filter_execution.get(
+                    "memory_pressure_threshold"
+                ),
+                "memory_pressure_source": candidate_sleep_filter_execution.get(
+                    "memory_pressure_source"
                 ),
                 "runs_all_columns": bool(
                     candidate_sleep_filter_execution.get("runs_all_columns", False)
@@ -1247,6 +1265,9 @@ class StatusReadModel:
                 "filtered_deep_sleep_count": int(
                     column_wake_plan.get("filtered_deep_sleep_count", 0) or 0
                 ),
+                "filtered_memory_pressure_count": int(
+                    column_wake_plan.get("filtered_memory_pressure_count", 0) or 0
+                ),
                 "backfill_candidate_count": int(
                     column_wake_plan.get("backfill_candidate_count", 0) or 0
                 ),
@@ -1255,6 +1276,12 @@ class StatusReadModel:
                 "wake_reason": column_wake_plan.get("wake_reason"),
                 "sleep_reason": column_wake_plan.get("sleep_reason"),
                 "fallback_reason": column_wake_plan.get("fallback_reason"),
+                "memory_pressure_threshold": column_wake_plan.get(
+                    "memory_pressure_threshold"
+                ),
+                "memory_pressure_source": column_wake_plan.get(
+                    "memory_pressure_source"
+                ),
                 "tensor_device": column_wake_plan.get("tensor_device"),
                 "awake_column_ids_sample": [
                     int(value)
@@ -1429,8 +1456,35 @@ class StatusReadModel:
                 "tensor_device": predictive_vote_execution.get("tensor_device"),
                 "claim_boundary": predictive_vote_execution.get("claim_boundary"),
             },
+            "column_metabolism_execution": {
+                "surface": column_metabolism_execution.get(
+                    "surface",
+                    "column_metabolism_state.v1",
+                ),
+                "total_columns": int(
+                    column_metabolism_execution.get("total_columns", 0) or 0
+                ),
+                "updated_column_count": int(
+                    column_metabolism_execution.get("updated_column_count", 0) or 0
+                ),
+                "cached_column_count": int(
+                    column_metabolism_execution.get("cached_column_count", 0) or 0
+                ),
+                "memory_pressure_source": column_metabolism_execution.get(
+                    "memory_pressure_source"
+                ),
+                "runs_all_columns": bool(
+                    column_metabolism_execution.get("runs_all_columns", False)
+                ),
+                "tensor_device": column_metabolism_execution.get("tensor_device"),
+                "filter": dict(column_metabolism_execution.get("filter", {}))
+                if isinstance(column_metabolism_execution.get("filter"), Mapping)
+                else {},
+                "claim_boundary": column_metabolism_execution.get("claim_boundary"),
+            },
             "claim_boundary": (
-                "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed"
+                "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
+                "predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed"
             ),
         }
 

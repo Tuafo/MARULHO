@@ -23,17 +23,19 @@ The registry, scheduler, voting, growth, and pruning model remains bounded and e
 
 - total columns and awake budget
 - active, idle, candidate, cached-vote, sleeping, deep-sleeping, and retired counts
-- a sampled Column Registry with role, state, local prediction/surprise/usefulness/cost state, last-run token estimate, and optional memory budget
-- bounded column votes with confidence, prediction error, usefulness, cost, disagreement, wake reason, and cached-vote use
+- a sampled Column Registry with role, state, local prediction/surprise/usefulness/cost/memory-pressure state, last-run token estimate, and optional memory budget
+- bounded column votes with confidence, prediction error, usefulness, cost, memory pressure, disagreement, wake reason, and cached-vote use
 - growth-gate evidence from repeated prediction failure streaks, not one-shot surprise
 - pruning/homeostasis evidence from weak, idle, or redundant columns
 - the availability of a bounded single-column associative recall helper
 
-Growth and pruning decisions remain report-only. Several narrower execution slices are promoted: retrieved candidates bound competition and homeostasis after the early-learning window; retained CPU state transition lazily advances stale counters and recent-spike rows only for candidates/winners; retained CPU routing can filter deep-sleep candidates from a bounded backfill pool without an all-column scan; CPU predictive updates wake on the same candidate mask after `candidate_predictive_update_start_tokens`; retained predictive voting recomputes reference-frame agreement only for the routed awake mask while non-awake columns keep cached consensus gain; and an eligible CUDA checkpoint can use the trainer-owned in-place steady-state transition for the dense predictive/plasticity cluster. The retained route now creates a training-owned `column_wake_plan` so predictive vote, competitive scoring, predictive update/location update, homeostasis, and retained CPU state transition consume one bounded awake mask with explicit wake/sleep/fallback reasons instead of treating a raw candidate tensor as the scheduler contract. Cached columns carry checkpointed step stamps. When a cached candidate wakes, core/training materializes only that bounded candidate set through missed stale-counter age, missed idle homeostasis, missed fallback threshold-relaxation events, and ordered missed non-winner predictive decay before vote/scoring/update. Dense assembly remains active where the representation requires it. Runtime Truth reports the wake plan, observed scored count, homeostasis scope, state-transition cached/materialized count, homeostasis/predictive materialization age, candidate deep-sleep filter counts, predictive location/update cached counts, predictive-vote cached count, transition executor, warmup, execution/failure counts, fallback reason, and aggregate `runs_all_columns` truth rather than inferring execution from configured budgets.
+Growth and pruning decisions remain report-only. Several narrower execution slices are promoted: retrieved candidates bound competition and homeostasis after the early-learning window; retained CPU state transition lazily advances stale counters and recent-spike rows only for candidates/winners; retained CPU routing can filter deep-sleep candidates from a bounded backfill pool without an all-column scan; retained routing can also filter high cached memory-pressure candidates from that bounded pool; CPU predictive updates wake on the same candidate mask after `candidate_predictive_update_start_tokens`; retained predictive voting recomputes reference-frame agreement only for the routed awake mask while non-awake columns keep cached consensus gain; and an eligible CUDA checkpoint can use the trainer-owned in-place steady-state transition for the dense predictive/plasticity cluster. The retained route now creates a training-owned `column_wake_plan` so predictive vote, competitive scoring, predictive update/location update, homeostasis, retained CPU state transition, and column metabolism updates consume one bounded awake mask with explicit wake/sleep/fallback reasons instead of treating a raw candidate tensor as the scheduler contract. Cached columns carry checkpointed step stamps plus checkpointed cost and memory-pressure state. When a cached candidate wakes, core/training materializes only that bounded candidate set through missed stale-counter age, missed idle homeostasis, missed fallback threshold-relaxation events, and ordered missed non-winner predictive decay before vote/scoring/update. Dense assembly remains active where the representation requires it. Runtime Truth reports the wake plan, observed scored count, homeostasis scope, state-transition cached/materialized count, homeostasis/predictive materialization age, candidate deep-sleep and memory-pressure filter counts, column metabolism updated/cached counts, predictive location/update cached counts, predictive-vote cached count, transition executor, warmup, execution/failure counts, fallback reason, and aggregate `runs_all_columns` truth rather than inferring execution from configured budgets.
 
 State transition scope is now its own truth surface. On the retained CPU path, candidate-scoped ticks use `candidate_subset_lazy_state_transition`: awake candidates and winners are physically materialized and updated, while non-awake columns keep cached stale-age stamps. Logical `steps_since_win` remains exact through snapshot/materialization helpers, checkpoint save/load, spike-health reporting, and explicit maintenance. Runtime Truth exposes `state_transition_mode`, `state_transition_column_count`, `state_transition_cached_count`, `state_transition_cached_fraction`, `state_transition_materialize_*`, `state_transition_runs_all_columns`, and fallback truth beside route/vote/sleep evidence. CUDA graph/text transition still reports dense state transition because the kernel mutates dense column state; scalar materialized-step metadata avoids an extra hot-path CUDA fill but does not make CUDA state transition sparse. The service read model only projects these fields; it does not decide sleep, wake, route candidates, or transition scope.
 
 Column reporting is control-plane work. When source state is on CUDA, Runtime Truth uses one latency-first column-state snapshot for scheduler evidence. A bounded device-export attempt reduced bytes but was slower at current 1024/8192-column sizes, so the active policy favors latency over smaller status payloads. CPU reports still materialize only bounded vote/registry samples. Runtime Truth exposes source device, report compute device, source tensor count, materialized column-state count, snapshot bytes, transfer count, report latency, and the hot-path effect boundary so the optimization cannot be mistaken for a full sleep scheduler or CUDA speedup of cognition.
+
+`ColumnMetabolismState` owns per-column estimated cost, cached memory pressure, and last update stamps on the model device. The trainer updates it only for the live wake-plan mask and checkpoints it with the model. If a memory-store bucket-consolidation tensor is already cached on the compute device, the awake candidates can derive pressure from that evidence; otherwise the source remains `no_memory_store_bucket_evidence` and the filter does not fabricate pressure. The retained CPU route can request a bounded pressure backfill pool and filter only the retrieved candidate IDs against the cached pressure vector. There is no all-column pressure scan to decide sleep. CUDA route-vote does not yet own this pressure filter, so Runtime Truth must not claim a CUDA memory-pressure gate until pressure is fused into route-owner selection.
 
 `PredictiveColumnState` owns `prediction_failure_streak` beside prediction error and confidence. Repeated raw failures increment the streak on the predictive tensor device; successful prediction resets it. The streak is saved in trainer checkpoints and restored with the model, so growth evidence survives rollback and does not live in `service`.
 
@@ -183,12 +185,31 @@ IDs, wake/sleep/fallback reasons, and consumer list instead of recomputing a
 second report-local top-k mask. The standalone report helper may still use the
 top-k scheduler score only when no execution plan is supplied. Per-column report
 rows now expose role, state, prediction, surprise, usefulness, estimated cost,
-memory-pressure truth, cached-vote state, and wake/sleep reason; memory pressure
-is reported as `not_tracked_per_column` until a real per-column usage meter
-exists. Focused tests prove service remains read-only projection and does not
-own scheduler decisions. The current benchmark evidence keeps awake work bounded
-but does not prove complete-runtime neutrality, so this is a truth-boundary
-correction rather than a scheduler speed promotion.
+memory-pressure truth, cached-vote state, and wake/sleep reason from
+training-owned metabolism state. Focused tests prove service remains read-only
+projection and does not own scheduler decisions. The current benchmark evidence
+keeps awake work bounded but does not prove complete-runtime neutrality, so this
+is a truth-boundary correction rather than a scheduler speed promotion.
+
+The column-metabolism cleanup promoted memory pressure from report placeholder
+to checkpointed training-owned state. `ColumnMetabolismState` tracks estimated
+cost and memory pressure for all columns but updates only the wake-plan IDs.
+The retained CPU candidate route can drop high-pressure retrieved candidates
+using cached candidate-local pressure values and a bounded backfill pool. Tests
+prove high-pressure candidates are skipped, service projection remains
+read-only, checkpoint restore preserves metabolism state, and no all-column
+pressure scan is used to decide sleep. CPU benchmarks at
+`reports/column_scheduler_20260616/cpu-8192-column-metabolism.json` and
+`reports/column_scheduler_20260616/cpu-scaling-column-metabolism.json` kept
+awake/metabolism work at `10` columns for `1024`, `8192`, and `32768` total
+columns, but did not pass neutral CPU cost. The long CUDA stress gate at
+`reports/column_scheduler_20260616/column-metabolism-current-131072-i32.json`
+processed `131072` tokens at `5960.035 tokens/sec` with
+`train_compute=0.135423 ms/token`, `131072` route-vote executions, the
+route-vote deep-sleep filter active on `cuda:0`, `8190` q16 sequence-loop
+successes over `131040` tokens, zero graph/sequence/native failures, and
+observed GPU contention. Treat this as stable 6k-ish hot-path evidence, not a
+new CUDA speed ceiling.
 
 The fused CUDA follow-up keeps that same wake-plan truth but moves one more
 piece of predictive metabolism below the graph-owned transition boundary. The

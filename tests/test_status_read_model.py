@@ -353,7 +353,8 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertFalse(column_runtime["runs_all_columns"])
         self.assertEqual(
             column_runtime["claim_boundary"],
-            "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed",
+            "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
+            "predictive_update_and_vote_cache_promoted_growth_pruning_remain_reviewed",
         )
         self.assertEqual(column_runtime["execution"]["mode"], "not_run")
         self.assertEqual(column_runtime["execution"]["scored_column_count"], 0)
@@ -393,8 +394,8 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertEqual(column_runtime["metabolism"]["source_tensor_device"], "cpu")
         self.assertEqual(column_runtime["metabolism"]["report_compute_device"], "cpu")
-        self.assertEqual(column_runtime["metabolism"]["snapshot_tensor_count"], 5)
-        self.assertEqual(column_runtime["metabolism"]["source_tensor_count"], 5)
+        self.assertEqual(column_runtime["metabolism"]["snapshot_tensor_count"], 7)
+        self.assertEqual(column_runtime["metabolism"]["source_tensor_count"], 7)
         self.assertLessEqual(
             column_runtime["metabolism"]["materialized_column_state_count"],
             column_runtime["total_columns"],
@@ -408,7 +409,8 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertTrue(column_runtime["scheduler"]["promoted_to_execution"])
         self.assertEqual(
             column_runtime["scheduler"]["execution_scope"],
-            "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache",
+            "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
+            "predictive_update_and_vote_cache",
         )
         candidate_sleep_filter = column_runtime["candidate_sleep_filter_execution"]
         self.assertEqual(
@@ -417,12 +419,20 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertEqual(candidate_sleep_filter["mode"], "not_run")
         self.assertFalse(candidate_sleep_filter["runs_all_columns"])
+        self.assertEqual(candidate_sleep_filter["filtered_memory_pressure_count"], 0)
         column_wake_plan = column_runtime["column_wake_plan"]
         self.assertEqual(column_wake_plan["surface"], "column_wake_plan.v1")
         self.assertEqual(column_wake_plan["mode"], "not_run")
         self.assertEqual(column_wake_plan["awake_count"], 0)
         self.assertTrue(column_wake_plan["bounded"])
         self.assertFalse(column_wake_plan["runs_all_columns"])
+        self.assertEqual(column_wake_plan["filtered_memory_pressure_count"], 0)
+        metabolism_execution = column_runtime["column_metabolism_execution"]
+        self.assertEqual(
+            metabolism_execution["surface"],
+            "column_metabolism_state.v1",
+        )
+        self.assertFalse(metabolism_execution["runs_all_columns"])
         self.assertIn("wake_reasons_sample", column_runtime)
         predictive_update = column_runtime["predictive_update_execution"]
         self.assertEqual(
@@ -490,10 +500,13 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "input_candidate_count": 24,
                         "output_candidate_count": 7,
                         "filtered_deep_sleep_count": 3,
+                        "filtered_memory_pressure_count": 2,
                         "backfill_candidate_count": 17,
                         "deep_sleep_threshold_steps": 2000,
                         "start_token": 512,
                         "backfill_factor": 4,
+                        "memory_pressure_threshold": 0.95,
+                        "memory_pressure_source": "unit_test_cached_pressure",
                         "runs_all_columns": False,
                         "fallback_reason": None,
                         "tensor_device": "cpu",
@@ -507,12 +520,15 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "awake_count": 7,
                         "input_candidate_count": 24,
                         "filtered_deep_sleep_count": 3,
+                        "filtered_memory_pressure_count": 2,
                         "backfill_candidate_count": 17,
                         "bounded": True,
                         "runs_all_columns": False,
                         "wake_reason": "retrieved_candidate_not_in_deep_sleep",
                         "sleep_reason": "deep_sleep_candidate_filtered_from_awake_mask",
                         "fallback_reason": None,
+                        "memory_pressure_threshold": 0.95,
+                        "memory_pressure_source": "unit_test_cached_pressure",
                         "tensor_device": "cpu",
                         "awake_column_ids_sample": [1, 4, 7],
                         "execution_consumers": [
@@ -550,6 +566,20 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "fallback_reason": None,
                         "tensor_device": "cpu",
                         "claim_boundary": "training_owned_awake_mask_predictive_update_cache_skips_non_awake_columns",
+                    },
+                    "column_metabolism_execution": {
+                        "surface": "column_metabolism_state.v1",
+                        "total_columns": 128,
+                        "updated_column_count": 7,
+                        "cached_column_count": 121,
+                        "memory_pressure_source": "unit_test_cached_pressure",
+                        "runs_all_columns": False,
+                        "tensor_device": "cpu",
+                        "filter": {
+                            "mode": "candidate_memory_pressure_filter",
+                            "filtered_memory_pressure_count": 2,
+                        },
+                        "claim_boundary": "training_owned_awake_mask_cost_and_memory_pressure_updates_without_all_column_scan",
                     },
                     "execution": {
                         "mode": "candidate_subset_fused_vote_competition",
@@ -614,10 +644,26 @@ class StatusReadModelStatusTests(unittest.TestCase):
             3,
         )
         self.assertEqual(
+            projected["candidate_sleep_filter_execution"][
+                "filtered_memory_pressure_count"
+            ],
+            2,
+        )
+        self.assertEqual(
+            projected["candidate_sleep_filter_execution"][
+                "memory_pressure_source"
+            ],
+            "unit_test_cached_pressure",
+        )
+        self.assertEqual(
             projected["candidate_sleep_filter_execution"]["output_candidate_count"],
             7,
         )
         self.assertEqual(projected["column_wake_plan"]["awake_count"], 7)
+        self.assertEqual(
+            projected["column_wake_plan"]["filtered_memory_pressure_count"],
+            2,
+        )
         self.assertEqual(
             projected["column_wake_plan"]["awake_column_ids_sample"],
             [1, 4, 7],
@@ -628,6 +674,17 @@ class StatusReadModelStatusTests(unittest.TestCase):
         )
         self.assertTrue(projected["column_wake_plan"]["bounded"])
         self.assertFalse(projected["column_wake_plan"]["runs_all_columns"])
+        self.assertEqual(
+            projected["column_metabolism_execution"]["updated_column_count"],
+            7,
+        )
+        self.assertEqual(
+            projected["column_metabolism_execution"]["cached_column_count"],
+            121,
+        )
+        self.assertFalse(
+            projected["column_metabolism_execution"]["runs_all_columns"]
+        )
         self.assertEqual(
             projected["predictive_vote_execution"]["cached_vote_use_count"],
             121,

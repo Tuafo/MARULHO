@@ -43,14 +43,24 @@ class SchedulerBenchmarkArm:
     candidate_sleep_filter_input_candidates: int
     candidate_sleep_filter_output_candidates: int
     candidate_sleep_filter_deep_sleep_filtered: int
+    candidate_sleep_filter_memory_pressure_filtered: int
+    candidate_sleep_filter_memory_pressure_threshold: float | None
+    candidate_sleep_filter_memory_pressure_source: str | None
     candidate_sleep_filter_runs_all_columns: bool
     candidate_sleep_filter_fallback_reason: str | None
     column_wake_plan_mode: str
     column_wake_plan_awake_count: int
+    column_wake_plan_memory_pressure_filtered: int
+    column_wake_plan_memory_pressure_threshold: float | None
+    column_wake_plan_memory_pressure_source: str | None
     column_wake_plan_bounded: bool
     column_wake_plan_runs_all_columns: bool
     column_wake_plan_wake_reason: str | None
     column_wake_plan_fallback_reason: str | None
+    column_metabolism_updated_columns: int
+    column_metabolism_cached_columns: int
+    column_metabolism_runs_all_columns: bool
+    column_metabolism_memory_pressure_source: str | None
     competitive_candidate_count: int
     competitive_scored_count: int
     awake_budget: int
@@ -162,6 +172,7 @@ def _run_arm(
     execution = column_runtime.get("execution", {})
     sleep_filter = column_runtime.get("candidate_sleep_filter_execution", {})
     wake_plan = column_runtime.get("column_wake_plan", {})
+    metabolism = column_runtime.get("column_metabolism_execution", {})
     elapsed_ms = sum(timings)
     samples = len(timings)
     return SchedulerBenchmarkArm(
@@ -209,6 +220,19 @@ def _run_arm(
         candidate_sleep_filter_deep_sleep_filtered=int(
             sleep_filter.get("filtered_deep_sleep_count", 0) or 0
         ),
+        candidate_sleep_filter_memory_pressure_filtered=int(
+            sleep_filter.get("filtered_memory_pressure_count", 0) or 0
+        ),
+        candidate_sleep_filter_memory_pressure_threshold=(
+            None
+            if sleep_filter.get("memory_pressure_threshold") is None
+            else float(sleep_filter.get("memory_pressure_threshold"))
+        ),
+        candidate_sleep_filter_memory_pressure_source=(
+            None
+            if sleep_filter.get("memory_pressure_source") is None
+            else str(sleep_filter.get("memory_pressure_source"))
+        ),
         candidate_sleep_filter_runs_all_columns=bool(
             sleep_filter.get("runs_all_columns", False)
         ),
@@ -219,6 +243,19 @@ def _run_arm(
         ),
         column_wake_plan_mode=str(wake_plan.get("mode")),
         column_wake_plan_awake_count=int(wake_plan.get("awake_count", 0) or 0),
+        column_wake_plan_memory_pressure_filtered=int(
+            wake_plan.get("filtered_memory_pressure_count", 0) or 0
+        ),
+        column_wake_plan_memory_pressure_threshold=(
+            None
+            if wake_plan.get("memory_pressure_threshold") is None
+            else float(wake_plan.get("memory_pressure_threshold"))
+        ),
+        column_wake_plan_memory_pressure_source=(
+            None
+            if wake_plan.get("memory_pressure_source") is None
+            else str(wake_plan.get("memory_pressure_source"))
+        ),
         column_wake_plan_bounded=bool(wake_plan.get("bounded", False)),
         column_wake_plan_runs_all_columns=bool(
             wake_plan.get("runs_all_columns", False)
@@ -232,6 +269,20 @@ def _run_arm(
             None
             if wake_plan.get("fallback_reason") is None
             else str(wake_plan.get("fallback_reason"))
+        ),
+        column_metabolism_updated_columns=int(
+            metabolism.get("updated_column_count", 0) or 0
+        ),
+        column_metabolism_cached_columns=int(
+            metabolism.get("cached_column_count", 0) or 0
+        ),
+        column_metabolism_runs_all_columns=bool(
+            metabolism.get("runs_all_columns", False)
+        ),
+        column_metabolism_memory_pressure_source=(
+            None
+            if metabolism.get("memory_pressure_source") is None
+            else str(metabolism.get("memory_pressure_source"))
         ),
         competitive_candidate_count=int(execution.get("candidate_count", 0) or 0),
         competitive_scored_count=int(execution.get("scored_column_count", 0) or 0),
@@ -339,6 +390,10 @@ def run_benchmark(
             scoped.predictive_location_update_columns <= int(k_routing)
             and not scoped.predictive_location_runs_all_columns
         ),
+        "column_metabolism_bounded": (
+            scoped.column_metabolism_updated_columns <= int(k_routing)
+            and not scoped.column_metabolism_runs_all_columns
+        ),
         "candidate_sleep_filter_bounded": (
             scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
             and not scoped.candidate_sleep_filter_runs_all_columns
@@ -347,9 +402,11 @@ def run_benchmark(
             scoped.predictive_vote_updated_columns <= int(k_routing)
             and scoped.predictive_update_updated_columns <= int(k_routing)
             and scoped.predictive_location_update_columns <= int(k_routing)
+            and scoped.column_metabolism_updated_columns <= int(k_routing)
             and scoped.column_wake_plan_bounded
             and scoped.column_wake_plan_awake_count <= int(k_routing)
             and not scoped.column_wake_plan_runs_all_columns
+            and not scoped.column_metabolism_runs_all_columns
             and not scoped.predictive_location_runs_all_columns
             and scoped.candidate_sleep_filter_output_candidates <= int(k_routing)
             and not scoped.candidate_sleep_filter_runs_all_columns
@@ -405,8 +462,16 @@ def run_scaling_benchmark(
             "candidate_sleep_filter_output_candidates": int(
                 report["scoped_cached_vote"]["candidate_sleep_filter_output_candidates"]
             ),
+            "candidate_sleep_filter_memory_pressure_filtered": int(
+                report["scoped_cached_vote"][
+                    "candidate_sleep_filter_memory_pressure_filtered"
+                ]
+            ),
             "column_wake_plan_awake_count": int(
                 report["scoped_cached_vote"]["column_wake_plan_awake_count"]
+            ),
+            "column_metabolism_updated_columns": int(
+                report["scoped_cached_vote"]["column_metabolism_updated_columns"]
             ),
             "column_wake_plan_bounded": bool(
                 report["scoped_cached_vote"]["column_wake_plan_bounded"]
@@ -440,6 +505,7 @@ def run_scaling_benchmark(
             int(row["predictive_update_updated_columns"]) <= int(k_routing)
             and int(row["predictive_vote_updated_columns"]) <= int(k_routing)
             and int(row["predictive_location_update_columns"]) <= int(k_routing)
+            and int(row["column_metabolism_updated_columns"]) <= int(k_routing)
             and int(row["candidate_sleep_filter_output_candidates"]) <= int(k_routing)
             and int(row["column_wake_plan_awake_count"]) <= int(k_routing)
             and bool(row["column_wake_plan_bounded"])

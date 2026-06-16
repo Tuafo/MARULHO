@@ -20,6 +20,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.core.abstraction import AbstractionLayer
 from marulho.core.columns import CompetitiveColumnLayer
 from marulho.core.binding import BindingLayer
+from marulho.core.column_metabolism import ColumnMetabolismState
 from marulho.core.column_runtime import build_column_runtime_report
 from marulho.core.context import AdaptiveContextLayer, create_context_layer
 from marulho.core.cross_modal import CrossModalGroundingLayer
@@ -246,10 +247,13 @@ class MarulhoModel:
             "input_candidate_count": 0,
             "output_candidate_count": 0,
             "filtered_deep_sleep_count": 0,
+            "filtered_memory_pressure_count": 0,
             "backfill_candidate_count": 0,
             "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
             "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
             "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
+            "memory_pressure_threshold": None,
+            "memory_pressure_source": None,
             "runs_all_columns": False,
             "fallback_reason": None,
             "tensor_device": str(self.device),
@@ -265,12 +269,15 @@ class MarulhoModel:
             "awake_count": 0,
             "input_candidate_count": 0,
             "filtered_deep_sleep_count": 0,
+            "filtered_memory_pressure_count": 0,
             "backfill_candidate_count": 0,
             "bounded": True,
             "runs_all_columns": False,
             "wake_reason": "not_run",
             "sleep_reason": None,
             "fallback_reason": None,
+            "memory_pressure_threshold": None,
+            "memory_pressure_source": None,
             "tensor_device": str(self.device),
             "awake_column_ids_sample": [],
             "execution_consumers": [],
@@ -278,6 +285,10 @@ class MarulhoModel:
                 "training_owned_column_wake_plan_bounds_specialist_execution_without_all_column_sleep_scan"
             ),
         }
+        self.column_metabolism = ColumnMetabolismState(
+            n_columns=self.config.n_columns,
+            device=self.device,
+        )
 
         self.W_assembly_project = torch.empty(
             self.config.n_columns,
@@ -400,6 +411,13 @@ class MarulhoModel:
             ),
             win_rate_ema=getattr(self.competitive, "win_rate_ema", None),
             prediction_failure_streak=getattr(self.predictive, "prediction_failure_streak", None),
+            estimated_cost=getattr(self.column_metabolism, "estimated_cost", None),
+            memory_pressure=getattr(self.column_metabolism, "memory_pressure", None),
+            memory_pressure_source=getattr(
+                self.column_metabolism,
+                "last_memory_pressure_source",
+                None,
+            ),
             last_winner_ids=[] if last_winner is None else [int(last_winner)],
             awake_limit=awake_limit,
             sleep_after_steps=max(1, min(64, int(self.config.dead_column_steps // 4))),
@@ -416,6 +434,7 @@ class MarulhoModel:
         execution = self.competitive.execution_report()
         predictive_update_execution = self.predictive.prediction_update_execution_report()
         predictive_vote_execution = self.predictive.vote_execution_report()
+        column_metabolism_execution = self.column_metabolism.report()
         if isinstance(stored_wake_plan, ColumnWakePlan):
             column_wake_plan = stored_wake_plan.to_report()
             candidate_sleep_filter_execution = stored_wake_plan.to_execution_report()
@@ -431,12 +450,15 @@ class MarulhoModel:
                     "awake_count": 0,
                     "input_candidate_count": 0,
                     "filtered_deep_sleep_count": 0,
+                    "filtered_memory_pressure_count": 0,
                     "backfill_candidate_count": 0,
                     "bounded": True,
                     "runs_all_columns": False,
                     "wake_reason": "not_run",
                     "sleep_reason": None,
                     "fallback_reason": None,
+                    "memory_pressure_threshold": None,
+                    "memory_pressure_source": None,
                     "tensor_device": str(self.device),
                     "awake_column_ids_sample": [],
                     "execution_consumers": [],
@@ -457,6 +479,7 @@ class MarulhoModel:
                         "input_candidate_count": 0,
                         "output_candidate_count": 0,
                         "filtered_deep_sleep_count": 0,
+                        "filtered_memory_pressure_count": 0,
                         "backfill_candidate_count": 0,
                         "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
                         "start_token": int(
@@ -465,6 +488,8 @@ class MarulhoModel:
                         "backfill_factor": int(
                             self.config.candidate_deep_sleep_backfill_factor
                         ),
+                        "memory_pressure_threshold": None,
+                        "memory_pressure_source": None,
                         "runs_all_columns": False,
                         "fallback_reason": None,
                         "tensor_device": str(self.device),
@@ -489,6 +514,7 @@ class MarulhoModel:
             competitive_runs_all
             or predictive_update_execution.get("runs_all_columns", False)
             or predictive_vote_execution.get("runs_all_columns", False)
+            or column_metabolism_execution.get("runs_all_columns", False)
             or bool(report.get("runs_all_columns", False))
         )
         report["execution"] = execution
@@ -496,11 +522,13 @@ class MarulhoModel:
         report["column_wake_plan"] = column_wake_plan
         report["predictive_update_execution"] = predictive_update_execution
         report["predictive_vote_execution"] = predictive_vote_execution
+        report["column_metabolism_execution"] = column_metabolism_execution
         report["runs_all_columns"] = runs_all_columns
         if isinstance(report.get("scheduler"), dict):
             report["scheduler"]["runs_all_columns"] = runs_all_columns
             report["scheduler"]["execution_scope"] = (
-                "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache"
+                "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
+                "predictive_update_and_vote_cache"
             )
             report["scheduler"]["fallback_reason"] = (
                 "one_or_more_specialists_ran_all_columns"

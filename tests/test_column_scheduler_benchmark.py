@@ -25,6 +25,7 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert report["predictive_vote_bounded"] is True
     assert report["predictive_update_bounded"] is True
     assert report["predictive_location_update_bounded"] is True
+    assert report["column_metabolism_bounded"] is True
     assert report["candidate_sleep_filter_bounded"] is True
     assert report["bounded_specialist_work"] is True
     assert report["scoped_runs_all_columns"] is False
@@ -38,10 +39,15 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     assert scoped["predictive_location_cached_columns"] == 12
     assert scoped["predictive_location_runs_all_columns"] is False
     assert scoped["candidate_sleep_filter_output_candidates"] == 4
+    assert scoped["candidate_sleep_filter_memory_pressure_filtered"] == 0
     assert scoped["candidate_sleep_filter_runs_all_columns"] is False
     assert scoped["column_wake_plan_awake_count"] == 4
+    assert scoped["column_wake_plan_memory_pressure_filtered"] == 0
     assert scoped["column_wake_plan_bounded"] is True
     assert scoped["column_wake_plan_runs_all_columns"] is False
+    assert scoped["column_metabolism_updated_columns"] == 4
+    assert scoped["column_metabolism_cached_columns"] == 12
+    assert scoped["column_metabolism_runs_all_columns"] is False
     assert scoped["column_wake_plan_wake_reason"] == (
         "retrieved_candidate_before_deep_sleep_age_gate"
     )
@@ -73,6 +79,8 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     assert len(report["runs"]) == 2
     assert all("winner_sequence_equal" in row for row in report["runs"])
     assert {row["candidate_sleep_filter_output_candidates"] for row in report["runs"]} == {4}
+    assert {row["candidate_sleep_filter_memory_pressure_filtered"] for row in report["runs"]} == {0}
     assert {row["predictive_location_update_columns"] for row in report["runs"]} == {4}
+    assert {row["column_metabolism_updated_columns"] for row in report["runs"]} == {4}
     assert {row["column_wake_plan_awake_count"] for row in report["runs"]} == {4}
     assert all(row["column_wake_plan_bounded"] for row in report["runs"])

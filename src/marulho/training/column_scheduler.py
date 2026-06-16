@@ -47,6 +47,9 @@ class ColumnWakePlan:
     sleep_reason: str | None
     fallback_reason: str | None
     tensor_device: str
+    filtered_memory_pressure_count: int = 0
+    memory_pressure_threshold: float | None = None
+    memory_pressure_source: str | None = None
     runs_all_columns: bool = False
     claim_boundary: str = WAKE_PLAN_CLAIM_BOUNDARY
 
@@ -76,6 +79,11 @@ class ColumnWakePlan:
             "backfill_candidate_count",
             max(0, int(self.backfill_candidate_count)),
         )
+        object.__setattr__(
+            self,
+            "filtered_memory_pressure_count",
+            max(0, int(self.filtered_memory_pressure_count)),
+        )
 
     @property
     def awake_count(self) -> int:
@@ -97,10 +105,15 @@ class ColumnWakePlan:
             "input_candidate_count": int(self.input_candidate_count),
             "output_candidate_count": int(self.awake_count),
             "filtered_deep_sleep_count": int(self.filtered_deep_sleep_count),
+            "filtered_memory_pressure_count": int(
+                self.filtered_memory_pressure_count
+            ),
             "backfill_candidate_count": int(self.backfill_candidate_count),
             "deep_sleep_threshold_steps": int(self.deep_sleep_threshold_steps),
             "start_token": int(self.start_token),
             "backfill_factor": int(self.backfill_factor),
+            "memory_pressure_threshold": self.memory_pressure_threshold,
+            "memory_pressure_source": self.memory_pressure_source,
             "runs_all_columns": bool(self.runs_all_columns),
             "fallback_reason": self.fallback_reason,
             "tensor_device": str(self.tensor_device),
@@ -118,12 +131,17 @@ class ColumnWakePlan:
             "awake_count": int(self.awake_count),
             "input_candidate_count": int(self.input_candidate_count),
             "filtered_deep_sleep_count": int(self.filtered_deep_sleep_count),
+            "filtered_memory_pressure_count": int(
+                self.filtered_memory_pressure_count
+            ),
             "backfill_candidate_count": int(self.backfill_candidate_count),
             "bounded": bool(self.bounded),
             "runs_all_columns": bool(self.runs_all_columns),
             "wake_reason": str(self.wake_reason),
             "sleep_reason": self.sleep_reason,
             "fallback_reason": self.fallback_reason,
+            "memory_pressure_threshold": self.memory_pressure_threshold,
+            "memory_pressure_source": self.memory_pressure_source,
             "tensor_device": str(self.tensor_device),
             "awake_column_ids_sample": _bounded_id_sample(self.awake_indices),
             "execution_consumers": list(WAKE_PLAN_EXECUTION_CONSUMERS),

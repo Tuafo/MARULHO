@@ -441,6 +441,42 @@ benchmark reported GPU contention at the configured threshold. The path remains
 inside the maintained 6k-ish band while removing an opt-in-only scheduler
 default and the stale `legacy` transition selector.
 
+The column-metabolism cleanup promoted per-column cost and memory pressure from
+placeholder Runtime Truth fields to checkpointed training-owned state. The
+retained route can now apply a candidate-local memory-pressure filter from
+cached `ColumnMetabolismState.memory_pressure` values without running an
+all-column pressure census or calling the memory-store consolidation builder in
+the tick. Focused tests covered high-pressure candidate skip behavior, service
+projection without scheduler ownership, checkpoint restore of metabolism state,
+and numeric cost/pressure projection in `column_runtime`.
+
+CPU evidence is bounded but not a speed claim. The 8192-column A/B at
+`reports/column_scheduler_20260616/cpu-8192-column-metabolism.json` preserved
+the winner sequence and kept predictive vote/update/location, wake-plan count,
+candidate filter output, and column-metabolism update count at `10/8192` with
+`runs_all_columns=false`, but scoped mean complete `train_step` was
+`13.74354 ms` versus `9.92042125 ms` for the all-column comparison. The scaling
+run at `reports/column_scheduler_20260616/cpu-scaling-column-metabolism.json`
+kept awake/metabolism work at `10` for `1024`, `8192`, and `32768` columns and
+never ran all columns, but `neutral_or_better_all_sizes=false`. Treat these CPU
+reports as boundedness evidence only.
+
+The matching longer CUDA gate used the same 131072-token real path as the
+current 6k-ish baseline:
+`reports/column_scheduler_20260616/column-metabolism-current-131072-i32.json`.
+It processed `131072` tokens at `5960.035 tokens/sec` with
+`train_compute=0.135423 ms/token`, compared with `6014.550 tokens/sec` and
+`train_compute=0.136192 ms/token` for
+`default-route-vote-promotion-current-131072-i32.json`. Runtime Truth evidence
+showed `route_vote_resolved_mode=cuda_graph_text`, `131072` route-vote
+executions, route-vote deep-sleep filtering from `1024` rows to `10` eligible
+route candidates, `8190` q16 sequence-loop successes over `131040` tokens, and
+zero graph, sequence, or native failures. `velocity_environment.v1` reported
+`contention_observed` with GPU busy, so this is stable same-band evidence, not a
+new speed ceiling. CUDA route-vote memory-pressure filtering remains future
+work because post-selection pressure filtering would make scheduler truth drift
+from winner selection.
+
 ADR 0007 now records the promoted boundary and the next executor direction:
 further work should move below local graph composition into C++/CUDA, Triton,
 persistent-kernel, or hybrid sequence ownership only if it beats the promoted

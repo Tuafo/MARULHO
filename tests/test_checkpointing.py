@@ -109,6 +109,61 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 )
             )
 
+    def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            trainer.model.column_metabolism.estimated_cost[:] = torch.linspace(
+                0.0,
+                0.7,
+                steps=8,
+                device=trainer.model.device,
+            )
+            trainer.model.column_metabolism.memory_pressure[:] = torch.linspace(
+                0.8,
+                0.1,
+                steps=8,
+                device=trainer.model.device,
+            )
+            trainer.model.column_metabolism.last_memory_pressure_source = (
+                "unit_test_cached_pressure"
+            )
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "column_metabolism.pt",
+                trainer,
+            )
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertTrue(
+                torch.allclose(
+                    restored.model.column_metabolism.estimated_cost.cpu(),
+                    torch.linspace(0.0, 0.7, steps=8),
+                )
+            )
+            self.assertTrue(
+                torch.allclose(
+                    restored.model.column_metabolism.memory_pressure.cpu(),
+                    torch.linspace(0.8, 0.1, steps=8),
+                )
+            )
+            self.assertEqual(
+                restored.model.column_metabolism.last_memory_pressure_source,
+                "unit_test_cached_pressure",
+            )
+
     def test_legacy_checkpoint_migrates_retired_slow_memory_archive_cadence(self) -> None:
         from tempfile import TemporaryDirectory
 

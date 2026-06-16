@@ -1147,6 +1147,9 @@ class MarulhoTrainer:
         filtered_deep_sleep_count: int,
         backfill_candidate_count: int,
         fallback_reason: str | None,
+        filtered_memory_pressure_count: int = 0,
+        memory_pressure_threshold: float | None = None,
+        memory_pressure_source: str | None = None,
     ) -> dict[str, Any]:
         total_columns = int(self.config.n_columns)
         return {
@@ -1157,10 +1160,15 @@ class MarulhoTrainer:
             "input_candidate_count": int(max(0, input_candidate_count)),
             "output_candidate_count": int(max(0, output_candidate_count)),
             "filtered_deep_sleep_count": int(max(0, filtered_deep_sleep_count)),
+            "filtered_memory_pressure_count": int(
+                max(0, filtered_memory_pressure_count)
+            ),
             "backfill_candidate_count": int(max(0, backfill_candidate_count)),
             "deep_sleep_threshold_steps": int(self.config.dead_column_steps),
             "start_token": int(self.config.candidate_deep_sleep_filter_start_tokens),
             "backfill_factor": int(self.config.candidate_deep_sleep_backfill_factor),
+            "memory_pressure_threshold": memory_pressure_threshold,
+            "memory_pressure_source": memory_pressure_source,
             "runs_all_columns": False,
             "fallback_reason": fallback_reason,
             "tensor_device": str(self.model.device),
@@ -1180,6 +1188,9 @@ class MarulhoTrainer:
         fallback_reason: str | None,
         wake_reason: str,
         sleep_reason: str | None,
+        filtered_memory_pressure_count: int = 0,
+        memory_pressure_threshold: float | None = None,
+        memory_pressure_source: str | None = None,
     ) -> ColumnWakePlan:
         total_columns = int(self.config.n_columns)
         return ColumnWakePlan(
@@ -1197,6 +1208,11 @@ class MarulhoTrainer:
             sleep_reason=sleep_reason,
             fallback_reason=fallback_reason,
             tensor_device=str(self.model.device),
+            filtered_memory_pressure_count=int(
+                max(0, filtered_memory_pressure_count)
+            ),
+            memory_pressure_threshold=memory_pressure_threshold,
+            memory_pressure_source=memory_pressure_source,
             runs_all_columns=False,
         )
 
@@ -1226,6 +1242,90 @@ class MarulhoTrainer:
             backfill_candidate_count=0,
             fallback_reason=fallback_reason,
         )
+
+    def _candidate_memory_pressure_filter_due(self, *, apply_sleep_filter: bool) -> bool:
+        return bool(
+            apply_sleep_filter
+            and int(self.token_count)
+            >= int(self.config.candidate_memory_pressure_filter_start_tokens)
+        )
+
+    def _filter_candidate_memory_pressure_plan(
+        self,
+        candidates: torch.Tensor,
+        *,
+        target_count: int,
+        mode: str = "candidate_memory_pressure_filter",
+        wake_reason: str = "retrieved_candidate_below_memory_pressure_threshold",
+        deep_sleep_filtered_count: int = 0,
+        fallback_reason: str | None = None,
+        record: bool = True,
+    ) -> ColumnWakePlan:
+        metabolism = getattr(self.model, "column_metabolism", None)
+        candidate_count = int(candidates.numel())
+        if metabolism is None:
+            bounded = candidates[: max(0, int(target_count))]
+            plan = self._build_column_wake_plan(
+                mode=f"{mode}_unavailable",
+                awake_indices=bounded,
+                input_candidate_count=candidate_count,
+                filtered_deep_sleep_count=deep_sleep_filtered_count,
+                filtered_memory_pressure_count=0,
+                backfill_candidate_count=max(
+                    0,
+                    candidate_count - int(bounded.numel()),
+                ),
+                fallback_reason=(
+                    fallback_reason
+                    or "column_metabolism_state_unavailable"
+                ),
+                wake_reason=wake_reason,
+                sleep_reason=None,
+            )
+            if record:
+                self._record_column_wake_plan(plan)
+            return plan
+
+        filtered, report = metabolism.filter_candidates(
+            candidates,
+            target_count=target_count,
+            threshold=float(self.config.candidate_memory_pressure_threshold),
+        )
+        pressure_filtered_count = int(
+            report.get("filtered_memory_pressure_count", 0) or 0
+        )
+        pressure_fallback = report.get("fallback_reason")
+        plan = self._build_column_wake_plan(
+            mode=str(report.get("mode") or mode),
+            awake_indices=filtered,
+            input_candidate_count=candidate_count,
+            filtered_deep_sleep_count=deep_sleep_filtered_count,
+            filtered_memory_pressure_count=pressure_filtered_count,
+            backfill_candidate_count=max(0, candidate_count - int(filtered.numel())),
+            fallback_reason=(
+                fallback_reason
+                if fallback_reason is not None
+                else None
+                if pressure_fallback is None
+                else str(pressure_fallback)
+            ),
+            wake_reason=wake_reason,
+            sleep_reason=(
+                "memory_pressure_candidate_filtered_from_awake_mask"
+                if pressure_filtered_count > 0
+                else None
+            ),
+            memory_pressure_threshold=float(report.get("threshold", 0.0) or 0.0),
+            memory_pressure_source=str(
+                report.get(
+                    "memory_pressure_source",
+                    getattr(metabolism, "last_memory_pressure_source", "unknown"),
+                )
+            ),
+        )
+        if record:
+            self._record_column_wake_plan(plan)
+        return plan
 
     def _filter_candidate_deep_sleep_plan(
         self,
@@ -1292,20 +1392,70 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
 
-        filtered = awake_candidates[:target]
+        pressure_plan: ColumnWakePlan | None = None
+        if self._candidate_memory_pressure_filter_due(apply_sleep_filter=True):
+            pressure_plan = self._filter_candidate_memory_pressure_plan(
+                awake_candidates,
+                target_count=target,
+                mode="candidate_deep_sleep_memory_pressure_filter",
+                wake_reason="retrieved_candidate_not_in_deep_sleep_or_memory_pressure",
+                deep_sleep_filtered_count=filtered_count,
+                record=False,
+            )
+            filtered = pressure_plan.candidates()
+        else:
+            filtered = awake_candidates[:target]
+
+        pressure_filtered_count = (
+            0
+            if pressure_plan is None
+            else int(pressure_plan.filtered_memory_pressure_count)
+        )
+        pressure_threshold = (
+            None
+            if pressure_plan is None
+            else pressure_plan.memory_pressure_threshold
+        )
+        pressure_source = (
+            None
+            if pressure_plan is None
+            else pressure_plan.memory_pressure_source
+        )
+        pressure_fallback = (
+            None
+            if pressure_plan is None
+            else pressure_plan.fallback_reason
+        )
         plan = self._build_column_wake_plan(
-            mode="candidate_deep_sleep_filter",
+            mode=(
+                "candidate_deep_sleep_memory_pressure_filter"
+                if pressure_plan is not None
+                else "candidate_deep_sleep_filter"
+            ),
             awake_indices=filtered,
             input_candidate_count=candidate_count,
             filtered_deep_sleep_count=filtered_count,
+            filtered_memory_pressure_count=pressure_filtered_count,
             backfill_candidate_count=max(0, candidate_count - int(filtered.numel())),
             fallback_reason=(
-                None
+                pressure_fallback
+                if pressure_fallback is not None
+                else None
                 if int(filtered.numel()) >= min(target, candidate_count)
                 else "insufficient_awake_candidates_after_deep_sleep_filter"
             ),
-            wake_reason="retrieved_candidate_not_in_deep_sleep",
-            sleep_reason="deep_sleep_candidate_filtered_from_awake_mask",
+            wake_reason=(
+                "retrieved_candidate_not_in_deep_sleep_or_memory_pressure"
+                if pressure_plan is not None
+                else "retrieved_candidate_not_in_deep_sleep"
+            ),
+            sleep_reason=(
+                "deep_sleep_or_memory_pressure_candidate_filtered_from_awake_mask"
+                if pressure_filtered_count > 0
+                else "deep_sleep_candidate_filtered_from_awake_mask"
+            ),
+            memory_pressure_threshold=pressure_threshold,
+            memory_pressure_source=pressure_source,
         )
         self._record_column_wake_plan(plan)
         return plan
@@ -1380,11 +1530,25 @@ class MarulhoTrainer:
             int(self.token_count) >= int(self.config.dead_column_steps)
         )
         filter_due = bool(filter_start_due and filter_age_ready)
+        memory_pressure_due = self._candidate_memory_pressure_filter_due(
+            apply_sleep_filter=apply_sleep_filter,
+        )
         search_k = target_k
+        backfill_factor = 1
         if filter_due and self.model.device.type != "cuda":
+            backfill_factor = max(
+                backfill_factor,
+                int(self.config.candidate_deep_sleep_backfill_factor),
+            )
+        if memory_pressure_due:
+            backfill_factor = max(
+                backfill_factor,
+                int(self.config.candidate_memory_pressure_backfill_factor),
+            )
+        if backfill_factor > 1:
             search_k = min(
                 int(self.config.n_columns),
-                target_k * max(1, int(self.config.candidate_deep_sleep_backfill_factor)),
+                target_k * max(1, int(backfill_factor)),
             )
         candidate_ids, candidate_distances = self.model.hnsw_index.search_tensors(
             routing_key.unsqueeze(0),
@@ -1431,6 +1595,12 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
         if not filter_start_due:
+            if memory_pressure_due:
+                plan = self._filter_candidate_memory_pressure_plan(
+                    candidates,
+                    target_count=target_k,
+                )
+                return plan
             bounded = candidates[:target_k]
             plan = self._build_column_wake_plan(
                 mode="not_due",
@@ -1445,6 +1615,12 @@ class MarulhoTrainer:
             self._record_column_wake_plan(plan)
             return plan
         if not filter_age_ready:
+            if memory_pressure_due:
+                plan = self._filter_candidate_memory_pressure_plan(
+                    candidates,
+                    target_count=target_k,
+                )
+                return plan
             bounded = candidates[:target_k]
             plan = self._build_column_wake_plan(
                 mode="not_due",
@@ -1471,6 +1647,41 @@ class MarulhoTrainer:
             apply_sleep_filter=apply_sleep_filter,
         )
         return None if plan is None else plan.candidates()
+
+    def _cached_bucket_consolidation_for_column_metabolism(self) -> torch.Tensor | None:
+        store = getattr(self.model, "memory_store", None)
+        cache = getattr(store, "_bucket_consolidation_devices", None)
+        if not isinstance(cache, dict):
+            return None
+        cached = cache.get(str(self.model.device))
+        if cached is None and self.model.device.type == "cpu":
+            cached = cache.get("cpu")
+        if (
+            isinstance(cached, torch.Tensor)
+            and int(cached.numel()) == int(self.config.n_columns)
+        ):
+            return cached
+        return None
+
+    def _record_column_metabolism(self, wake_plan: ColumnWakePlan | None) -> None:
+        metabolism = getattr(self.model, "column_metabolism", None)
+        if metabolism is None:
+            return
+        if isinstance(wake_plan, ColumnWakePlan):
+            candidates = wake_plan.candidates()
+            input_candidate_count = int(wake_plan.input_candidate_count)
+            awake_budget = int(wake_plan.awake_budget)
+        else:
+            candidates = None
+            input_candidate_count = 0
+            awake_budget = int(min(self.config.k_routing, self.config.n_columns))
+        metabolism.record_awake(
+            candidates,
+            token_count=int(self.token_count),
+            awake_budget=awake_budget,
+            input_candidate_count=input_candidate_count,
+            memory_consolidation=self._cached_bucket_consolidation_for_column_metabolism(),
+        )
 
 
     def update_word_grounding(
@@ -2653,6 +2864,7 @@ class MarulhoTrainer:
             )
         ):
             wake_plan = self._route_vote_owner_wake_plan(candidates)
+        self._record_column_metabolism(wake_plan)
         def _materialize_winner_ids() -> tuple[list[int], int]:
             nonlocal winner_id_list, winner_id, profile_last
             if winner_id_list is not None and winner_id is not None:
@@ -3207,6 +3419,19 @@ class MarulhoTrainer:
             self._column_wake_plan.filtered_deep_sleep_count
         )
         metrics["candidate_deep_sleep_filter_mode"] = str(
+            self._column_wake_plan.mode
+        )
+        metrics["candidate_memory_pressure_filter_start_tokens"] = int(
+            self.config.candidate_memory_pressure_filter_start_tokens
+        )
+        metrics["candidate_memory_pressure_filter_due"] = int(
+            self.token_count
+            >= int(self.config.candidate_memory_pressure_filter_start_tokens)
+        )
+        metrics["candidate_memory_pressure_filtered_count"] = int(
+            self._column_wake_plan.filtered_memory_pressure_count
+        )
+        metrics["candidate_memory_pressure_filter_mode"] = str(
             self._column_wake_plan.mode
         )
         if self.model.abstraction_layer is not None and _telemetry_tick:

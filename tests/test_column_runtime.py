@@ -33,7 +33,10 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert report["runs_all_columns"] is False
     assert report["scheduler"]["runs_all_columns"] is False
     assert report["scheduler"]["promoted_to_execution"] is True
-    assert report["scheduler"]["execution_scope"] == "candidate_deep_sleep_filter_scoring_homeostasis_predictive_update_and_vote_cache"
+    assert report["scheduler"]["execution_scope"] == (
+        "candidate_deep_sleep_and_memory_pressure_filter_scoring_homeostasis_"
+        "predictive_update_and_vote_cache"
+    )
     assert 5 in report["scheduler"]["awake_column_ids"]
     assert report["registry"]["surface"] == "column_registry.v1"
     assert report["registry"]["mutates_runtime_state"] is False
@@ -48,23 +51,54 @@ def test_column_runtime_report_keeps_awake_columns_bounded_and_votes_cached() ->
     assert all(vote["mutates_column"] is False for vote in report["votes"])
     assert report["metabolism"]["source_tensor_device"] == "cpu"
     assert report["metabolism"]["report_compute_device"] == "cpu"
-    assert report["metabolism"]["source_tensor_count"] == 4
-    assert report["metabolism"]["snapshot_tensor_count"] == 4
+    assert report["metabolism"]["source_tensor_count"] == 6
+    assert report["metabolism"]["snapshot_tensor_count"] == 6
     assert report["metabolism"]["materialized_column_state_count"] < 12
     assert report["metabolism"]["snapshot_bytes"] == (
-        report["metabolism"]["materialized_column_state_count"] * 4 * 4
+        report["metabolism"]["materialized_column_state_count"] * 6 * 4
     )
     assert report["metabolism"]["device_transfer_count"] == 0
     assert report["metabolism"]["hot_path_effect"] == "none_latency_first_runtime_truth_snapshot"
     assert report["metabolism"]["claim_boundary"] == "latency_first_column_status_snapshot_not_hot_path_execution"
     assert all("prediction" in vote for vote in report["votes"])
     assert all("surprise" in vote for vote in report["votes"])
+    assert all(vote["memory_pressure"] is not None for vote in report["votes"])
     assert all("memory_pressure_source" in vote for vote in report["votes"])
     assert all("cached_vote" in vote for vote in report["votes"])
     assert all(
         "memory_pressure_source" in row["local_state"]
         for row in report["registry"]["columns_sample"]
     )
+    assert all(
+        row["local_state"]["memory_pressure"] is not None
+        for row in report["registry"]["columns_sample"]
+    )
+
+
+def test_column_runtime_report_projects_training_owned_cost_and_memory_pressure() -> None:
+    report = build_column_runtime_report(
+        n_columns=4,
+        prediction_error=torch.zeros(4),
+        confidence=torch.ones(4) * 0.7,
+        steps_since_win=torch.zeros(4),
+        win_rate_ema=torch.ones(4) / 4.0,
+        estimated_cost=torch.tensor([0.1, 0.2, 0.3, 0.4]),
+        memory_pressure=torch.tensor([0.05, 0.95, 0.4, 0.0]),
+        memory_pressure_source="unit_test_cached_pressure",
+        execution_awake_indices=torch.tensor([1, 2]),
+        awake_limit=2,
+    )
+
+    by_id = {vote["column_id"]: vote for vote in report["votes"]}
+    assert by_id[1]["estimated_cost"] == 0.2
+    assert by_id[1]["memory_pressure"] == 0.95
+    assert by_id[1]["memory_pressure_source"] == "unit_test_cached_pressure"
+    registry_by_id = {
+        row["column_id"]: row["local_state"]
+        for row in report["registry"]["columns_sample"]
+    }
+    assert registry_by_id[2]["estimated_cost"] == 0.3
+    assert registry_by_id[2]["memory_pressure"] == 0.4
 
 
 def test_model_column_runtime_projects_training_wake_plan_not_report_topk() -> None:
@@ -198,10 +232,10 @@ def test_column_runtime_uses_one_bounded_cuda_snapshot_for_report_compute() -> N
     assert report["device"] == "cuda"
     assert report["metabolism"]["source_tensor_device"] == "cuda:0"
     assert report["metabolism"]["report_compute_device"] == "cpu"
-    assert report["metabolism"]["source_tensor_count"] == 4
-    assert report["metabolism"]["snapshot_tensor_count"] == 4
+    assert report["metabolism"]["source_tensor_count"] == 6
+    assert report["metabolism"]["snapshot_tensor_count"] == 6
     assert report["metabolism"]["materialized_column_state_count"] == 1024
-    assert report["metabolism"]["snapshot_bytes"] == 1024 * 4 * 4
+    assert report["metabolism"]["snapshot_bytes"] == 1024 * 6 * 4
     assert report["metabolism"]["device_transfer_count"] == 1
     assert report["metabolism"]["claim_boundary"] == "latency_first_column_status_snapshot_not_hot_path_execution"
 
