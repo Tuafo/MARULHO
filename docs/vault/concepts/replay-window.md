@@ -19,6 +19,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
 ---
 
 # Replay Window
@@ -37,10 +39,17 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
   tick.
 - A column-anchored replay window must score only memory entries attached to
   the supplied bucket ids through the bucket index.
+- Bucket-indexed selection must cap candidates before scoring. The current
+  policy is `recent_bucket_round_robin_candidate_pool` with
+  `candidate_window_limit=max(requested_count,candidate_pool)`, and reports both
+  `candidate_index_available_count` and the actually scored
+  `candidate_index_count`.
 - A global slow-path scorer must require explicit diagnostic opt-in and report
   `global_slow_path_score_scan`; it must not hide a full-memory scorer.
   Unscoped selection defaults to `unscoped_global_score_scan_retired`.
-  Production deep replay cannot mutate from that unscoped path.
+  Unscoped random candidate scans are also retired by default and require
+  explicit diagnostic opt-in. Production deep replay cannot mutate from those
+  unscoped paths.
 - Emergency repair replay follows the same anchor-bucket rule. Without anchor
   buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
   no mutation.
@@ -109,6 +118,25 @@ clean 262144-token active-pressure hot-path rerun
 processed `262144` tokens at `5668.688 tokens/sec`, kept route scoring bounded
 at `12/65536`, cached `65526` transition rows, reported no observed contention,
 and had zero graph/native/sequence failures.
+
+The capped replay-candidate window follow-up makes the bucket-index rule
+scalable for hot buckets. `DualMemoryStore` keeps bucket entry lists in recency
+order and collects candidates by recent round-robin across anchor buckets before
+scoring. The focused test proves `10` available entries can be cut to
+`candidate_window_limit=4`, with `score_count=4`, before importance ranking; an
+older high-importance entry outside the capped window is not selected. The fresh
+synthetic report
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json`
+kept positive-pressure recall/prototype gates passing and reported
+`candidate_window_policy=recent_bucket_round_robin_candidate_pool`,
+`candidate_window_limit=32`, `candidate_index_available_count=16`,
+`candidate_index_count=16`, `score_count=16`, `score_device=cpu`,
+`archival_storage_device=cpu`, and no global score/candidate scan. The matching
+262144-token hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json`
+stayed in band at `6148.125 tokens/sec` with `12/65536` route rows, `65526`
+cached transition rows, zero graph/native/sequence failures, flat `1848 MiB`
+GPU memory, and no observed contention.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`

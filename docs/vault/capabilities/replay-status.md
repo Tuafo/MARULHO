@@ -12,6 +12,7 @@ related_papers:
   - ../papers/replay-consolidation.md
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
 ---
 
 # Replay Status
@@ -33,16 +34,26 @@ Current bounded selection evidence:
   windows.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
+- Bucket-scoped selection now caps candidate entries before scoring and reports
+  `candidate_window_policy=recent_bucket_round_robin_candidate_pool`,
+  `candidate_window_limit`, `candidate_index_available_count`, and scored
+  `candidate_index_count`.
 - Zero-pressure global replay is retired with
   `fallback_reason=no_positive_global_scores`.
 - Deep sleep blocks unanchored global replay mutation with
   `unscoped_global_fallback_retired=true`, so no-anchor and zero-pressure bucket
   cases apply `0` replay updates.
+- Unscoped random replay is retired by default; explicit diagnostics must report
+  `global_slow_path_candidate_scan`.
 - `reports/bounded_replay_window_20260617/synthetic-selection.json` passes the
   bounded stored input-pattern recall gate for positive-pressure windows
   (`5.960464477539063e-08` mean distance against threshold `0.01`), but does
   not pass the prototype reconstruction gate, so consolidation promotion remains
   quality-open.
+- `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json`
+  keeps the positive-pressure recall/prototype gates passing under the capped
+  selector and reports CPU archival/scoring with no global score or candidate
+  scan.
 
 ## Links
 

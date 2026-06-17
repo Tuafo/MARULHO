@@ -60,7 +60,7 @@ class DualMemoryStore:
         self._bucket_consolidation_weight_sum: Optional[torch.Tensor] = None
         self._bucket_consolidation_devices: dict[str, torch.Tensor] = {}
         self._bucket_consolidation_cache_generation = 0
-        self._bucket_entry_indices: defaultdict[int, set[int]] = defaultdict(set)
+        self._bucket_entry_indices: defaultdict[int, list[int]] = defaultdict(list)
 
         self.slow_buffer: List[torch.Tensor] = []
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
@@ -157,7 +157,7 @@ class DualMemoryStore:
         self.n_seen = 0
         self._cached_summary = None
         self._cached_summary_token = -1
-        self._bucket_entry_indices = defaultdict(set)
+        self._bucket_entry_indices = defaultdict(list)
         self._invalidate_bucket_consolidation_cache()
 
     def _invalidate_summary_cache(self) -> None:
@@ -175,7 +175,8 @@ class DualMemoryStore:
         entries = self._bucket_entry_indices.get(bucket)
         if entries is None:
             return
-        entries.discard(int(index))
+        target = int(index)
+        entries[:] = [int(item) for item in entries if int(item) != target]
         if not entries:
             self._bucket_entry_indices.pop(bucket, None)
 
@@ -186,11 +187,23 @@ class DualMemoryStore:
     ) -> None:
         if bucket_id is None:
             return
-        self._bucket_entry_indices[int(bucket_id)].add(int(index))
+        bucket = int(bucket_id)
+        self._remove_bucket_entry_index(bucket, int(index))
+        self._bucket_entry_indices[bucket].append(int(index))
 
     def _rebuild_bucket_entry_index(self) -> None:
-        self._bucket_entry_indices = defaultdict(set)
-        for index, bucket_id in enumerate(self.slow_bucket_ids):
+        self._bucket_entry_indices = defaultdict(list)
+        ordered_indices = sorted(
+            range(len(self.slow_bucket_ids)),
+            key=lambda idx: (
+                int(self.slow_entry_timestamps[idx])
+                if idx < len(self.slow_entry_timestamps)
+                else 0,
+                int(idx),
+            ),
+        )
+        for index in ordered_indices:
+            bucket_id = self.slow_bucket_ids[index]
             self._add_bucket_entry_index(bucket_id, int(index))
 
     def _invalidate_bucket_consolidation_cache(self) -> None:
@@ -223,8 +236,14 @@ class DualMemoryStore:
             "archival_storage_device": "cpu",
             "selected_indices": [],
             "selected_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_index_available_count": 0,
             "score_count": 0,
             "global_score_scan": False,
+            "global_candidate_scan": False,
+            "diagnostic_global_score_scan": False,
+            "diagnostic_global_candidate_scan": False,
             "bounded_by_bucket_index": False,
             "fallback_reason": "not_run",
         }
@@ -763,8 +782,7 @@ class DualMemoryStore:
             consolidation=old_consolidation,
             sign=-1.0,
         )
-        if old_bucket_id != new_bucket_id:
-            self._remove_bucket_entry_index(old_bucket_id, index)
+        self._remove_bucket_entry_index(old_bucket_id, index)
         strong_event = self._is_strong_event(capture_value, importance)
         injected_prp = self._inject_prp(bucket_id=bucket_id, strength=capture_value, importance=importance)
         local_prp = 0.20 * injected_prp if strong_event else 0.0
@@ -1309,20 +1327,47 @@ class DualMemoryStore:
     def _candidate_indices_for_bucket_ids(
         self,
         bucket_ids: Sequence[int] | torch.Tensor | None,
-    ) -> tuple[list[int] | None, list[int]]:
+        *,
+        max_candidates: int | None = None,
+    ) -> tuple[list[int] | None, list[int], int]:
         normalized = self._normalise_awake_bucket_ids(bucket_ids)
         if normalized is None:
-            return None, []
-        candidates: set[int] = set()
+            return None, [], 0
         size = len(self.slow_buffer)
-        for bucket_id in normalized:
-            candidates.update(self._bucket_entry_indices.get(int(bucket_id), ()))
-        bounded = sorted(
-            int(index)
-            for index in candidates
-            if 0 <= int(index) < size
+        available_count = int(
+            sum(
+                len(self._bucket_entry_indices.get(int(bucket_id), ()))
+                for bucket_id in normalized
+            )
         )
-        return normalized, bounded
+        limit = None if max_candidates is None else max(0, int(max_candidates))
+        if limit == 0:
+            return normalized, [], available_count
+
+        per_bucket_recent = [
+            list(reversed(self._bucket_entry_indices.get(int(bucket_id), ())))
+            for bucket_id in normalized
+        ]
+        offsets = [0 for _ in per_bucket_recent]
+        bounded: list[int] = []
+        seen: set[int] = set()
+        while True:
+            progressed = False
+            for bucket_pos, bucket_entries in enumerate(per_bucket_recent):
+                while offsets[bucket_pos] < len(bucket_entries):
+                    raw_index = int(bucket_entries[offsets[bucket_pos]])
+                    offsets[bucket_pos] += 1
+                    if raw_index in seen or raw_index < 0 or raw_index >= size:
+                        continue
+                    seen.add(raw_index)
+                    bounded.append(raw_index)
+                    progressed = True
+                    break
+                if limit is not None and len(bounded) >= limit:
+                    return normalized, bounded, available_count
+            if not progressed:
+                break
+        return normalized, bounded, available_count
 
     @staticmethod
     def _selection_score_summary(scores: Sequence[float]) -> dict[str, float]:
@@ -1360,8 +1405,15 @@ class DualMemoryStore:
         requested = max(0, int(n))
         token_marker = int(current_token)
         count = len(self.slow_buffer)
-        normalized_buckets, bucket_candidates = self._candidate_indices_for_bucket_ids(
-            candidate_bucket_ids
+        candidate_window_limit = max(
+            requested,
+            int(candidate_pool) if candidate_pool is not None else requested,
+        )
+        normalized_buckets, bucket_candidates, bucket_available_count = (
+            self._candidate_indices_for_bucket_ids(
+                candidate_bucket_ids,
+                max_candidates=candidate_window_limit,
+            )
         )
         bucket_scoped = normalized_buckets is not None
         selected: list[int] = []
@@ -1373,8 +1425,8 @@ class DualMemoryStore:
 
         if requested <= 0 or count <= 0:
             fallback_reason = "empty_request_or_memory"
-        elif strategy == "random":
-            candidate_indices = bucket_candidates if bucket_scoped else list(range(count))
+        elif strategy == "random" and bucket_scoped:
+            candidate_indices = bucket_candidates
             candidate_count = len(candidate_indices)
             score_count = 0
             pool_limit = min(candidate_count, requested)
@@ -1403,13 +1455,7 @@ class DualMemoryStore:
                     for idx in bucket_candidates
                 ]
                 scored.sort(key=lambda item: (-item[1], item[0]))
-                pool_limit = min(
-                    len(scored),
-                    max(
-                        requested,
-                        int(candidate_pool) if candidate_pool is not None else requested,
-                    ),
-                )
+                pool_limit = min(len(scored), candidate_window_limit)
                 window = scored[:pool_limit]
                 selected_pairs = window[: min(requested, len(window))]
                 selected = [idx for idx, _ in selected_pairs]
@@ -1421,50 +1467,50 @@ class DualMemoryStore:
             score_count = 0
             fallback_reason = "global_score_scan_requires_explicit_diagnostic_opt_in"
         else:
-            if strategy == "maintenance":
-                scores = self.maintenance_scores(token_marker)
-            elif strategy in {"priority", "consolidation"}:
-                scores = self.consolidation_scores(token_marker)
-            elif strategy == "repair":
-                scores = self.repair_scores(token_marker)
+            if strategy == "random":
+                score_count = 0
+                pool_limit = min(count, requested)
+                perm = torch.randperm(count)
+                selected = [int(idx) for idx in perm[:pool_limit].tolist()]
             else:
-                raise ValueError(f"Unknown replay sampling strategy: {strategy}")
-            score_count = int(scores.numel())
-            if score_count <= 0:
-                fallback_reason = "empty_score_tensor"
-            elif float(scores.max().item()) <= 0.0:
-                fallback_reason = "no_positive_global_scores"
-            else:
-                pool_limit = min(
-                    count,
-                    max(
-                        requested,
-                        int(candidate_pool) if candidate_pool is not None else requested,
-                    ),
-                )
-                top_values, top_indices = torch.topk(scores, k=pool_limit)
-                if pool_limit <= requested:
-                    selected = [int(idx) for idx in top_indices.tolist()]
-                    selected_scores = [float(value) for value in top_values.tolist()]
+                if strategy == "maintenance":
+                    scores = self.maintenance_scores(token_marker)
+                elif strategy in {"priority", "consolidation"}:
+                    scores = self.consolidation_scores(token_marker)
+                elif strategy == "repair":
+                    scores = self.repair_scores(token_marker)
                 else:
-                    weights = torch.clamp(top_values, min=1e-8)
-                    weights = weights / (weights.sum() + 1e-8)
-                    draw = torch.multinomial(
-                        weights,
-                        num_samples=min(requested, pool_limit),
-                        replacement=False,
-                    )
-                    selected = [
-                        int(top_indices[int(local_idx)].item())
-                        for local_idx in draw.tolist()
-                    ]
-                    selected.sort(
-                        key=lambda item: float(scores[item].item()),
-                        reverse=True,
-                    )
-                    selected_scores = [float(scores[item].item()) for item in selected]
-                if not selected:
+                    raise ValueError(f"Unknown replay sampling strategy: {strategy}")
+                score_count = int(scores.numel())
+                if score_count <= 0:
+                    fallback_reason = "empty_score_tensor"
+                elif float(scores.max().item()) <= 0.0:
                     fallback_reason = "no_positive_global_scores"
+                else:
+                    pool_limit = min(count, candidate_window_limit)
+                    top_values, top_indices = torch.topk(scores, k=pool_limit)
+                    if pool_limit <= requested:
+                        selected = [int(idx) for idx in top_indices.tolist()]
+                        selected_scores = [float(value) for value in top_values.tolist()]
+                    else:
+                        weights = torch.clamp(top_values, min=1e-8)
+                        weights = weights / (weights.sum() + 1e-8)
+                        draw = torch.multinomial(
+                            weights,
+                            num_samples=min(requested, pool_limit),
+                            replacement=False,
+                        )
+                        selected = [
+                            int(top_indices[int(local_idx)].item())
+                            for local_idx in draw.tolist()
+                        ]
+                        selected.sort(
+                            key=lambda item: float(scores[item].item()),
+                            reverse=True,
+                        )
+                        selected_scores = [float(scores[item].item()) for item in selected]
+            if not selected:
+                fallback_reason = "no_positive_global_scores"
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         report = {
@@ -1479,17 +1525,36 @@ class DualMemoryStore:
                 candidate_pool if candidate_pool is not None else requested
             ),
             "candidate_pool_sampled_count": int(pool_limit),
+            "candidate_window_limit": int(candidate_window_limit),
+            "candidate_window_policy": (
+                "recent_bucket_round_robin_candidate_pool"
+                if bucket_scoped
+                else (
+                    "diagnostic_global_full_memory_window"
+                    if allow_global_score_scan
+                    else "unscoped_global_window_retired"
+                )
+            ),
             "candidate_scope": (
                 "bucket_indexed_candidate_window"
                 if bucket_scoped
                 else (
-                    "global_slow_path_score_scan"
+                    (
+                        "global_slow_path_candidate_scan"
+                        if strategy == "random"
+                        else "global_slow_path_score_scan"
+                    )
                     if allow_global_score_scan
                     else "unscoped_global_score_scan_retired"
                 )
             ),
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
+            "candidate_index_available_count": int(
+                bucket_available_count
+                if bucket_scoped
+                else (count if allow_global_score_scan else 0)
+            ),
             "candidate_index_count": int(candidate_count),
             "score_count": int(score_count),
             "selected_indices": selected,
@@ -1502,7 +1567,15 @@ class DualMemoryStore:
                 and bool(allow_global_score_scan)
                 and strategy != "random"
             ),
+            "global_candidate_scan": bool(
+                not bucket_scoped and bool(allow_global_score_scan)
+            ),
             "diagnostic_global_score_scan": bool(
+                not bucket_scoped
+                and bool(allow_global_score_scan)
+                and strategy != "random"
+            ),
+            "diagnostic_global_candidate_scan": bool(
                 not bucket_scoped and bool(allow_global_score_scan)
             ),
             "runs_live_tick": False,
@@ -1517,6 +1590,7 @@ class DualMemoryStore:
                 "memory_budget_entries": int(count),
                 "score_budget_entries": int(score_count),
                 "selected_budget_entries": int(requested),
+                "candidate_window_entries": int(candidate_window_limit),
                 "candidate_pool_entries": int(
                     candidate_pool if candidate_pool is not None else requested
                 ),

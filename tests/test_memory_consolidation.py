@@ -527,6 +527,51 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(restored_report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(restored_report["selected_count"], 2)
 
+    def test_bucket_replay_selection_caps_candidate_window_before_scoring(self) -> None:
+        store = DualMemoryStore(
+            capacity=16,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token in range(1, 6):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=1,
+                capture_tag=1.0,
+            )
+        for token in range(6, 11):
+            store.update(
+                torch.tensor([float(token), 2.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=2,
+                capture_tag=1.0,
+            )
+        store.slow_importance[0] = 1000.0
+
+        report = store.select_replay_window(
+            n=2,
+            current_token=50,
+            candidate_pool=4,
+            strategy="repair",
+            candidate_bucket_ids=[1, 2],
+        )
+
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_window_policy"], "recent_bucket_round_robin_candidate_pool")
+        self.assertEqual(report["candidate_window_limit"], 4)
+        self.assertEqual(report["selection_budget"]["candidate_window_entries"], 4)
+        self.assertEqual(report["candidate_index_available_count"], 10)
+        self.assertEqual(report["candidate_index_count"], 4)
+        self.assertEqual(report["score_count"], 4)
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertTrue(set(report["selected_indices"]).issubset({3, 4, 8, 9}))
+        self.assertNotIn(0, report["selected_indices"])
+
     def test_unscoped_replay_selection_requires_diagnostic_opt_in(self) -> None:
         store = DualMemoryStore(
             capacity=4,
@@ -555,6 +600,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(report["runs_live_tick"])
         self.assertEqual(report["selected_count"], 0)
         self.assertEqual(report["selected_indices"], [])
+        self.assertEqual(report["candidate_index_available_count"], 0)
         self.assertEqual(
             report["fallback_reason"],
             "global_score_scan_requires_explicit_diagnostic_opt_in",
@@ -570,9 +616,58 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
 
         self.assertEqual(diagnostic["candidate_scope"], "global_slow_path_score_scan")
+        self.assertEqual(diagnostic["candidate_index_available_count"], 1)
         self.assertTrue(diagnostic["global_score_scan"])
         self.assertTrue(diagnostic["diagnostic_global_score_scan"])
         self.assertEqual(diagnostic["fallback_reason"], "no_positive_global_scores")
+
+    def test_unscoped_random_replay_selection_requires_diagnostic_opt_in(self) -> None:
+        store = DualMemoryStore(
+            capacity=4,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token in range(1, 4):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=token,
+                capture_tag=1.0,
+            )
+
+        report = store.select_replay_window(
+            n=1,
+            current_token=8,
+            candidate_pool=2,
+            strategy="random",
+        )
+
+        self.assertEqual(report["candidate_scope"], "unscoped_global_score_scan_retired")
+        self.assertEqual(report["candidate_window_policy"], "unscoped_global_window_retired")
+        self.assertEqual(report["selected_indices"], [])
+        self.assertEqual(report["candidate_index_available_count"], 0)
+        self.assertEqual(report["candidate_index_count"], 0)
+        self.assertFalse(report["global_candidate_scan"])
+
+        diagnostic = store.select_replay_window(
+            n=1,
+            current_token=8,
+            candidate_pool=2,
+            strategy="random",
+            allow_global_score_scan=True,
+        )
+
+        self.assertEqual(diagnostic["candidate_scope"], "global_slow_path_candidate_scan")
+        self.assertEqual(diagnostic["candidate_window_policy"], "diagnostic_global_full_memory_window")
+        self.assertEqual(diagnostic["candidate_index_available_count"], 3)
+        self.assertEqual(diagnostic["selected_count"], 1)
+        self.assertEqual(diagnostic["score_count"], 0)
+        self.assertTrue(diagnostic["global_candidate_scan"])
+        self.assertFalse(diagnostic["global_score_scan"])
+        self.assertFalse(diagnostic["diagnostic_global_score_scan"])
+        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
 
     def test_bounded_replay_window_recall_uses_bucket_routing_keys(self) -> None:
         store = DualMemoryStore(

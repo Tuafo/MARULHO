@@ -31,6 +31,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
 ---
 
 # Replay/consolidation
@@ -60,12 +62,19 @@ when tags/PRP/replay pressure are positive enough to justify the cost.
 `DualMemoryStore.select_replay_window(...)` records
 `bounded_replay_window_selection.v1`. When deep sleep has column anchors, the
 selection scores only entries attached to those bucket ids through the
-bucket-to-entry index. If no bucket scope is available, selection now returns
-empty by default with
+bucket-to-entry index, and the bucket-indexed path now caps the candidate window
+before scoring. The active policy reports
+`candidate_window_policy=recent_bucket_round_robin_candidate_pool`,
+`candidate_window_limit=max(requested_count,candidate_pool)`,
+`candidate_index_available_count`, and the scored `candidate_index_count`, so a
+hot local bucket remains bounded. If no bucket scope is available, selection now
+returns empty by default with
 `fallback_reason=global_score_scan_requires_explicit_diagnostic_opt_in`.
 The full slow-memory scorer is available only when a caller explicitly sets
 `allow_global_score_scan=true`, and that diagnostic report must say
-`global_slow_path_score_scan`.
+`global_slow_path_score_scan`. Unscoped random candidate scans are also retired
+by default and can run only as explicit diagnostics that report
+`global_slow_path_candidate_scan`.
 
 `DualMemoryStore.recall_replay_window(...)` records
 `bounded_replay_window_recall.v1`. It is a non-mutating slow-path local memory
@@ -244,12 +253,30 @@ the clean 262144-token active-pressure rerun reached `5668.688 tokens/sec`,
 `65526` transition rows, no observed contention, and zero graph/native/sequence
 failures.
 
+The capped replay-candidate window follow-up tightens the selected-window
+boundary for future larger memory. The store now keeps per-bucket entry indices
+in recency order and collects recent entries round-robin across anchor buckets
+until the candidate window limit is reached, before any maintenance,
+consolidation, or repair scores are computed. A focused hot-bucket test shows
+`10` available entries cut to `candidate_window_limit=4` and `score_count=4`;
+the older high-importance entry is not selected because it never enters the
+bounded candidate window. The synthetic replay benchmark
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json`
+kept the positive-pressure recall/prototype gates passing with CPU archival and
+CPU selection scoring, no global score/candidate scan, and `0` updates in the
+zero-pressure/no-anchor controls. The 262144-token hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json`
+stayed in band at `6148.125 tokens/sec`, scored only `12/65536` route rows,
+cached `65526` transition rows, reported no observed contention, kept GPU memory
+flat at `1848 MiB`, and had zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
 candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
-sleep replay payloads, and selected-window SFA correction
+sleep replay payloads, selected-window SFA correction, capped pre-score replay
+candidate windows, and retired unscoped random replay defaults
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

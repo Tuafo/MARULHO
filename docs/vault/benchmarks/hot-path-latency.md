@@ -15,6 +15,7 @@ related_papers: []
 related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
 ---
 
 # Hot Path Latency
@@ -2742,3 +2743,27 @@ observed contention: CPU max `71%`, GPU utilization max `11%`, GPU memory
 utilization max `11%`, and GPU memory moved from `1877 MiB` before measurement
 to `1844 MiB` after measurement. Treat this as same-band live-tick protection
 for removing unscoped helper defaults, not as a new speed ceiling.
+
+### Capped Replay Candidate Windows, 2026-06-17
+
+The capped replay-candidate slice is also slow-window work, but it changes the
+selection cost contract. Bucket-scoped replay now collects recent entries
+round-robin across anchor buckets up to `candidate_window_limit` before scoring,
+then reports available versus scored entries. Unscoped random replay is retired
+by default unless an explicit diagnostic global candidate scan is requested.
+
+The 65536-column 262144-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-capped-replay-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6148.125 tokens/sec`, with
+`train_compute=0.132113 ms/token`, `prepare_training=0.006656 ms/token`,
+`finalize_total=0.006548 ms/token`, and `tick_duration_ms.p95=21.137`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `29%`, GPU utilization max `15%`, GPU memory
+utilization max `13%`, and GPU memory stayed flat at `1848 MiB` before and after
+measurement. This preserves same-band live-tick throughput while the replay
+selector gains a stronger pre-score memory budget.
