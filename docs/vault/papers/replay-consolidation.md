@@ -18,7 +18,9 @@ related_papers:
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
 ---
 
@@ -68,6 +70,13 @@ mutation fallback. When no anchor buckets exist, or when the anchor-bucket
 window has no positive replay pressure, the trainer records
 `unscoped_global_fallback_retired=true`, leaves `sleep_replay_applied_count=0`,
 and does not apply plasticity.
+
+Emergency repair sleep now follows the same anchor-bucket boundary. Repair mode
+uses `bounded_repair_reanchor` only when anchors provide a bucket-indexed replay
+window; without anchors it records
+`global_fallback_blocked_reason=no_anchor_bucket_scope_for_repair_replay` and
+applies no mutation. This retires the remaining unscoped repair-global mutation
+path while preserving anchored repair as an explicit slow-path operation.
 
 Positive-pressure deep replay no longer commits the old stored-bucket
 `CompetitiveColumnLayer.process(...)` mutation. The promoted slow-window commit

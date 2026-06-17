@@ -14,6 +14,7 @@ related_papers:
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
 ---
 
 # Replay Window
@@ -35,6 +36,9 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
 - A global slow-path scorer must report `global_slow_path_score_scan`; it must
   not hide a full-memory scorer. Production deep replay cannot mutate from that
   unscoped path.
+- Emergency repair replay follows the same anchor-bucket rule. Without anchor
+  buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
+  no mutation.
 - Zero-pressure replay is retired. No replay updates apply when the best score
   is zero.
 - Replay-window recall is non-mutating: it can compare routing keys and stored
@@ -62,6 +66,15 @@ the anchored bucket window has zero positive pressure. The matching longer
 hot-path report
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json`
 keeps the 65536-column live tick in band at `6306.507 tokens/sec`.
+
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json`
+reconfirms the same recall/prototype result after emergency repair mode was
+bounded to anchor buckets. The focused repair test proves an anchored repair can
+still reanchor a disturbed prototype, while no-anchor repair records
+`no_anchor_bucket_scope_for_repair_replay` and leaves prototypes unchanged. The
+current-tree hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json`
+kept the live tick in band at `6252.073 tokens/sec`.
 
 ## Relationships
 

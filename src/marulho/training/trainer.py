@@ -2794,7 +2794,7 @@ class MarulhoTrainer:
         self,
         mode: str,
     ) -> list[int] | None:
-        if mode != "deep":
+        if mode not in {"deep", "repair"}:
             return None
         if not self.column_anchors:
             return []
@@ -2858,7 +2858,9 @@ class MarulhoTrainer:
             }
             global_fallback_blocked_reason = (
                 "no_anchor_bucket_scope_for_deep_replay"
-                if not candidate_bucket_ids
+                if mode == "deep" and not candidate_bucket_ids
+                else "no_anchor_bucket_scope_for_repair_replay"
+                if mode == "repair" and not candidate_bucket_ids
                 else "bucket_window_zero_positive_replay_pressure"
             )
         replay_idx = [
@@ -2913,12 +2915,12 @@ class MarulhoTrainer:
         else:
             commit_report = {
                 "sleep_replay_commit_strategy": (
-                    "repair_reanchor"
+                    "bounded_repair_reanchor"
                     if mode == "repair"
                     else "micro_maintenance_refresh"
                 ),
                 "sleep_replay_winner_source": (
-                    "stored_replay_or_route_candidates"
+                    "stored_replay_bucket_with_anchor_scope"
                     if mode == "repair"
                     else "maintenance_window"
                 ),

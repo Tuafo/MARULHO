@@ -2412,6 +2412,19 @@ and GPU memory stayed at `1871 MiB` before/after measurement. This is hot-path
 protection evidence only: replay-window selection, recall, and candidate repair
 remain inside explicit sleep/replay maintenance and do not run in the live tick.
 
+The repair-scope cleanup then bounded emergency repair replay to the same
+anchor-bucket window and blocked no-anchor repair mutation. The current-tree
+hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json`
+processed `131072` tokens at `6252.073 tokens/sec` with
+`train_compute=0.129794 ms/token`, `prepare_training=0.006361 ms/token`,
+`finalize_total=0.006213 ms/token`, `tick_duration_ms.p95=20.060`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+zero graph/native/sequence failures, no observed contention, CPU max `47%`,
+GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
+`1822 MiB` before/after measurement. This is not a new speed ceiling; it proves
+the no-anchor repair retirement does not tax the live tick.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:

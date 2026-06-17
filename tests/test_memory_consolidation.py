@@ -767,6 +767,10 @@ class MemoryConsolidationTests(unittest.TestCase):
             text="repair memory trace",
             capture_tag=0.4,
         )
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=1,
+            strength=2.0,
+        )
 
         disturbed = torch.roll(routing_key.detach().cpu(), shifts=1, dims=0)
         disturbed = torch.nn.functional.normalize(disturbed, dim=0).to(trainer.model.device)
@@ -778,10 +782,75 @@ class MemoryConsolidationTests(unittest.TestCase):
         updates = trainer._sleep_replay("repair")
         after_distance = float(torch.norm(trainer.model.competitive.prototypes[0] - routing_key.to(trainer.model.device)).item())
 
+        self.assertGreater(anchored, 0)
         self.assertEqual(updates, 1)
         self.assertLess(after_distance, before_distance)
         self.assertTrue(torch.allclose(before_weights, trainer.model.competitive.input_weights))
         self.assertEqual(before_levels, trainer.model.memory_store.slow_consolidation_level)
+        report = trainer._last_sleep_replay_selection_report
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertFalse(report["global_score_scan"])
+        self.assertEqual(report["sleep_replay_commit_strategy"], "bounded_repair_reanchor")
+        self.assertEqual(
+            report["sleep_replay_winner_source"],
+            "stored_replay_bucket_with_anchor_scope",
+        )
+
+    def test_repair_sleep_without_anchors_blocks_global_repair_mutation(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 10
+
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+        routing_key = trainer.model.routing_key_from_pattern(pattern)
+        assembly = trainer.model.competitive.assembly_from_input(
+            pattern.to(trainer.model.device)
+        ).detach().cpu()
+        trainer.model.memory_store.update(
+            assembly,
+            importance=1.0,
+            token_count=trainer.token_count,
+            bucket_id=0,
+            input_pattern=pattern,
+            routing_key=routing_key.detach().cpu(),
+            raw_window="unanchored repair memory trace",
+            text="unanchored repair memory trace",
+            capture_tag=0.4,
+        )
+
+        disturbed = torch.roll(routing_key.detach().cpu(), shifts=1, dims=0)
+        disturbed = torch.nn.functional.normalize(disturbed, dim=0).to(
+            trainer.model.device
+        )
+        trainer.model.competitive.prototypes[0] = disturbed
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+
+        updates = trainer._sleep_replay("repair")
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertEqual(updates, 0)
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_bucket_ids"], [])
+        self.assertFalse(report["global_score_scan"])
+        self.assertTrue(report["unscoped_global_fallback_retired"])
+        self.assertEqual(
+            report["global_fallback_blocked_reason"],
+            "no_anchor_bucket_scope_for_repair_replay",
+        )
+        self.assertFalse(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
 
     def test_wake_learning_reports_consolidation_resistance(self) -> None:
         set_seed(7)
