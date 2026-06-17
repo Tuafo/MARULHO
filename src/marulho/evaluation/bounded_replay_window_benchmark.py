@@ -4,13 +4,15 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 
 from marulho.config.model_config import MarulhoConfig
 from marulho.reporting.io import write_json_file
 from marulho.training.memory_consolidation_runner import (
+    _parse_repair_strength_schedule,
+    _run_reconstruction_guarded_sleep_maintenance,
     build_memory_consolidation_gate,
     collect_assemblies,
     mean_assembly_overlap,
@@ -162,6 +164,7 @@ def run_trial(
     consolidation_cycles: int,
     replay_steps: int,
     candidate_pool: int,
+    repair_strength_schedule: Sequence[float] | None,
 ) -> dict[str, Any]:
     set_seed(seed)
     config = MarulhoConfig(
@@ -205,7 +208,16 @@ def run_trial(
         window_tokens=trainer.token_count,
         strength=8.0,
     )
-    trainer.run_sleep_maintenance(mode="deep", cycles=boundary_cycles)
+    boundary_updates, boundary_reconstruction_guard = (
+        _run_reconstruction_guarded_sleep_maintenance(
+            trainer,
+            [pattern for _, pattern in task_a],
+            mode="deep",
+            cycles=boundary_cycles,
+            quality_scope="synthetic_task_a_boundary_reconstruction",
+            repair_strength_schedule=repair_strength_schedule,
+        )
+    )
 
     for _ in range(max(1, int(task_repetitions))):
         for raw_window, pattern in task_b:
@@ -229,14 +241,19 @@ def run_trial(
     )
 
     started = time.perf_counter()
-    updates = 0
-    cycle_selection_reports: list[dict[str, Any]] = []
-    for _ in range(max(0, int(consolidation_cycles))):
-        updates += trainer.run_sleep_maintenance(mode="deep", cycles=1)
-        cycle_selection_reports.append(
-            dict(trainer._last_sleep_replay_selection_report)
-        )
+    updates, reconstruction_guard = _run_reconstruction_guarded_sleep_maintenance(
+        trainer,
+        [pattern for _, pattern in task_a],
+        mode="deep",
+        cycles=consolidation_cycles,
+        quality_scope="synthetic_task_a_eval_reconstruction",
+        repair_strength_schedule=repair_strength_schedule,
+    )
     latency_ms = (time.perf_counter() - started) * 1000.0
+    cycle_selection_reports = [
+        dict(report)
+        for report in reconstruction_guard.get("cycle_reports", [])
+    ]
 
     task_a_after_consolidation = _mean_reconstruction(trainer, task_a)
     task_a_overlap_after_consolidation = mean_assembly_overlap(
@@ -249,7 +266,12 @@ def run_trial(
         task_a_after_consolidation=task_a_after_consolidation,
         task_a_overlap_after_consolidation=task_a_overlap_after_consolidation,
     )
-    selection = dict(trainer._last_sleep_replay_selection_report)
+    selection = dict(
+        reconstruction_guard.get(
+            "final_selection_report",
+            trainer._last_sleep_replay_selection_report,
+        )
+    )
     bounded_cycle_count = sum(
         1
         for report in cycle_selection_reports
@@ -267,6 +289,7 @@ def run_trial(
         "seed": int(seed),
         "updates": int(updates),
         "latency_ms": float(latency_ms),
+        "boundary_updates": int(boundary_updates),
         "anchored_columns": int(anchored_columns),
         "pressure_entries": int(pressure_entries),
         "metrics": {
@@ -288,6 +311,8 @@ def run_trial(
         },
         "memory_consolidation_gate": gate,
         "bounded_replay_recall": recall_summary,
+        "boundary_reconstruction_guard": boundary_reconstruction_guard,
+        "reconstruction_guard": reconstruction_guard,
         "selection": selection,
         "cycle_selection_reports": cycle_selection_reports,
         "replay_commit_summary": replay_commit_summary,
@@ -413,6 +438,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             consolidation_cycles=args.consolidation_cycles,
             replay_steps=args.replay_steps,
             candidate_pool=args.candidate_pool,
+            repair_strength_schedule=args.repair_strength_schedule,
         )
         for selector in (
             "bounded_positive_pressure",
@@ -436,13 +462,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "consolidation_cycles": int(args.consolidation_cycles),
             "replay_steps": int(args.replay_steps),
             "candidate_pool": int(args.candidate_pool),
+            "repair_strength_schedule": args.repair_strength_schedule,
         },
         "trials": trials,
         "quality_claim": (
             "bounded input-pattern recall is measured separately from prototype "
             "repair; unanchored deep replay blocks global mutation; bounded "
-            "candidate repair passes the prototype reconstruction gate; micro "
-            "maintenance is anchor-bucket metadata refresh only"
+            "candidate repair runs behind the target reconstruction guard with "
+            "bounded repair-strength search; micro maintenance is anchor-bucket "
+            "metadata refresh only"
         ),
     }
 
@@ -462,7 +490,15 @@ def main() -> None:
     parser.add_argument("--consolidation-cycles", type=int, default=4)
     parser.add_argument("--replay-steps", type=int, default=16)
     parser.add_argument("--candidate-pool", type=int, default=32)
+    parser.add_argument(
+        "--replay-repair-strength-schedule",
+        type=str,
+        default="0.1,0.05,0.02,0.01,0.5,1.0",
+    )
     args = parser.parse_args()
+    args.repair_strength_schedule = _parse_repair_strength_schedule(
+        args.replay_repair_strength_schedule
+    )
 
     report = run_benchmark(args)
     args.output.parent.mkdir(parents=True, exist_ok=True)

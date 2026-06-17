@@ -2800,10 +2800,19 @@ class MarulhoTrainer:
             return []
         return sorted(int(bucket_id) for bucket_id in self.column_anchors)
 
-    def _sleep_replay(self, mode: str) -> int:
+    def _sleep_replay(
+        self,
+        mode: str,
+        *,
+        deep_replay_repair_strength: float | None = None,
+    ) -> int:
         """Replay slow-buffer assemblies with spaced priority and mode-specific depth."""
         repair_anchor_strength = 0.30
-        deep_replay_repair_strength = 1.0
+        deep_replay_repair_strength_value = (
+            1.0
+            if deep_replay_repair_strength is None
+            else float(deep_replay_repair_strength)
+        )
 
         if mode == "micro":
             steps = self.config.micro_sleep_replay_steps
@@ -2908,7 +2917,7 @@ class MarulhoTrainer:
                 commit_report,
             ) = self._sleep_replay_bounded_candidate_repair(
                 replay_idx,
-                repair_strength=deep_replay_repair_strength,
+                repair_strength=deep_replay_repair_strength_value,
             )
         elif mode == "micro":
             processed_indices = [int(index) for index in replay_idx]
@@ -4406,10 +4415,19 @@ class MarulhoTrainer:
         )
         return signature.detach().cpu()
 
-    def run_sleep_maintenance(self, mode: str = "deep", cycles: int = 1) -> int:
+    def run_sleep_maintenance(
+        self,
+        mode: str = "deep",
+        cycles: int = 1,
+        *,
+        deep_replay_repair_strength: float | None = None,
+    ) -> int:
         total_updates = 0
         for _ in range(max(0, int(cycles))):
-            total_updates += self._sleep_replay(mode)
+            total_updates += self._sleep_replay(
+                mode,
+                deep_replay_repair_strength=deep_replay_repair_strength,
+            )
         return total_updates
 
     def tag_recent_memories(self, window_tokens: int, strength: float) -> int:

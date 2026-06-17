@@ -832,6 +832,104 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertFalse(report["cycle_reports"][1]["sleep_replay_mutates_runtime_state"])
 
+    def test_reconstruction_guard_selects_nonregressing_repair_strength(self) -> None:
+        set_seed(10)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[8:12] = 1.0
+        pattern = pattern / pattern.sum()
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+        rejected_proto = torch.roll(before_proto[0], shifts=1, dims=0)
+        accepted_proto = torch.roll(before_proto[0], shifts=2, dims=0)
+        trial_strengths: list[float] = []
+
+        def _strength_replay(
+            mode: str,
+            cycles: int = 1,
+            *,
+            deep_replay_repair_strength: float | None = None,
+        ) -> int:
+            self.assertEqual(mode, "deep")
+            self.assertEqual(cycles, 1)
+            strength = float(deep_replay_repair_strength or 1.0)
+            trial_strengths.append(strength)
+            trainer.model.competitive.prototypes[0] = (
+                rejected_proto if strength == 1.0 else accepted_proto
+            )
+            trainer._last_sleep_replay_selection_report = {
+                "surface": "bounded_replay_window_selection.v1",
+                "scope": "deep_sleep_slow_path",
+                "strategy": "consolidation",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "candidate_bucket_ids": [0],
+                "selected_indices": [0],
+                "selected_count": 1,
+                "score_count": 1,
+                "sleep_replay_applied_count": 1,
+                "sleep_replay_mutates_runtime_state": True,
+                "sleep_replay_applies_plasticity": True,
+                "sleep_replay_repair_strength": strength,
+            }
+            return 1
+
+        with (
+            patch.object(
+                trainer,
+                "run_sleep_maintenance",
+                side_effect=_strength_replay,
+            ),
+            patch(
+                "marulho.training.memory_consolidation_runner.mean_reconstruction_error",
+                side_effect=[0.10, 0.20, 0.08],
+            ),
+        ):
+            updates, report = _run_reconstruction_guarded_sleep_maintenance(
+                trainer,
+                [pattern],
+                mode="deep",
+                cycles=1,
+                quality_scope="unit_reconstruction",
+                repair_strength_schedule=[1.0, 0.25],
+            )
+
+        self.assertEqual(trial_strengths, [1.0, 0.25])
+        self.assertEqual(updates, 1)
+        self.assertTrue(
+            torch.allclose(trainer.model.competitive.prototypes[0], accepted_proto)
+        )
+        self.assertFalse(
+            torch.allclose(trainer.model.competitive.prototypes[0], rejected_proto)
+        )
+        self.assertEqual(report["repair_strength_strategy"], "target_reconstruction_strength_search")
+        self.assertEqual(report["repair_strength_schedule"], [1.0, 0.25])
+        self.assertEqual(report["attempted_update_count"], 2)
+        self.assertEqual(report["accepted_update_count"], 1)
+        self.assertEqual(report["rejected_attempted_update_count"], 1)
+        cycle_report = report["cycle_reports"][0]
+        self.assertTrue(cycle_report["sleep_replay_commit_accepted"])
+        self.assertEqual(cycle_report["sleep_replay_selected_repair_strength"], 0.25)
+        self.assertEqual(cycle_report["sleep_replay_strength_trial_count"], 2)
+        self.assertEqual(cycle_report["sleep_replay_attempted_applied_count"], 2)
+        self.assertEqual(cycle_report["sleep_replay_effective_applied_count"], 1)
+        self.assertFalse(
+            cycle_report["sleep_replay_strength_trial_reports"][0][
+                "sleep_replay_strength_trial_accepted"
+            ]
+        )
+        self.assertTrue(
+            cycle_report["sleep_replay_strength_trial_reports"][1][
+                "sleep_replay_strength_trial_accepted"
+            ]
+        )
+
     def test_deep_sleep_uses_anchor_bucket_replay_window_report(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

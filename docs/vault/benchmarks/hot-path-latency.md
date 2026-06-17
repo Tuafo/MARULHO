@@ -2643,3 +2643,22 @@ stayed in the maintained band at `6199.988 tokens/sec`, with
 `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
 zero graph/native/sequence failures, and no observed contention. GPU memory was
 `1688 MiB` before and `1689 MiB` after the accepted rerun.
+
+The target-aware replay-strength follow-up does not add live-tick replay work:
+strength trials run only inside `reconstruction_guarded_replay_consolidation.v1`
+slow windows. The matching promoted hot-path check first reached
+`6205.925 tokens/sec` at
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-guard-promoted.json`,
+but that run recorded a pre-run GPU utilization sample above the contention
+threshold. The clean rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-guard-promoted-rerun.json`
+processed `262144` tokens at `6073.263 tokens/sec`, with
+`train_compute=0.133405 ms/token`, `prepare_training=0.006616 ms/token`,
+`finalize_total=0.006505 ms/token`, `tick_duration_ms.p95=21.118`,
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence
+failures, and no observed contention. CPU max was `20%`, GPU utilization max
+`10%`, GPU memory utilization max `10%`, and GPU memory moved from `1708 MiB`
+to `1709 MiB`. Treat this as same-band live-tick protection, not a new speed
+ceiling.

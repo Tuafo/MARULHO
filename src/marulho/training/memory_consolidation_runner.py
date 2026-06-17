@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import time
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 import torch
 
@@ -190,6 +190,38 @@ def _bounded_replay_recall_evaluation(
     }
 
 
+def _normalise_repair_strength_schedule(
+    repair_strength_schedule: Sequence[float] | None,
+) -> tuple[float, ...]:
+    if repair_strength_schedule is None:
+        return ()
+    strengths: list[float] = []
+    for raw_strength in repair_strength_schedule:
+        strength = float(raw_strength)
+        if strength <= 0.0 or strength > 1.0:
+            raise ValueError(
+                "Replay repair strengths must be in the interval (0.0, 1.0]"
+            )
+        if strength not in strengths:
+            strengths.append(strength)
+    return tuple(strengths)
+
+
+def _parse_repair_strength_schedule(
+    value: str | Sequence[float] | None,
+) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        raw_value = value.strip()
+        if not raw_value or raw_value.lower() in {"none", "off", "disabled"}:
+            return None
+        return _normalise_repair_strength_schedule(
+            [float(part.strip()) for part in raw_value.split(",") if part.strip()]
+        )
+    return _normalise_repair_strength_schedule(value)
+
+
 def _run_reconstruction_guarded_sleep_maintenance(
     trainer: MarulhoTrainer,
     eval_patterns: List[torch.Tensor],
@@ -198,11 +230,16 @@ def _run_reconstruction_guarded_sleep_maintenance(
     cycles: int,
     quality_scope: str,
     tolerance: float = 1e-8,
+    repair_strength_schedule: Sequence[float] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Run sleep replay one cycle at a time and roll back harmful reconstruction."""
 
     started = time.perf_counter()
     requested_cycles = max(0, int(cycles))
+    strength_schedule = _normalise_repair_strength_schedule(
+        repair_strength_schedule
+    )
+    use_strength_search = bool(mode == "deep" and strength_schedule)
     current_best = mean_reconstruction_error(trainer, eval_patterns)
     initial_score = float(current_best)
     accepted_updates = 0
@@ -254,6 +291,13 @@ def _run_reconstruction_guarded_sleep_maintenance(
                 "sleep_replay_rollback_reason": "repeated_rejected_selection_skipped",
                 "sleep_replay_attempted_applied_count": 0,
                 "sleep_replay_effective_applied_count": 0,
+                "sleep_replay_strength_search_strategy": (
+                    "target_reconstruction_strength_search"
+                    if use_strength_search
+                    else "single_replay_attempt"
+                ),
+                "sleep_replay_repair_strength_schedule": list(strength_schedule),
+                "sleep_replay_strength_trial_count": 0,
                 "sleep_replay_repeated_rejection_skip": True,
                 "sleep_replay_repeated_rejection_signature": list(
                     repeated_rejection_signature
@@ -273,10 +317,81 @@ def _run_reconstruction_guarded_sleep_maintenance(
 
         before_score = float(current_best)
         snapshot = _model_snapshot(trainer)
-        attempted = trainer.run_sleep_maintenance(mode=mode, cycles=1)
-        attempted_updates += int(attempted)
-        after_score = mean_reconstruction_error(trainer, eval_patterns)
-        raw_report = dict(getattr(trainer, "_last_sleep_replay_selection_report", {}))
+        trial_reports: list[dict[str, Any]] = []
+        raw_report: dict[str, Any] = {}
+        selected_strength: float | None = None
+        selected_snapshot: dict[str, Any] | None = None
+        selected_attempted = 0
+        selected_after_score: float | None = None
+        cycle_attempted_updates = 0
+        cycle_rejected_attempted_updates = 0
+
+        if use_strength_search:
+            best_score = float("inf")
+            for trial_index, strength in enumerate(strength_schedule):
+                _restore_model(trainer, snapshot)
+                attempted = trainer.run_sleep_maintenance(
+                    mode=mode,
+                    cycles=1,
+                    deep_replay_repair_strength=float(strength),
+                )
+                cycle_attempted_updates += int(attempted)
+                after_trial_score = mean_reconstruction_error(
+                    trainer,
+                    eval_patterns,
+                )
+                trial_raw_report = dict(
+                    getattr(trainer, "_last_sleep_replay_selection_report", {})
+                )
+                trial_accepted = bool(after_trial_score <= before_score + tolerance)
+                if int(attempted) > 0 and not trial_accepted:
+                    cycle_rejected_attempted_updates += int(attempted)
+                trial_report = {
+                    **trial_raw_report,
+                    "sleep_replay_strength_trial_index": int(trial_index),
+                    "sleep_replay_repair_strength": float(strength),
+                    "sleep_replay_strength_trial_accepted": bool(trial_accepted),
+                    "sleep_replay_strength_trial_before": float(before_score),
+                    "sleep_replay_strength_trial_after": float(after_trial_score),
+                    "sleep_replay_strength_trial_delta": float(
+                        before_score - after_trial_score
+                    ),
+                    "sleep_replay_strength_trial_attempted_applied_count": int(
+                        attempted
+                    ),
+                }
+                trial_reports.append(trial_report)
+                if trial_accepted and after_trial_score < best_score:
+                    best_score = float(after_trial_score)
+                    selected_strength = float(strength)
+                    selected_attempted = int(attempted)
+                    selected_after_score = float(after_trial_score)
+                    selected_snapshot = _model_snapshot(trainer)
+                    raw_report = dict(trial_report)
+
+            if selected_snapshot is None:
+                _restore_model(trainer, snapshot)
+                if trial_reports:
+                    raw_report = dict(trial_reports[-1])
+                attempted = int(cycle_attempted_updates)
+                after_score = (
+                    float(trial_reports[-1]["sleep_replay_strength_trial_after"])
+                    if trial_reports
+                    else before_score
+                )
+            else:
+                _restore_model(trainer, selected_snapshot)
+                attempted = int(selected_attempted)
+                after_score = float(selected_after_score)
+        else:
+            attempted = trainer.run_sleep_maintenance(mode=mode, cycles=1)
+            cycle_attempted_updates = int(attempted)
+            after_score = mean_reconstruction_error(trainer, eval_patterns)
+            raw_report = dict(
+                getattr(trainer, "_last_sleep_replay_selection_report", {})
+            )
+
+        attempted_updates += int(cycle_attempted_updates)
         quality_accepted = bool(after_score <= before_score + tolerance)
         accepted = quality_accepted
         rollback_reason: str | None = None
@@ -299,10 +414,15 @@ def _run_reconstruction_guarded_sleep_maintenance(
             repeated_rejection_signature = None
         else:
             rejected_cycles += 1
-            rejected_attempted_updates += int(attempted)
+            rejected_attempted_updates += int(
+                max(cycle_rejected_attempted_updates, attempted)
+            )
             effective_updates = 0
             rollback_reason = "task_a_reconstruction_regression"
             _restore_model(trainer, snapshot)
+
+        if accepted:
+            rejected_attempted_updates += int(cycle_rejected_attempted_updates)
 
         cycle_report = {
             **raw_report,
@@ -316,8 +436,17 @@ def _run_reconstruction_guarded_sleep_maintenance(
             "sleep_replay_guard_tolerance": float(tolerance),
             "sleep_replay_commit_accepted": bool(accepted),
             "sleep_replay_rollback_reason": rollback_reason,
-            "sleep_replay_attempted_applied_count": int(attempted),
+            "sleep_replay_attempted_applied_count": int(cycle_attempted_updates),
             "sleep_replay_effective_applied_count": int(effective_updates),
+            "sleep_replay_strength_search_strategy": (
+                "target_reconstruction_strength_search"
+                if use_strength_search
+                else "single_replay_attempt"
+            ),
+            "sleep_replay_repair_strength_schedule": list(strength_schedule),
+            "sleep_replay_strength_trial_count": int(len(trial_reports)),
+            "sleep_replay_selected_repair_strength": selected_strength,
+            "sleep_replay_strength_trial_reports": trial_reports,
             "runs_live_tick": False,
         }
         if not accepted:
@@ -358,6 +487,12 @@ def _run_reconstruction_guarded_sleep_maintenance(
         "quality_delta": float(initial_score - current_best),
         "tolerance": float(tolerance),
         "cadence_strategy": "skip_repeated_rejected_selection",
+        "repair_strength_strategy": (
+            "target_reconstruction_strength_search"
+            if use_strength_search
+            else "single_replay_attempt"
+        ),
+        "repair_strength_schedule": list(strength_schedule),
         "runs_live_tick": False,
         "score_device": str(trainer.model.device),
         "archival_storage_device": "cpu",
@@ -453,6 +588,8 @@ def run_memory_consolidation(
     task_boundary_consolidation_cycles: int,
     consolidation_mode: str,
     consolidation_cycles: int,
+    task_boundary_replay_repair_strength_schedule: Sequence[float] | None,
+    consolidation_replay_repair_strength_schedule: Sequence[float] | None,
     checkpoint_out: Optional[Path],
     save_plots: bool,
 ) -> None:
@@ -545,6 +682,7 @@ def run_memory_consolidation(
         mode="deep",
         cycles=task_boundary_consolidation_cycles,
         quality_scope="task_a_boundary_eval_reconstruction",
+        repair_strength_schedule=task_boundary_replay_repair_strength_schedule,
     )
     boundary_latency_ms = (time.perf_counter() - boundary_started) * 1000.0
     task_a_replay_queries = _collect_anchor_replay_queries(
@@ -573,6 +711,7 @@ def run_memory_consolidation(
         mode=consolidation_mode,
         cycles=consolidation_cycles,
         quality_scope="task_a_after_task_b_eval_reconstruction",
+        repair_strength_schedule=consolidation_replay_repair_strength_schedule,
     )
     consolidation_latency_ms = (time.perf_counter() - consolidation_started) * 1000.0
     task_a_after_consolidation = mean_reconstruction_error(trainer, task_a_eval)
@@ -624,6 +763,22 @@ def run_memory_consolidation(
             "input_weight_blend": cfg.input_weight_blend,
             "slow_mean_decay": cfg.slow_mean_decay,
             "use_winner_local_drift": cfg.use_winner_local_drift,
+            "task_boundary_replay_repair_strength_schedule": (
+                None
+                if task_boundary_replay_repair_strength_schedule is None
+                else [
+                    float(value)
+                    for value in task_boundary_replay_repair_strength_schedule
+                ]
+            ),
+            "consolidation_replay_repair_strength_schedule": (
+                None
+                if consolidation_replay_repair_strength_schedule is None
+                else [
+                    float(value)
+                    for value in consolidation_replay_repair_strength_schedule
+                ]
+            ),
         },
         "runtime_scope": model.runtime_scope_report(),
         "memory_stats_before_consolidation": memory_before,
@@ -807,6 +962,31 @@ def main() -> None:
     parser.add_argument("--task-boundary-consolidation-cycles", type=int, default=preset_defaults.get("task_boundary_consolidation_cycles", 4))
     parser.add_argument("--consolidation-mode", choices=["micro", "deep"], default=preset_defaults.get("consolidation_mode", "deep"))
     parser.add_argument("--consolidation-cycles", type=int, default=preset_defaults.get("consolidation_cycles", 5))
+    parser.add_argument(
+        "--task-boundary-replay-repair-strength-schedule",
+        type=str,
+        default=preset_defaults.get(
+            "task_boundary_replay_repair_strength_schedule",
+            "0.1,0.05,0.02,0.01",
+        ),
+        help=(
+            "Comma-separated repair strengths for the task-boundary "
+            "reconstruction guard; use none/off/disabled for a single "
+            "guarded attempt."
+        ),
+    )
+    parser.add_argument(
+        "--consolidation-replay-repair-strength-schedule",
+        type=str,
+        default=preset_defaults.get(
+            "consolidation_replay_repair_strength_schedule",
+            "0.1,0.05,0.02,0.01",
+        ),
+        help=(
+            "Comma-separated repair strengths for the post-B consolidation "
+            "reconstruction guard."
+        ),
+    )
     parser.add_argument("--checkpoint-out", type=Path, default=None)
     args = parser.parse_args()
 
@@ -816,6 +996,13 @@ def main() -> None:
     use_winner_local_drift = True
     if args.no_winner_local_drift:
         use_winner_local_drift = False
+
+    task_boundary_replay_repair_strength_schedule = _parse_repair_strength_schedule(
+        args.task_boundary_replay_repair_strength_schedule
+    )
+    consolidation_replay_repair_strength_schedule = _parse_repair_strength_schedule(
+        args.consolidation_replay_repair_strength_schedule
+    )
 
     if args.output_dir is None:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -868,6 +1055,12 @@ def main() -> None:
         task_boundary_consolidation_cycles=args.task_boundary_consolidation_cycles,
         consolidation_mode=args.consolidation_mode,
         consolidation_cycles=args.consolidation_cycles,
+        task_boundary_replay_repair_strength_schedule=(
+            task_boundary_replay_repair_strength_schedule
+        ),
+        consolidation_replay_repair_strength_schedule=(
+            consolidation_replay_repair_strength_schedule
+        ),
         checkpoint_out=args.checkpoint_out,
         save_plots=(not args.no_plots),
     )

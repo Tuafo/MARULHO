@@ -173,12 +173,33 @@ cached transition rows, zero graph/native/sequence failures, and no observed
 contention. This retires repeated dead replay attempts inside a slow window; it
 does not make replay continuous or live-tick work.
 
+The target-aware replay-strength slice keeps replay under the same guard but
+lets the slow window test a bounded schedule from one snapshot before commit.
+`reconstruction_guarded_replay_consolidation.v1` now records the
+repair-strength strategy, schedule, per-strength trial reports, selected
+strength, attempted/effective update counts, rejected trial attempts, and
+cadence skips. The promoted HF runner uses `[0.1, 0.05, 0.02, 0.01]`; the
+report
+`reports/bounded_replay_window_20260617/hf-recall-target-strength-guard-promoted/summary.json`
+accepted `3` post-Task-B repairs, improving Task-A reconstruction from
+`0.0168881603` to `0.0166562782` while preserving exact stored-experience
+recall and the memory-consolidation gate. The synthetic stress benchmark
+`reports/bounded_replay_window_20260617/synthetic-target-strength-guard-promoted.json`
+uses low-first escalation, guards both boundary and final replay, and passed
+the prototype gate after `3` boundary repairs plus `2` final repairs. The clean
+hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-guard-promoted-rerun.json`
+processed `262144` tokens at `6073.263 tokens/sec`, kept route scoring bounded
+at `12/65536`, cached `65526` state-transition rows, had zero
+graph/native/sequence failures, and reported no observed contention.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
-candidate repair, reconstruction-guarded HF replay acceptance, and skipped
-repeated rejected replay attempts implemented; long-run hot-path protection
-remains required for future larger replay windows
+candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
+rejected replay attempts, and target-aware repair-strength search implemented;
+future larger replay windows still require repeated long-run hot-path and
+grounding checks
 
 ## Links
 
