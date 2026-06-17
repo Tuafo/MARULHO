@@ -141,6 +141,56 @@ def test_route_candidate_probe_lane_recovers_bounded_relevance_shift() -> None:
     assert report["promotion_status"] == "passes_real_source_route_bank_quality_gate"
 
 
+def test_wider_retained_bank_is_quality_evidence_not_runtime_promotion() -> None:
+    keys = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.95, 0.05],
+        ],
+        dtype=torch.float32,
+    )
+    vectors = F.normalize(
+        torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.9, 0.1, 0.0],
+                [0.8, 0.2, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.95, 0.05],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float32,
+        ),
+        dim=1,
+    )
+
+    report = evaluate_route_candidate_bank_quality_from_tensors(
+        routing_keys=F.normalize(keys.float(), dim=1),
+        routing_vectors=vectors,
+        routing_ids=torch.arange(6, dtype=torch.long),
+        prototypes=vectors.clone(),
+        thresholds=torch.zeros(6, dtype=torch.float32),
+        prediction_location=torch.eye(6, dtype=torch.float32),
+        k_routing=2,
+        bank_size=5,
+        previous_winner=0,
+        route_candidate_bank_refresh_interval=1,
+    )
+
+    wider_bank = report["route_candidate_wider_bank"]
+    assert wider_bank["enabled"] is True
+    assert wider_bank["retained_bank_rows"] == 5
+    assert wider_bank["awake_candidate_rows"] == 2
+    assert report["steady_route_score_rows"]["mean"] == 5.0
+    assert report["quality"]["exact_top1_in_bank_rate"] == 1.0
+    assert report["quality"]["exact_winner_match_rate"] == 1.0
+    assert (
+        report["promotion_status"]
+        == "wider_bank_quality_passes_but_requires_runtime_kernel_promotion"
+    )
+
+
 def test_route_candidate_hypercube_neighbors_recover_local_bitflip_shift() -> None:
     keys = torch.tensor(
         [

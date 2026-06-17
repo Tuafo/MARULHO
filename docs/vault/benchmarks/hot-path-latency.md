@@ -1954,6 +1954,35 @@ The default-text k-only runs prove the current self-refreshing bank can trap the
 scheduler in an old relevance neighborhood. The graph-neighbor probe proves a
 bounded discovery policy can recover relevance drift in offline evaluation
 without adding a runtime all-column oracle, but it is not a promotion by itself.
+
+The 2026-06-17 wider-retained-bank diagnostic fixes the quality gate so the
+retained bank can be wider than awake `k` without pretending the current runtime
+already supports that refresh shape. These commands all used the restored
+8192-column route-bank checkpoint and default text:
+
+`python -m marulho.evaluation.route_candidate_bank_quality_gate --checkpoint reports\column_scheduler_20260616\checkpoints\route-bank-restored-8192-seeded.pt --output reports\column_scheduler_20260617\wider-bank256-probe64-quality-8192-default-text-s512.json --samples 512 --source-mode default_text --bank-size 256 --route-candidate-probe-rows 64 --route-candidate-bank-refresh-interval 1`
+
+`python -m marulho.evaluation.route_candidate_bank_quality_gate --checkpoint reports\column_scheduler_20260616\checkpoints\route-bank-restored-8192-seeded.pt --output reports\column_scheduler_20260617\wider-bank512-probe128-quality-8192-default-text-s512.json --samples 512 --source-mode default_text --bank-size 512 --route-candidate-probe-rows 128 --route-candidate-bank-refresh-interval 1`
+
+`python -m marulho.evaluation.route_candidate_bank_quality_gate --checkpoint reports\column_scheduler_20260616\checkpoints\route-bank-restored-8192-seeded.pt --output reports\column_scheduler_20260617\wider-bank1024-probe256-quality-8192-default-text-s512.json --samples 512 --source-mode default_text --bank-size 1024 --route-candidate-probe-rows 256 --route-candidate-bank-refresh-interval 1`
+
+| Shape | Steady rows | Exact top-1 | Winner match | Mean top-k overlap | Worst miss | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| bank256 probe64 | `320/8192` | `0.92578125` | `0.630859375` | `0.8824218749999989` | `8` | rejected |
+| bank512 probe128 | `640/8192` | `1.0` | `0.826171875` | `0.9757812499999993` | `0` | rejected |
+| bank1024 probe256 | `1280/8192` | `1.0` | `0.97265625` | `0.9949218749999997` | `0` | quality pass, runtime kernel missing |
+
+The pass is not a runtime promotion. The live fused route/vote kernel refreshes
+only the awake `k=10` rows into the next bank; it does not yet write the top
+`1024` retained bank positions while emitting only `10` awake candidates. An
+isolated synchronized route-row lower-bound at
+`reports/column_scheduler_20260617/wider-bank-route-rows-fused-lower-bound-8192.json`
+measured the current fused route/vote path at `0.236956 ms` mean for `12` rows,
+`0.271268 ms` for `320`, `0.319130 ms` for `640`, and `0.476562 ms` for `1280`.
+That is only a kernel lower bound: the missing top-retained refresh and the
+full 131072-token graph/burst path still have to prove the 6k-ish band before
+any wider retained bank can become the single promoted scheduler.
+
 The attempted live implementation built a fixed neighbor graph and scored the
 bank plus bounded neighbors on the 8192 real path:
 

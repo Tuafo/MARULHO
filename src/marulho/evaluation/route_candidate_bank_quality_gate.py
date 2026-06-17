@@ -279,8 +279,10 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         ).indices.to(dtype=torch.long)
 
     exact_scores = keys @ vectors.T
-    exact_offsets = torch.topk(exact_scores, k=k, dim=1).indices
-    exact_candidates = ids[exact_offsets]
+    seed_width = max(int(k), int(bank_capacity))
+    exact_seed_offsets = torch.topk(exact_scores, k=seed_width, dim=1).indices
+    exact_seed_candidates = ids[exact_seed_offsets]
+    exact_candidates = exact_seed_candidates[:, :k]
 
     bank_candidates_by_tick: list[list[int]] = []
     exact_candidates_by_tick: list[list[int]] = []
@@ -388,7 +390,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         )
         if seeded:
             bank_row = exact_row[:k].clone()
-            current_bank_ids = exact_row[:bank_capacity].clone()
+            current_bank_ids = exact_seed_candidates[tick, :bank_capacity].clone()
             bank_rows_scored = int(ids.numel())
             _refresh_score_positions(current_bank_ids)
             scored_since_refresh = 0
@@ -436,6 +438,12 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                     routing_ids=ids,
                     limit=k,
                 )
+                next_bank_ids = _ordered_unique_limited_candidate_ids(
+                    scores=bank_scores,
+                    positions=expanded_positions,
+                    routing_ids=ids,
+                    limit=bank_capacity,
+                )
                 bank_rows_scored = int(expanded_positions.numel())
                 graph_valid_rows.append(bank_rows_scored)
             else:
@@ -471,6 +479,12 @@ def evaluate_route_candidate_bank_quality_from_tensors(
                     positions=score_positions,
                     routing_ids=ids,
                     limit=k,
+                )
+                next_bank_ids = _ordered_unique_limited_candidate_ids(
+                    scores=bank_scores,
+                    positions=score_positions,
+                    routing_ids=ids,
+                    limit=bank_capacity,
                 )
                 bank_rows_scored = int(score_positions.numel())
 
@@ -546,7 +560,7 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         if not seeded:
             scored_since_refresh += 1
             if scored_since_refresh >= refresh_interval:
-                current_bank_ids = bank_row[:bank_capacity].clone()
+                current_bank_ids = next_bank_ids[:bank_capacity].clone()
                 _refresh_score_positions(current_bank_ids)
                 scored_since_refresh = 0
             elif probe_enabled:
@@ -592,6 +606,8 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         "total_columns": int(total_columns),
         "k_routing": int(k),
         "bank_size": int(bank_capacity),
+        "retained_bank_capacity": int(bank_capacity),
+        "awake_candidate_count": int(k),
         "exact_seed_count": int(seed_count),
         "exact_reseed_count": int(reseed_count),
         "exact_reseed_interval": int(exact_reseed_interval),
@@ -632,6 +648,25 @@ def evaluate_route_candidate_bank_quality_from_tensors(
             "hot_path_precompute": False,
             "claim_boundary": (
                 "offline_quality_simulation_of_fixed_degree_graph_walk_without_hot_path_all_column_scan"
+            ),
+        },
+        "route_candidate_wider_bank": {
+            "enabled": bool(bank_capacity > k),
+            "retained_bank_rows": int(bank_capacity),
+            "awake_candidate_rows": int(k),
+            "steady_refresh_source": (
+                "top_retained_bank_rows_from_bounded_score_rows"
+                if bank_capacity > k
+                else "awake_candidates_equal_retained_bank"
+            ),
+            "runtime_support": (
+                "evaluation_only_until_fused_route_vote_refreshes_more_bank_rows_than_awake_candidates"
+                if bank_capacity > k
+                else "matches_promoted_runtime_bank_shape"
+            ),
+            "claim_boundary": (
+                "wider retained banks may improve quality only after a runtime kernel "
+                "promotion proves bounded rows and long-run throughput"
             ),
         },
         "route_candidate_probe": {
@@ -695,11 +730,15 @@ def evaluate_route_candidate_bank_quality_from_tensors(
         },
         "promotion_status": (
             "passes_real_source_route_bank_quality_gate"
-            if quality_passes
+            if quality_passes and bank_capacity <= k
+            else "wider_bank_quality_passes_but_requires_runtime_kernel_promotion"
+            if quality_passes and bank_capacity > k
             else "graph_walk_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if graph_walk_enabled
             else "hypercube_neighbors_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if hypercube_enabled
+            else "wider_bank_bounded_but_requires_stronger_discovery_router_before_quality_claim"
+            if bank_capacity > k
             else "probe_lane_bounded_but_requires_stronger_discovery_router_before_quality_claim"
             if probe_enabled
             else "requires_reseed_policy_or_wider_bank_before_quality_claim"
