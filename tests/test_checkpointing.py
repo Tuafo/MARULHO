@@ -265,6 +265,39 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer.model.memory_store.last_query_memory_match_report = dict(
                 query_match_report
             )
+            recent_tag_report = {
+                "surface": "bounded_recent_memory_tag.v1",
+                "status": "tagged",
+                "scope": "recent_memory_tagging_slow_path",
+                "candidate_scope": "recent_entry_index_window",
+                "candidate_window_policy": "recent_entry_index_reverse_window",
+                "candidate_window_limit": 3,
+                "candidate_index_count": 3,
+                "candidate_indices": [9, 8, 7],
+                "tagged_count": 3,
+                "runs_live_tick": False,
+                "mutates_runtime_state": True,
+            }
+            trainer.model.memory_store.last_recent_memory_tag_report = dict(
+                recent_tag_report
+            )
+            anchor_capture_report = {
+                "surface": "bounded_recent_anchor_capture.v1",
+                "status": "captured",
+                "scope": "recent_anchor_capture_slow_path",
+                "candidate_scope": "bucketed_recent_entry_index_window",
+                "candidate_window_policy": "recent_entry_index_reverse_window",
+                "candidate_window_limit": 3,
+                "candidate_index_count": 3,
+                "candidate_indices": [9, 8, 7],
+                "captured_anchor_count": 3,
+                "candidate_bucket_ids": [7, 8, 9],
+                "runs_live_tick": False,
+                "mutates_runtime_state": True,
+            }
+            trainer.model.memory_store.last_anchor_capture_report = dict(
+                anchor_capture_report
+            )
             checkpoint = save_trainer_checkpoint(
                 Path(tmpdir) / "replay-window-recall.pt",
                 trainer,
@@ -311,6 +344,24 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 [9, 8, 7, 6, 5],
             )
             self.assertFalse(restored_query_match_report["runs_live_tick"])
+            restored_tag_report = (
+                restored.model.memory_store.last_recent_memory_tag_report
+            )
+            self.assertEqual(
+                restored_tag_report["surface"],
+                "bounded_recent_memory_tag.v1",
+            )
+            self.assertEqual(restored_tag_report["candidate_indices"], [9, 8, 7])
+            self.assertFalse(restored_tag_report["runs_live_tick"])
+            restored_anchor_report = (
+                restored.model.memory_store.last_anchor_capture_report
+            )
+            self.assertEqual(
+                restored_anchor_report["surface"],
+                "bounded_recent_anchor_capture.v1",
+            )
+            self.assertEqual(restored_anchor_report["candidate_indices"], [9, 8, 7])
+            self.assertFalse(restored_anchor_report["runs_live_tick"])
 
     def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
         from tempfile import TemporaryDirectory

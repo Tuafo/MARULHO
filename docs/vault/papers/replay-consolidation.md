@@ -37,6 +37,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
 ---
 
 # Replay/consolidation
@@ -323,6 +325,26 @@ processed `262144` tokens at `6137.185 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1848 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The recent replay tag/anchor setup follow-up applies the same literature
+boundary to STC/PRP setup itself: tags and anchors are useful only when selected,
+bounded, and cadenced. `DualMemoryStore.collect_recent_entry_indices(...)`
+maintains a CPU recency index and records `bounded_recent_memory_window.v1`.
+`tag_recent_entries(...)` records `bounded_recent_memory_tag.v1`, while
+`capture_recent_memory_anchors(...)` records `bounded_recent_anchor_capture.v1`
+and requires bucketed entries before creating column anchors. This retires the
+old archive-linear timestamp/bucket walk for recent replay setup without moving
+archival metadata to CUDA. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
+kept recall and prototype gates passing, used `candidate_window_limit=256` for
+both recent tagging and anchor capture, touched `14` indexed entries, captured
+`4` anchors, reported no global score/candidate scan, and kept
+`runs_live_tick=false` with CPU archival storage. The matching 65536-column
+hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
+processed `262144` tokens at `6228.243 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `1846 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -330,7 +352,8 @@ candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
-readout, and retired unscoped random replay defaults
+readout, bounded recent tag/anchor setup, and retired unscoped random replay
+defaults
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

@@ -17,6 +17,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
 ---
 
 # Replay Status
@@ -44,6 +46,11 @@ Current bounded selection evidence:
   query/readout recall. It derives candidate buckets from routing, collects a
   capped bucket-indexed memory window, and computes similarity/replay-priority
   scores only for those candidate entries.
+- `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
+  `bounded_recent_anchor_capture.v1` are emitted from the recent replay setup
+  path. They collect from a CPU recency index, cap by `max_recent_entries`,
+  report selected indices and scan flags, and keep tag/anchor setup out of the
+  live tick.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
 - Bucket-scoped selection now caps candidate entries before scoring and reports
@@ -81,6 +88,14 @@ Current bounded selection evidence:
 - `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json`
   keeps the live tick protected at `6137.185 tokens/sec`, bounded
   `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
+  failures.
+- `reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
+  keeps replay recall/prototype gates passing while recent tag and anchor setup
+  use `candidate_window_limit=256`, `candidate_index_count=14`, no global
+  scans, CPU archival storage, and `runs_live_tick=false`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
+  keeps the live tick protected at `6228.243 tokens/sec`, bounded
+  `12/65536` route rows, flat `1846 MiB` GPU memory, and zero graph/native
   failures.
 
 ## Links

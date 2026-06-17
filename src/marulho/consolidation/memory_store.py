@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from array import array
+from bisect import insort
 import math
 import time
 from collections import defaultdict
@@ -61,6 +62,7 @@ class DualMemoryStore:
         self._bucket_consolidation_devices: dict[str, torch.Tensor] = {}
         self._bucket_consolidation_cache_generation = 0
         self._bucket_entry_indices: defaultdict[int, list[int]] = defaultdict(list)
+        self._recent_entry_indices: list[tuple[int, int]] = []
 
         self.slow_buffer: List[torch.Tensor] = []
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
@@ -108,6 +110,11 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_recent_memory_window_report = (
+            self._empty_recent_memory_window_report()
+        )
+        self.last_recent_memory_tag_report = self._empty_recent_memory_tag_report()
+        self.last_anchor_capture_report = self._empty_anchor_capture_report()
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -159,6 +166,11 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_recent_memory_window_report = (
+            self._empty_recent_memory_window_report()
+        )
+        self.last_recent_memory_tag_report = self._empty_recent_memory_tag_report()
+        self.last_anchor_capture_report = self._empty_anchor_capture_report()
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -166,6 +178,7 @@ class DualMemoryStore:
         self._cached_summary = None
         self._cached_summary_token = -1
         self._bucket_entry_indices = defaultdict(list)
+        self._recent_entry_indices = []
         self._invalidate_bucket_consolidation_cache()
 
     def _invalidate_summary_cache(self) -> None:
@@ -199,8 +212,25 @@ class DualMemoryStore:
         self._remove_bucket_entry_index(bucket, int(index))
         self._bucket_entry_indices[bucket].append(int(index))
 
+    def _remove_recent_entry_index(self, index: int) -> None:
+        target = int(index)
+        self._recent_entry_indices = [
+            (int(token), int(item))
+            for token, item in self._recent_entry_indices
+            if int(item) != target
+        ]
+
+    def _add_recent_entry_index(self, index: int) -> None:
+        idx = int(index)
+        if idx < 0 or idx >= len(self.slow_entry_timestamps):
+            return
+        token_marker = int(self.slow_entry_timestamps[idx])
+        self._remove_recent_entry_index(idx)
+        insort(self._recent_entry_indices, (token_marker, idx))
+
     def _rebuild_bucket_entry_index(self) -> None:
         self._bucket_entry_indices = defaultdict(list)
+        self._recent_entry_indices = []
         ordered_indices = sorted(
             range(len(self.slow_bucket_ids)),
             key=lambda idx: (
@@ -213,6 +243,42 @@ class DualMemoryStore:
         for index in ordered_indices:
             bucket_id = self.slow_bucket_ids[index]
             self._add_bucket_entry_index(bucket_id, int(index))
+            self._add_recent_entry_index(int(index))
+
+    def _recent_indices_for_window(
+        self,
+        *,
+        current_token: int,
+        window_tokens: int,
+        max_entries: int,
+        require_bucket: bool = False,
+    ) -> tuple[list[int], int, bool, int]:
+        floor_token = max(0, int(current_token) - int(window_tokens))
+        limit = max(0, int(max_entries))
+        if limit <= 0 or window_tokens <= 0:
+            return [], 0, False, floor_token
+
+        indices: list[int] = []
+        observed_available = 0
+        truncated = False
+        size = len(self.slow_buffer)
+        for token_marker, raw_index in reversed(self._recent_entry_indices):
+            token = int(token_marker)
+            if token < floor_token:
+                break
+            idx = int(raw_index)
+            if idx < 0 or idx >= size:
+                continue
+            if require_bucket and (
+                idx >= len(self.slow_bucket_ids) or self.slow_bucket_ids[idx] is None
+            ):
+                continue
+            observed_available += 1
+            if len(indices) >= limit:
+                truncated = True
+                break
+            indices.append(idx)
+        return indices, observed_available, truncated, floor_token
 
     def _invalidate_bucket_consolidation_cache(self) -> None:
         self._bucket_consolidation_cache_generation += 1
@@ -324,6 +390,80 @@ class DualMemoryStore:
             "candidate_index_count": 0,
             "match_indices": [],
             "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_recent_memory_window_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_recent_memory_window.v1",
+            "status": "not_run",
+            "scope": "recent_memory_slow_path",
+            "memory_size": 0,
+            "current_token": 0,
+            "window_tokens": 0,
+            "floor_token": 0,
+            "requested_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_index_available_count": 0,
+            "candidate_index_available_count_is_lower_bound": False,
+            "candidate_index_count": 0,
+            "candidate_indices": [],
+            "requires_bucket": False,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_recent_memory_tag_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_recent_memory_tag.v1",
+            "status": "not_run",
+            "scope": "recent_memory_tagging_slow_path",
+            "memory_size": 0,
+            "current_token": 0,
+            "window_tokens": 0,
+            "candidate_window_limit": 0,
+            "candidate_index_count": 0,
+            "tagged_count": 0,
+            "strength": 0.0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_anchor_capture_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_recent_anchor_capture.v1",
+            "status": "not_run",
+            "scope": "recent_anchor_capture_slow_path",
+            "memory_size": 0,
+            "current_token": 0,
+            "window_tokens": 0,
+            "candidate_window_limit": 0,
+            "candidate_index_count": 0,
+            "captured_entry_count": 0,
+            "captured_anchor_count": 0,
+            "candidate_bucket_ids": [],
+            "strength": 0.0,
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -504,6 +644,15 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_recent_memory_window_report": dict(
+                self.last_recent_memory_window_report
+            ),
+            "last_recent_memory_tag_report": dict(
+                self.last_recent_memory_tag_report
+            ),
+            "last_anchor_capture_report": dict(
+                self.last_anchor_capture_report
             ),
             "all_archival_tensors_cpu": all(
                 device == "cpu"
@@ -850,6 +999,7 @@ class DualMemoryStore:
             sign=-1.0,
         )
         self._remove_bucket_entry_index(old_bucket_id, index)
+        self._remove_recent_entry_index(index)
         strong_event = self._is_strong_event(capture_value, importance)
         injected_prp = self._inject_prp(bucket_id=bucket_id, strength=capture_value, importance=importance)
         local_prp = 0.20 * injected_prp if strong_event else 0.0
@@ -880,6 +1030,7 @@ class DualMemoryStore:
         self.slow_replay_count[index] = 0
         self.slow_ripple_strength[index] = 0.0
         self._add_bucket_entry_index(new_bucket_id, index)
+        self._add_recent_entry_index(index)
         self._invalidate_summary_cache()
 
     def update(
@@ -1280,23 +1431,105 @@ class DualMemoryStore:
         """Number of currently ripple-tagged memories."""
         return sum(1 for value in self.slow_ripple_strength if float(value) > 0.0)
 
+    def collect_recent_entry_indices(
+        self,
+        *,
+        current_token: int,
+        window_tokens: int,
+        max_entries: int = 256,
+        require_bucket: bool = False,
+        scope: str = "recent_memory_slow_path",
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        requested = max(0, int(max_entries))
+        indices, observed_available, truncated, floor_token = (
+            self._recent_indices_for_window(
+                current_token=int(current_token),
+                window_tokens=int(window_tokens),
+                max_entries=requested,
+                require_bucket=bool(require_bucket),
+            )
+        )
+        fallback_reason: str | None = None
+        if int(window_tokens) <= 0:
+            fallback_reason = "empty_recent_window"
+        elif requested <= 0:
+            fallback_reason = "empty_recent_window_budget"
+        elif not indices:
+            fallback_reason = "no_recent_entries_in_bounded_window"
+        report = {
+            "surface": "bounded_recent_memory_window.v1",
+            "status": "collected" if indices else "empty",
+            "scope": str(scope),
+            "memory_size": int(len(self.slow_buffer)),
+            "current_token": int(current_token),
+            "window_tokens": int(window_tokens),
+            "floor_token": int(floor_token),
+            "requested_count": int(requested),
+            "candidate_window_limit": int(requested),
+            "candidate_window_policy": "recent_entry_index_reverse_window",
+            "candidate_scope": (
+                "bucketed_recent_entry_index_window"
+                if require_bucket
+                else "recent_entry_index_window"
+            ),
+            "candidate_index_available_count": int(observed_available),
+            "candidate_index_available_count_is_lower_bound": bool(truncated),
+            "candidate_index_count": int(len(indices)),
+            "candidate_indices": [int(index) for index in indices],
+            "requires_bucket": bool(require_bucket),
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": float((time.perf_counter() - started) * 1000.0),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(requested),
+            },
+        }
+        self.last_recent_memory_window_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def tag_recent_entries(
         self,
         *,
         current_token: int,
         window_tokens: int,
         strength: float,
+        max_recent_entries: int = 256,
     ) -> int:
         if window_tokens <= 0 or strength <= 0.0:
+            self.last_recent_memory_tag_report = {
+                **self._empty_recent_memory_tag_report(),
+                "status": "empty",
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "strength": float(strength),
+                "fallback_reason": (
+                    "empty_recent_window"
+                    if window_tokens <= 0
+                    else "non_positive_tag_strength"
+                ),
+            }
+            self._invalidate_summary_cache()
             return 0
 
         self._advance_state(current_token)
-        floor_token = max(0, int(current_token) - int(window_tokens))
+        window_report = self.collect_recent_entry_indices(
+            current_token=int(current_token),
+            window_tokens=int(window_tokens),
+            max_entries=int(max_recent_entries),
+            require_bucket=False,
+            scope="recent_memory_tagging_slow_path",
+        )
         tagged = 0
-        for idx, token_marker in enumerate(self.slow_entry_timestamps):
-            if int(token_marker) < floor_token:
-                continue
-
+        for idx in window_report.get("candidate_indices", []):
+            idx = int(idx)
             tag_strength = float(max(0.0, strength))
             importance = float(self.slow_importance[idx]) if idx < len(self.slow_importance) else 0.0
             strong_event = self._is_strong_event(tag_strength, importance)
@@ -1312,6 +1545,20 @@ class DualMemoryStore:
                 local_share = 0.20 if strong_event else 0.08
                 self.slow_local_prp[idx] = float(max(self.slow_local_prp[idx], local_share * injected))
             tagged += 1
+        self.last_recent_memory_tag_report = {
+            **dict(window_report),
+            "surface": "bounded_recent_memory_tag.v1",
+            "status": "tagged" if tagged else "empty",
+            "scope": "recent_memory_tagging_slow_path",
+            "tagged_count": int(tagged),
+            "strength": float(strength),
+            "mutates_runtime_state": bool(tagged),
+            "applies_plasticity": bool(tagged),
+            "fallback_reason": None
+            if tagged
+            else window_report.get("fallback_reason", "no_recent_entries_tagged"),
+        }
+        self._invalidate_summary_cache()
         return tagged
 
     def replay_entry(
@@ -2294,6 +2541,15 @@ class DualMemoryStore:
                 "last_query_memory_match_report": dict(
                     self.last_query_memory_match_report
                 ),
+                "last_recent_memory_window_report": dict(
+                    self.last_recent_memory_window_report
+                ),
+                "last_recent_memory_tag_report": dict(
+                    self.last_recent_memory_tag_report
+                ),
+                "last_anchor_capture_report": dict(
+                    self.last_anchor_capture_report
+                ),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -2371,6 +2627,15 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_recent_memory_window_report": dict(
+                self.last_recent_memory_window_report
+            ),
+            "last_recent_memory_tag_report": dict(
+                self.last_recent_memory_tag_report
+            ),
+            "last_anchor_capture_report": dict(
+                self.last_anchor_capture_report
             ),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
@@ -2471,6 +2736,15 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_recent_memory_window_report": dict(
+                self.last_recent_memory_window_report
+            ),
+            "last_recent_memory_tag_report": dict(
+                self.last_recent_memory_tag_report
+            ),
+            "last_anchor_capture_report": dict(
+                self.last_anchor_capture_report
             ),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
@@ -2665,6 +2939,24 @@ class DualMemoryStore:
             dict(raw_query_memory_match)
             if isinstance(raw_query_memory_match, Mapping)
             else self._empty_query_memory_match_report()
+        )
+        raw_recent_memory_window = snapshot.get("last_recent_memory_window_report")
+        self.last_recent_memory_window_report = (
+            dict(raw_recent_memory_window)
+            if isinstance(raw_recent_memory_window, Mapping)
+            else self._empty_recent_memory_window_report()
+        )
+        raw_recent_memory_tag = snapshot.get("last_recent_memory_tag_report")
+        self.last_recent_memory_tag_report = (
+            dict(raw_recent_memory_tag)
+            if isinstance(raw_recent_memory_tag, Mapping)
+            else self._empty_recent_memory_tag_report()
+        )
+        raw_anchor_capture = snapshot.get("last_anchor_capture_report")
+        self.last_anchor_capture_report = (
+            dict(raw_anchor_capture)
+            if isinstance(raw_anchor_capture, Mapping)
+            else self._empty_anchor_capture_report()
         )
         self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")

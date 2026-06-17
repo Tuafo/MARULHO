@@ -460,6 +460,22 @@ On 2026-06-11, Cross-Modal Grounding adopted the same specialist wake rule for t
 
 The repeatable runner at `marulho.evaluation.cross_modal_wake_benchmark` compared interval 1 with interval 4 on the revision-209 live checkpoint. Across 120 text-only samples per arm, median latency improved from `57.59725` to `51.5753 ms` (`10.46%`) and mean from `59.4546` to `54.8716 ms` (`7.71%`). P95 regressed from `82.0887` to `83.8702 ms`, so this is not a tail-latency claim. Isolated profiling measured 49 CUDA kernels and 108 ATen ops for one text update versus 2 CUDA kernels and 3 ATen ops for one cached skip.
 
+On 2026-06-17, recent replay tag and anchor setup moved to a bounded CPU
+recency index. `tag_recent_entries(...)` no longer walks all archival
+timestamps; it emits `bounded_recent_memory_tag.v1` over a capped
+`bounded_recent_memory_window.v1`. `capture_recent_memory_anchors(...)` uses
+the same index with `require_bucket=true`, emits
+`bounded_recent_anchor_capture.v1`, and only creates column anchors from
+bucketed entries. The synthetic replay report
+`reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
+kept recall/prototype gates passing while tag and anchor setup used
+`candidate_window_limit=256`, no global scans, CPU archival storage, and
+`runs_live_tick=false`. The 65536-column hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
+processed `262144` tokens at `6228.243 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native/sequence
+failures, flat `1846 MiB` GPU memory, and no observed contention.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

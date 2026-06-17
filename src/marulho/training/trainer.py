@@ -4403,33 +4403,69 @@ class MarulhoTrainer:
             )
         return total_updates
 
+    def _recent_replay_setup_limit(self) -> int:
+        candidate_pool = int(getattr(self.config, "deep_sleep_candidate_pool", 32))
+        return max(32, candidate_pool * 8)
+
     def tag_recent_memories(self, window_tokens: int, strength: float) -> int:
         return self.model.memory_store.tag_recent_entries(
             current_token=self.token_count,
             window_tokens=window_tokens,
             strength=strength,
+            max_recent_entries=self._recent_replay_setup_limit(),
         )
 
     def capture_recent_memory_anchors(self, window_tokens: int, strength: float) -> int:
         if window_tokens <= 0:
+            self.model.memory_store.last_anchor_capture_report = {
+                **self.model.memory_store._empty_anchor_capture_report(),
+                "status": "empty",
+                "current_token": int(self.token_count),
+                "window_tokens": int(window_tokens),
+                "strength": float(strength),
+                "fallback_reason": "empty_recent_window",
+            }
             return 0
 
-        floor_token = max(0, self.token_count - int(window_tokens))
+        window_report = self.model.memory_store.collect_recent_entry_indices(
+            current_token=int(self.token_count),
+            window_tokens=int(window_tokens),
+            max_entries=self._recent_replay_setup_limit(),
+            require_bucket=True,
+            scope="recent_anchor_capture_slow_path",
+        )
         captured = 0
-        for idx, token_marker in enumerate(self.model.memory_store.slow_entry_timestamps):
-            if int(token_marker) < floor_token:
-                continue
+        candidate_buckets: set[int] = set()
+        for idx in window_report.get("candidate_indices", []):
+            idx = int(idx)
             bucket_id = self.model.memory_store.slow_bucket_ids[idx]
             if bucket_id is None:
                 continue
             bucket = int(bucket_id)
+            candidate_buckets.add(bucket)
             self.column_anchors[bucket] = {
                 "prototype": self.model.competitive.prototypes[bucket].detach().clone(),
                 "input_weights": self.model.competitive.input_weights[bucket].detach().clone(),
                 "strength": float(max(0.0, strength)),
             }
             captured += 1
-        return len(self.column_anchors) if captured > 0 else 0
+        anchor_count = len(self.column_anchors) if captured > 0 else 0
+        self.model.memory_store.last_anchor_capture_report = {
+            **dict(window_report),
+            "surface": "bounded_recent_anchor_capture.v1",
+            "status": "captured" if captured else "empty",
+            "scope": "recent_anchor_capture_slow_path",
+            "captured_entry_count": int(captured),
+            "captured_anchor_count": int(anchor_count),
+            "candidate_bucket_ids": sorted(candidate_buckets),
+            "strength": float(strength),
+            "mutates_runtime_state": bool(captured),
+            "applies_plasticity": False,
+            "fallback_reason": None
+            if captured
+            else window_report.get("fallback_reason", "no_recent_anchor_entries"),
+        }
+        return anchor_count
 
     def winner_for_pattern(self, pattern_vec: torch.Tensor) -> int:
         """Deterministic offline winner used for evaluation and query readout."""

@@ -36,6 +36,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
 ---
 
 # Replay Cost
@@ -70,6 +72,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.training.query_runner --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --query-text "bounded replay memory" --top-k-candidates 5 --top-k-memories 5 --top-chars 4 --output-json reports\bounded_replay_window_20260617\query-memory-match-bounded-window.json`
 - Hot-path protection for bounded query-memory match:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-memory-match.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Recent tag/anchor recency-index tests:
+  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_memory_tagging_uses_capped_recency_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_anchor_capture_uses_capped_recency_index tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
+- Synthetic recent replay tag/anchor setup:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-recent-anchor-window.json`
+- Hot-path protection for recent replay tag/anchor setup:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -477,6 +485,41 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `14%`,
 GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
 stayed flat at `1848 MiB` before and after measurement.
+
+The recent replay tag/anchor setup follow-up removes the last archive-linear
+setup shape from this replay window. `DualMemoryStore` now keeps a CPU
+recency index over slow-memory entries and emits `bounded_recent_memory_window.v1`.
+`tag_recent_entries(...)` emits `bounded_recent_memory_tag.v1` from that capped
+window, and `MarulhoTrainer.capture_recent_memory_anchors(...)` emits
+`bounded_recent_anchor_capture.v1` from the same index while requiring bucketed
+entries. The focused cap tests prove the old scan is gone by inserting `10`
+recent entries and limiting setup to `3`: both tagging and anchor capture touch
+only indices `[9, 8, 7]`, while older entries are not tagged or anchored.
+
+The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
+kept the positive-pressure replay recall and prototype gates passing, accepted
+`2` bounded updates, kept `global_fallback_cycle_count=0`, and preserved stored
+input-pattern recall at `5.960464477539063e-08` mean distance. The recent tag
+setup reported `candidate_window_limit=256`, `candidate_index_available_count=14`,
+`candidate_index_count=14`, `global_score_scan=false`, `global_candidate_scan=false`,
+`runs_live_tick=false`, `archival_storage_device=cpu`, and `latency_ms=0.0259`.
+The anchor setup reported the same `256` candidate cap, `14` indexed entries,
+`captured_entry_count=14`, `captured_anchor_count=4`, no global scans,
+`runs_live_tick=false`, `archival_storage_device=cpu`, and `latency_ms=0.0136`.
+The memory-store device report kept `all_archival_tensors_cpu=true`.
+
+The matching 65536-column long run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
+processed `262144` tokens at `6228.243 tokens/sec`, with
+`train_compute=0.131307 ms/token`, `prepare_training=0.006430 ms/token`,
+`finalize_total=0.006432 ms/token`, and `tick_duration_ms.p95=20.538`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `25%`,
+GPU utilization max `13%`, GPU memory utilization max `11%`, and GPU memory
+stayed flat at `1846 MiB` before and after measurement.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

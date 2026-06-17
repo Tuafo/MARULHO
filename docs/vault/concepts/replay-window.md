@@ -25,6 +25,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
 ---
 
 # Replay Window
@@ -37,7 +39,9 @@ replay before any consolidation or plasticity authority.
 Current runtime surfaces: `bounded_replay_window_selection.v1`,
 `bounded_replay_window_recall.v1`, and
 `bounded_replay_query_collection.v1`. Explicit query/readout recall also uses
-`bounded_query_memory_match.v1`.
+`bounded_query_memory_match.v1`. Recent replay setup uses
+`bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
+`bounded_recent_anchor_capture.v1`.
 
 ## Rules
 
@@ -86,6 +90,11 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   candidate bucket ids from routing, collects a capped bucket-indexed memory
   window, and scores only those entries; it must not compute similarity or
   replay priority over the whole slow buffer.
+- Recent replay setup must also default to bounded inputs. Tagging and anchor
+  capture collect from the CPU recency index, cap by `max_recent_entries`, and
+  report candidate availability, selected indices, CPU archival placement,
+  global scan flags, and `runs_live_tick=false`. Anchor capture additionally
+  requires bucketed entries so slow-window replay remains column-local.
 
 ## Evidence
 
@@ -187,6 +196,24 @@ similarity `0.9932903051`. The matching hot-path report
 processed `262144` tokens at `6137.185 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
+
+Recent replay tag and anchor setup now use the same bounded-window discipline.
+`DualMemoryStore.collect_recent_entry_indices(...)` emits
+`bounded_recent_memory_window.v1`, `tag_recent_entries(...)` emits
+`bounded_recent_memory_tag.v1`, and
+`MarulhoTrainer.capture_recent_memory_anchors(...)` emits
+`bounded_recent_anchor_capture.v1`. Focused tests cap a `10`-entry recency index
+to `[9, 8, 7]` for both tagging and anchor capture, proving older entries are
+not reached by a hidden archive walk. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
+kept positive-pressure recall/prototype gates passing while the tag and anchor
+reports used `candidate_window_limit=256`, `candidate_index_count=14`, no global
+score/candidate scan, CPU archival storage, and `runs_live_tick=false`. The
+matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
+processed `262144` tokens at `6228.243 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `1846 MiB`, and had zero graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`

@@ -408,6 +408,85 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(store.slow_consolidation_events[1], 1)
         self.assertEqual(store.slow_replay_count[1], 1)
 
+    def test_recent_memory_tagging_uses_capped_recency_index(self) -> None:
+        store = DualMemoryStore(
+            capacity=16,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token in range(1, 11):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=token,
+                capture_tag=0.0,
+            )
+        old_tag_before = float(store.slow_capture_tag[0])
+
+        tagged = store.tag_recent_entries(
+            current_token=10,
+            window_tokens=10,
+            strength=2.0,
+            max_recent_entries=3,
+        )
+        report = store.last_recent_memory_tag_report
+
+        self.assertEqual(tagged, 3)
+        self.assertEqual(report["surface"], "bounded_recent_memory_tag.v1")
+        self.assertEqual(report["candidate_window_policy"], "recent_entry_index_reverse_window")
+        self.assertEqual(report["candidate_window_limit"], 3)
+        self.assertEqual(report["candidate_index_count"], 3)
+        self.assertEqual(report["candidate_indices"], [9, 8, 7])
+        self.assertTrue(report["candidate_index_available_count_is_lower_bound"])
+        self.assertEqual(report["tagged_count"], 3)
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertGreater(store.slow_capture_tag[9], 0.0)
+        self.assertLessEqual(float(store.slow_capture_tag[0]), old_tag_before)
+
+    def test_recent_anchor_capture_uses_capped_recency_index(self) -> None:
+        cfg = MarulhoConfig(
+            n_columns=16,
+            column_latent_dim=4,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            deep_sleep_candidate_pool=1,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer._recent_replay_setup_limit = lambda: 3  # type: ignore[method-assign]
+        for token in range(1, 11):
+            trainer.model.memory_store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=token,
+                capture_tag=0.0,
+            )
+        trainer.token_count = 10
+
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=10,
+            strength=4.0,
+        )
+        report = trainer.model.memory_store.last_anchor_capture_report
+
+        self.assertEqual(anchored, 3)
+        self.assertEqual(report["surface"], "bounded_recent_anchor_capture.v1")
+        self.assertEqual(report["candidate_window_limit"], 3)
+        self.assertEqual(report["candidate_index_count"], 3)
+        self.assertEqual(report["candidate_indices"], [9, 8, 7])
+        self.assertEqual(report["captured_entry_count"], 3)
+        self.assertEqual(report["captured_anchor_count"], 3)
+        self.assertEqual(report["candidate_bucket_ids"], [8, 9, 10])
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertTrue({8, 9, 10}.issubset(set(trainer.column_anchors)))
+        self.assertNotIn(1, trainer.column_anchors)
+
     def test_capture_tag_decay_uses_functional_minutes(self) -> None:
         store = DualMemoryStore(
             capacity=1,
