@@ -21,6 +21,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
+  - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
 ---
 
 # Replay Status
@@ -53,6 +56,10 @@ Current bounded selection evidence:
   path. They collect from a CPU recency index, cap by `max_recent_entries`,
   report selected indices and scan flags, and keep tag/anchor setup out of the
   live tick.
+- `bounded_awake_ripple_tag.v1` is emitted from awake-ripple replay-priority
+  tagging. Production tagging requires awake bucket scope, caps candidates
+  through the CPU bucket/recency index, and marks `runs_every_token=false`;
+  the old global scalar/vector scan is diagnostic-only.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
 - Bucket-scoped selection now caps candidate entries before scoring and reports
@@ -108,6 +115,18 @@ Current bounded selection evidence:
   keeps the live tick protected at `6211.859 tokens/sec`, bounded
   `12/65536` route rows, flat `1852 MiB` GPU memory, and zero graph/native
   failures.
+- `reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
+  proves wake-bucket scoped ripple tagging avoids global memory scans: scoped
+  tagging used `0` scalar/vector scans, `256` awake-bucket scans, and averaged
+  `1.091997 ms` versus `1.433332 ms` for the diagnostic global vector path.
+- `reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json`
+  keeps recall/prototype gates passing and records
+  `last_awake_ripple_tag_report` with `global_candidate_scan=false`,
+  `diagnostic_global_candidate_scan=false`, and `runs_every_token=false`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json`
+  keeps the longer live tick protected at `6152.328 tokens/sec`, bounded
+  `12/65536` route rows, flat `2013 MiB` GPU memory, no observed contention,
+  and zero graph/native failures.
 
 ## Links
 

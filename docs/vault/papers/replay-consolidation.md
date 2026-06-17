@@ -41,6 +41,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
+  - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
 ---
 
 # Replay/consolidation
@@ -107,6 +110,16 @@ so `query_runner.memory_matches_with_report(...)` records
 bucket-indexed memory window, and the query runner computes similarity plus
 replay-priority scores only for those entries. This keeps readout recall from
 becoming an archive-wide hidden reasoning pass.
+
+Awake-ripple replay tagging is treated as selected synaptic tagging/capture
+metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
+requires awake bucket scope for production tagging, caps candidates through the
+CPU bucket/recency index, and records `bounded_awake_ripple_tag.v1` with
+candidate budget, scan flags, device placement, and `runs_every_token=false`.
+If awake bucket scope is absent, it returns an empty retired report instead of
+scanning all memory. The retained scalar/vector recent-memory scan can run only
+as an explicit diagnostic baseline through `allow_global_diagnostic=true`, where
+it records `diagnostic_awake_ripple_global_tag.v1`.
 
 Zero-pressure replay is now retired: if the global scorer finds no positive
 consolidation/repair/maintenance pressure, it returns an empty selection with
@@ -347,6 +360,23 @@ processed `262144` tokens at `6228.243 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1846 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The bounded awake-ripple follow-up applies the same rule to ripple priority
+tagging. The direct benchmark
+`reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
+compared the diagnostic global scan with a wake-bucket candidate window over
+`256` iterations on an `8192`-entry ledger: diagnostic global tagging averaged
+`1.433332 ms` with `256` vector scans, while scoped tagging averaged
+`1.091997 ms`, used `0` scalar/vector scans, used `256` awake-bucket scans, and
+touched `10` final candidate entries (`1.312579x`). The synthetic replay report
+`reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json`
+kept recall/prototype gates passing and recorded
+`last_awake_ripple_tag_report` with `global_candidate_scan=false` and
+`runs_every_token=false`. The longer 65536-column hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json`
+processed `524288` tokens at `6152.328 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `2013 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 The replay-score helper cleanup removes a leftover archive-wide scoring API.
 The replay-priority formula remains, but callers must now use
 `replay_scores_for_indices(...)` with explicit candidate indices. That keeps
@@ -368,8 +398,8 @@ candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
-readout, bounded recent tag/anchor setup, and retired unscoped random replay
-defaults plus the full-buffer replay-score helper
+readout, bounded recent tag/anchor setup, bounded awake-ripple tagging, and
+retired unscoped random replay defaults plus the full-buffer replay-score helper
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

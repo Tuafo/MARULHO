@@ -165,6 +165,16 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(store.ripple_awake_bucket_scan_count, 1)
         self.assertEqual(store.last_ripple_awake_bucket_count, 1)
         self.assertEqual(store.last_ripple_awake_candidate_count, 2)
+        report = store.last_awake_ripple_tag_report
+        self.assertEqual(report["surface"], "bounded_awake_ripple_tag.v1")
+        self.assertEqual(report["candidate_scope"], "awake_bucket_index_candidate_window")
+        self.assertEqual(report["candidate_window_policy"], "recent_bucket_round_robin_candidate_pool")
+        self.assertEqual(report["candidate_index_available_count"], 2)
+        self.assertEqual(report["candidate_index_count"], 2)
+        self.assertEqual(report["tagged_count"], 2)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertEqual(report["archival_storage_device"], "cpu")
         tagged_buckets = [
             bucket_id
             for bucket_id, strength in zip(
@@ -221,6 +231,83 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertEqual(new_bucket_tagged, 1)
         self.assertEqual(store.last_ripple_awake_candidate_count, 1)
+
+    def test_awake_ripple_tagging_caps_awake_bucket_candidates(self) -> None:
+        store = DualMemoryStore(capacity=16)
+        for token in range(1, 11):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                importance=0.8,
+                token_count=token,
+                bucket_id=1,
+            )
+        old_strength = float(store.slow_ripple_strength[0])
+
+        tagged = store.ripple_tag_awake(
+            current_token=10,
+            window_tokens=10,
+            da_level=0.95,
+            awake_bucket_ids=[1],
+            max_candidate_entries=3,
+        )
+        report = store.last_awake_ripple_tag_report
+
+        self.assertEqual(tagged, 3)
+        self.assertEqual(report["surface"], "bounded_awake_ripple_tag.v1")
+        self.assertEqual(report["candidate_window_limit"], 3)
+        self.assertEqual(report["candidate_index_available_count"], 10)
+        self.assertEqual(report["candidate_index_count"], 3)
+        self.assertEqual(report["candidate_indices"], [9, 8, 7])
+        self.assertEqual(report["tagged_count"], 3)
+        self.assertEqual(report["scan_mode"], "awake_bucket_index")
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["diagnostic_global_candidate_scan"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertEqual(report["archival_storage_device"], "cpu")
+        self.assertGreater(float(store.slow_ripple_strength[9]), 0.0)
+        self.assertEqual(float(store.slow_ripple_strength[0]), old_strength)
+
+    def test_awake_ripple_unscoped_requires_diagnostic_opt_in(self) -> None:
+        store = DualMemoryStore(capacity=16)
+        for token in range(1, 5):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                importance=0.8,
+                token_count=token,
+                bucket_id=token,
+            )
+
+        tagged = store.ripple_tag_awake(
+            current_token=5,
+            window_tokens=5,
+            da_level=0.95,
+        )
+        report = store.last_awake_ripple_tag_report
+
+        self.assertEqual(tagged, 0)
+        self.assertEqual(store.last_ripple_scan_mode, "unscoped_global_ripple_scan_retired")
+        self.assertEqual(store.ripple_scalar_scan_count, 0)
+        self.assertEqual(store.ripple_vector_scan_count, 0)
+        self.assertEqual(report["candidate_scope"], "unscoped_awake_bucket_scope_required")
+        self.assertEqual(
+            report["fallback_reason"],
+            "awake_bucket_scope_required_for_ripple_tagging",
+        )
+        self.assertFalse(report["global_candidate_scan"])
+
+        diagnostic_tagged = store.ripple_tag_awake(
+            current_token=5,
+            window_tokens=5,
+            da_level=0.95,
+            allow_global_diagnostic=True,
+        )
+        diagnostic = store.last_awake_ripple_tag_report
+
+        self.assertEqual(diagnostic_tagged, 4)
+        self.assertEqual(diagnostic["surface"], "diagnostic_awake_ripple_global_tag.v1")
+        self.assertTrue(diagnostic["global_candidate_scan"])
+        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
+        self.assertEqual(store.ripple_scalar_scan_count, 1)
 
     def test_memory_store_rejected_reservoir_sample_skips_optional_payload_copies(self) -> None:
         store = DualMemoryStore(capacity=1)

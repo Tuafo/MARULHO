@@ -39,6 +39,7 @@ def _measure(
     current_token: int,
     window_tokens: int,
     awake_bucket_ids: list[int] | None,
+    allow_global_diagnostic: bool = False,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tagged_total = 0
@@ -49,6 +50,7 @@ def _measure(
                 window_tokens=int(window_tokens),
                 da_level=0.95,
                 awake_bucket_ids=awake_bucket_ids,
+                allow_global_diagnostic=bool(allow_global_diagnostic),
             )
         )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -114,6 +116,7 @@ def run_awake_ripple_scope_benchmark(
         current_token=current_token,
         window_tokens=window_tokens,
         awake_bucket_ids=None,
+        allow_global_diagnostic=True,
     )
     scoped_result = _measure(
         scoped_store,

@@ -104,6 +104,7 @@ class DualMemoryStore:
         self.last_ripple_awake_bucket_count = 0
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
+        self.last_awake_ripple_tag_report = self._empty_awake_ripple_tag_report()
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
         self.last_replay_query_collection_report = (
@@ -160,6 +161,7 @@ class DualMemoryStore:
         self.last_ripple_awake_bucket_count = 0
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
+        self.last_awake_ripple_tag_report = self._empty_awake_ripple_tag_report()
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
         self.last_replay_query_collection_report = (
@@ -473,6 +475,39 @@ class DualMemoryStore:
             "fallback_reason": "not_run",
         }
 
+    @staticmethod
+    def _empty_awake_ripple_tag_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_awake_ripple_tag.v1",
+            "status": "not_run",
+            "scope": "awake_ripple_tagging_cadenced_path",
+            "memory_size": 0,
+            "current_token": 0,
+            "window_tokens": 0,
+            "floor_token": 0,
+            "da_level": 0.0,
+            "da_threshold": 0.0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": 0,
+            "candidate_index_count": 0,
+            "candidate_indices": [],
+            "tagged_count": 0,
+            "scan_mode": "not_run",
+            "global_candidate_scan": False,
+            "diagnostic_global_candidate_scan": False,
+            "runs_live_tick": True,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": 0.0,
+            "fallback_reason": "not_run",
+        }
+
     def _adjust_bucket_consolidation_cache(
         self,
         bucket_id: Optional[int],
@@ -633,6 +668,9 @@ class DualMemoryStore:
                 ),
                 "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             },
+            "last_awake_ripple_tag_report": dict(
+                self.last_awake_ripple_tag_report
+            ),
             "last_replay_selection_report": dict(
                 self.last_replay_selection_report
             ),
@@ -1297,6 +1335,8 @@ class DualMemoryStore:
         da_level: float,
         da_threshold: float = 0.7,
         awake_bucket_ids: Sequence[int] | torch.Tensor | None = None,
+        max_candidate_entries: int = 256,
+        allow_global_diagnostic: bool = False,
     ) -> int:
         """Awake ripple tagging (Yang & Buzsaki 2024, Science).
 
@@ -1318,60 +1358,198 @@ class DualMemoryStore:
             Number of entries ripple-tagged.
         """
         if da_level < da_threshold or window_tokens <= 0:
+            self.last_awake_ripple_tag_report = {
+                **self._empty_awake_ripple_tag_report(),
+                "status": "skipped",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "fallback_reason": (
+                    "dopamine_below_threshold"
+                    if da_level < da_threshold
+                    else "empty_recent_window"
+                ),
+            }
+            self._invalidate_summary_cache()
             return 0
 
+        started = time.perf_counter()
         self._advance_state(current_token)
         floor_token = max(0, int(current_token) - int(window_tokens))
         window_span = max(1.0, float(window_tokens))
         da_scale = max(0.0, min(1.0, (float(da_level) - float(da_threshold)) / max(1e-6, 1.0 - float(da_threshold))))
+        candidate_limit = max(0, int(max_candidate_entries))
         size = min(
             len(self.slow_entry_timestamps),
             len(self.slow_ripple_strength),
             len(self.slow_capture_tag),
         )
         if size <= 0:
+            self.last_awake_ripple_tag_report = {
+                **self._empty_awake_ripple_tag_report(),
+                "status": "empty",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "floor_token": int(floor_token),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "candidate_window_limit": int(candidate_limit),
+                "latency_ms": float((time.perf_counter() - started) * 1000.0),
+                "fallback_reason": "empty_memory",
+            }
+            self._invalidate_summary_cache()
             return 0
         bucket_ids = self._normalise_awake_bucket_ids(awake_bucket_ids)
         if bucket_ids is not None:
             self.last_ripple_scan_mode = "awake_bucket_index"
             self.ripple_awake_bucket_scan_count += 1
             self.last_ripple_awake_bucket_count = int(len(bucket_ids))
-            candidate_indices: set[int] = set()
-            for bucket_id in bucket_ids:
-                candidate_indices.update(
-                    self._bucket_entry_indices.get(int(bucket_id), ())
+            _normalized, bounded_indices, available_count = (
+                self._candidate_indices_for_bucket_ids(
+                    bucket_ids,
+                    max_candidates=candidate_limit,
                 )
-            bounded_indices = [
-                int(index)
-                for index in sorted(candidate_indices)
-                if 0 <= int(index) < size
-            ]
+            )
+            bounded_indices = [int(index) for index in bounded_indices]
             self.last_ripple_awake_candidate_count = int(len(bounded_indices))
             self.ripple_awake_bucket_candidate_count += int(
                 len(bounded_indices)
             )
+            tagged = 0
+            if bounded_indices:
+                tagged = self._ripple_tag_indices(
+                    bounded_indices,
+                    floor_token=floor_token,
+                    window_span=window_span,
+                    da_scale=da_scale,
+                    size=size,
+                )
+            self.last_awake_ripple_tag_report = {
+                "surface": "bounded_awake_ripple_tag.v1",
+                "status": "tagged" if tagged else "empty",
+                "scope": "awake_ripple_tagging_cadenced_path",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "floor_token": int(floor_token),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "candidate_window_limit": int(candidate_limit),
+                "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
+                "candidate_scope": "awake_bucket_index_candidate_window",
+                "candidate_bucket_ids": [int(bucket_id) for bucket_id in bucket_ids],
+                "candidate_bucket_count": int(len(bucket_ids)),
+                "candidate_index_available_count": int(available_count),
+                "candidate_index_count": int(len(bounded_indices)),
+                "candidate_indices": [int(index) for index in bounded_indices],
+                "tagged_count": int(tagged),
+                "scan_mode": str(self.last_ripple_scan_mode),
+                "global_candidate_scan": False,
+                "diagnostic_global_candidate_scan": False,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "mutates_runtime_state": bool(tagged),
+                "applies_plasticity": bool(tagged),
+                "archival_storage_device": "cpu",
+                "latency_ms": float((time.perf_counter() - started) * 1000.0),
+                "fallback_reason": None
+                if tagged
+                else "empty_awake_bucket_candidate_window",
+                "selection_budget": {
+                    "memory_budget_entries": int(len(self.slow_buffer)),
+                    "candidate_window_entries": int(candidate_limit),
+                    "candidate_bucket_entries_available": int(available_count),
+                },
+            }
             self._invalidate_summary_cache()
-            if not bounded_indices:
-                return 0
-            return self._ripple_tag_indices(
-                bounded_indices,
-                floor_token=floor_token,
-                window_span=window_span,
-                da_scale=da_scale,
-                size=size,
-            )
+            return int(tagged)
+
+        if not allow_global_diagnostic:
+            self.last_ripple_scan_mode = "unscoped_global_ripple_scan_retired"
+            self.last_ripple_awake_bucket_count = 0
+            self.last_ripple_awake_candidate_count = 0
+            self.last_awake_ripple_tag_report = {
+                "surface": "bounded_awake_ripple_tag.v1",
+                "status": "empty",
+                "scope": "awake_ripple_tagging_cadenced_path",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "floor_token": int(floor_token),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "candidate_window_limit": int(candidate_limit),
+                "candidate_window_policy": "unscoped_global_ripple_scan_retired",
+                "candidate_scope": "unscoped_awake_bucket_scope_required",
+                "candidate_bucket_ids": [],
+                "candidate_bucket_count": 0,
+                "candidate_index_available_count": 0,
+                "candidate_index_count": 0,
+                "candidate_indices": [],
+                "tagged_count": 0,
+                "scan_mode": str(self.last_ripple_scan_mode),
+                "global_candidate_scan": False,
+                "diagnostic_global_candidate_scan": False,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "latency_ms": float((time.perf_counter() - started) * 1000.0),
+                "fallback_reason": "awake_bucket_scope_required_for_ripple_tagging",
+                "selection_budget": {
+                    "memory_budget_entries": int(len(self.slow_buffer)),
+                    "candidate_window_entries": int(candidate_limit),
+                },
+            }
+            self._invalidate_summary_cache()
+            return 0
 
         if size < 512:
             self.last_ripple_scan_mode = "scalar_small_memory"
             self.ripple_scalar_scan_count += 1
-            self._invalidate_summary_cache()
-            return self._ripple_tag_indices(
+            tagged = self._ripple_tag_indices(
                 range(size),
                 floor_token=floor_token,
                 window_span=window_span,
                 da_scale=da_scale,
                 size=size,
             )
+            self.last_awake_ripple_tag_report = {
+                "surface": "diagnostic_awake_ripple_global_tag.v1",
+                "status": "tagged" if tagged else "empty",
+                "scope": "awake_ripple_diagnostic_global_recent_scan",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "floor_token": int(floor_token),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "candidate_window_limit": int(size),
+                "candidate_window_policy": "diagnostic_global_recent_memory_scan",
+                "candidate_scope": "diagnostic_global_recent_memory_scan",
+                "candidate_bucket_ids": [],
+                "candidate_bucket_count": 0,
+                "candidate_index_available_count": int(size),
+                "candidate_index_count": int(size),
+                "candidate_indices": list(range(size)),
+                "tagged_count": int(tagged),
+                "scan_mode": str(self.last_ripple_scan_mode),
+                "global_candidate_scan": True,
+                "diagnostic_global_candidate_scan": True,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "mutates_runtime_state": bool(tagged),
+                "applies_plasticity": bool(tagged),
+                "archival_storage_device": "cpu",
+                "latency_ms": float((time.perf_counter() - started) * 1000.0),
+                "fallback_reason": None if tagged else "no_recent_entries_tagged",
+            }
+            self._invalidate_summary_cache()
+            return int(tagged)
 
         self.last_ripple_scan_mode = "vector_large_memory"
         self.ripple_vector_scan_count += 1
@@ -1393,6 +1571,37 @@ class DualMemoryStore:
         )
         recent = timestamps >= floor_token
         if not bool(np.any(recent)):
+            self.last_awake_ripple_tag_report = {
+                "surface": "diagnostic_awake_ripple_global_tag.v1",
+                "status": "empty",
+                "scope": "awake_ripple_diagnostic_global_recent_scan",
+                "memory_size": int(len(self.slow_buffer)),
+                "current_token": int(current_token),
+                "window_tokens": int(window_tokens),
+                "floor_token": int(floor_token),
+                "da_level": float(da_level),
+                "da_threshold": float(da_threshold),
+                "candidate_window_limit": int(size),
+                "candidate_window_policy": "diagnostic_global_recent_memory_scan",
+                "candidate_scope": "diagnostic_global_recent_memory_scan",
+                "candidate_bucket_ids": [],
+                "candidate_bucket_count": 0,
+                "candidate_index_available_count": int(size),
+                "candidate_index_count": 0,
+                "candidate_indices": [],
+                "tagged_count": 0,
+                "scan_mode": str(self.last_ripple_scan_mode),
+                "global_candidate_scan": True,
+                "diagnostic_global_candidate_scan": True,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "latency_ms": float((time.perf_counter() - started) * 1000.0),
+                "fallback_reason": "no_recent_entries_in_window",
+            }
+            self._invalidate_summary_cache()
             return 0
 
         previous = ripple[recent].copy()
@@ -1413,7 +1622,38 @@ class DualMemoryStore:
             capture[recent] + 0.10 + 0.25 * next_ripple,
         )
         self._invalidate_summary_cache()
-        return int(np.count_nonzero(previous <= 0.0))
+        tagged = int(np.count_nonzero(previous <= 0.0))
+        self.last_awake_ripple_tag_report = {
+            "surface": "diagnostic_awake_ripple_global_tag.v1",
+            "status": "tagged" if tagged else "empty",
+            "scope": "awake_ripple_diagnostic_global_recent_scan",
+            "memory_size": int(len(self.slow_buffer)),
+            "current_token": int(current_token),
+            "window_tokens": int(window_tokens),
+            "floor_token": int(floor_token),
+            "da_level": float(da_level),
+            "da_threshold": float(da_threshold),
+            "candidate_window_limit": int(size),
+            "candidate_window_policy": "diagnostic_global_recent_memory_scan",
+            "candidate_scope": "diagnostic_global_recent_memory_scan",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": int(size),
+            "candidate_index_count": int(np.count_nonzero(recent)),
+            "candidate_indices": [],
+            "tagged_count": int(tagged),
+            "scan_mode": str(self.last_ripple_scan_mode),
+            "global_candidate_scan": True,
+            "diagnostic_global_candidate_scan": True,
+            "runs_live_tick": True,
+            "runs_every_token": False,
+            "mutates_runtime_state": bool(tagged),
+            "applies_plasticity": bool(tagged),
+            "archival_storage_device": "cpu",
+            "latency_ms": float((time.perf_counter() - started) * 1000.0),
+            "fallback_reason": None if tagged else "no_recent_entries_tagged",
+        }
+        return tagged
 
     @property
     def ripple_tagged_count(self) -> int:
@@ -2530,6 +2770,9 @@ class DualMemoryStore:
                 "last_query_memory_match_report": dict(
                     self.last_query_memory_match_report
                 ),
+                "last_awake_ripple_tag_report": dict(
+                    self.last_awake_ripple_tag_report
+                ),
                 "last_recent_memory_window_report": dict(
                     self.last_recent_memory_window_report
                 ),
@@ -2616,6 +2859,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_awake_ripple_tag_report": dict(
+                self.last_awake_ripple_tag_report
             ),
             "last_recent_memory_window_report": dict(
                 self.last_recent_memory_window_report
@@ -2725,6 +2971,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_awake_ripple_tag_report": dict(
+                self.last_awake_ripple_tag_report
             ),
             "last_recent_memory_window_report": dict(
                 self.last_recent_memory_window_report
@@ -2928,6 +3177,12 @@ class DualMemoryStore:
             dict(raw_query_memory_match)
             if isinstance(raw_query_memory_match, Mapping)
             else self._empty_query_memory_match_report()
+        )
+        raw_awake_ripple_tag = snapshot.get("last_awake_ripple_tag_report")
+        self.last_awake_ripple_tag_report = (
+            dict(raw_awake_ripple_tag)
+            if isinstance(raw_awake_ripple_tag, Mapping)
+            else self._empty_awake_ripple_tag_report()
         )
         raw_recent_memory_window = snapshot.get("last_recent_memory_window_report")
         self.last_recent_memory_window_report = (

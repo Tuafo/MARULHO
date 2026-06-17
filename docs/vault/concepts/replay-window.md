@@ -29,6 +29,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
+  - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
 ---
 
 # Replay Window
@@ -43,7 +46,8 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
 `bounded_replay_query_collection.v1`. Explicit query/readout recall also uses
 `bounded_query_memory_match.v1`. Recent replay setup uses
 `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
-`bounded_recent_anchor_capture.v1`.
+`bounded_recent_anchor_capture.v1`. Awake replay-priority tagging uses
+`bounded_awake_ripple_tag.v1`.
 
 ## Rules
 
@@ -78,6 +82,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   must not walk `slow_bucket_ids` linearly to find anchors, must report
   available versus collected query indices, and must keep `score_count=0`
   because it is collection, not another scorer.
+- Awake-ripple tagging must use awake bucket scope from the scheduler, cap its
+  candidate window before mutation, and report `runs_every_token=false`.
+  Unscoped production calls must return an empty retired report; the old global
+  scalar/vector scan is diagnostic-only.
 - Positive-pressure deep replay may apply bounded candidate repair only after a
   local reconstruction gate improves over selected replay-window routing keys.
   Candidate columns come from bounded route candidates plus explicit stored
@@ -219,6 +227,27 @@ matching hot-path report
 processed `262144` tokens at `6228.243 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1846 MiB`, and had zero graph/native/sequence failures.
+
+Awake-ripple replay-priority tagging now follows the same bounded-window
+discipline. Production calls to `ripple_tag_awake(...)` require awake bucket
+ids, collect recent bucket candidates up to `max_candidate_entries`, and emit
+`bounded_awake_ripple_tag.v1`; no-scope calls return an empty retired report
+with `awake_bucket_scope_required_for_ripple_tagging`. The diagnostic-only
+global scan remains available only with `allow_global_diagnostic=true`. The
+direct benchmark
+`reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
+averaged `1.091997 ms` on the wake-bucket path versus `1.433332 ms` on the
+diagnostic global vector path, with scoped `0` scalar/vector scans, `256`
+awake-bucket scans, and `last_ripple_awake_candidate_count=10`. The synthetic
+report
+`reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json`
+kept recall/prototype gates passing and recorded no global candidate scan. The
+longer 65536-column hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json`
+processed `524288` tokens at `6152.328 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `2013 MiB`, and had zero graph/native/sequence
+failures.
 
 The replay-score helper retirement removes the old public full-buffer priority
 scorer. The formula is still available through `replay_scores_for_indices(...)`

@@ -420,6 +420,7 @@ class MarulhoTrainer:
                 window_tokens=max(1, self.config.functional_minute // 2),
                 da_level=self.model.surprise.dopamine,
                 awake_bucket_ids=awake_bucket_ids,
+                max_candidate_entries=self._recent_replay_setup_limit(),
             )
             self._awake_ripple_tag_count += 1
             self._awake_ripple_last_tagged = int(tagged)
@@ -3951,6 +3952,7 @@ class MarulhoTrainer:
                 window_tokens=max(1, self.config.functional_minute // 2),
                 da_level=da_level,
                 awake_bucket_ids=awake_bucket_ids,
+                max_candidate_entries=self._recent_replay_setup_limit(),
             )
             self._awake_ripple_tag_count += 1
             self._awake_ripple_last_tagged = int(tagged)

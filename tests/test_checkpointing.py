@@ -265,6 +265,25 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer.model.memory_store.last_query_memory_match_report = dict(
                 query_match_report
             )
+            awake_ripple_report = {
+                "surface": "bounded_awake_ripple_tag.v1",
+                "status": "tagged",
+                "scope": "awake_ripple_tagging_cadenced_path",
+                "candidate_scope": "awake_bucket_index_candidate_window",
+                "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
+                "candidate_window_limit": 3,
+                "candidate_index_available_count": 10,
+                "candidate_index_count": 3,
+                "candidate_indices": [9, 8, 7],
+                "tagged_count": 3,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "global_candidate_scan": False,
+                "diagnostic_global_candidate_scan": False,
+            }
+            trainer.model.memory_store.last_awake_ripple_tag_report = dict(
+                awake_ripple_report
+            )
             recent_tag_report = {
                 "surface": "bounded_recent_memory_tag.v1",
                 "status": "tagged",
@@ -344,6 +363,20 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 [9, 8, 7, 6, 5],
             )
             self.assertFalse(restored_query_match_report["runs_live_tick"])
+            restored_awake_report = (
+                restored.model.memory_store.last_awake_ripple_tag_report
+            )
+            self.assertEqual(
+                restored_awake_report["surface"],
+                "bounded_awake_ripple_tag.v1",
+            )
+            self.assertEqual(
+                restored_awake_report["candidate_scope"],
+                "awake_bucket_index_candidate_window",
+            )
+            self.assertEqual(restored_awake_report["candidate_indices"], [9, 8, 7])
+            self.assertFalse(restored_awake_report["runs_every_token"])
+            self.assertFalse(restored_awake_report["global_candidate_scan"])
             restored_tag_report = (
                 restored.model.memory_store.last_recent_memory_tag_report
             )

@@ -2602,6 +2602,47 @@ uses the training-owned wake mask and the long CUDA path stayed neutral or
 better. It is not a new route-discovery solution and does not move archival
 memory storage to GPU.
 
+### Bounded Awake Ripple Candidate Window, 2026-06-17
+
+The follow-up retires the production unscoped awake-ripple scan instead of
+leaving it as a fallback. `ripple_tag_awake(...)` now returns an empty
+`bounded_awake_ripple_tag.v1` report when awake bucket scope is absent, and the
+old scalar/vector global scan runs only under `allow_global_diagnostic=true`.
+When scope exists, the store collects a recent round-robin candidate window from
+awake buckets before mutating ripple/capture tags.
+
+The isolated benchmark command was:
+
+`python -m marulho.evaluation.awake_ripple_scope_benchmark --output reports\bounded_replay_window_20260617\awake-ripple-bounded-scope-8192-i256.json --capacity 8192 --bucket-count 8192 --awake-bucket-count 10 --iterations 256 --dim 16`
+
+| Metric | Diagnostic global scan | Wake-bucket candidate window |
+| --- | ---: | ---: |
+| mean tag time | `1.433332 ms` | `1.091997 ms` |
+| speedup | baseline | `1.312579x` |
+| scalar/vector scans | `256` vector scans | `0` |
+| awake-bucket index scans | `0` | `256` |
+| last candidate entries touched | all recent entries | `10` |
+
+The scoped path passed all benchmark gates:
+`scoped_avoids_global_memory_scan=true`,
+`scoped_candidate_count_bounded=true`, and
+`scoped_not_slower_than_global=true`.
+
+The 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6152.328 tokens/sec`, with
+`train_compute=0.131727 ms/token`, `prepare_training=0.006691 ms/token`,
+`finalize_total=0.006526 ms/token`, and `tick_duration_ms.p95=20.949`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `50%`, GPU utilization max `16%`, GPU memory
+utilization max `13%`, and GPU memory stayed flat at `2013 MiB` before and
+after measurement.
+
 ### Reconstruction-Guarded Replay Consolidation, 2026-06-17
 
 The replay/consolidation slice added a slow-window quality guard, not live-tick

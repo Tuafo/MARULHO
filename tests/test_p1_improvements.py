@@ -33,7 +33,12 @@ class TestAwakeRippleTagging:
         store = DualMemoryStore(capacity=32)
         # Insert entries
         for i in range(10):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 100)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 100,
+                bucket_id=i,
+            )
 
         # Ripple tag recent ones (DA > threshold)
         tagged = store.ripple_tag_awake(
@@ -41,6 +46,7 @@ class TestAwakeRippleTagging:
             window_tokens=200,  # Last 200 tokens = entries at 800, 900
             da_level=0.9,
             da_threshold=0.7,
+            awake_bucket_ids=[8, 9],
         )
         assert tagged >= 1
         assert store.ripple_tagged_count >= 1
@@ -48,13 +54,19 @@ class TestAwakeRippleTagging:
     def test_ripple_tag_not_triggered_below_threshold(self):
         store = DualMemoryStore(capacity=32)
         for i in range(5):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 100)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 100,
+                bucket_id=i,
+            )
 
         tagged = store.ripple_tag_awake(
             current_token=450,
             window_tokens=500,
             da_level=0.5,  # Below threshold
             da_threshold=0.7,
+            awake_bucket_ids=[0, 1, 2, 3, 4],
         )
         assert tagged == 0
         assert store.ripple_tagged_count == 0
@@ -65,7 +77,7 @@ class TestAwakeRippleTagging:
         for i in range(10):
             store.update(
                 torch.randn(16), importance=0.5, token_count=i * 100,
-                tag_strength=0.3,
+                tag_strength=0.3, bucket_id=i,
             )
 
         candidate_indices = list(range(len(store.slow_buffer)))
@@ -77,6 +89,7 @@ class TestAwakeRippleTagging:
             current_token=1000,
             window_tokens=250,
             da_level=0.9,
+            awake_bucket_ids=[8, 9],
         )
         scores_after = store.replay_scores_for_indices(
             candidate_indices,
@@ -91,13 +104,20 @@ class TestAwakeRippleTagging:
     def test_ripple_strength_tracks_da_and_recency(self):
         store = DualMemoryStore(capacity=32)
         for i in range(6):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 100, tag_strength=0.2)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 100,
+                tag_strength=0.2,
+                bucket_id=i,
+            )
 
         store.ripple_tag_awake(
             current_token=550,
             window_tokens=400,
             da_level=0.95,
             da_threshold=0.7,
+            awake_bucket_ids=[2, 3, 4, 5],
         )
 
         recent_strength = store.slow_ripple_strength[5]
@@ -109,13 +129,20 @@ class TestAwakeRippleTagging:
     def test_ripple_priority_multiplier_reaches_above_legacy_three_x(self):
         store = DualMemoryStore(capacity=32)
         for i in range(6):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 100, tag_strength=0.2)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 100,
+                tag_strength=0.2,
+                bucket_id=i,
+            )
 
         store.ripple_tag_awake(
             current_token=550,
             window_tokens=500,
             da_level=0.95,
             da_threshold=0.7,
+            awake_bucket_ids=[1, 2, 3, 4, 5],
         )
 
         multipliers = [
@@ -130,8 +157,18 @@ class TestAwakeRippleTagging:
     def test_ripple_tag_survives_snapshot_restore(self):
         store = DualMemoryStore(capacity=32)
         for i in range(5):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 100)
-        store.ripple_tag_awake(current_token=450, window_tokens=200, da_level=0.9)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 100,
+                bucket_id=i,
+            )
+        store.ripple_tag_awake(
+            current_token=450,
+            window_tokens=200,
+            da_level=0.9,
+            awake_bucket_ids=[3, 4],
+        )
         assert store.ripple_tagged_count > 0
 
         snap = store.snapshot()
@@ -144,8 +181,18 @@ class TestAwakeRippleTagging:
         store = DualMemoryStore(capacity=32)
         assert store.ripple_tagged_count == 0
         for i in range(5):
-            store.update(torch.randn(16), importance=0.5, token_count=i * 10)
-        store.ripple_tag_awake(current_token=45, window_tokens=50, da_level=0.85)
+            store.update(
+                torch.randn(16),
+                importance=0.5,
+                token_count=i * 10,
+                bucket_id=i,
+            )
+        store.ripple_tag_awake(
+            current_token=45,
+            window_tokens=50,
+            da_level=0.85,
+            awake_bucket_ids=[0, 1, 2, 3, 4],
+        )
         assert store.ripple_tagged_count == 5  # All within window
 
     def test_vectorized_ripple_tag_matches_retained_scalar_formula(self):
@@ -156,6 +203,7 @@ class TestAwakeRippleTagging:
                 importance=0.5,
                 token_count=i * 17,
                 tag_strength=0.1 + i * 0.01,
+                bucket_id=i,
             )
         retained = DualMemoryStore(capacity=32)
         retained.restore(store.snapshot())
@@ -205,6 +253,7 @@ class TestAwakeRippleTagging:
             window_tokens=window_tokens,
             da_level=da_level,
             da_threshold=da_threshold,
+            allow_global_diagnostic=True,
         )
 
         assert tagged == retained_tagged

@@ -40,6 +40,10 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
+  - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
 ---
 
 # Replay Cost
@@ -86,6 +90,16 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-score-helper-retired.json`
 - Hot-path protection for replay-score helper retirement:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded awake-ripple scope tests:
+  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_tagging_uses_awake_bucket_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_tagging_caps_awake_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_unscoped_requires_diagnostic_opt_in tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report tests\test_p1_improvements.py::TestAwakeRippleTagging -q`
+- Awake-ripple scoped/global diagnostic benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.awake_ripple_scope_benchmark --output reports\bounded_replay_window_20260617\awake-ripple-bounded-scope-8192-i256.json --capacity 8192 --bucket-count 8192 --awake-bucket-count 10 --iterations 256 --dim 16`
+- Synthetic replay quality after bounded awake-ripple tagging:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-awake-ripple-bounded-scope.json`
+- Hot-path protection for bounded awake-ripple tagging:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-awake-ripple-bounded-scope.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Longer hot-path protection for bounded awake-ripple tagging:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -558,6 +572,48 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `38%`,
 GPU utilization max `16%`, GPU memory utilization max `14%`, and GPU memory
 stayed flat at `1852 MiB` before and after measurement.
+
+Bounded awake-ripple tagging now retires the production unscoped global
+recent-memory scan. Production callers must pass awake bucket scope; otherwise
+`ripple_tag_awake(...)` returns an empty `bounded_awake_ripple_tag.v1` report
+with `fallback_reason=awake_bucket_scope_required_for_ripple_tagging` and no
+scalar/vector scan. The old global scan is diagnostic-only through
+`allow_global_diagnostic=true`. The scoped path collects a recent round-robin
+candidate window from awake buckets, reports available versus touched entries,
+keeps archival storage on CPU, and records `runs_every_token=false`.
+
+The direct benchmark
+`reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
+ran `256` iterations on an `8192`-entry ledger. The diagnostic global path used
+`256` vector scans and averaged `1.433332 ms`; the wake-bucket scoped path used
+`0` scalar/vector scans, `256` awake-bucket index scans,
+`last_ripple_awake_candidate_count=10`, and averaged `1.091997 ms`
+(`1.312579x`). Gates passed for avoiding global scans, bounded candidate count,
+and not being slower than the diagnostic global baseline.
+
+The synthetic replay quality report
+`reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json`
+kept positive-pressure recall/prototype gates passing with `2` bounded replay
+updates, `4` bounded cycles, `0` global fallback cycles, `16` scored/selected
+entries, stored input-pattern distance `5.960464477539063e-08`, and recovery
+delta `0.0017409722`. Its memory-store Runtime Truth carries
+`last_awake_ripple_tag_report` with `candidate_scope=awake_bucket_index_candidate_window`,
+`global_candidate_scan=false`, `diagnostic_global_candidate_scan=false`, and
+`runs_every_token=false`.
+
+The 65536-column `262144`-token hot-path run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-awake-ripple-bounded-scope.json`
+processed `6149.285 tokens/sec`, with `train_compute=0.131598 ms/token`,
+`prepare_training=0.006524 ms/token`, `finalize_total=0.006491 ms/token`, and
+`tick_duration_ms.p95=20.586`. The longer `524288`-token run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json`
+processed `6152.328 tokens/sec`, with `train_compute=0.131727 ms/token`,
+`prepare_training=0.006691 ms/token`, `finalize_total=0.006526 ms/token`, and
+`tick_duration_ms.p95=20.949`. Both runs kept route scoring bounded at
+`12/65536`, cached `65526` transition rows, reported
+`state_transition_runs_all_columns=false`, had zero graph/native/sequence
+failures, and reported no observed contention. The 524288-token run kept GPU
+memory flat at `2013 MiB`.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
