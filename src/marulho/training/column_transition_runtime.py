@@ -206,6 +206,12 @@ class ColumnTransitionRuntime:
         self._route_sleep_filter_state_dirty = False
         self.route_vote_deep_sleep_filter_control_update_count = 0
         self.route_vote_deep_sleep_filter_state_sync_count = 0
+        self.route_vote_filter_observed_sync_count = 0
+        self.route_vote_filter_observed_deep_sleep_filtered_total = 0
+        self.route_vote_filter_observed_memory_pressure_filtered_total = 0
+        self.route_vote_filter_observed_low_usefulness_filtered_total = 0
+        self.route_vote_filter_observed_fallback_count = 0
+        self.route_vote_filter_last_observed_fallback_reason: str | None = None
         self._predictive_step_counter = torch.tensor(
             int(trainer.model.predictive.predictive_step_count),
             dtype=torch.long,
@@ -1041,6 +1047,41 @@ class ColumnTransitionRuntime:
             .to(device="cpu", dtype=torch.long)
             .tolist()
         ]
+        state = self._route_sleep_filter_state_host
+        state_enabled = bool(state[0]) if len(state) > 0 else False
+        applied = bool(state[1]) if len(state) > 1 else False
+        pressure_enabled = bool(state[8]) if len(state) > 8 else False
+        pressure_applied = bool(state[9]) if len(state) > 9 else False
+        usefulness_enabled = bool(state[12]) if len(state) > 12 else False
+        usefulness_applied = bool(state[13]) if len(state) > 13 else False
+        fallback_code = int(state[4]) if len(state) > 4 else 0
+        fallback_reason = {
+            1: "insufficient_awake_route_scores_after_deep_sleep_filter",
+            2: "all_route_scores_deep_sleep",
+            3: "insufficient_awake_route_scores_after_memory_pressure_filter",
+            4: "all_route_scores_over_memory_pressure_threshold",
+            5: "insufficient_awake_route_scores_after_usefulness_filter",
+            6: "all_route_scores_below_usefulness_threshold",
+        }.get(fallback_code)
+        self.route_vote_filter_observed_sync_count += 1
+        if state_enabled and applied and len(state) > 2:
+            self.route_vote_filter_observed_deep_sleep_filtered_total += max(
+                0,
+                int(state[2]),
+            )
+        if pressure_enabled and pressure_applied and len(state) > 10:
+            self.route_vote_filter_observed_memory_pressure_filtered_total += max(
+                0,
+                int(state[10]),
+            )
+        if usefulness_enabled and usefulness_applied and len(state) > 14:
+            self.route_vote_filter_observed_low_usefulness_filtered_total += max(
+                0,
+                int(state[14]),
+            )
+        if fallback_reason is not None:
+            self.route_vote_filter_observed_fallback_count += 1
+            self.route_vote_filter_last_observed_fallback_reason = fallback_reason
         self._route_sleep_filter_state_dirty = False
         self.route_vote_deep_sleep_filter_state_sync_count += 1
         return self.route_sleep_filter_snapshot()
@@ -1279,6 +1320,38 @@ class ColumnTransitionRuntime:
             ),
             "state_sync_count": int(
                 self.route_vote_deep_sleep_filter_state_sync_count
+            ),
+            "observed_sync_count": int(
+                getattr(self, "route_vote_filter_observed_sync_count", 0)
+            ),
+            "observed_filtered_deep_sleep_total": int(
+                getattr(
+                    self,
+                    "route_vote_filter_observed_deep_sleep_filtered_total",
+                    0,
+                )
+            ),
+            "observed_filtered_memory_pressure_total": int(
+                getattr(
+                    self,
+                    "route_vote_filter_observed_memory_pressure_filtered_total",
+                    0,
+                )
+            ),
+            "observed_filtered_low_usefulness_total": int(
+                getattr(
+                    self,
+                    "route_vote_filter_observed_low_usefulness_filtered_total",
+                    0,
+                )
+            ),
+            "observed_fallback_count": int(
+                getattr(self, "route_vote_filter_observed_fallback_count", 0)
+            ),
+            "last_observed_fallback_reason": getattr(
+                self,
+                "route_vote_filter_last_observed_fallback_reason",
+                None,
             ),
             "state_dirty": bool(self._route_sleep_filter_state_dirty),
             "tensor_device": str(self._route_sleep_filter_state.device),

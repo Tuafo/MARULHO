@@ -28,6 +28,10 @@ def build_column_runtime_evidence(
     route_candidate_bank = _as_mapping(
         column_transition_runtime.get("route_candidate_bank")
     )
+    route_vote_scheduler_filter = _as_mapping(
+        column_transition_runtime.get("route_vote_scheduler_filter")
+        or column_transition_runtime.get("route_vote_deep_sleep_filter")
+    )
     metabolism = _as_mapping(report.get("metabolism"))
     execution = _as_mapping(report.get("execution"))
     candidate_sleep_filter_execution = _as_mapping(
@@ -166,6 +170,164 @@ def build_column_runtime_evidence(
             "restore_reason": route_candidate_bank.get("restore_reason"),
             "probe_last_reason": route_candidate_bank.get("probe_last_reason"),
             "claim_boundary": route_candidate_bank.get("claim_boundary"),
+        },
+        "route_vote_scheduler_filter": {
+            "surface": route_vote_scheduler_filter.get(
+                "surface",
+                "route_vote_scheduler_filter.v1",
+            ),
+            "enabled": bool(route_vote_scheduler_filter.get("enabled", False)),
+            "state_enabled": bool(
+                route_vote_scheduler_filter.get("state_enabled", False)
+            ),
+            "memory_pressure_enabled": bool(
+                route_vote_scheduler_filter.get("memory_pressure_enabled", False)
+            ),
+            "memory_pressure_state_enabled": bool(
+                route_vote_scheduler_filter.get(
+                    "memory_pressure_state_enabled",
+                    False,
+                )
+            ),
+            "memory_pressure_applied": bool(
+                route_vote_scheduler_filter.get("memory_pressure_applied", False)
+            ),
+            "usefulness_enabled": bool(
+                route_vote_scheduler_filter.get("usefulness_enabled", False)
+            ),
+            "usefulness_state_enabled": bool(
+                route_vote_scheduler_filter.get("usefulness_state_enabled", False)
+            ),
+            "usefulness_applied": bool(
+                route_vote_scheduler_filter.get("usefulness_applied", False)
+            ),
+            "state_current_for_control": bool(
+                route_vote_scheduler_filter.get("state_current_for_control", False)
+            ),
+            "input_candidate_count": int(
+                route_vote_scheduler_filter.get("input_candidate_count", 0) or 0
+            ),
+            "output_candidate_count": int(
+                route_vote_scheduler_filter.get("output_candidate_count", 0) or 0
+            ),
+            "route_input_rows_scored": int(
+                route_vote_scheduler_filter.get("route_input_rows_scored", 0) or 0
+            ),
+            "route_output_candidate_count": int(
+                route_vote_scheduler_filter.get(
+                    "route_output_candidate_count",
+                    0,
+                )
+                or 0
+            ),
+            "route_rows_run_all_columns": bool(
+                route_vote_scheduler_filter.get("route_rows_run_all_columns", False)
+            ),
+            "bounded_route_scoring": bool(
+                route_vote_scheduler_filter.get("bounded_route_scoring", False)
+            ),
+            "filtered_deep_sleep_count": int(
+                route_vote_scheduler_filter.get("filtered_deep_sleep_count", 0) or 0
+            ),
+            "filtered_memory_pressure_count": int(
+                route_vote_scheduler_filter.get(
+                    "filtered_memory_pressure_count",
+                    0,
+                )
+                or 0
+            ),
+            "filtered_low_usefulness_count": int(
+                route_vote_scheduler_filter.get(
+                    "filtered_low_usefulness_count",
+                    0,
+                )
+                or 0
+            ),
+            "memory_pressure_over_threshold_count": int(
+                route_vote_scheduler_filter.get(
+                    "memory_pressure_over_threshold_count",
+                    0,
+                )
+                or 0
+            ),
+            "low_usefulness_count": int(
+                route_vote_scheduler_filter.get("low_usefulness_count", 0) or 0
+            ),
+            "eligible_route_count": int(
+                route_vote_scheduler_filter.get("eligible_route_count", 0) or 0
+            ),
+            "memory_pressure_eligible_route_count": int(
+                route_vote_scheduler_filter.get(
+                    "memory_pressure_eligible_route_count",
+                    0,
+                )
+                or 0
+            ),
+            "usefulness_eligible_route_count": int(
+                route_vote_scheduler_filter.get(
+                    "usefulness_eligible_route_count",
+                    0,
+                )
+                or 0
+            ),
+            "memory_pressure_threshold": route_vote_scheduler_filter.get(
+                "memory_pressure_threshold"
+            ),
+            "memory_pressure_source": route_vote_scheduler_filter.get(
+                "memory_pressure_source"
+            ),
+            "usefulness_threshold": route_vote_scheduler_filter.get(
+                "usefulness_threshold"
+            ),
+            "usefulness_source": route_vote_scheduler_filter.get(
+                "usefulness_source"
+            ),
+            "sleep_backfill_count": int(
+                route_vote_scheduler_filter.get("sleep_backfill_count", 0) or 0
+            ),
+            "fallback_reason": route_vote_scheduler_filter.get("fallback_reason"),
+            "control_update_count": int(
+                route_vote_scheduler_filter.get("control_update_count", 0) or 0
+            ),
+            "state_sync_count": int(
+                route_vote_scheduler_filter.get("state_sync_count", 0) or 0
+            ),
+            "observed_sync_count": int(
+                route_vote_scheduler_filter.get("observed_sync_count", 0) or 0
+            ),
+            "observed_filtered_deep_sleep_total": int(
+                route_vote_scheduler_filter.get(
+                    "observed_filtered_deep_sleep_total",
+                    0,
+                )
+                or 0
+            ),
+            "observed_filtered_memory_pressure_total": int(
+                route_vote_scheduler_filter.get(
+                    "observed_filtered_memory_pressure_total",
+                    0,
+                )
+                or 0
+            ),
+            "observed_filtered_low_usefulness_total": int(
+                route_vote_scheduler_filter.get(
+                    "observed_filtered_low_usefulness_total",
+                    0,
+                )
+                or 0
+            ),
+            "observed_fallback_count": int(
+                route_vote_scheduler_filter.get("observed_fallback_count", 0) or 0
+            ),
+            "last_observed_fallback_reason": route_vote_scheduler_filter.get(
+                "last_observed_fallback_reason"
+            ),
+            "state_dirty": bool(route_vote_scheduler_filter.get("state_dirty", False)),
+            "tensor_device": route_vote_scheduler_filter.get("tensor_device"),
+            "claim_boundary": route_vote_scheduler_filter.get("claim_boundary"),
+            "route_cost_claim_boundary": route_vote_scheduler_filter.get(
+                "route_cost_claim_boundary"
+            ),
         },
         "scheduler": {
             "mode": scheduler.get("mode"),

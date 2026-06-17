@@ -144,6 +144,72 @@ def test_route_filter_snapshot_separates_pressure_fallback_from_applied_filter()
     )
 
 
+def test_route_filter_sync_accumulates_observed_scheduler_effects() -> None:
+    runtime = object.__new__(ColumnTransitionRuntime)
+    runtime._route_sleep_filter_state = torch.tensor(
+        [
+            1,  # deep-sleep enabled
+            1,  # combined filter applied
+            2,  # deep-sleep filtered count
+            10,  # deep-sleep eligible count
+            0,  # no fallback
+            12,  # route input rows
+            10,  # output candidate count
+            0,  # sleep backfill
+            1,  # memory-pressure enabled
+            1,  # memory-pressure applied
+            1,  # over-threshold rows filtered
+            11,  # pressure-eligible route rows
+            1,  # usefulness enabled
+            1,  # usefulness applied
+            1,  # low-usefulness rows filtered
+            10,  # usefulness-eligible route rows
+        ],
+        dtype=torch.long,
+    )
+    runtime._route_sleep_filter_state_host = [0] * 16
+    runtime._route_sleep_filter_state_dirty = True
+    runtime._route_sleep_filter_control_mirror = (1, 2000, 1, 500000, 1, 100000)
+    runtime.route_vote_deep_sleep_filter_control_update_count = 1
+    runtime.route_vote_deep_sleep_filter_state_sync_count = 0
+    runtime.route_vote_filter_observed_sync_count = 0
+    runtime.route_vote_filter_observed_deep_sleep_filtered_total = 0
+    runtime.route_vote_filter_observed_memory_pressure_filtered_total = 0
+    runtime.route_vote_filter_observed_low_usefulness_filtered_total = 0
+    runtime.route_vote_filter_observed_fallback_count = 0
+    runtime.route_vote_filter_last_observed_fallback_reason = None
+    runtime._route_memory_pressure_source_mirror = "unit_test_cached_pressure"
+    runtime._route_usefulness_source_mirror = "unit_test_cached_usefulness"
+    runtime._route_ids = None
+    runtime._route_candidates = None
+    runtime.resolved_mode = "inplace_triton"
+    runtime.route_vote_resolved_mode = "cuda_graph_text"
+    runtime._last_route_input_rows_scored = 12
+    runtime._last_route_output_candidate_count = 10
+    runtime._trainer = SimpleNamespace(
+        model=SimpleNamespace(
+            competitive=SimpleNamespace(n_columns=64),
+            column_metabolism=SimpleNamespace(
+                last_memory_pressure_source="unit_test_cached_pressure",
+                last_usefulness_source="unit_test_cached_usefulness",
+            ),
+        )
+    )
+
+    snapshot = runtime.sync_route_sleep_filter_state_from_device()
+
+    assert snapshot["state_dirty"] is False
+    assert snapshot["state_sync_count"] == 1
+    assert snapshot["filtered_deep_sleep_count"] == 2
+    assert snapshot["filtered_memory_pressure_count"] == 1
+    assert snapshot["filtered_low_usefulness_count"] == 1
+    assert snapshot["observed_sync_count"] == 1
+    assert snapshot["observed_filtered_deep_sleep_total"] == 2
+    assert snapshot["observed_filtered_memory_pressure_total"] == 1
+    assert snapshot["observed_filtered_low_usefulness_total"] == 1
+    assert snapshot["observed_fallback_count"] == 0
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
 def test_fused_inplace_candidate_predictive_transition_reports_bounded_scope() -> None:
     config = MarulhoConfig(

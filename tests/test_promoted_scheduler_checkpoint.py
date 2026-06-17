@@ -62,3 +62,42 @@ def test_promoted_scheduler_checkpoint_restores_bounded_route_bank(
     assert after_scoring["route_scoring_unbounded_reason"] is None
     assert after["state_transition_cached_count"] == 27
     assert after["state_transition_runs_all_columns"] is False
+
+
+@torch.no_grad()
+def test_promoted_scheduler_checkpoint_can_seed_active_pressure_filter(
+    tmp_path: Path,
+) -> None:
+    if not torch.cuda.is_available():
+        return
+
+    report = build_promoted_scheduler_checkpoint(
+        checkpoint_path=tmp_path / "pressure-scheduler.pt",
+        report_path=tmp_path / "pressure-scheduler.json",
+        n_columns=32,
+        column_latent_dim=8,
+        k_routing=5,
+        seed=20260617,
+        device="cuda",
+        active_pressure_filter_count=2,
+        candidate_memory_pressure_filter_start_tokens=0,
+    )
+
+    fixture = report["scheduler_filter_fixture"]
+    assert fixture["enabled"] is True
+    assert fixture["pressure_count"] == 2
+    assert fixture["max_filtered_without_fallback"] == 2
+
+    after = report["restore_after_tick"]
+    route_filter = after["route_vote_scheduler_filter"]
+    assert route_filter["memory_pressure_enabled"] is True
+    assert route_filter["memory_pressure_applied"] is True
+    assert route_filter["filtered_memory_pressure_count"] == 2
+    assert route_filter["observed_filtered_memory_pressure_total"] >= 2
+    assert route_filter["fallback_reason"] is None
+    assert route_filter["route_input_rows_scored"] == 7
+    assert route_filter["route_output_candidate_count"] == 5
+    assert route_filter["route_rows_run_all_columns"] is False
+    assert route_filter["bounded_route_scoring"] is True
+    assert after["state_transition_cached_count"] == 27
+    assert after["state_transition_runs_all_columns"] is False

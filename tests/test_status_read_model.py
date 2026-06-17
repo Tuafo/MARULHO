@@ -691,6 +691,54 @@ class StatusReadModelStatusTests(unittest.TestCase):
                             "training_owned_bounded_route_bank_plus_probe_lane_without_hot_path_all_column_rescore"
                         ),
                     },
+                    "route_vote_deep_sleep_filter": {
+                        "surface": "route_vote_scheduler_filter.v1",
+                        "enabled": True,
+                        "state_enabled": True,
+                        "memory_pressure_enabled": True,
+                        "memory_pressure_state_enabled": True,
+                        "memory_pressure_applied": True,
+                        "usefulness_enabled": True,
+                        "usefulness_state_enabled": True,
+                        "usefulness_applied": True,
+                        "state_current_for_control": True,
+                        "input_candidate_count": 9,
+                        "output_candidate_count": 7,
+                        "route_input_rows_scored": 9,
+                        "route_output_candidate_count": 7,
+                        "route_rows_run_all_columns": False,
+                        "bounded_route_scoring": True,
+                        "filtered_deep_sleep_count": 3,
+                        "filtered_memory_pressure_count": 2,
+                        "filtered_low_usefulness_count": 1,
+                        "memory_pressure_over_threshold_count": 2,
+                        "low_usefulness_count": 1,
+                        "eligible_route_count": 6,
+                        "memory_pressure_eligible_route_count": 7,
+                        "usefulness_eligible_route_count": 6,
+                        "memory_pressure_threshold": 0.95,
+                        "memory_pressure_source": "unit_test_cached_pressure",
+                        "usefulness_threshold": 0.1,
+                        "usefulness_source": "unit_test_cached_usefulness",
+                        "sleep_backfill_count": 4,
+                        "fallback_reason": None,
+                        "control_update_count": 11,
+                        "state_sync_count": 10,
+                        "observed_sync_count": 10,
+                        "observed_filtered_deep_sleep_total": 30,
+                        "observed_filtered_memory_pressure_total": 20,
+                        "observed_filtered_low_usefulness_total": 10,
+                        "observed_fallback_count": 0,
+                        "last_observed_fallback_reason": None,
+                        "state_dirty": False,
+                        "tensor_device": "cpu",
+                        "claim_boundary": (
+                            "training_owned_route_vote_masks_sleep_pressure_and_usefulness_inside_existing_route_selection"
+                        ),
+                        "route_cost_claim_boundary": (
+                            "sleep_and_pressure_are_masked_before_selection_but_route_score_rows_remain_explicit"
+                        ),
+                    },
                 },
             }
         )
@@ -771,6 +819,23 @@ class StatusReadModelStatusTests(unittest.TestCase):
             projected["route_candidate_bank"]["probe_last_reason"],
             "bounded_route_bank_graph_refresh",
         )
+        route_filter = projected["route_vote_scheduler_filter"]
+        self.assertEqual(route_filter["surface"], "route_vote_scheduler_filter.v1")
+        self.assertTrue(route_filter["memory_pressure_applied"])
+        self.assertTrue(route_filter["usefulness_applied"])
+        self.assertEqual(route_filter["route_input_rows_scored"], 9)
+        self.assertEqual(route_filter["route_output_candidate_count"], 7)
+        self.assertFalse(route_filter["route_rows_run_all_columns"])
+        self.assertTrue(route_filter["bounded_route_scoring"])
+        self.assertEqual(route_filter["filtered_deep_sleep_count"], 3)
+        self.assertEqual(route_filter["filtered_memory_pressure_count"], 2)
+        self.assertEqual(route_filter["filtered_low_usefulness_count"], 1)
+        self.assertEqual(
+            route_filter["observed_filtered_memory_pressure_total"],
+            20,
+        )
+        self.assertEqual(route_filter["observed_fallback_count"], 0)
+        self.assertEqual(route_filter["tensor_device"], "cpu")
         self.assertEqual(
             projected["candidate_sleep_filter_execution"]["filtered_deep_sleep_count"],
             3,
@@ -981,6 +1046,16 @@ class StatusReadModelStatusTests(unittest.TestCase):
                         "without_hot_path_all_column_rescore"
                     ),
                 },
+                "route_vote_deep_sleep_filter": {
+                    "surface": "route_vote_scheduler_filter.v1",
+                    "memory_pressure_enabled": True,
+                    "memory_pressure_applied": True,
+                    "route_input_rows_scored": 13,
+                    "route_output_candidate_count": 11,
+                    "filtered_memory_pressure_count": 2,
+                    "observed_filtered_memory_pressure_total": 2,
+                    "tensor_device": "cuda:0",
+                },
             },
         }
 
@@ -1023,6 +1098,16 @@ class StatusReadModelStatusTests(unittest.TestCase):
         self.assertEqual(
             runtime_core_projection["route_candidate_bank"]["restore_reason"],
             "route_candidate_bank_restored_from_checkpoint",
+        )
+        self.assertEqual(
+            runtime_core_projection["route_vote_scheduler_filter"][
+                "observed_filtered_memory_pressure_total"
+            ],
+            2,
+        )
+        self.assertEqual(
+            runtime_core_projection["route_vote_scheduler_filter"]["tensor_device"],
+            "cuda:0",
         )
         self.assertEqual(
             runtime_core_projection["scheduler"]["wake_plan_mode"],

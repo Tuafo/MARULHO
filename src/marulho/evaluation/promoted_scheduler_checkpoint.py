@@ -24,6 +24,8 @@ def promoted_scheduler_config(
     column_latent_dim: int = 64,
     k_routing: int = 10,
     device: str = "cuda",
+    candidate_memory_pressure_filter_start_tokens: int = 512,
+    candidate_usefulness_filter_start_tokens: int = 512,
 ) -> MarulhoConfig:
     return MarulhoConfig(
         n_columns=int(n_columns),
@@ -38,7 +40,12 @@ def promoted_scheduler_config(
         candidate_homeostasis_start_tokens=0,
         candidate_predictive_update_start_tokens=0,
         candidate_deep_sleep_filter_start_tokens=0,
-        candidate_memory_pressure_filter_start_tokens=512,
+        candidate_memory_pressure_filter_start_tokens=int(
+            candidate_memory_pressure_filter_start_tokens
+        ),
+        candidate_usefulness_filter_start_tokens=int(
+            candidate_usefulness_filter_start_tokens
+        ),
         micro_sleep_interval_tokens=10**9,
         deep_sleep_interval_tokens=10**9,
         enable_context_layer=False,
@@ -54,6 +61,79 @@ def _sync_if_cuda(cfg: MarulhoConfig) -> None:
         torch.cuda.synchronize()
 
 
+def _install_active_scheduler_filter_fixture(
+    trainer: MarulhoTrainer,
+    *,
+    pressure_count: int,
+    low_usefulness_count: int,
+) -> dict[str, Any]:
+    runtime = trainer._column_transition_runtime
+    snapshot = runtime.route_candidate_bank_checkpoint()
+    bank_ids = snapshot.get("ids")
+    if not isinstance(bank_ids, torch.Tensor) or not bool(snapshot.get("valid")):
+        raise RuntimeError("active scheduler filter fixture requires a ready route bank")
+    probe_rows = int(snapshot.get("probe_rows", 0) or 0)
+    pressure_total = max(0, int(pressure_count))
+    usefulness_total = max(0, int(low_usefulness_count))
+    filtered_total = pressure_total + usefulness_total
+    if filtered_total > int(probe_rows):
+        raise ValueError(
+            "active scheduler filter fixture would force route-vote fallback; "
+            f"requested {filtered_total} filtered rows but only {probe_rows} "
+            "probe rows can be masked while preserving k awake outputs"
+        )
+    if filtered_total <= 0:
+        return {
+            "enabled": False,
+            "pressure_count": 0,
+            "low_usefulness_count": 0,
+            "max_filtered_without_fallback": int(probe_rows),
+            "claim_boundary": "no active scheduler filter fixture installed",
+        }
+
+    metabolism = trainer.model.column_metabolism
+    ids = bank_ids.to(device=trainer.model.device, dtype=torch.long).flatten()
+    pressure_ids = ids[:pressure_total]
+    usefulness_ids = ids[pressure_total:filtered_total]
+    if pressure_total > 0:
+        metabolism.memory_pressure[pressure_ids] = 1.0
+        metabolism.last_memory_pressure_source = (
+            "promoted_scheduler_checkpoint_active_pressure_fixture"
+        )
+    if usefulness_total > 0:
+        metabolism.usefulness[usefulness_ids] = 0.0
+        metabolism.last_usefulness_source = (
+            "promoted_scheduler_checkpoint_active_usefulness_fixture"
+        )
+    metabolism.last_filter_report = {
+        **metabolism.last_filter_report,
+        "mode": "active_scheduler_filter_checkpoint_fixture",
+        "input_candidate_count": int(snapshot.get("bank_size", int(ids.numel())) or 0),
+        "filtered_memory_pressure_count": int(pressure_total),
+        "filtered_low_usefulness_count": int(usefulness_total),
+        "memory_pressure_source": str(metabolism.last_memory_pressure_source),
+        "usefulness_source": str(metabolism.last_usefulness_source),
+        "runs_all_columns": False,
+    }
+    return {
+        "enabled": True,
+        "pressure_count": int(pressure_total),
+        "low_usefulness_count": int(usefulness_total),
+        "pressure_ids": [int(value) for value in pressure_ids.detach().cpu().tolist()],
+        "low_usefulness_ids": [
+            int(value) for value in usefulness_ids.detach().cpu().tolist()
+        ],
+        "max_filtered_without_fallback": int(probe_rows),
+        "memory_pressure_source": str(metabolism.last_memory_pressure_source),
+        "usefulness_source": str(metabolism.last_usefulness_source),
+        "claim_boundary": (
+            "checkpoint fixture marks cached metabolism rows so restored "
+            "route-vote can prove active scheduler masking without adding an "
+            "all-column hot-path scan"
+        ),
+    }
+
+
 def build_promoted_scheduler_checkpoint(
     *,
     checkpoint_path: Path,
@@ -64,12 +144,22 @@ def build_promoted_scheduler_checkpoint(
     seed: int = 20260616,
     device: str = "cuda",
     verify_restore: bool = True,
+    active_pressure_filter_count: int = 0,
+    active_low_usefulness_filter_count: int = 0,
+    candidate_memory_pressure_filter_start_tokens: int = 512,
+    candidate_usefulness_filter_start_tokens: int = 512,
 ) -> dict[str, Any]:
     cfg = promoted_scheduler_config(
         n_columns=int(n_columns),
         column_latent_dim=int(column_latent_dim),
         k_routing=int(k_routing),
         device=str(device),
+        candidate_memory_pressure_filter_start_tokens=int(
+            candidate_memory_pressure_filter_start_tokens
+        ),
+        candidate_usefulness_filter_start_tokens=int(
+            candidate_usefulness_filter_start_tokens
+        ),
     )
     resolved_device = cfg.resolve_device()
     if resolved_device.type != "cuda":
@@ -92,6 +182,11 @@ def build_promoted_scheduler_checkpoint(
     route_scoring = dict(seed_report.get("route_vote_scoring") or {})
     if not bool(route_bank.get("ready", False)):
         raise RuntimeError("route candidate bank did not become ready before save")
+    scheduler_filter_fixture = _install_active_scheduler_filter_fixture(
+        trainer,
+        pressure_count=int(active_pressure_filter_count),
+        low_usefulness_count=int(active_low_usefulness_filter_count),
+    )
 
     checkpoint_path = save_trainer_checkpoint(
         checkpoint_path,
@@ -104,6 +199,7 @@ def build_promoted_scheduler_checkpoint(
             "seed": int(seed),
             "synthetic_fresh_checkpoint": True,
             "candidate_scheduler_promoted_from_token": 0,
+            "scheduler_filter_fixture": dict(scheduler_filter_fixture),
             "claim_boundary": (
                 "builds a restored route-bank checkpoint for long complete-runtime "
                 "scaling gates; seed cost is explicit and not measured as steady "
@@ -145,6 +241,7 @@ def build_promoted_scheduler_checkpoint(
                 seed_report.get("state_transition_runs_all_columns", False)
             ),
         },
+        "scheduler_filter_fixture": dict(scheduler_filter_fixture),
         "restore_before_tick": (
             {
                 "route_candidate_bank": dict(
@@ -164,6 +261,9 @@ def build_promoted_scheduler_checkpoint(
                 ),
                 "route_vote_scoring": dict(
                     restore_after.get("route_vote_scoring") or {}
+                ),
+                "route_vote_scheduler_filter": dict(
+                    restore_after.get("route_vote_deep_sleep_filter") or {}
                 ),
                 "state_transition_cached_count": int(
                     restore_after.get("state_transition_cached_count", 0) or 0
@@ -195,6 +295,18 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260616)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--skip-restore-verify", action="store_true")
+    parser.add_argument("--active-pressure-filter-count", type=int, default=0)
+    parser.add_argument("--active-low-usefulness-filter-count", type=int, default=0)
+    parser.add_argument(
+        "--candidate-memory-pressure-filter-start-tokens",
+        type=int,
+        default=512,
+    )
+    parser.add_argument(
+        "--candidate-usefulness-filter-start-tokens",
+        type=int,
+        default=512,
+    )
     args = parser.parse_args()
     build_promoted_scheduler_checkpoint(
         checkpoint_path=args.checkpoint,
@@ -205,6 +317,14 @@ def main() -> int:
         seed=args.seed,
         device=args.device,
         verify_restore=not args.skip_restore_verify,
+        active_pressure_filter_count=args.active_pressure_filter_count,
+        active_low_usefulness_filter_count=args.active_low_usefulness_filter_count,
+        candidate_memory_pressure_filter_start_tokens=(
+            args.candidate_memory_pressure_filter_start_tokens
+        ),
+        candidate_usefulness_filter_start_tokens=(
+            args.candidate_usefulness_filter_start_tokens
+        ),
     )
     return 0
 

@@ -2363,6 +2363,35 @@ and no observed contention. Runtime Truth reported
 same 6k-ish band while total columns double again from `32768` to `65536`; the
 evidence is scheduler-scale evidence, not a relevance-quality pass.
 
+The active pressure gate then proved the route-vote scheduler filter can change
+execution on the same 65536-column path without widening route rows or adding a
+service-owned decision:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --report reports\column_scheduler_20260617\active-pressure-scheduler-65536-checkpoint.json --n-columns 65536 --column-latent-dim 64 --k-routing 10 --seed 20260617 --device cuda --active-pressure-filter-count 2 --candidate-memory-pressure-filter-start-tokens 0`
+
+The checkpoint fixture marked exactly two cached route-bank rows as high memory
+pressure, matching the two probe rows so route-vote could still emit `k=10`
+awake candidates without fallback. The restored tick scored `12/65536`, output
+`10`, cached `65526`, observed `filtered_memory_pressure_count=2`,
+`observed_filtered_memory_pressure_total=2`, and kept
+`state_transition_runs_all_columns=false`.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\column_scheduler_20260617\active-pressure-scheduler-65536-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+The long run processed `131072` tokens at `6297.455 tokens/sec` with
+`train_compute=0.130524 ms/token`, `prepare_training=0.006053 ms/token`,
+`finalize_total=0.006145 ms/token`, and `tick_duration_ms.p95=20.115`.
+Runtime Truth reported `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`,
+`observed_filtered_memory_pressure_total=2`,
+`observed_filtered_deep_sleep_total=254`, `observed_fallback_count=0`,
+`route_rows_run_all_columns=false`, `state_transition_runs_all_columns=false`,
+zero graph/native/sequence failures, and `contention.verdict=not_observed`.
+This is positive scheduler-boundary evidence: the pressure/sleep mask acted
+inside the fused route-vote owner while complete-runtime cost stayed neutral to
+slightly better than the same-session `6156.500` retained k+2 reference and the
+plain 65536 scale gate.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
