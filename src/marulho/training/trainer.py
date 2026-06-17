@@ -2561,6 +2561,235 @@ class MarulhoTrainer:
         self.model.competitive.prototypes[idx] = repaired
         self.model.competitive.prototype_velocity[idx] = 0.0
 
+    @staticmethod
+    def _sleep_replay_trace_signature(
+        input_pattern: torch.Tensor | None,
+        routing_key: torch.Tensor,
+    ) -> tuple[tuple[int, int], ...]:
+        source = input_pattern if isinstance(input_pattern, torch.Tensor) else routing_key
+        flat = source.detach().cpu().float().flatten()
+        if int(flat.numel()) <= 0:
+            return ()
+        active = torch.nonzero(flat.abs() > 1e-8, as_tuple=False).flatten()
+        if 0 < int(active.numel()) <= 32:
+            return tuple(
+                (int(index), int(round(float(flat[int(index)].item()) * 1_000_000)))
+                for index in active.tolist()
+            )
+        k = min(32, int(flat.numel()))
+        values, indices = torch.topk(flat.abs(), k=k)
+        return tuple(
+            (
+                int(index),
+                int(round(float(flat[int(index)].item()) * 1_000_000)),
+            )
+            for value, index in zip(values.tolist(), indices.tolist())
+            if float(value) > 0.0
+        )
+
+    def _bounded_replay_reconstruction_error(
+        self,
+        routing_keys: Sequence[torch.Tensor],
+        candidate_ids: Sequence[int],
+    ) -> float:
+        if not routing_keys or not candidate_ids:
+            return float("inf")
+        unique_candidates = sorted(
+            {
+                int(candidate_id)
+                for candidate_id in candidate_ids
+                if 0 <= int(candidate_id) < int(self.config.n_columns)
+            }
+        )
+        if not unique_candidates:
+            return float("inf")
+        candidates = torch.tensor(
+            unique_candidates,
+            device=self.model.device,
+            dtype=torch.long,
+        )
+        prototypes = self.model.competitive.prototypes[candidates]
+        total = 0.0
+        for routing_key in routing_keys:
+            target = F.normalize(routing_key.to(self.model.device), dim=0)
+            similarities = torch.mv(prototypes, target)
+            best = float(similarities.max().item()) if int(similarities.numel()) > 0 else -1.0
+            total += max(0.0, 1.0 - best)
+        return float(total / max(1, len(routing_keys)))
+
+    def _sleep_replay_bounded_candidate_repair(
+        self,
+        replay_idx: Sequence[int],
+        *,
+        repair_strength: float = 1.0,
+    ) -> tuple[int, list[int], list[int], dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        seen_signatures: set[tuple[tuple[int, int], ...]] = set()
+        duplicate_trace_skips = 0
+        invalid_trace_skips = 0
+        no_candidate_skips = 0
+        stored_bucket_candidate_injections = 0
+        candidate_union: list[int] = []
+
+        for raw_idx in replay_idx:
+            idx = int(raw_idx)
+            replay_entry = self.model.memory_store.replay_entry(
+                idx,
+                current_token=self.token_count,
+            )
+            assembly = replay_entry["assembly"]
+            input_pattern = replay_entry["input_pattern"]
+            stored_routing_key = replay_entry["routing_key"]
+            stored_bucket_id = replay_entry["bucket_id"]
+
+            if not isinstance(assembly, torch.Tensor):
+                invalid_trace_skips += 1
+                continue
+            assembly = assembly.to(self.model.device)
+            if assembly.dim() != 1 or float(assembly.abs().sum().item()) <= 0.0:
+                invalid_trace_skips += 1
+                continue
+
+            replay_input = input_pattern.to(self.model.device) if isinstance(input_pattern, torch.Tensor) else None
+            if isinstance(stored_routing_key, torch.Tensor):
+                routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
+            elif replay_input is not None:
+                routing_key = self.model.routing_key_from_pattern(replay_input)
+            else:
+                routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
+                routing_key = F.normalize(routing_key, dim=0)
+            if float(routing_key.abs().sum().item()) <= 0.0:
+                invalid_trace_skips += 1
+                continue
+
+            signature = self._sleep_replay_trace_signature(replay_input, routing_key)
+            if signature in seen_signatures:
+                duplicate_trace_skips += 1
+                continue
+            seen_signatures.add(signature)
+
+            candidates_tensor = self._routing_candidates(routing_key)
+            candidate_ids: list[int] = []
+            if isinstance(candidates_tensor, torch.Tensor) and int(candidates_tensor.numel()) > 0:
+                for candidate in candidates_tensor.detach().cpu().tolist():
+                    candidate_id = int(candidate)
+                    if 0 <= candidate_id < int(self.config.n_columns) and candidate_id not in candidate_ids:
+                        candidate_ids.append(candidate_id)
+
+            if stored_bucket_id is not None:
+                stored_candidate = int(stored_bucket_id)
+                if (
+                    0 <= stored_candidate < int(self.config.n_columns)
+                    and stored_candidate not in candidate_ids
+                ):
+                    candidate_ids.append(stored_candidate)
+                    stored_bucket_candidate_injections += 1
+
+            if not candidate_ids:
+                no_candidate_skips += 1
+                continue
+
+            for candidate_id in candidate_ids:
+                if candidate_id not in candidate_union:
+                    candidate_union.append(candidate_id)
+            records.append(
+                {
+                    "index": idx,
+                    "routing_key": routing_key,
+                    "candidate_ids": candidate_ids,
+                }
+            )
+
+        routing_keys = [record["routing_key"] for record in records]
+        quality_before = (
+            self._bounded_replay_reconstruction_error(routing_keys, candidate_union)
+            if records
+            else None
+        )
+        quality_current = float(quality_before) if quality_before is not None else None
+        used_columns: set[int] = set()
+        updated_ids: list[int] = []
+        processed_indices: list[int] = []
+        rejected_commits = 0
+        candidate_trial_count = 0
+        epsilon = 1e-10
+
+        for record in records:
+            if quality_current is None:
+                rejected_commits += 1
+                continue
+            before_score = float(quality_current)
+            best_column: int | None = None
+            best_score = before_score
+            routing_key = record["routing_key"]
+            for candidate_id in record["candidate_ids"]:
+                candidate = int(candidate_id)
+                if candidate in used_columns:
+                    continue
+                original_proto = self.model.competitive.prototypes[candidate].detach().clone()
+                original_velocity = self.model.competitive.prototype_velocity[candidate].detach().clone()
+                self._repair_column_from_replay(
+                    candidate,
+                    routing_key,
+                    strength=repair_strength,
+                )
+                candidate_trial_count += 1
+                score = self._bounded_replay_reconstruction_error(
+                    routing_keys,
+                    candidate_union,
+                )
+                self.model.competitive.prototypes[candidate] = original_proto
+                self.model.competitive.prototype_velocity[candidate] = original_velocity
+                if score < best_score - epsilon:
+                    best_score = score
+                    best_column = candidate
+
+            if best_column is None:
+                rejected_commits += 1
+                continue
+
+            self._repair_column_from_replay(
+                best_column,
+                routing_key,
+                strength=repair_strength,
+            )
+            used_columns.add(best_column)
+            updated_ids.append(best_column)
+            processed_indices.append(int(record["index"]))
+            quality_current = float(best_score)
+
+        applied = len(processed_indices)
+        commit_report = {
+            "sleep_replay_commit_strategy": "bounded_reconstruction_gated_candidate_repair",
+            "sleep_replay_winner_source": "bounded_route_candidates",
+            "sleep_replay_forced_stored_bucket_winner": False,
+            "sleep_replay_selected_trace_count": int(len(replay_idx)),
+            "sleep_replay_unique_trace_count": int(len(records)),
+            "sleep_replay_duplicate_trace_skip_count": int(duplicate_trace_skips),
+            "sleep_replay_invalid_trace_skip_count": int(invalid_trace_skips),
+            "sleep_replay_no_candidate_skip_count": int(no_candidate_skips),
+            "sleep_replay_rejected_commit_count": int(rejected_commits),
+            "sleep_replay_candidate_column_union_count": int(len(candidate_union)),
+            "sleep_replay_candidate_column_trial_count": int(candidate_trial_count),
+            "sleep_replay_stored_bucket_candidate_injection_count": int(
+                stored_bucket_candidate_injections
+            ),
+            "sleep_replay_updated_column_count": int(len(set(updated_ids))),
+            "sleep_replay_quality_metric": (
+                "mean_one_minus_best_similarity_over_selected_replay_routing_keys"
+            ),
+            "sleep_replay_quality_scope": "selected_replay_window_candidate_columns",
+            "sleep_replay_quality_before": quality_before,
+            "sleep_replay_quality_after": quality_current,
+            "sleep_replay_quality_delta": (
+                None
+                if quality_before is None or quality_current is None
+                else float(quality_before - quality_current)
+            ),
+            "sleep_replay_repair_strength": float(repair_strength),
+        }
+        return applied, updated_ids, processed_indices, commit_report
+
     def _sleep_replay_candidate_bucket_ids(
         self,
         mode: str,
@@ -2573,10 +2802,8 @@ class MarulhoTrainer:
 
     def _sleep_replay(self, mode: str) -> int:
         """Replay slow-buffer assemblies with spaced priority and mode-specific depth."""
-        replay_use_stored_bucket = True
-        anchor_blend_scale = 0.05
-        anchor_blend_cap = 0.35
         repair_anchor_strength = 0.30
+        deep_replay_repair_strength = 1.0
 
         if mode == "micro":
             steps = self.config.micro_sleep_replay_steps
@@ -2659,6 +2886,7 @@ class MarulhoTrainer:
             "sleep_replay_applied_count": 0,
             "sleep_replay_mutates_runtime_state": False,
             "sleep_replay_applies_plasticity": False,
+            "sleep_replay_commit_strategy": "not_run",
         }
         if not replay_idx:
             self.model.memory_store.last_replay_selection_report = dict(
@@ -2670,134 +2898,137 @@ class MarulhoTrainer:
         applied = 0
         updated_ids = []
         processed_indices: list[int] = []
+        commit_report: dict[str, Any] = {}
 
-        for idx in replay_idx:
-            replay_entry = self.model.memory_store.replay_entry(idx, current_token=self.token_count)
-            assembly = replay_entry["assembly"]
-            input_pattern = replay_entry["input_pattern"]
-            stored_routing_key = replay_entry["routing_key"]
-            stored_bucket_id = replay_entry["bucket_id"]
-            importance_value = replay_entry["importance"]
-            tag_strength_value = replay_entry.get("capture_tag", replay_entry.get("tag_strength", 0.0))
-            prp_level_value = replay_entry.get("prp_level", 0.0)
-            capture_strength_value = replay_entry.get("capture_strength", 0.0)
-            consolidation_value = replay_entry.get("consolidation_level", 0.0)
-            replay_importance = float(importance_value) if isinstance(importance_value, (int, float)) else 0.0
-            replay_tag_strength = float(tag_strength_value) if isinstance(tag_strength_value, (int, float)) else 0.0
-            replay_prp_level = float(prp_level_value) if isinstance(prp_level_value, (int, float)) else 0.0
-            replay_capture_strength = float(capture_strength_value) if isinstance(capture_strength_value, (int, float)) else 0.0
-            replay_consolidation = float(consolidation_value) if isinstance(consolidation_value, (int, float)) else 0.0
+        if mode == "deep":
+            (
+                applied,
+                updated_ids,
+                processed_indices,
+                commit_report,
+            ) = self._sleep_replay_bounded_candidate_repair(
+                replay_idx,
+                repair_strength=deep_replay_repair_strength,
+            )
+        else:
+            commit_report = {
+                "sleep_replay_commit_strategy": (
+                    "repair_reanchor"
+                    if mode == "repair"
+                    else "micro_maintenance_refresh"
+                ),
+                "sleep_replay_winner_source": (
+                    "stored_replay_or_route_candidates"
+                    if mode == "repair"
+                    else "maintenance_window"
+                ),
+            }
 
-            if not isinstance(assembly, torch.Tensor):
-                continue
-            assembly = assembly.to(self.model.device)
-            if assembly.dim() != 1:
-                continue
-            if float(assembly.abs().sum().item()) <= 0.0:
-                continue
+            for idx in replay_idx:
+                replay_entry = self.model.memory_store.replay_entry(idx, current_token=self.token_count)
+                assembly = replay_entry["assembly"]
+                input_pattern = replay_entry["input_pattern"]
+                stored_routing_key = replay_entry["routing_key"]
+                stored_bucket_id = replay_entry["bucket_id"]
+                importance_value = replay_entry["importance"]
+                tag_strength_value = replay_entry.get("capture_tag", replay_entry.get("tag_strength", 0.0))
+                prp_level_value = replay_entry.get("prp_level", 0.0)
+                capture_strength_value = replay_entry.get("capture_strength", 0.0)
+                consolidation_value = replay_entry.get("consolidation_level", 0.0)
+                replay_importance = float(importance_value) if isinstance(importance_value, (int, float)) else 0.0
+                replay_tag_strength = float(tag_strength_value) if isinstance(tag_strength_value, (int, float)) else 0.0
+                replay_prp_level = float(prp_level_value) if isinstance(prp_level_value, (int, float)) else 0.0
+                replay_capture_strength = float(capture_strength_value) if isinstance(capture_strength_value, (int, float)) else 0.0
+                replay_consolidation = float(consolidation_value) if isinstance(consolidation_value, (int, float)) else 0.0
 
-            if isinstance(input_pattern, torch.Tensor):
-                replay_input = input_pattern.to(self.model.device)
-                self.model.competitive.assembly_from_input(replay_input)
-            else:
-                replay_input = None
-                self.model.competitive.last_input_pattern = None
+                if not isinstance(assembly, torch.Tensor):
+                    continue
+                assembly = assembly.to(self.model.device)
+                if assembly.dim() != 1:
+                    continue
+                if float(assembly.abs().sum().item()) <= 0.0:
+                    continue
 
-            if isinstance(stored_routing_key, torch.Tensor):
-                routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
-            elif replay_input is not None:
-                routing_key = self.model.routing_key_from_pattern(replay_input)
-            else:
-                routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
-                routing_key = F.normalize(routing_key, dim=0)
+                if isinstance(input_pattern, torch.Tensor):
+                    replay_input = input_pattern.to(self.model.device)
+                    self.model.competitive.assembly_from_input(replay_input)
+                else:
+                    replay_input = None
+                    self.model.competitive.last_input_pattern = None
 
-            context_prediction, context_gain = self._context_prediction_and_gain()
+                if isinstance(stored_routing_key, torch.Tensor):
+                    routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
+                elif replay_input is not None:
+                    routing_key = self.model.routing_key_from_pattern(replay_input)
+                else:
+                    routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
+                    routing_key = F.normalize(routing_key, dim=0)
 
-            if replay_use_stored_bucket and stored_bucket_id is not None:
-                winner = torch.tensor([int(stored_bucket_id)], device=self.model.device)
-            else:
-                candidates = self._routing_candidates(routing_key)
-                winner, _, _ = self.model.competitive.compete(
-                    routing_key,
-                    candidates,
-                    fallback_allowed=True,
-                    context_gain=context_gain,
+                context_prediction, context_gain = self._context_prediction_and_gain()
+
+                if stored_bucket_id is not None:
+                    winner = torch.tensor([int(stored_bucket_id)], device=self.model.device)
+                else:
+                    candidates = self._routing_candidates(routing_key)
+                    winner, _, _ = self.model.competitive.compete(
+                        routing_key,
+                        candidates,
+                        fallback_allowed=True,
+                        context_gain=context_gain,
+                    )
+
+                if mode == "repair":
+                    self._repair_column_from_replay(
+                        int(winner.item()),
+                        routing_key,
+                        strength=repair_anchor_strength,
+                    )
+                    updated_ids.append(int(winner.item()))
+                    processed_indices.append(int(idx))
+                    applied += 1
+                    continue
+
+                replay_priority = (
+                    replay_importance
+                    + replay_capture_strength
+                    + 0.40 * replay_prp_level
+                    + 0.30 * replay_tag_strength
+                    + max(0.0, 1.0 - replay_consolidation)
+                )
+                replay_modulator = modulator * (1.0 + min(2.0, replay_priority))
+                replay_local_trace = self._local_trace_from_raw_window(
+                    replay_entry.get("raw_window"),
+                    context_confidence=max(
+                        0.0,
+                        min(
+                            1.0,
+                            0.25 * replay_importance
+                            + 0.25 * replay_tag_strength
+                            + 0.25 * replay_prp_level
+                            + 0.25 * replay_consolidation,
+                        ),
+                    ),
                 )
 
-            if mode == "repair":
-                self._repair_column_from_replay(
-                    int(winner.item()),
+                self.model.competitive.process(
                     routing_key,
-                    strength=repair_anchor_strength,
+                    winner,
+                    modulator=replay_modulator,
+                    eligibility_trace=replay_local_trace,
+                    assembly_projection=self.model.W_assembly_project,
+                    prototype_lr_scale=prototype_lr_scale,
+                    input_lr_scale=input_lr_scale,
+                    update_global_state=False,
                 )
-                updated_ids.append(int(winner.item()))
+                self.model._invalidate_projection_cache()
                 processed_indices.append(int(idx))
                 applied += 1
-                continue
-
-            replay_priority = (
-                replay_importance
-                + replay_capture_strength
-                + 0.40 * replay_prp_level
-                + 0.30 * replay_tag_strength
-                + max(0.0, 1.0 - replay_consolidation)
-            )
-            replay_modulator = modulator * (1.0 + min(2.0, replay_priority))
-            replay_local_trace = self._local_trace_from_raw_window(
-                replay_entry.get("raw_window"),
-                context_confidence=max(
-                    0.0,
-                    min(
-                        1.0,
-                        0.25 * replay_importance
-                        + 0.25 * replay_tag_strength
-                        + 0.25 * replay_prp_level
-                        + 0.25 * replay_consolidation,
-                    ),
-                ),
-            )
-
-            self.model.competitive.process(
-                routing_key,
-                winner,
-                modulator=replay_modulator,
-                eligibility_trace=replay_local_trace,
-                assembly_projection=self.model.W_assembly_project,
-                prototype_lr_scale=prototype_lr_scale,
-                input_lr_scale=input_lr_scale,
-                update_global_state=False,
-            )
-            self.model._invalidate_projection_cache()
-            if mode == "deep":
-                self._apply_column_anchors(
-                    [int(winner.item())],
-                    blend_scale=anchor_blend_scale,
-                    blend_cap=anchor_blend_cap,
-                )
-            if self.model.context_layer is not None and mode == "deep":
-                replay_assembly = self.model.competitive.winner_assembly(routing_key, winner)
-                replay_assembly, _ = self._apply_binding(
-                    replay_assembly,
-                    context_prediction,
-                    update_weights=False,
-                )
-                self.model.context_layer.observe(
-                    replay_assembly,
-                    update_weights=False,
-                    precision_weight=self._context_precision_weight(),
-                )
-            if mode == "deep":
-                updated_ids.append(int(winner.item()))
-                revived_ids = self.model.competitive.last_revived_indices.detach().cpu().tolist()
-                updated_ids.extend(int(idx) for idx in revived_ids)
-            processed_indices.append(int(idx))
-            applied += 1
 
         if applied > 0:
             if mode == "deep":
                 # Routing-index rebuild after consolidation loop.
-                # Avoids stale-cell issue: prototype positions shift during
-                # anchor_lr updates above; rebuilding now uses final positions.
+                # Avoids stale-cell issue: prototype positions shift during the
+                # bounded replay repair above; rebuilding now uses final rows.
                 uniq = sorted(set(updated_ids))
                 id_arr = np.asarray(uniq, dtype=np.int64)
                 vecs = self.model.competitive.prototypes[id_arr].detach()
@@ -2834,6 +3065,7 @@ class MarulhoTrainer:
                 self.last_deep_sleep_token = self.token_count
         self._last_sleep_replay_selection_report = {
             **self._last_sleep_replay_selection_report,
+            **commit_report,
             "sleep_replay_applied_count": int(applied),
             "sleep_replay_mutates_runtime_state": bool(applied > 0),
             "sleep_replay_applies_plasticity": bool(

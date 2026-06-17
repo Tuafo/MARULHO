@@ -17,7 +17,9 @@ related_papers:
   - https://arxiv.org/abs/1912.01100
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
 ---
 
 # Replay/consolidation
@@ -67,20 +69,42 @@ window has no positive replay pressure, the trainer records
 `unscoped_global_fallback_retired=true`, leaves `sleep_replay_applied_count=0`,
 and does not apply plasticity.
 
-The 2026-06-17 synthetic benchmark now separates stored-experience recall from
-prototype repair. With positive anchor pressure, the bounded replay window
-recalled stored Task-A input patterns with mean distance
-`5.960464477539063e-08` under the `0.01` gate while scoring only bucket-indexed
-entries. The zero-pressure guard applied `0` replay updates, and the global
-control now applies `0` replay updates because unanchored deep replay is
-retired. The reconstruction/prototype consolidation gate still failed, so the
-next replay slice must improve that target before claiming consolidation
-promotion.
+Positive-pressure deep replay no longer commits the old stored-bucket
+`CompetitiveColumnLayer.process(...)` mutation. The promoted slow-window commit
+path is `bounded_reconstruction_gated_candidate_repair`: selected replay entries
+are de-duplicated into local traces, candidate columns come from bounded routing
+candidates plus an explicit stored-bucket fallback candidate, and a temporary
+prototype repair is committed only when it improves
+`mean_one_minus_best_similarity_over_selected_replay_routing_keys` inside the
+selected replay-window candidate columns. The report exposes candidate-column
+budget, trial count, rejected commits, updated columns, quality before/after,
+CPU score device, CPU archival storage, and `runs_live_tick=false`.
+
+The 2026-06-17 synthetic candidate-repair benchmark
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json`
+now separates stored-experience recall from bounded repair and passes both gates
+for the positive-pressure arm. It recalled stored Task-A input patterns with
+mean distance `5.960464477539063e-08` under the `0.01` gate, committed `6`
+bounded candidate repairs across `4` consolidation cycles, rejected `14`
+non-improving commits, and improved Task-A reconstruction from `0.0052170157`
+after Task B to `0.0034434795` after consolidation. The prototype gate passed
+with relative degradation `0.0467838377` under the `0.05` threshold and overlap
+`0.8981397152`. The zero-pressure guard and no-anchor global-control arms still
+applied `0` updates.
+
+The matching longer hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json`
+processed `262144` tokens at `6306.507 tokens/sec`, with
+`train_compute=0.129511 ms/token`, `route_input_rows_scored=12/65536`,
+`state_transition_cached_count=65526`, zero graph/native/sequence failures, and
+no observed contention. Replay repair remains an explicit sleep/replay window;
+it is not every-token background work.
 
 ## Status
 
-bounded slow-path selection and stored-experience recall implemented; prototype
-consolidation promotion open
+bounded slow-path selection, stored-experience recall, and reconstruction-gated
+candidate repair implemented; long-run hot-path protection remains required for
+future larger replay windows
 
 ## Links
 

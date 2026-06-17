@@ -137,6 +137,11 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "sleep_replay_applied_count": 1,
                 "sleep_replay_mutates_runtime_state": True,
                 "sleep_replay_applies_plasticity": True,
+                "sleep_replay_commit_strategy": "bounded_reconstruction_gated_candidate_repair",
+                "sleep_replay_winner_source": "bounded_route_candidates",
+                "sleep_replay_quality_before": 0.25,
+                "sleep_replay_quality_after": 0.10,
+                "sleep_replay_candidate_column_union_count": 4,
                 "runs_live_tick": False,
             }
             trainer._last_sleep_replay_selection_report = dict(report)
@@ -155,6 +160,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored_report["score_count"], 2)
             self.assertEqual(restored_report["selected_indices"], [3])
             self.assertTrue(restored_report["sleep_replay_mutates_runtime_state"])
+            self.assertEqual(
+                restored_report["sleep_replay_commit_strategy"],
+                "bounded_reconstruction_gated_candidate_repair",
+            )
+            self.assertEqual(
+                restored_report["sleep_replay_winner_source"],
+                "bounded_route_candidates",
+            )
+            self.assertEqual(restored_report["sleep_replay_quality_after"], 0.10)
+            self.assertEqual(
+                restored_report["sleep_replay_candidate_column_union_count"],
+                4,
+            )
             self.assertEqual(
                 restored.model.memory_store.last_replay_selection_report[
                     "selected_indices"

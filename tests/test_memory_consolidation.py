@@ -601,6 +601,18 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["sleep_replay_applied_count"], updates)
         self.assertTrue(report["sleep_replay_mutates_runtime_state"])
         self.assertTrue(report["sleep_replay_applies_plasticity"])
+        self.assertEqual(
+            report["sleep_replay_commit_strategy"],
+            "bounded_reconstruction_gated_candidate_repair",
+        )
+        self.assertEqual(report["sleep_replay_winner_source"], "bounded_route_candidates")
+        self.assertFalse(report["sleep_replay_forced_stored_bucket_winner"])
+        self.assertGreater(report["sleep_replay_candidate_column_union_count"], 0)
+        self.assertGreater(report["sleep_replay_candidate_column_trial_count"], 0)
+        self.assertGreaterEqual(
+            report["sleep_replay_quality_before"],
+            report["sleep_replay_quality_after"],
+        )
 
     def test_deep_sleep_without_anchors_blocks_global_replay_mutation(self) -> None:
         set_seed(7)

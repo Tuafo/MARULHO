@@ -261,6 +261,7 @@ def run_trial(
         for report in cycle_selection_reports
         if report.get("candidate_scope") == "global_slow_path_score_scan"
     )
+    replay_commit_summary = _replay_commit_summary(cycle_selection_reports)
     return {
         "trial": final_selector,
         "seed": int(seed),
@@ -289,12 +290,110 @@ def run_trial(
         "bounded_replay_recall": recall_summary,
         "selection": selection,
         "cycle_selection_reports": cycle_selection_reports,
+        "replay_commit_summary": replay_commit_summary,
         "bounded_cycle_count": int(bounded_cycle_count),
         "global_fallback_cycle_count": int(global_fallback_cycle_count),
         "device": {
             "model_device": str(trainer.model.device),
             "memory_store": trainer.model.memory_store.device_report(),
         },
+    }
+
+
+def _sum_report_int(reports: list[dict[str, Any]], key: str) -> int:
+    return int(sum(int(report.get(key, 0) or 0) for report in reports))
+
+
+def _sum_report_float(reports: list[dict[str, Any]], key: str) -> float:
+    return float(
+        sum(
+            float(value)
+            for report in reports
+            for value in [report.get(key)]
+            if isinstance(value, (int, float))
+        )
+    )
+
+
+def _replay_commit_summary(
+    cycle_selection_reports: list[dict[str, Any]],
+) -> dict[str, Any]:
+    strategies = [
+        str(report.get("sleep_replay_commit_strategy"))
+        for report in cycle_selection_reports
+        if report.get("sleep_replay_commit_strategy")
+        and report.get("sleep_replay_commit_strategy") != "not_run"
+    ]
+    mutating_cycles = [
+        report
+        for report in cycle_selection_reports
+        if bool(report.get("sleep_replay_mutates_runtime_state"))
+    ]
+    quality_metrics = [
+        str(report.get("sleep_replay_quality_metric"))
+        for report in cycle_selection_reports
+        if report.get("sleep_replay_quality_metric")
+    ]
+    quality_scopes = [
+        str(report.get("sleep_replay_quality_scope"))
+        for report in cycle_selection_reports
+        if report.get("sleep_replay_quality_scope")
+    ]
+    return {
+        "surface": "bounded_replay_window_commit_summary.v1",
+        "commit_strategy": strategies[0] if strategies else "not_run",
+        "cycle_count": int(len(cycle_selection_reports)),
+        "mutating_cycle_count": int(len(mutating_cycles)),
+        "total_applied_count": _sum_report_int(
+            cycle_selection_reports,
+            "sleep_replay_applied_count",
+        ),
+        "total_rejected_commit_count": _sum_report_int(
+            cycle_selection_reports,
+            "sleep_replay_rejected_commit_count",
+        ),
+        "total_candidate_column_trial_count": _sum_report_int(
+            cycle_selection_reports,
+            "sleep_replay_candidate_column_trial_count",
+        ),
+        "max_candidate_column_union_count": int(
+            max(
+                [
+                    int(report.get("sleep_replay_candidate_column_union_count", 0) or 0)
+                    for report in cycle_selection_reports
+                ]
+                or [0]
+            )
+        ),
+        "max_unique_trace_count": int(
+            max(
+                [
+                    int(report.get("sleep_replay_unique_trace_count", 0) or 0)
+                    for report in cycle_selection_reports
+                ]
+                or [0]
+            )
+        ),
+        "total_quality_delta": _sum_report_float(
+            cycle_selection_reports,
+            "sleep_replay_quality_delta",
+        ),
+        "quality_metric": quality_metrics[0] if quality_metrics else None,
+        "quality_scope": quality_scopes[0] if quality_scopes else None,
+        "score_device": (
+            cycle_selection_reports[-1].get("score_device")
+            if cycle_selection_reports
+            else None
+        ),
+        "archival_storage_device": (
+            cycle_selection_reports[-1].get("archival_storage_device")
+            if cycle_selection_reports
+            else None
+        ),
+        "runs_live_tick": any(
+            bool(report.get("runs_live_tick"))
+            for report in cycle_selection_reports
+        ),
     }
 
 
@@ -372,6 +471,7 @@ def main() -> None:
         selection = trial["selection"]
         metrics = trial["metrics"]
         recall_gate = trial["bounded_replay_recall"]["gate"]
+        commit_summary = trial["replay_commit_summary"]
         print(
             f"{trial['trial']}: updates={trial['updates']} "
             f"candidate_scope={selection.get('candidate_scope')} "
@@ -382,6 +482,8 @@ def main() -> None:
             f"blocked_fallback={selection.get('global_fallback_blocked_reason')} "
             f"recall_gate_pass={recall_gate['pass']} "
             f"prototype_gate_pass={trial['memory_consolidation_gate']['pass']} "
+            f"commit_strategy={commit_summary['commit_strategy']} "
+            f"commit_updates={commit_summary['total_applied_count']} "
             f"input_distance={metrics['task_a_bounded_replay_recall_input_pattern_distance']:.8f} "
             f"recovery_delta={metrics['task_a_recovery_delta']:.8f}"
         )

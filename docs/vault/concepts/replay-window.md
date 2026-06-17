@@ -13,6 +13,7 @@ related_papers:
   - ../papers/replay-consolidation.md
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
 ---
 
 # Replay Window
@@ -39,20 +40,28 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
 - Replay-window recall is non-mutating: it can compare routing keys and stored
   input patterns inside the selected window, but it cannot apply plasticity or
   run from the live tick.
+- Positive-pressure deep replay may apply bounded candidate repair only after a
+  local reconstruction gate improves over selected replay-window routing keys.
+  Candidate columns come from bounded route candidates plus explicit stored
+  bucket fallback candidates; rejected commits are evidence, not silent success.
 - Archival metadata stays CPU-resident; active replay tensors move to the model
   device only when replay is actually applied.
 
 ## Evidence
 
-`reports/bounded_replay_window_20260617/synthetic-selection.json` proves the
-selection/retirement guardrail and passes the bounded stored input-pattern
-recall gate for positive-pressure windows (`5.960464477539063e-08` mean input
-distance, threshold `0.01`). It also proves deep replay blocks global mutation
-when there are no anchor buckets or the anchored bucket window has zero positive
-pressure. It still does not pass prototype reconstruction quality. The matching
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json`
+proves the selection/retirement guardrail, passes the bounded stored
+input-pattern recall gate for positive-pressure windows
+(`5.960464477539063e-08` mean input distance, threshold `0.01`), and passes the
+prototype reconstruction gate after bounded candidate repair. The positive arm
+committed `6` repairs, rejected `14` non-improving commits, scored at most `11`
+candidate columns for `5` unique traces, and moved Task-A reconstruction from
+`0.0052170157` after Task B to `0.0034434795` after consolidation. It also
+proves deep replay blocks global mutation when there are no anchor buckets or
+the anchored bucket window has zero positive pressure. The matching longer
 hot-path report
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json`
-keeps the 65536-column live tick in band.
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json`
+keeps the 65536-column live tick in band at `6306.507 tokens/sec`.
 
 ## Relationships
 
