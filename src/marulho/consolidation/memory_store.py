@@ -107,6 +107,7 @@ class DualMemoryStore:
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
+        self.last_query_memory_match_report = self._empty_query_memory_match_report()
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -157,6 +158,7 @@ class DualMemoryStore:
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
+        self.last_query_memory_match_report = self._empty_query_memory_match_report()
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -295,6 +297,32 @@ class DualMemoryStore:
             "candidate_index_count": 0,
             "query_indices": [],
             "query_count": 0,
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_query_memory_match_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_query_memory_match_candidates.v1",
+            "status": "not_run",
+            "scope": "query_memory_match_slow_path",
+            "memory_size": 0,
+            "requested_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": 0,
+            "candidate_index_count": 0,
+            "match_indices": [],
             "score_count": 0,
             "global_score_scan": False,
             "global_candidate_scan": False,
@@ -473,6 +501,9 @@ class DualMemoryStore:
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
+            ),
+            "last_query_memory_match_report": dict(
+                self.last_query_memory_match_report
             ),
             "all_archival_tensors_cpu": all(
                 device == "cpu"
@@ -1052,33 +1083,71 @@ class DualMemoryStore:
             self._invalidate_summary_cache()
         return tagged
 
+    def _replay_priority_score(self, idx: int, current_token: int) -> float:
+        if idx < 0 or idx >= len(self.slow_buffer):
+            return 0.0
+        importance = float(max(1e-6, self.slow_importance[idx]))
+        replay_age = max(0, int(current_token) - int(self.slow_last_replay_token[idx]))
+        spacing = math.log1p(float(replay_age))
+        tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+        prp_level = float(max(0.0, self._available_prp(idx)))
+        capture_strength = float(max(0.0, tag_strength * prp_level))
+        consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+        replay_count = max(0, int(self.slow_replay_count[idx]))
+        unmet_capture = max(0.0, capture_strength - consolidation)
+        frontier = (
+            2.00 * unmet_capture
+            + 0.75 * tag_strength
+            + 0.35 * prp_level
+            + 0.50 * max(0.0, 1.0 - consolidation)
+        )
+        score = (
+            importance
+            * (1.0 + spacing)
+            * (1.0 + frontier)
+            / (1.0 + 0.35 * float(replay_count))
+        )
+        ripple_strength = (
+            0.0
+            if idx >= len(self.slow_ripple_strength)
+            else float(self.slow_ripple_strength[idx])
+        )
+        score *= self._ripple_priority_multiplier(ripple_strength)
+        return float(score)
+
     def replay_scores(self, current_token: int) -> torch.Tensor:
         if not self.slow_buffer:
             return torch.zeros(0, dtype=torch.float32)
 
         self._advance_state(current_token)
-        scores: list[float] = []
-        for idx in range(len(self.slow_buffer)):
-            importance = float(max(1e-6, self.slow_importance[idx]))
-            replay_age = max(0, int(current_token) - int(self.slow_last_replay_token[idx]))
-            spacing = math.log1p(float(replay_age))
-            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
-            prp_level = float(max(0.0, self._available_prp(idx)))
-            capture_strength = float(max(0.0, tag_strength * prp_level))
-            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
-            replay_count = max(0, int(self.slow_replay_count[idx]))
-            unmet_capture = max(0.0, capture_strength - consolidation)
-            frontier = (
-                2.00 * unmet_capture
-                + 0.75 * tag_strength
-                + 0.35 * prp_level
-                + 0.50 * max(0.0, 1.0 - consolidation)
-            )
-            score = importance * (1.0 + spacing) * (1.0 + frontier) / (1.0 + 0.35 * float(replay_count))
-            ripple_strength = 0.0 if idx >= len(self.slow_ripple_strength) else float(self.slow_ripple_strength[idx])
-            score *= self._ripple_priority_multiplier(ripple_strength)
-            scores.append(float(score))
+        scores = [
+            self._replay_priority_score(idx, current_token)
+            for idx in range(len(self.slow_buffer))
+        ]
         return torch.tensor(scores, dtype=torch.float32)
+
+    def replay_scores_for_indices(
+        self,
+        indices: Sequence[int] | torch.Tensor,
+        current_token: int,
+    ) -> dict[int, float]:
+        if not self.slow_buffer:
+            return {}
+
+        self._advance_state(current_token)
+        scores: dict[int, float] = {}
+        size = len(self.slow_buffer)
+        raw_indices = (
+            indices.detach().cpu().flatten().tolist()
+            if isinstance(indices, torch.Tensor)
+            else list(indices)
+        )
+        for raw_index in raw_indices:
+            index = int(raw_index)
+            if index in scores or index < 0 or index >= size:
+                continue
+            scores[index] = float(self._replay_priority_score(index, current_token))
+        return scores
 
     def ripple_tag_awake(
         self,
@@ -1891,6 +1960,73 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
+    def collect_query_memory_match_indices(
+        self,
+        *,
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None,
+        max_candidates: int,
+        scope: str = "query_memory_match_slow_path",
+    ) -> dict[str, Any]:
+        """Collect bounded memory indices for explicit query/readout matching."""
+
+        started = time.perf_counter()
+        requested = max(0, int(max_candidates))
+        scoped_bucket_ids = [] if candidate_bucket_ids is None else candidate_bucket_ids
+        normalized_buckets, candidate_indices, available_count = (
+            self._candidate_indices_for_bucket_ids(
+                scoped_bucket_ids,
+                max_candidates=requested,
+            )
+        )
+        fallback_reason: str | None = None
+        if requested <= 0:
+            fallback_reason = "empty_query_match_request"
+        elif normalized_buckets is not None and not normalized_buckets:
+            fallback_reason = "empty_query_candidate_bucket_scope"
+        elif not candidate_indices:
+            fallback_reason = "empty_query_candidate_window"
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_query_memory_match_candidates.v1",
+            "status": "collected" if candidate_indices else "empty",
+            "scope": str(scope),
+            "memory_size": int(len(self.slow_buffer)),
+            "requested_count": int(requested),
+            "candidate_window_limit": int(requested),
+            "candidate_window_policy": (
+                "recent_bucket_round_robin_candidate_pool"
+                if normalized_buckets is not None
+                else "unscoped_query_memory_match_retired"
+            ),
+            "candidate_scope": (
+                "bucket_indexed_candidate_window"
+                if normalized_buckets is not None
+                else "unscoped_query_memory_match_retired"
+            ),
+            "candidate_bucket_ids": list(normalized_buckets or []),
+            "candidate_bucket_count": int(len(normalized_buckets or [])),
+            "candidate_index_available_count": int(available_count),
+            "candidate_index_count": int(len(candidate_indices)),
+            "match_indices": [int(index) for index in candidate_indices],
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(requested),
+            },
+        }
+        self.last_query_memory_match_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def sample_replay_indices(
         self,
         *,
@@ -2155,6 +2291,9 @@ class DualMemoryStore:
                 "last_replay_query_collection_report": dict(
                     self.last_replay_query_collection_report
                 ),
+                "last_query_memory_match_report": dict(
+                    self.last_query_memory_match_report
+                ),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -2229,6 +2368,9 @@ class DualMemoryStore:
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
+            ),
+            "last_query_memory_match_report": dict(
+                self.last_query_memory_match_report
             ),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
@@ -2326,6 +2468,9 @@ class DualMemoryStore:
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
+            ),
+            "last_query_memory_match_report": dict(
+                self.last_query_memory_match_report
             ),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
@@ -2514,6 +2659,12 @@ class DualMemoryStore:
             dict(raw_replay_query_collection)
             if isinstance(raw_replay_query_collection, Mapping)
             else self._empty_replay_query_collection_report()
+        )
+        raw_query_memory_match = snapshot.get("last_query_memory_match_report")
+        self.last_query_memory_match_report = (
+            dict(raw_query_memory_match)
+            if isinstance(raw_query_memory_match, Mapping)
+            else self._empty_query_memory_match_report()
         )
         self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")

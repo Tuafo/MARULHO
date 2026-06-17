@@ -248,6 +248,23 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer.model.memory_store.last_replay_query_collection_report = dict(
                 query_report
             )
+            query_match_report = {
+                "surface": "bounded_query_memory_match_candidates.v1",
+                "status": "collected",
+                "scope": "query_runner_memory_matches",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
+                "candidate_window_limit": 5,
+                "candidate_index_available_count": 12,
+                "candidate_index_count": 5,
+                "match_indices": [9, 8, 7, 6, 5],
+                "score_count": 0,
+                "runs_live_tick": False,
+                "mutates_runtime_state": False,
+            }
+            trainer.model.memory_store.last_query_memory_match_report = dict(
+                query_match_report
+            )
             checkpoint = save_trainer_checkpoint(
                 Path(tmpdir) / "replay-window-recall.pt",
                 trainer,
@@ -278,6 +295,22 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             )
             self.assertEqual(restored_query_report["query_indices"], [8, 7, 6])
             self.assertFalse(restored_query_report["runs_live_tick"])
+            restored_query_match_report = (
+                restored.model.memory_store.last_query_memory_match_report
+            )
+            self.assertEqual(
+                restored_query_match_report["surface"],
+                "bounded_query_memory_match_candidates.v1",
+            )
+            self.assertEqual(
+                restored_query_match_report["candidate_scope"],
+                "bucket_indexed_candidate_window",
+            )
+            self.assertEqual(
+                restored_query_match_report["match_indices"],
+                [9, 8, 7, 6, 5],
+            )
+            self.assertFalse(restored_query_match_report["runs_live_tick"])
 
     def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
         from tempfile import TemporaryDirectory

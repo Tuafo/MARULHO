@@ -617,6 +617,53 @@ class MemoryConsolidationTests(unittest.TestCase):
             [9, 8, 7],
         )
 
+    def test_query_memory_match_collection_uses_capped_bucket_window(self) -> None:
+        store = DualMemoryStore(
+            capacity=16,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token in range(1, 11):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=1,
+                input_pattern=torch.tensor([float(token), 0.0], dtype=torch.float32),
+                capture_tag=1.0,
+            )
+
+        report = store.collect_query_memory_match_indices(
+            candidate_bucket_ids=[1],
+            max_candidates=4,
+            scope="unit_query_memory_match",
+        )
+        priority_scores = store.replay_scores_for_indices(
+            report["match_indices"],
+            current_token=20,
+        )
+
+        self.assertEqual(report["surface"], "bounded_query_memory_match_candidates.v1")
+        self.assertEqual(report["status"], "collected")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "recent_bucket_round_robin_candidate_pool",
+        )
+        self.assertEqual(report["candidate_window_limit"], 4)
+        self.assertEqual(report["candidate_index_available_count"], 10)
+        self.assertEqual(report["candidate_index_count"], 4)
+        self.assertEqual(report["match_indices"], [9, 8, 7, 6])
+        self.assertEqual(report["score_count"], 0)
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertEqual(sorted(priority_scores), [6, 7, 8, 9])
+        self.assertEqual(
+            store.summary_stats()["last_query_memory_match_report"]["match_indices"],
+            [9, 8, 7, 6],
+        )
+
     def test_unscoped_replay_selection_requires_diagnostic_opt_in(self) -> None:
         store = DualMemoryStore(
             capacity=4,

@@ -35,6 +35,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
   - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
+  - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
 ---
 
 # Replay/consolidation
@@ -92,6 +94,15 @@ found. The collector caps the candidate window at `max_queries`, requires input
 patterns by default, reports available versus collected query indices, and
 records `score_count=0`, no global scans, CPU archival placement, and
 `runs_live_tick=false`.
+
+Explicit query/readout recall follows the same literature boundary. Modern
+Hopfield-style matching is useful only as a bounded local associative operator,
+so `query_runner.memory_matches_with_report(...)` records
+`bounded_query_memory_match.v1`: routing supplies candidate bucket ids,
+`DualMemoryStore.collect_query_memory_match_indices(...)` returns a capped
+bucket-indexed memory window, and the query runner computes similarity plus
+replay-priority scores only for those entries. This keeps readout recall from
+becoming an archive-wide hidden reasoning pass.
 
 Zero-pressure replay is now retired: if the global scorer finds no positive
 consolidation/repair/maintenance pressure, it returns an empty selection with
@@ -297,14 +308,29 @@ stayed in band at `6221.949 tokens/sec`, with bounded `12/65536` route rows,
 `65526` cached transition rows, flat `1848 MiB` GPU memory, no observed
 contention, and zero graph/native/sequence failures.
 
+The query-memory match follow-up removes the full slow-buffer query readout
+scan. The report
+`reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json`
+emits `bounded_query_memory_match.v1`, used `candidate_window_limit=192`, had
+`1` available bucket-indexed candidate, computed `1` similarity score and `1`
+bounded replay-priority score, returned `1` match, reported no global
+score/candidate scan, and kept archival placement on CPU with
+`runs_live_tick=false`. The top memory was
+`promoted scheduler checkpoint route-bank seed` with similarity
+`0.9932903051`. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json`
+processed `262144` tokens at `6137.185 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `1848 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
 candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
-candidate windows, capped replay query collection, and retired unscoped random
-replay defaults
+candidate windows, capped replay query collection, bounded query-memory
+readout, and retired unscoped random replay defaults
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

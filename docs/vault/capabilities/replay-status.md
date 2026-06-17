@@ -15,6 +15,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
   - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
+  - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
 ---
 
 # Replay Status
@@ -38,6 +40,10 @@ Current bounded selection evidence:
   CPU slow-path query collector over the same bucket-indexed candidate window;
   it collects query indices without scoring memory entries or walking all
   `slow_bucket_ids`.
+- `bounded_query_memory_match.v1` is emitted from `query_runner` for explicit
+  query/readout recall. It derives candidate buckets from routing, collects a
+  capped bucket-indexed memory window, and computes similarity/replay-priority
+  scores only for those candidate entries.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
 - Bucket-scoped selection now caps candidate entries before scoring and reports
@@ -66,6 +72,14 @@ Current bounded selection evidence:
   after-consolidation `mean_input_pattern_distance=0.0`.
 - `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json`
   keeps the live tick protected at `6221.949 tokens/sec`, bounded
+  `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
+  failures.
+- `reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json`
+  proves explicit query readout now reports `bounded_query_memory_match.v1`
+  with `candidate_window_limit=192`, `1` candidate scored, no global scans, CPU
+  archival placement, and `runs_live_tick=false`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json`
+  keeps the live tick protected at `6137.185 tokens/sec`, bounded
   `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
   failures.
 

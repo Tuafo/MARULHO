@@ -297,7 +297,62 @@ def _memory_focus_priority(
     return float(best)
 
 
-def memory_matches(
+def _query_candidate_bucket_ids(
+    trainer: MarulhoTrainer,
+    routing_key: torch.Tensor,
+    max_buckets: int,
+) -> list[int]:
+    routing_index = getattr(getattr(trainer, "model", None), "routing_index", None)
+    if routing_index is None or not hasattr(routing_index, "search_tensors"):
+        return []
+    try:
+        candidate_ids, _ = routing_index.search_tensors(
+            routing_key.detach().unsqueeze(0),
+            k=max(1, int(max_buckets)),
+        )
+    except Exception:
+        return []
+    if not isinstance(candidate_ids, torch.Tensor) or candidate_ids.numel() <= 0:
+        return []
+    return [int(value) for value in candidate_ids[0].detach().cpu().flatten().tolist()]
+
+
+def _empty_query_memory_match_report(
+    *,
+    memory_size: int,
+    requested_count: int,
+    fallback_reason: str,
+) -> dict[str, Any]:
+    return {
+        "surface": "bounded_query_memory_match.v1",
+        "candidate_surface": "bounded_query_memory_match_candidates.v1",
+        "status": "empty",
+        "scope": "query_memory_match_slow_path",
+        "memory_size": int(memory_size),
+        "requested_count": int(requested_count),
+        "candidate_window_limit": int(requested_count),
+        "candidate_window_policy": "query_memory_match_candidate_scope_missing",
+        "candidate_scope": "query_memory_match_candidate_scope_missing",
+        "candidate_bucket_ids": [],
+        "candidate_bucket_count": 0,
+        "candidate_index_available_count": 0,
+        "candidate_index_count": 0,
+        "match_indices": [],
+        "similarity_score_count": 0,
+        "replay_priority_score_count": 0,
+        "result_count": 0,
+        "returned_count": 0,
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "fallback_reason": fallback_reason,
+    }
+
+
+def memory_matches_with_report(
     trainer: MarulhoTrainer,
     pattern_vec: torch.Tensor,
     routing_key: torch.Tensor,
@@ -307,16 +362,74 @@ def memory_matches(
     *,
     focus_terms: Sequence[str] | None = None,
     memory_priority: Mapping[object, object] | None = None,
-) -> list[dict[str, Any]]:
+    memory_candidate_limit: int | None = None,
+    candidate_bucket_ids: Sequence[int] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     store = trainer.model.memory_store
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
-    replay_scores = store.replay_scores(trainer.token_count)
+    limit = max(1, int(top_k))
+    candidate_limit = max(
+        limit,
+        int(memory_candidate_limit)
+        if memory_candidate_limit is not None
+        else max(32, limit * 8),
+    )
+    if candidate_bucket_ids is None:
+        candidate_bucket_ids = _query_candidate_bucket_ids(
+            trainer,
+            routing_key,
+            max(limit, int(getattr(trainer.config, "k_routing", limit))),
+        )
+    if not hasattr(store, "collect_query_memory_match_indices"):
+        report = _empty_query_memory_match_report(
+            memory_size=len(getattr(store, "slow_buffer", [])),
+            requested_count=candidate_limit,
+            fallback_reason="memory_store_missing_bounded_query_match_collector",
+        )
+        return [], report
+
+    candidate_report = store.collect_query_memory_match_indices(
+        candidate_bucket_ids=candidate_bucket_ids,
+        max_candidates=candidate_limit,
+        scope="query_runner_memory_matches",
+    )
+    candidate_indices = [
+        int(index)
+        for index in candidate_report.get("match_indices", [])
+        if 0 <= int(index) < len(store.slow_buffer)
+    ]
+    replay_scores = store.replay_scores_for_indices(
+        candidate_indices,
+        trainer.token_count,
+    )
     ordered_focus_terms = _dedupe_terms(focus_terms)
     term_match_cache = _SemanticTermMatchCache()
     matches: list[dict[str, Any]] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
-    for idx in range(len(store.slow_buffer)):
+
+    def _finish(result_matches: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        report = dict(candidate_report)
+        report.update(
+            {
+                "surface": "bounded_query_memory_match.v1",
+                "candidate_surface": candidate_report.get("surface"),
+                "query_term_count": int(len(query_terms or [])),
+                "focus_term_count": int(len(ordered_focus_terms)),
+                "memory_priority_count": int(len(memory_priority or {})),
+                "similarity_score_count": int(len(candidate_indices)),
+                "replay_priority_score_count": int(len(replay_scores)),
+                "result_count": int(len(matches)),
+                "returned_count": int(len(result_matches)),
+                "runs_live_tick": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+            }
+        )
+        return result_matches, report
+
+    for idx in candidate_indices:
         ref_key = store.slow_routing_keys[idx]
         ref_input = store.slow_input_patterns[idx]
         if isinstance(ref_key, torch.Tensor):
@@ -366,7 +479,7 @@ def memory_matches(
                 "consolidation_level": consolidation_level,
                 "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
                 "replay_count": int(store.slow_replay_count[idx]),
-                "replay_priority": float(replay_scores[idx].item()) if idx < int(replay_scores.numel()) else 0.0,
+                "replay_priority": float(replay_scores.get(int(idx), 0.0)),
                 "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
                 "query_overlap": int(query_overlap),
                 "matched_query_terms": matched_query_terms,
@@ -378,10 +491,9 @@ def memory_matches(
             }
         )
 
-    limit = max(1, int(top_k))
     if not query_terms and not ordered_focus_terms and not memory_priority:
         matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
-        return matches[:limit]
+        return _finish(matches[:limit])
 
     if not query_terms:
         matches.sort(
@@ -396,7 +508,7 @@ def memory_matches(
             ),
             reverse=True,
         )
-        return matches[:limit]
+        return _finish(matches[:limit])
 
     similarity_ranked = sorted(
         matches,
@@ -471,7 +583,12 @@ def memory_matches(
         ),
         reverse=True,
     )
-    return merged[:limit]
+    return _finish(merged[:limit])
+
+
+def memory_matches(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    matches, _report = memory_matches_with_report(*args, **kwargs)
+    return matches
 
 
 def build_memory_episodes(
@@ -732,7 +849,7 @@ def build_query_result(
         recon_error = trainer.reconstruction_error(pattern_vec)
         query_terms = salient_query_terms(query_text_resolved)
         ordered_focus_terms = _dedupe_terms(retrieval_focus_terms)
-        decode_matches = memory_matches(
+        decode_matches, memory_match_report = memory_matches_with_report(
             trainer,
             pattern_vec,
             routing_key,
@@ -750,6 +867,7 @@ def build_query_result(
             "winner_shard": int(winner % max(1, trainer.config.routing_shards)),
             "top_query_chars": top_feature_details(pattern_vec, top_chars, representation),
             "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
+            "memory_match_report": memory_match_report,
             "memory_matches": decode_matches[: max(1, int(top_k_memories))],
             "memory_episodes": build_memory_episodes(
                 decode_matches,

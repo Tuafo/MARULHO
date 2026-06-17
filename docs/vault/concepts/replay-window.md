@@ -23,6 +23,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
   - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
+  - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
 ---
 
 # Replay Window
@@ -34,7 +36,8 @@ replay before any consolidation or plasticity authority.
 
 Current runtime surfaces: `bounded_replay_window_selection.v1`,
 `bounded_replay_window_recall.v1`, and
-`bounded_replay_query_collection.v1`.
+`bounded_replay_query_collection.v1`. Explicit query/readout recall also uses
+`bounded_query_memory_match.v1`.
 
 ## Rules
 
@@ -79,6 +82,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   requires bucket ids unless explicitly marked as a global diagnostic, and
   `sample_for_sfa` requires selected candidate indices unless explicitly marked
   as a global diagnostic.
+- Query/readout memory matching must also default to bounded inputs. It derives
+  candidate bucket ids from routing, collects a capped bucket-indexed memory
+  window, and scores only those entries; it must not compute similarity or
+  replay priority over the whole slow buffer.
 
 ## Evidence
 
@@ -162,6 +169,24 @@ memory-consolidation gate. The matching hot-path report
 processed `262144` tokens at `6221.949 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, no observed contention, flat
 `1848 MiB` GPU memory, and zero graph/native/sequence failures.
+
+Explicit query/readout recall now follows the same selected-window contract.
+`query_runner.memory_matches_with_report(...)` emits
+`bounded_query_memory_match.v1`, while
+`DualMemoryStore.collect_query_memory_match_indices(...)` emits
+`bounded_query_memory_match_candidates.v1`. The query runner gets candidate
+bucket ids from routing, collects recent bucket-indexed memory indices up to a
+candidate limit, computes similarity and replay-priority scores only for those
+indices, and records no global score/candidate scan, CPU archival placement,
+`runs_live_tick=false`, and `mutates_runtime_state=false`. The report
+`reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json`
+used `candidate_window_limit=192`, scored `1` candidate, returned `1` memory
+match, and retrieved `promoted scheduler checkpoint route-bank seed` with
+similarity `0.9932903051`. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json`
+processed `262144` tokens at `6137.185 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
