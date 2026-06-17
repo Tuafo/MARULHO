@@ -222,6 +222,24 @@ default. The report records `repair_strength_trial_budget=1`,
 Bounded recall still passed after consolidation with
 `mean_input_pattern_distance=0.0`, and the memory-consolidation gate passed.
 
+The larger medium HF qualification
+`reports/bounded_replay_window_20260617/hf-recall-target-strength-budget-single-010-medium-2048/summary.json`
+keeps the same single-strength budget on a broader target: `2048` Task-A train
+tokens, `2048` Task-B train tokens, `512` eval tokens, `128` columns, `128`
+latent dimensions, and `2048` memory capacity. Boundary consolidation accepted
+`18` repairs across `3` cycles, then post-Task-B consolidation accepted `28`
+repairs across `4` cycles, rejected `0` trial attempts, and improved Task-A
+reconstruction from `0.0103354922` to `0.0101451825`
+(`quality_delta=0.0001903097`) while Task-A overlap stayed `0.9801252444`.
+The report records `repair_strength_trial_budget=1`, `score_device=cuda`,
+`archival_storage_device=cpu`, and `runs_live_tick=false`; bounded recall and
+the memory-consolidation gate both passed with `mean_input_pattern_distance=0.0`.
+Checkpoint reload of
+`reports/bounded_replay_window_20260617/hf-recall-target-strength-budget-single-010-medium-2048/checkpoint.pt`
+restored `token_count=4096`, `17` CPU archival replay entries/input patterns,
+`bounded_replay_window_recall.v1`, and `bounded_replay_window_selection.v1`
+with both reports still marked `runs_live_tick=false`.
+
 The patched synthetic default report
 `reports/bounded_replay_window_20260617/synthetic-target-strength-budget-compact-default.json`
 keeps the prototype stress target passing with less schedule cost. The

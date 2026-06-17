@@ -185,7 +185,16 @@ accepted `6` post-Task-B repairs, rejected `0` trial attempts, and improved
 Task-A reconstruction from `0.0170305534` to `0.0149637708` while preserving
 exact stored-experience recall and the memory-consolidation gate. This cut
 post-B guard latency to `1040.506 ms` from the old four-low-strength
-`3477.025 ms` run. The synthetic stress benchmark now defaults to compact
+`3477.025 ms` run. A larger medium HF qualification at
+`reports/bounded_replay_window_20260617/hf-recall-target-strength-budget-single-010-medium-2048/summary.json`
+kept the same budget on `2048/2048` train tokens, `512` eval tokens, `128`
+columns, and `2048` memory capacity: post-Task-B consolidation accepted `28`
+repairs, rejected `0` trial attempts, improved Task-A reconstruction from
+`0.0103354922` to `0.0101451825`, passed bounded recall with
+`mean_input_pattern_distance=0.0`, and passed the consolidation gate. Checkpoint
+reload restored the bounded recall and selection reports with
+`runs_live_tick=false`, keeping replay evidence in the slow path after save/load.
+The synthetic stress benchmark now defaults to compact
 escalation `[0.1, 0.5, 1.0]`: `reports/bounded_replay_window_20260617/synthetic-target-strength-budget-compact-default.json`
 passes recall and prototype gates with `repair_strength_trial_budget=3`, while
 the single-strength synthetic control is rejected as a universal default
