@@ -33,6 +33,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
+  - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
 ---
 
 # Replay/consolidation
@@ -81,6 +83,15 @@ by default and can run only as explicit diagnostics that report
 operator over the selected replay window: routing keys and optional input
 patterns stay CPU-normalized for archival recall evidence, `runs_live_tick=false`,
 `mutates_runtime_state=false`, and no plasticity is applied.
+
+`DualMemoryStore.collect_replay_query_indices(...)` records
+`bounded_replay_query_collection.v1`. HF replay recall now collects Task-A
+anchor queries through the same bucket-indexed recent round-robin candidate
+window instead of walking `slow_bucket_ids` linearly until enough anchors are
+found. The collector caps the candidate window at `max_queries`, requires input
+patterns by default, reports available versus collected query indices, and
+records `score_count=0`, no global scans, CPU archival placement, and
+`runs_live_tick=false`.
 
 Zero-pressure replay is now retired: if the global scorer finds no positive
 consolidation/repair/maintenance pressure, it returns an empty selection with
@@ -270,13 +281,30 @@ stayed in band at `6148.125 tokens/sec`, scored only `12/65536` route rows,
 cached `65526` transition rows, reported no observed contention, kept GPU memory
 flat at `1848 MiB`, and had zero graph/native/sequence failures.
 
+The capped replay-query collection follow-up removes another old scan shape
+from the HF recall runner. The report
+`reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json`
+collected `3` Task-A anchor queries from `3` available bucket-indexed entries
+under `candidate_window_limit=16`, scored `0` entries during collection,
+reported no global score/candidate scan, and kept query collection on CPU with
+`runs_live_tick=false`. After-consolidation stored-experience recall passed
+with `mean_input_pattern_distance=0.0` and
+`mean_routing_key_distance=1.98682149251302e-08`; guarded consolidation accepted
+`6` post-Task-B repairs, rejected `0`, and improved target reconstruction
+quality from `0.0234637554` to `0.0213608844`. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json`
+stayed in band at `6221.949 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, flat `1848 MiB` GPU memory, no observed
+contention, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
 candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
-candidate windows, and retired unscoped random replay defaults
+candidate windows, capped replay query collection, and retired unscoped random
+replay defaults
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

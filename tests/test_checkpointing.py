@@ -231,6 +231,23 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "applies_plasticity": False,
             }
             trainer.model.memory_store.last_replay_recall_report = dict(report)
+            query_report = {
+                "surface": "bounded_replay_query_collection.v1",
+                "status": "collected",
+                "scope": "hf_task_a_anchor_query_collection",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
+                "candidate_window_limit": 4,
+                "candidate_index_available_count": 9,
+                "candidate_index_count": 4,
+                "query_indices": [8, 7, 6],
+                "query_count": 3,
+                "runs_live_tick": False,
+                "mutates_runtime_state": False,
+            }
+            trainer.model.memory_store.last_replay_query_collection_report = dict(
+                query_report
+            )
             checkpoint = save_trainer_checkpoint(
                 Path(tmpdir) / "replay-window-recall.pt",
                 trainer,
@@ -248,6 +265,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored_report["best_input_distance"], 0.0)
             self.assertFalse(restored_report["runs_live_tick"])
             self.assertFalse(restored_report["mutates_runtime_state"])
+            restored_query_report = (
+                restored.model.memory_store.last_replay_query_collection_report
+            )
+            self.assertEqual(
+                restored_query_report["surface"],
+                "bounded_replay_query_collection.v1",
+            )
+            self.assertEqual(
+                restored_query_report["candidate_scope"],
+                "bucket_indexed_candidate_window",
+            )
+            self.assertEqual(restored_query_report["query_indices"], [8, 7, 6])
+            self.assertFalse(restored_query_report["runs_live_tick"])
 
     def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
         from tempfile import TemporaryDirectory

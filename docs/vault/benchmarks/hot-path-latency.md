@@ -16,6 +16,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
 ---
 
 # Hot Path Latency
@@ -2767,3 +2768,26 @@ observed contention: CPU max `29%`, GPU utilization max `15%`, GPU memory
 utilization max `13%`, and GPU memory stayed flat at `1848 MiB` before and after
 measurement. This preserves same-band live-tick throughput while the replay
 selector gains a stronger pre-score memory budget.
+
+### Capped Replay Query Collection, 2026-06-17
+
+The capped query-collection slice retires the HF recall runner's linear
+`slow_bucket_ids` scan for Task-A anchor queries. It is slow-window work, but
+the live tick still gets a long protection run because the change touches
+checkpointed replay reports and consolidation evidence.
+
+The 65536-column 262144-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6221.949 tokens/sec`, with
+`train_compute=0.131162 ms/token`, `prepare_training=0.006563 ms/token`,
+`finalize_total=0.006444 ms/token`, and `tick_duration_ms.p95=20.657`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `28%`, GPU utilization max `12%`, GPU memory
+utilization max `11%`, and GPU memory stayed flat at `1848 MiB` before and
+after measurement. This keeps replay query collection off the live tick and in
+the same sustained throughput band.

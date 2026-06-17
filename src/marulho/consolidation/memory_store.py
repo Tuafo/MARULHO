@@ -104,6 +104,9 @@ class DualMemoryStore:
         self.last_ripple_scan_mode = "not_run"
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
+        self.last_replay_query_collection_report = (
+            self._empty_replay_query_collection_report()
+        )
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -151,6 +154,9 @@ class DualMemoryStore:
         self.last_ripple_scan_mode = "not_run"
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
+        self.last_replay_query_collection_report = (
+            self._empty_replay_query_collection_report()
+        )
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -269,6 +275,33 @@ class DualMemoryStore:
             "best_distance": None,
             "best_input_distance": None,
             "recalled_distance": None,
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_replay_query_collection_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_replay_query_collection.v1",
+            "status": "not_run",
+            "scope": "replay_query_collection_slow_path",
+            "memory_size": 0,
+            "requested_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": 0,
+            "candidate_index_count": 0,
+            "query_indices": [],
+            "query_count": 0,
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
             "fallback_reason": "not_run",
         }
 
@@ -437,6 +470,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_replay_query_collection_report": dict(
+                self.last_replay_query_collection_report
             ),
             "all_archival_tensors_cpu": all(
                 device == "cpu"
@@ -1766,6 +1802,95 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
+    def collect_replay_query_indices(
+        self,
+        *,
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None,
+        max_queries: int,
+        require_input_pattern: bool = True,
+        scope: str = "replay_query_collection_slow_path",
+    ) -> dict[str, Any]:
+        """Collect bounded replay-query indices from bucket-indexed memory."""
+
+        started = time.perf_counter()
+        requested = max(0, int(max_queries))
+        scoped_bucket_ids = [] if candidate_bucket_ids is None else candidate_bucket_ids
+        normalized_buckets, candidate_indices, available_count = (
+            self._candidate_indices_for_bucket_ids(
+                scoped_bucket_ids,
+                max_candidates=requested,
+            )
+        )
+        query_indices: list[int] = []
+        skipped_missing_input_pattern = 0
+        fallback_reason: str | None = None
+        if requested <= 0:
+            fallback_reason = "empty_query_request"
+        elif normalized_buckets is not None and not normalized_buckets:
+            fallback_reason = "empty_anchor_bucket_scope"
+        elif not candidate_indices:
+            fallback_reason = "empty_bucket_index_candidate_window"
+        else:
+            for index in candidate_indices:
+                if require_input_pattern:
+                    pattern = (
+                        self.slow_input_patterns[index]
+                        if 0 <= int(index) < len(self.slow_input_patterns)
+                        else None
+                    )
+                    if not isinstance(pattern, torch.Tensor) or int(pattern.numel()) <= 0:
+                        skipped_missing_input_pattern += 1
+                        continue
+                query_indices.append(int(index))
+                if len(query_indices) >= requested:
+                    break
+            if not query_indices:
+                fallback_reason = "no_replay_query_payloads"
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_replay_query_collection.v1",
+            "status": "collected" if query_indices else "empty",
+            "scope": str(scope),
+            "memory_size": int(len(self.slow_buffer)),
+            "requested_count": int(requested),
+            "candidate_window_limit": int(requested),
+            "candidate_window_policy": (
+                "recent_bucket_round_robin_candidate_pool"
+                if normalized_buckets is not None
+                else "unscoped_query_collection_retired"
+            ),
+            "candidate_scope": (
+                "bucket_indexed_candidate_window"
+                if normalized_buckets is not None
+                else "unscoped_query_collection_retired"
+            ),
+            "candidate_bucket_ids": list(normalized_buckets or []),
+            "candidate_bucket_count": int(len(normalized_buckets or [])),
+            "candidate_index_available_count": int(available_count),
+            "candidate_index_count": int(len(candidate_indices)),
+            "query_indices": query_indices,
+            "query_count": int(len(query_indices)),
+            "skipped_missing_input_pattern_count": int(skipped_missing_input_pattern),
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(requested),
+                "query_budget_entries": int(requested),
+            },
+        }
+        self.last_replay_query_collection_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def sample_replay_indices(
         self,
         *,
@@ -2027,6 +2152,9 @@ class DualMemoryStore:
                 "last_replay_recall_report": dict(
                     self.last_replay_recall_report
                 ),
+                "last_replay_query_collection_report": dict(
+                    self.last_replay_query_collection_report
+                ),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -2098,6 +2226,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_replay_query_collection_report": dict(
+                self.last_replay_query_collection_report
             ),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
@@ -2192,6 +2323,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_replay_query_collection_report": dict(
+                self.last_replay_query_collection_report
             ),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
@@ -2372,6 +2506,14 @@ class DualMemoryStore:
             dict(raw_replay_recall)
             if isinstance(raw_replay_recall, Mapping)
             else self._empty_replay_recall_report()
+        )
+        raw_replay_query_collection = snapshot.get(
+            "last_replay_query_collection_report"
+        )
+        self.last_replay_query_collection_report = (
+            dict(raw_replay_query_collection)
+            if isinstance(raw_replay_query_collection, Mapping)
+            else self._empty_replay_query_collection_report()
         )
         self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")

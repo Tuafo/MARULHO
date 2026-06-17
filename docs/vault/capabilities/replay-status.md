@@ -13,6 +13,8 @@ related_papers:
 related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
+  - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
 ---
 
 # Replay Status
@@ -32,6 +34,10 @@ Current bounded selection evidence:
 - `bounded_replay_window_recall.v1` is emitted from `DualMemoryStore` as a
   CPU slow-path, non-mutating associative recall report over selected replay
   windows.
+- `bounded_replay_query_collection.v1` is emitted from `DualMemoryStore` as a
+  CPU slow-path query collector over the same bucket-indexed candidate window;
+  it collects query indices without scoring memory entries or walking all
+  `slow_bucket_ids`.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
 - Bucket-scoped selection now caps candidate entries before scoring and reports
@@ -54,6 +60,14 @@ Current bounded selection evidence:
   keeps the positive-pressure recall/prototype gates passing under the capped
   selector and reports CPU archival/scoring with no global score or candidate
   scan.
+- `reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json`
+  keeps HF stored-experience recall passing with `3` bounded Task-A anchor
+  queries, `candidate_window_limit=16`, `score_count=0`, no global scans, and
+  after-consolidation `mean_input_pattern_distance=0.0`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json`
+  keeps the live tick protected at `6221.949 tokens/sec`, bounded
+  `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
+  failures.
 
 ## Links
 

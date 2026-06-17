@@ -32,6 +32,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
+  - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
 ---
 
 # Replay Cost
@@ -50,6 +52,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-tensor-payload-boundary.json`
 - Synthetic capped replay candidate window:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-capped-window.json`
+- HF-backed replay recall with capped query collection:
+  `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-capped-query-collection`
 - HF-backed replay recall:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-guarded-consolidation-cadenced`
 - Hot-path protection:
@@ -58,6 +62,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for capped replay candidate windows:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-capped-replay-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for capped query collection:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -407,6 +413,35 @@ GPU utilization max `15%`, GPU memory utilization max `13%`, and GPU memory
 stayed flat at `1848 MiB`. This keeps replay selection selected, measured,
 CPU-resident for archival metadata, and slow-windowed while protecting the live
 tick.
+
+The replay query-collection follow-up retires the HF runner's linear
+`slow_bucket_ids` walk. `DualMemoryStore.collect_replay_query_indices(...)`
+emits `bounded_replay_query_collection.v1`, uses the same bucket-indexed recent
+round-robin candidate window, caps collection at `max_queries`, requires input
+patterns by default, and reports `score_count=0`, `global_score_scan=false`,
+`global_candidate_scan=false`, `runs_live_tick=false`, and
+`archival_storage_device=cpu`. The HF report
+`reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json`
+kept recall and consolidation gates passing: query collection reported
+`candidate_window_limit=16`, `candidate_index_available_count=3`,
+`candidate_index_count=3`, `query_count=3`, and no global scans; after
+consolidation recall passed with `mean_input_pattern_distance=0.0` and
+`mean_routing_key_distance=1.98682149251302e-08`. The guarded consolidation
+accepted `6` post-Task-B repairs, rejected `0`, improved the target quality
+from `0.0234637554` to `0.0213608844`, used `score_device=cuda` only inside the
+slow window, and kept archival replay metadata on CPU.
+
+The matching long hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json`
+processed `262144` tokens at `6221.949 tokens/sec`, with
+`train_compute=0.131162 ms/token`, `prepare_training=0.006563 ms/token`,
+`finalize_total=0.006444 ms/token`, and `tick_duration_ms.p95=20.657`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `28%`,
+GPU utilization max `12%`, GPU memory utilization max `11%`, and GPU memory
+stayed flat at `1848 MiB` before and after measurement.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

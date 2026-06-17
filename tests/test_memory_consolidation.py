@@ -561,7 +561,10 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
 
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
-        self.assertEqual(report["candidate_window_policy"], "recent_bucket_round_robin_candidate_pool")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "recent_bucket_round_robin_candidate_pool",
+        )
         self.assertEqual(report["candidate_window_limit"], 4)
         self.assertEqual(report["selection_budget"]["candidate_window_entries"], 4)
         self.assertEqual(report["candidate_index_available_count"], 10)
@@ -571,6 +574,48 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(report["global_candidate_scan"])
         self.assertTrue(set(report["selected_indices"]).issubset({3, 4, 8, 9}))
         self.assertNotIn(0, report["selected_indices"])
+
+    def test_replay_query_collection_uses_capped_bucket_window(self) -> None:
+        store = DualMemoryStore(
+            capacity=16,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token in range(1, 11):
+            store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=1,
+                input_pattern=torch.tensor([float(token), 0.0], dtype=torch.float32),
+                capture_tag=1.0,
+            )
+
+        report = store.collect_replay_query_indices(
+            candidate_bucket_ids=[1],
+            max_queries=3,
+            scope="unit_query_collection",
+        )
+
+        self.assertEqual(report["surface"], "bounded_replay_query_collection.v1")
+        self.assertEqual(report["status"], "collected")
+        self.assertEqual(report["candidate_window_policy"], "recent_bucket_round_robin_candidate_pool")
+        self.assertEqual(report["candidate_window_limit"], 3)
+        self.assertEqual(report["candidate_index_available_count"], 10)
+        self.assertEqual(report["candidate_index_count"], 3)
+        self.assertEqual(report["query_indices"], [9, 8, 7])
+        self.assertEqual(report["query_count"], 3)
+        self.assertEqual(report["score_count"], 0)
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertEqual(
+            store.summary_stats()["last_replay_query_collection_report"][
+                "query_indices"
+            ],
+            [9, 8, 7],
+        )
 
     def test_unscoped_replay_selection_requires_diagnostic_opt_in(self) -> None:
         store = DualMemoryStore(
@@ -762,18 +807,36 @@ class MemoryConsolidationTests(unittest.TestCase):
             strength=2.0,
         )
 
-        queries = _collect_anchor_replay_queries(trainer, max_queries=4)
+        queries, query_collection = _collect_anchor_replay_queries(
+            trainer,
+            max_queries=4,
+        )
         report = _bounded_replay_recall_evaluation(
             trainer,
             queries,
             max_candidates=4,
             scope="unit_hf_anchor_replay",
+            query_collection_report=query_collection,
         )
 
         self.assertGreater(anchored, 0)
+        self.assertEqual(
+            query_collection["surface"],
+            "bounded_replay_query_collection.v1",
+        )
+        self.assertEqual(
+            query_collection["candidate_scope"],
+            "bucket_indexed_candidate_window",
+        )
+        self.assertEqual(query_collection["candidate_window_limit"], 4)
+        self.assertEqual(query_collection["query_count"], 1)
         self.assertEqual(report["surface"], "bounded_replay_window_hf_recall.v1")
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(report["query_count"], 1)
+        self.assertEqual(
+            report["query_collection"]["surface"],
+            "bounded_replay_query_collection.v1",
+        )
         self.assertTrue(report["gate"]["pass"])
         self.assertFalse(report["runs_live_tick"])
         self.assertFalse(report["mutates_runtime_state"])

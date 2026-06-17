@@ -56,25 +56,32 @@ def _collect_anchor_replay_queries(
     trainer: MarulhoTrainer,
     *,
     max_queries: int = 16,
-) -> list[tuple[int, torch.Tensor]]:
+) -> tuple[list[tuple[int, torch.Tensor]], dict[str, Any]]:
     candidate_bucket_ids = {int(bucket_id) for bucket_id in trainer.column_anchors}
     if not candidate_bucket_ids:
-        return []
+        report = trainer.model.memory_store.collect_replay_query_indices(
+            candidate_bucket_ids=[],
+            max_queries=max_queries,
+            scope="hf_task_a_anchor_query_collection",
+        )
+        return [], report
 
     queries: list[tuple[int, torch.Tensor]] = []
     store = trainer.model.memory_store
-    for index, bucket_id in enumerate(store.slow_bucket_ids):
-        if len(queries) >= max(0, int(max_queries)):
-            break
-        if bucket_id is None or int(bucket_id) not in candidate_bucket_ids:
-            continue
+    report = store.collect_replay_query_indices(
+        candidate_bucket_ids=sorted(candidate_bucket_ids),
+        max_queries=max_queries,
+        scope="hf_task_a_anchor_query_collection",
+    )
+    for index in report.get("query_indices", []):
+        index = int(index)
         if index >= len(store.slow_input_patterns):
             continue
         pattern = store.slow_input_patterns[index]
         if not isinstance(pattern, torch.Tensor) or int(pattern.numel()) <= 0:
             continue
         queries.append((int(index), pattern.detach().clone().cpu()))
-    return queries
+    return queries, report
 
 
 def _bounded_replay_recall_evaluation(
@@ -83,6 +90,7 @@ def _bounded_replay_recall_evaluation(
     *,
     max_candidates: int,
     scope: str,
+    query_collection_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     candidate_bucket_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
     if not queries:
@@ -94,6 +102,7 @@ def _bounded_replay_recall_evaluation(
             "candidate_bucket_count": int(len(candidate_bucket_ids)),
             "candidate_scope": "bucket_indexed_candidate_window",
             "query_count": 0,
+            "query_collection": dict(query_collection_report or {}),
             "max_candidates": int(max_candidates),
             "score_device": "cpu",
             "archival_storage_device": "cpu",
@@ -159,6 +168,7 @@ def _bounded_replay_recall_evaluation(
         ),
         "query_source_indices": [int(index) for index, _pattern in queries],
         "query_count": int(len(queries)),
+        "query_collection": dict(query_collection_report or {}),
         "max_candidates": int(max_candidates),
         "mean_routing_key_distance": mean_routing_distance,
         "mean_input_pattern_distance": mean_input_distance,
@@ -695,9 +705,11 @@ def run_memory_consolidation(
         repair_strength_schedule=task_boundary_replay_repair_strength_schedule,
     )
     boundary_latency_ms = (time.perf_counter() - boundary_started) * 1000.0
-    task_a_replay_queries = _collect_anchor_replay_queries(
-        trainer,
-        max_queries=min(16, max(1, eval_tokens)),
+    task_a_replay_queries, task_a_replay_query_collection = (
+        _collect_anchor_replay_queries(
+            trainer,
+            max_queries=min(16, max(1, eval_tokens)),
+        )
     )
 
     for raw_window, pattern in task_b_train_examples:
@@ -712,6 +724,7 @@ def run_memory_consolidation(
         task_a_replay_queries,
         max_candidates=deep_sleep_candidate_pool,
         scope="hf_task_a_anchor_replay_after_task_b",
+        query_collection_report=task_a_replay_query_collection,
     )
 
     consolidation_started = time.perf_counter()
@@ -734,6 +747,7 @@ def run_memory_consolidation(
         task_a_replay_queries,
         max_candidates=deep_sleep_candidate_pool,
         scope="hf_task_a_anchor_replay_after_consolidation",
+        query_collection_report=task_a_replay_query_collection,
     )
 
     gate = build_memory_consolidation_gate(
@@ -824,6 +838,7 @@ def run_memory_consolidation(
         "bounded_replay_recall": {
             "surface": "bounded_replay_window_hf_recall_summary.v1",
             "task_a_anchor_query_count": int(len(task_a_replay_queries)),
+            "task_a_query_collection": task_a_replay_query_collection,
             "after_task_b": task_a_replay_recall_after_b,
             "after_consolidation": task_a_replay_recall_after_consolidation,
         },

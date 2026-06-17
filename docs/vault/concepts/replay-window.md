@@ -21,6 +21,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
+  - reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
 ---
 
 # Replay Window
@@ -30,8 +32,9 @@ related_benchmarks:
 A bounded, measured set of memory entries selected for review or isolated sleep
 replay before any consolidation or plasticity authority.
 
-Current runtime surfaces: `bounded_replay_window_selection.v1` and
-`bounded_replay_window_recall.v1`.
+Current runtime surfaces: `bounded_replay_window_selection.v1`,
+`bounded_replay_window_recall.v1`, and
+`bounded_replay_query_collection.v1`.
 
 ## Rules
 
@@ -62,6 +65,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
 - Replay-window recall is non-mutating: it can compare routing keys and stored
   input patterns inside the selected window, but it cannot apply plasticity or
   run from the live tick.
+- Replay query collection must use the same bucket-indexed candidate window. It
+  must not walk `slow_bucket_ids` linearly to find anchors, must report
+  available versus collected query indices, and must keep `score_count=0`
+  because it is collection, not another scorer.
 - Positive-pressure deep replay may apply bounded candidate repair only after a
   local reconstruction gate improves over selected replay-window routing keys.
   Candidate columns come from bounded route candidates plus explicit stored
@@ -137,6 +144,24 @@ kept positive-pressure recall/prototype gates passing and reported
 stayed in band at `6148.125 tokens/sec` with `12/65536` route rows, `65526`
 cached transition rows, zero graph/native/sequence failures, flat `1848 MiB`
 GPU memory, and no observed contention.
+
+The replay query-collection follow-up applies the same cap before HF recall
+queries are loaded. `DualMemoryStore.collect_replay_query_indices(...)` emits
+`bounded_replay_query_collection.v1`, returns recent bucket-indexed query
+indices up to `max_queries`, requires stored input patterns by default, records
+`candidate_index_available_count`, `candidate_index_count`, `query_indices`,
+`query_count`, and `skipped_missing_input_pattern_count`, and reports
+`score_count=0`, no global scans, CPU archival placement, and
+`runs_live_tick=false`. The HF report
+`reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json`
+collected `3` Task-A anchor queries through a `candidate_window_limit=16` with
+no global score/candidate scan, kept after-consolidation recall passing at
+`mean_input_pattern_distance=0.0`, accepted `6` guarded repairs, and passed the
+memory-consolidation gate. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json`
+processed `262144` tokens at `6221.949 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, no observed contention, flat
+`1848 MiB` GPU memory, and zero graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
