@@ -71,6 +71,12 @@ and `32758`, respectively. The device-refresh 32768 gate reports
 `device_refresh_count=131072`, `host_refresh_count=1`,
 `route_input_rows_scored=12/32768`, `state_transition_cached_count=32758`,
 and zero graph/native/sequence failures. The
+2026-06-17 `65536`-column scale gate keeps the same steady truth:
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`,
+`state_transition_runs_all_columns=false`, `route_rows_run_all_columns=false`,
+`bounded_route_scoring=true`, `device_refresh_count=131072`,
+`host_refresh_count=1`, and zero graph/native/sequence failures. The
 route-owner scheduler filter also reports whether memory-pressure and
 usefulness filtering were enabled from cached metabolism evidence, how many
 route rows they masked, eligible counts after each gate, thresholds, sources,

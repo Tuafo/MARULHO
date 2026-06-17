@@ -2293,6 +2293,32 @@ total columns grew from 8192 to 32768, but steady route scoring stayed at
 `12` rows, awake mutation stayed at `10` rows, and complete runtime stayed in
 the same 6k-ish band.
 
+The next power-of-two scale gate extended the same promoted
+route-bank/probe-lane/device-refresh path to `65536` columns:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260617\checkpoints\promoted-scheduler-65536-seeded.pt --report reports\column_scheduler_20260617\promoted-scheduler-65536-checkpoint.json --n-columns 65536 --column-latent-dim 64 --k-routing 10 --seed 20260617 --device cuda`
+
+The builder report again kept the seed visible: the pre-save exact seed scored
+`65536/65536`, while the restored bounded tick scored `12/65536`, output `10`
+candidates, cached `65526` state-transition columns, restored the bank from the
+checkpoint, and reported `state_transition_runs_all_columns=false`.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\promoted-scheduler-65536-seeded.pt --output reports\column_scheduler_20260617\promoted-scheduler-65536-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `131072` tokens at `6154.501 tokens/sec`,
+`train_compute=0.130339 ms/token`, `prepare_training=0.006100 ms/token`,
+`finalize_total=0.006153 ms/token`, and `tick_duration_ms.p95=20.092`, with
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`,
+`state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
+and no observed contention. Runtime Truth reported
+`route_vote_kernel_variant=indexed_route_bank_vote_device_refresh`,
+`refresh_owner=fused_route_vote_device`, `device_refresh_count=131072`,
+`host_refresh_count=1`, `route_rows_run_all_columns=false`, and
+`bounded_route_scoring=true`. This keeps complete-runtime throughput in the
+same 6k-ish band while total columns double again from `32768` to `65536`; the
+evidence is scheduler-scale evidence, not a relevance-quality pass.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
