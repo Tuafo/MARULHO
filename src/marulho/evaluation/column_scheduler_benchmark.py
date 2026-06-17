@@ -71,8 +71,11 @@ class SchedulerBenchmarkArm:
     structural_review_pending_count: int
     structural_review_growth_ticket_count: int
     structural_review_prune_or_sleep_ticket_count: int
+    structural_review_last_update_mode: str | None
     structural_review_last_evaluated_columns: int
     structural_review_last_cached_columns: int
+    structural_review_last_growth_candidate_count: int
+    structural_review_last_prune_or_sleep_candidate_count: int
     structural_review_checkpoint_backed: bool
     structural_review_requires_operator_review: bool
     structural_review_mutates_runtime_state: bool
@@ -142,6 +145,32 @@ def _force_structural_review_evidence(trainer: MarulhoTrainer) -> None:
         metabolism.memory_pressure.zero_()
 
 
+def _queue_forced_structural_review_tickets(trainer: MarulhoTrainer) -> None:
+    wake_plan = getattr(trainer, "_column_wake_plan", None)
+    candidates = None
+    wake_reason = None
+    sleep_reason = None
+    if wake_plan is not None:
+        candidates = wake_plan.candidates()
+        wake_reason = getattr(wake_plan, "wake_reason", None)
+        sleep_reason = getattr(wake_plan, "sleep_reason", None)
+    if candidates is None or int(candidates.numel()) <= 0:
+        return
+    _force_structural_review_evidence(trainer)
+    trainer.model.column_structural_review_queue.record_candidates(
+        candidates,
+        token_count=int(trainer.token_count),
+        mode="benchmark_forced_bounded_structural_review_evidence",
+        prediction_error=trainer.model.predictive.prediction_error,
+        confidence=trainer.model.predictive.confidence,
+        prediction_failure_streak=trainer.model.predictive.prediction_failure_streak,
+        estimated_cost=trainer.model.column_metabolism.estimated_cost,
+        memory_pressure=trainer.model.column_metabolism.memory_pressure,
+        wake_reason=None if wake_reason is None else str(wake_reason),
+        sleep_reason=None if sleep_reason is None else str(sleep_reason),
+    )
+
+
 def _run_arm(
     *,
     cfg: MarulhoConfig,
@@ -200,6 +229,9 @@ def _run_arm(
         winner = metrics.get("winner")
         if winner is not None:
             winner_ids.append(int(winner))
+
+    if force_structural_review_evidence:
+        _queue_forced_structural_review_tickets(trainer)
 
     vote = trainer.model.predictive.vote_execution_report()
     update = trainer.model.predictive.prediction_update_execution_report()
@@ -363,11 +395,22 @@ def _run_arm(
         structural_review_prune_or_sleep_ticket_count=int(
             structural_review.get("prune_or_sleep_ticket_count", 0) or 0
         ),
+        structural_review_last_update_mode=(
+            None
+            if structural_review.get("last_update_mode") is None
+            else str(structural_review.get("last_update_mode"))
+        ),
         structural_review_last_evaluated_columns=int(
             structural_review.get("last_evaluated_column_count", 0) or 0
         ),
         structural_review_last_cached_columns=int(
             structural_review.get("last_cached_column_count", 0) or 0
+        ),
+        structural_review_last_growth_candidate_count=int(
+            structural_review.get("last_growth_candidate_count", 0) or 0
+        ),
+        structural_review_last_prune_or_sleep_candidate_count=int(
+            structural_review.get("last_prune_or_sleep_candidate_count", 0) or 0
         ),
         structural_review_checkpoint_backed=bool(
             structural_review.get("checkpoint_backed", False)
@@ -481,6 +524,11 @@ def run_benchmark(
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
         "forced_structural_review_evidence": bool(force_structural_review_evidence),
+        "forced_structural_review_capture_scope": (
+            "post_measurement_bounded_wake_plan_ticket_audit_not_timed"
+            if force_structural_review_evidence
+            else None
+        ),
         "all_column_vote": asdict(all_vote),
         "scoped_cached_vote": asdict(scoped),
         "winner_sequence_equal": all_vote.winner_ids == scoped.winner_ids,
@@ -608,9 +656,22 @@ def run_scaling_benchmark(
                     "structural_review_prune_or_sleep_ticket_count"
                 ]
             ),
+            "structural_review_last_update_mode": (
+                report["scoped_cached_vote"]["structural_review_last_update_mode"]
+            ),
             "structural_review_last_evaluated_columns": int(
                 report["scoped_cached_vote"][
                     "structural_review_last_evaluated_columns"
+                ]
+            ),
+            "structural_review_last_growth_candidate_count": int(
+                report["scoped_cached_vote"][
+                    "structural_review_last_growth_candidate_count"
+                ]
+            ),
+            "structural_review_last_prune_or_sleep_candidate_count": int(
+                report["scoped_cached_vote"][
+                    "structural_review_last_prune_or_sleep_candidate_count"
                 ]
             ),
             "structural_review_checkpoint_backed": bool(
@@ -653,6 +714,11 @@ def run_scaling_benchmark(
         "samples": int(samples),
         "warmup_steps": int(warmup_steps),
         "forced_structural_review_evidence": bool(force_structural_review_evidence),
+        "forced_structural_review_capture_scope": (
+            "post_measurement_bounded_wake_plan_ticket_audit_not_timed"
+            if force_structural_review_evidence
+            else None
+        ),
         "seed": int(seed),
         "runs": scoped_rows,
         "all_winner_sequences_equal": all(

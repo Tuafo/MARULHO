@@ -1913,7 +1913,10 @@ run and completed `131072` tokens on the RTX 3060. It reported
 `route_output_candidate_count=10`, `state_transition_cached_count=32758`,
 `state_transition_runs_all_columns=false`, and zero graph/native/sequence
 failures. Throughput was `6008.953 tokens/sec`; train compute was
-`0.133379 ms/token`; tick p95 was `22.068 ms`.
+`0.133379 ms/token`; tick p95 was `22.068 ms`. When this device-refresh path
+is active, Runtime Truth reports effective `refresh_interval_tokens=1`; the
+historical q16 probe cadence is retained only for quality-gate comparisons and
+non-device-refresh fallback truth.
 
 The immediately previous same-checkpoint usefulness-filter run,
 `reports/column_scheduler_20260616/usefulness-scheduler-32768-131072-i32.json`,
@@ -1987,9 +1990,9 @@ That run reached `6150.296 tokens/sec`, `train_compute=0.130390 ms/token`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
 and `velocity_environment.v1` contention `not_observed`.
 
-The promoted follow-up added a fixed two-row route-bank probe lane and kept
-refresh at the graph quantum boundary so fused sequential, graph sequential, and
-burst execution preserve exact state parity:
+The initial promoted follow-up added a fixed two-row route-bank probe lane and
+kept refresh at the graph quantum boundary so fused sequential, graph sequential,
+and burst execution preserved exact state parity:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\real_path_column_scaling_20260615\checkpoints\runtime-8192-promoted-scheduler.pt --output reports\column_scheduler_20260616\route-bank-probe-lane-8192-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
 
@@ -2005,13 +2008,16 @@ burst execution preserve exact state parity:
 | graph/native/sequence failures | `0` | `0` |
 | environment contention | not observed | not observed |
 
-Runtime Truth reported `route_candidate_bank.probe_rows=2`,
+Runtime Truth for that pre-device-refresh run reported `route_candidate_bank.probe_rows=2`,
 `score_rows=12`, `refresh_interval_tokens=16`,
 `probe_refresh_count=8192`, `route_input_rows_scored=12`,
 `route_rows_run_all_columns=false`, `state_transition_cached_count=8182`, and
 `state_transition_runs_all_columns=false`. This keeps the 6k-ish long path while
 adding bounded outside-bank discovery; it is not evidence that the route bank is
-quality-complete on changing text.
+quality-complete on changing text. The later device-refresh promotion moved the
+steady refresh owner into the fused route/vote kernel; active device-refresh
+reports use effective `refresh_interval_tokens=1`, while q16 remains the older
+quality/evaluation cadence.
 
 The follow-up quality gate updated
 `route_candidate_bank_quality_gate` to simulate the promoted fixed probe lane
@@ -2309,29 +2315,35 @@ or a new top-speed ceiling.
 A follow-up scheduler-benchmark audit made the structural-review queue fields
 part of the retained CPU A/B report and added
 `--force-structural-review-evidence` so the benchmark can prove bounded ticket
-capture instead of only empty queue status. The forced 8192-column report
-`reports/column_scheduler_20260616/cpu-8192-structural-review-queue.json`
-preserved winner parity, kept bounded specialist work true, and queued bounded
-prune/sleep review tickets. The scoped arm evaluated `10/8192` columns, cached
-`8182`, queued `9` prune/sleep tickets, reported
-`checkpoint_backed=true`, `requires_operator_review=true`,
-`mutates_runtime_state=false`, `runs_all_columns=false`, and next gate
-`operator_review_column_structural_ticket`. It did not pass the cost gate:
-all-column mean/median complete `train_step` was `8.1027475/7.5115 ms`, while
-the scoped forced structural-review arm was `13.988625/10.4407 ms`
+capture instead of only empty queue status. The current forced 8192-column report
+`reports/column_scheduler_20260616/cpu-8192-structural-review-growth-prune-queue.json`
+preserved winner parity, kept bounded specialist work true, and queued both
+growth and prune/sleep review tickets from the wake plan. The capture scope is
+`post_measurement_bounded_wake_plan_ticket_audit_not_timed`, so the forced audit
+is coverage evidence, not measured live throughput. The scoped arm evaluated
+`10/8192` columns, cached `8182`, queued `10` growth tickets and `11`
+prune/sleep tickets, recorded `10` growth candidates and `10` prune/sleep
+candidates, reported `checkpoint_backed=true`, `requires_operator_review=true`,
+`mutates_runtime_state=false`, `runs_all_columns=false`, update mode
+`benchmark_forced_bounded_structural_review_evidence`, and next gate
+`operator_review_column_structural_ticket`. It still did not pass the CPU cost
+gate: all-column mean/median/p95 complete `train_step` was
+`7.11954625/6.6511/12.3495 ms`, while the scoped forced arm was
+`12.20728125/9.28945/32.3889 ms`
 (`neutral_or_better_complete_tick=false`). Treat this as truth/coverage evidence
 for the scheduler boundary, not a CPU speed promotion.
 
-The matching longer real-path check on the 32768-column promoted checkpoint,
-`reports/column_scheduler_20260616/structural-review-queue-benchmark-fields-32768-131072-i32.json`,
-processed `131072` tokens at `5862.356 tokens/sec` with
-`train_compute=0.137711 ms/token`, `prepare_training=0.007066 ms/token`,
-`finalize_total=0.006398 ms/token`, and `tick_duration_ms.p95=25.087 ms`.
+The current longer real-path recheck on the 32768-column promoted checkpoint,
+`reports/column_scheduler_20260616/structural-review-growth-prune-benchmark-only-audit-32768-131072-i32.json`,
+processed `131072` tokens at `6314.030 tokens/sec` with
+`train_compute=0.128313 ms/token`, `prepare_training=0.005927 ms/token`,
+`finalize_total=0.005469 ms/token`, and `tick_duration_ms.p95=19.470 ms`.
 It kept route scoring bounded at `12/32768`, output `10` candidates, cached
 `32758` state-transition rows, reported `state_transition_runs_all_columns=false`,
-and had zero graph/native/sequence failures with no observed contention. This is
-below the clean `6149`/`6298` top runs, but still in the maintained 6k-ish
-band while exposing the queue fields.
+used the promoted device-refresh route bank with effective
+`refresh_interval_tokens=1`, and had zero graph/native/sequence failures with
+no observed contention. This recheck keeps the runtime in the maintained
+6k-ish band while the forced structural-review benchmark remains coverage-only.
 
 The follow-up cheap-discovery probe measured fixed landmark and
 random-projection buckets. Those probes were evaluation-only: offline precompute

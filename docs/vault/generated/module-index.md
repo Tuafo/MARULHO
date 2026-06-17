@@ -2,7 +2,7 @@
 type: generated
 source: graphify
 generated_by: "python scripts/build_vault.py"
-last_verified: 2026-06-16
+last_verified: 2026-06-17
 ---
 
 # Generated Module Index
