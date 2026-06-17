@@ -493,7 +493,7 @@ def main() -> None:
     parser.add_argument(
         "--replay-repair-strength-schedule",
         type=str,
-        default="0.1,0.05,0.02,0.01,0.5,1.0",
+        default="0.1,0.5,1.0",
     )
     args = parser.parse_args()
     args.repair_strength_schedule = _parse_repair_strength_schedule(

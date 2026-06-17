@@ -142,8 +142,8 @@ _MEMORY_CONSOLIDATION_SMOKE_SETTINGS = {
     "task_boundary_consolidation_cycles": 6,  # Increased from 2 for stronger anchor reinforcement
     "consolidation_mode": "deep",
     "consolidation_cycles": 12,  # Increased from 5 for more post-B recovery
-    "task_boundary_replay_repair_strength_schedule": [0.1, 0.05, 0.02, 0.01],
-    "consolidation_replay_repair_strength_schedule": [0.1, 0.05, 0.02, 0.01],
+    "task_boundary_replay_repair_strength_schedule": [0.1],
+    "consolidation_replay_repair_strength_schedule": [0.1],
 }
 
 _MEMORY_CONSOLIDATION_BASELINE_SETTINGS = {
@@ -152,8 +152,8 @@ _MEMORY_CONSOLIDATION_BASELINE_SETTINGS = {
     "task_boundary_consolidation_cycles": 6,
     "consolidation_mode": "deep",
     "consolidation_cycles": 12,
-    "task_boundary_replay_repair_strength_schedule": [0.1, 0.05, 0.02, 0.01],
-    "consolidation_replay_repair_strength_schedule": [0.1, 0.05, 0.02, 0.01],
+    "task_boundary_replay_repair_strength_schedule": [0.1],
+    "consolidation_replay_repair_strength_schedule": [0.1],
 }
 
 _HIERARCHICAL_SCALE_BASE_PRESET = _preset(

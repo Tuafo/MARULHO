@@ -240,6 +240,10 @@ def _run_reconstruction_guarded_sleep_maintenance(
         repair_strength_schedule
     )
     use_strength_search = bool(mode == "deep" and strength_schedule)
+    strength_trial_budget = int(len(strength_schedule)) if use_strength_search else 1
+    strength_trial_budget_policy = (
+        "explicit_schedule_length" if use_strength_search else "single_replay_attempt"
+    )
     current_best = mean_reconstruction_error(trainer, eval_patterns)
     initial_score = float(current_best)
     accepted_updates = 0
@@ -298,6 +302,8 @@ def _run_reconstruction_guarded_sleep_maintenance(
                 ),
                 "sleep_replay_repair_strength_schedule": list(strength_schedule),
                 "sleep_replay_strength_trial_count": 0,
+                "sleep_replay_strength_trial_budget": strength_trial_budget,
+                "sleep_replay_strength_trial_budget_policy": strength_trial_budget_policy,
                 "sleep_replay_repeated_rejection_skip": True,
                 "sleep_replay_repeated_rejection_signature": list(
                     repeated_rejection_signature
@@ -445,6 +451,8 @@ def _run_reconstruction_guarded_sleep_maintenance(
             ),
             "sleep_replay_repair_strength_schedule": list(strength_schedule),
             "sleep_replay_strength_trial_count": int(len(trial_reports)),
+            "sleep_replay_strength_trial_budget": strength_trial_budget,
+            "sleep_replay_strength_trial_budget_policy": strength_trial_budget_policy,
             "sleep_replay_selected_repair_strength": selected_strength,
             "sleep_replay_strength_trial_reports": trial_reports,
             "runs_live_tick": False,
@@ -493,6 +501,8 @@ def _run_reconstruction_guarded_sleep_maintenance(
             else "single_replay_attempt"
         ),
         "repair_strength_schedule": list(strength_schedule),
+        "repair_strength_trial_budget": strength_trial_budget,
+        "repair_strength_trial_budget_policy": strength_trial_budget_policy,
         "runs_live_tick": False,
         "score_device": str(trainer.model.device),
         "archival_storage_device": "cpu",
@@ -967,7 +977,7 @@ def main() -> None:
         type=str,
         default=preset_defaults.get(
             "task_boundary_replay_repair_strength_schedule",
-            "0.1,0.05,0.02,0.01",
+            "0.1",
         ),
         help=(
             "Comma-separated repair strengths for the task-boundary "
@@ -980,7 +990,7 @@ def main() -> None:
         type=str,
         default=preset_defaults.get(
             "consolidation_replay_repair_strength_schedule",
-            "0.1,0.05,0.02,0.01",
+            "0.1",
         ),
         help=(
             "Comma-separated repair strengths for the post-B consolidation "

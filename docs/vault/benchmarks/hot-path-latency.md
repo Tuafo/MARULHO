@@ -2662,3 +2662,17 @@ failures, and no observed contention. CPU max was `20%`, GPU utilization max
 `10%`, GPU memory utilization max `10%`, and GPU memory moved from `1708 MiB`
 to `1709 MiB`. Treat this as same-band live-tick protection, not a new speed
 ceiling.
+
+The trial-budget cleanup keeps that boundary after retiring the old low-tail
+strength defaults. The current 65536-column 262144-token check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-budget-compact.json`
+processed `262144` tokens at `6232.282 tokens/sec`, with
+`train_compute=0.130988 ms/token`, `prepare_training=0.006491 ms/token`,
+`finalize_total=0.006431 ms/token`, and `tick_duration_ms.p95=20.659`.
+Route scoring stayed bounded at `12/65536` rows with `10` output candidates,
+state transition cached `65526` rows, `state_transition_runs_all_columns=false`,
+and graph/native/sequence failures remained `0`. The run reported no observed
+contention: CPU max `33%`, GPU utilization max `10%`, GPU memory utilization
+max `10%`, and GPU memory stayed flat at `1715 MiB` before and after
+measurement. This is the accepted live-tick protection evidence for the
+target-specific replay-strength budget defaults.

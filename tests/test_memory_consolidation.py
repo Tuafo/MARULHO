@@ -910,6 +910,11 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertEqual(report["repair_strength_strategy"], "target_reconstruction_strength_search")
         self.assertEqual(report["repair_strength_schedule"], [1.0, 0.25])
+        self.assertEqual(report["repair_strength_trial_budget"], 2)
+        self.assertEqual(
+            report["repair_strength_trial_budget_policy"],
+            "explicit_schedule_length",
+        )
         self.assertEqual(report["attempted_update_count"], 2)
         self.assertEqual(report["accepted_update_count"], 1)
         self.assertEqual(report["rejected_attempted_update_count"], 1)
@@ -917,6 +922,11 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(cycle_report["sleep_replay_commit_accepted"])
         self.assertEqual(cycle_report["sleep_replay_selected_repair_strength"], 0.25)
         self.assertEqual(cycle_report["sleep_replay_strength_trial_count"], 2)
+        self.assertEqual(cycle_report["sleep_replay_strength_trial_budget"], 2)
+        self.assertEqual(
+            cycle_report["sleep_replay_strength_trial_budget_policy"],
+            "explicit_schedule_length",
+        )
         self.assertEqual(cycle_report["sleep_replay_attempted_applied_count"], 2)
         self.assertEqual(cycle_report["sleep_replay_effective_applied_count"], 1)
         self.assertFalse(

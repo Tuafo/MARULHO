@@ -198,54 +198,58 @@ memory was `1688 MiB` before and `1689 MiB` after measurement. Treat the first
 run as a failed/noisy gate and the rerun as the current accepted live-tick
 protection evidence for this slow-window cadence change.
 
-The target-aware replay-strength search follow-up keeps that guard but tries a
-bounded repair-strength schedule inside the explicit slow replay window before
-committing. Each trial restores from the same model/memory snapshot, measures
-the same target reconstruction metric, and commits only the best
-non-regressing trial. HF consolidation presets use the conservative schedule
-`[0.1, 0.05, 0.02, 0.01]`; the synthetic stress benchmark uses
-`[0.1, 0.05, 0.02, 0.01, 0.5, 1.0]` because that target requires stronger
-prototype repair. The promoted synthetic report
-`reports/bounded_replay_window_20260617/synthetic-target-strength-guard-promoted.json`
-passes stored input-pattern recall (`5.960464477539063e-08` mean input
-distance) and the prototype reconstruction gate after the boundary guard
-accepted `3` repairs and the final guard accepted `2` repairs. Final Task-A
-reconstruction moved from `0.0051826835` after Task B to `0.0034417113` after
-consolidation, with no global fallback cycles.
+The target-aware replay-strength search follow-up keeps that guard but now
+records the trial budget and budget policy beside the exact schedule. Each
+trial restores from the same model/memory snapshot, measures the same target
+reconstruction metric, and commits only the best non-regressing trial. The old
+low-strength tails are no longer defaults: HF text consolidation uses the
+single-strength schedule `[0.1]`, while the synthetic prototype stress
+benchmark uses compact escalation `[0.1, 0.5, 1.0]` because the single-strength
+stress run improved reconstruction but failed the prototype gate.
 
-The promoted HF report
-`reports/bounded_replay_window_20260617/hf-recall-target-strength-guard-promoted/summary.json`
-turns the stored-experience recall path into a measured reconstruction
-improvement. Boundary consolidation accepted `2` guarded low-strength repairs,
-then post-Task-B consolidation accepted `3` repairs, rejected `4` trial
-attempts, and improved Task-A reconstruction from `0.0168881603` to
-`0.0166562782` (`quality_delta=0.0002318821`). Task-B reconstruction also
-moved from `0.0178073854` to `0.0176269845`. Bounded recall still passed after
-consolidation with `mean_input_pattern_distance=0.0`, the
-memory-consolidation gate passed, Task-A overlap stayed `0.9996292456`, replay
-selection remained bucket-indexed CPU archival metadata, and guard scoring ran
-only in the slow window on the model device. Aggressive shared schedules such
-as `[1.0, 0.5, 0.25, 0.1]` and low-first escalation probes are retained only as
-report evidence: they helped synthetic repair but did not accept post-Task-B HF
-repairs, so the promoted HF preset stays low-strength.
+The patched HF report
+`reports/bounded_replay_window_20260617/hf-recall-target-strength-budget-single-010-promoted/summary.json`
+turns the stored-experience recall path into a cheaper measured reconstruction
+improvement. Boundary consolidation accepted `2` guarded repairs, then
+post-Task-B consolidation accepted `6` repairs, rejected `0` trial attempts,
+and improved Task-A reconstruction from `0.0170305534` to `0.0149637708`
+(`quality_delta=0.0020667827`). Task-B reconstruction moved from
+`0.0171923228` to `0.0153899691`. The post-B guard latency was
+`1040.506 ms`, versus `3477.025 ms` for the previous four-low-strength HF
+default. The report records `repair_strength_trial_budget=1`,
+`repair_strength_trial_budget_policy=explicit_schedule_length`,
+`score_device=cuda`, `archival_storage_device=cpu`, and `runs_live_tick=false`.
+Bounded recall still passed after consolidation with
+`mean_input_pattern_distance=0.0`, and the memory-consolidation gate passed.
+
+The patched synthetic default report
+`reports/bounded_replay_window_20260617/synthetic-target-strength-budget-compact-default.json`
+keeps the prototype stress target passing with less schedule cost. The
+positive-pressure arm used schedule `[0.1, 0.5, 1.0]`,
+`repair_strength_trial_budget=3`, accepted `2` repairs from `4` attempted
+updates, rejected `0`, passed stored input-pattern recall
+(`5.960464477539063e-08` mean input distance), passed the prototype gate, and
+kept recovery at `0.0017409722`. Guard latency was `2585.941 ms`, versus
+`5074.171 ms` for the full low-first escalation control
+`[0.1, 0.05, 0.02, 0.01, 0.5, 1.0]`. The single-strength synthetic control
+`reports/bounded_replay_window_20260617/synthetic-target-strength-budget-single-010-promoted.json`
+is rejected as a universal default because it failed the prototype gate despite
+passing recall. Zero-pressure and no-anchor/global-control arms still applied
+`0` updates and recorded `0` global fallback cycles.
 
 The matching 65536-column hot-path protection check stayed in the maintained
-band. The first same-code 262144-token run
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-guard-promoted.json`
-reached `6205.925 tokens/sec`, `train_compute=0.130486 ms/token`, and
-`tick_duration_ms.p95=20.561`, but recorded a pre-run GPU contention sample
-(`22%` utilization). The clean rerun
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-guard-promoted-rerun.json`
-processed `262144` tokens at `6073.263 tokens/sec`, with
-`train_compute=0.133405 ms/token`, `prepare_training=0.006616 ms/token`,
-`finalize_total=0.006505 ms/token`, `tick_duration_ms.p95=21.118`,
+band after the default cleanup. The current 262144-token run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-target-strength-budget-compact.json`
+processed `262144` tokens at `6232.282 tokens/sec`, with
+`train_compute=0.130988 ms/token`, `prepare_training=0.006491 ms/token`,
+`finalize_total=0.006431 ms/token`, `tick_duration_ms.p95=20.659`,
 `route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
 `state_transition_cached_count=65526`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence
-failures, and no observed contention. CPU max was `20%`, GPU utilization max
-`10%`, GPU memory utilization max `10%`, and GPU memory moved from `1708 MiB`
-to `1709 MiB`.
+failures, and no observed contention. CPU max was `33%`, GPU utilization max
+`10%`, GPU memory utilization max `10%`, and GPU memory stayed flat at
+`1715 MiB` before and after measurement.
 
-Next gate: repeat the promoted low-strength HF result on a larger or more
-grounded target and shrink guard latency without moving archival replay
-metadata or replay selection into the live tick.
+Next gate: repeat the target-specific schedule budgets on a larger or more
+grounded target. Do not broaden a schedule without a target-specific quality
+gate and a clean long-run check proving replay remains slow-window work.
