@@ -2794,7 +2794,7 @@ class MarulhoTrainer:
         self,
         mode: str,
     ) -> list[int] | None:
-        if mode not in {"deep", "repair"}:
+        if mode not in {"micro", "deep", "repair"}:
             return None
         if not self.column_anchors:
             return []
@@ -2857,10 +2857,8 @@ class MarulhoTrainer:
                 "status": "empty",
             }
             global_fallback_blocked_reason = (
-                "no_anchor_bucket_scope_for_deep_replay"
-                if mode == "deep" and not candidate_bucket_ids
-                else "no_anchor_bucket_scope_for_repair_replay"
-                if mode == "repair" and not candidate_bucket_ids
+                f"no_anchor_bucket_scope_for_{mode}_replay"
+                if mode in {"micro", "deep", "repair"} and not candidate_bucket_ids
                 else "bucket_window_zero_positive_replay_pressure"
             )
         replay_idx = [
@@ -2912,18 +2910,21 @@ class MarulhoTrainer:
                 replay_idx,
                 repair_strength=deep_replay_repair_strength,
             )
+        elif mode == "micro":
+            processed_indices = [int(index) for index in replay_idx]
+            applied = len(processed_indices)
+            commit_report = {
+                "sleep_replay_commit_strategy": "bounded_micro_maintenance_refresh",
+                "sleep_replay_winner_source": "bucket_indexed_replay_window",
+                "sleep_replay_bypasses_competitive_process": True,
+                "sleep_replay_selected_trace_count": int(len(processed_indices)),
+                "sleep_replay_quality_metric": "maintenance_score_tag_refresh_only",
+                "sleep_replay_quality_scope": "anchored_replay_window_cpu_metadata",
+            }
         else:
             commit_report = {
-                "sleep_replay_commit_strategy": (
-                    "bounded_repair_reanchor"
-                    if mode == "repair"
-                    else "micro_maintenance_refresh"
-                ),
-                "sleep_replay_winner_source": (
-                    "stored_replay_bucket_with_anchor_scope"
-                    if mode == "repair"
-                    else "maintenance_window"
-                ),
+                "sleep_replay_commit_strategy": "bounded_repair_reanchor",
+                "sleep_replay_winner_source": "stored_replay_bucket_with_anchor_scope",
             }
 
             for idx in replay_idx:

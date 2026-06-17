@@ -15,9 +15,11 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
 ---
 
 # Replay Cost
@@ -27,11 +29,11 @@ Replay selection, rehearsal, and artifact-review cost checks.
 ## Commands
 
 - Focused tests:
-  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_recall_uses_bucket_routing_keys tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_global_replay_selection_retires_zero_pressure_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_uses_anchor_bucket_replay_window_report tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_without_anchors_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_reanchors_prototypes_without_consolidation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_without_anchors_blocks_global_repair_mutation tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
+  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_recall_uses_bucket_routing_keys tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_global_replay_selection_retires_zero_pressure_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_uses_anchor_bucket_replay_window_report tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_without_anchors_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_refreshes_tags_without_weight_commit tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_without_anchors_blocks_global_maintenance_refresh tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_reanchors_prototypes_without_consolidation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_without_anchors_blocks_global_repair_mutation tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Synthetic replay selector:
-  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-bounded-repair.json`
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-bounded-micro.json`
 - Hot-path protection:
-  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-candidate-repair.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.25 --host-truth-sync-interval-tokens 32`
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-bounded-micro.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.25 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -56,8 +58,16 @@ Anchored repair reports `bounded_repair_reanchor`; no-anchor repair records
 `global_fallback_blocked_reason=no_anchor_bucket_scope_for_repair_replay` and
 leaves prototypes unchanged instead of using the global repair scorer.
 
+Micro maintenance is now bounded by the same anchor-bucket scope and no longer
+calls the competitive replay/plasticity path with zero learning rates. Anchored
+micro refresh reports `bounded_micro_maintenance_refresh`, selects through
+`bucket_indexed_candidate_window`, updates CPU metadata only, and sets
+`sleep_replay_bypasses_competitive_process=true`; no-anchor micro refresh
+records `global_fallback_blocked_reason=no_anchor_bucket_scope_for_micro_replay`
+and leaves replay counters, tags, prototypes, and input weights unchanged.
+
 The synthetic selector report at
-`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json`
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`
 produced:
 
 | Trial | Replay commits | Bounded cycles | Global fallback cycles | Recall gate | Prototype gate | Decision |
@@ -101,6 +111,17 @@ processed `131072` tokens at `6252.073 tokens/sec`, with
 `finalize_total=0.006213 ms/token`, `tick_duration_ms.p95=20.060`,
 `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
 zero graph/native/sequence failures, and no observed contention.
+
+After bounding micro maintenance and removing the zero-LR competitive refresh,
+the longer current-tree hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
+processed `262144` tokens at `6332.439 tokens/sec`, with
+`train_compute=0.129001 ms/token`, `prepare_training=0.006330 ms/token`,
+`finalize_total=0.006198 ms/token`, `tick_duration_ms.p95=20.048`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+zero graph/native/sequence failures, and no observed contention. CPU max was
+`28%`, GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU
+memory stayed `1881 MiB` before/after measurement.
 
 Next gate: repeat quality on a less synthetic grounding/prediction target and
 scale the replay-window benchmark without widening live-tick memory work.

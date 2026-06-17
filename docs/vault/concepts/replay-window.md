@@ -15,6 +15,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
 ---
 
 # Replay Window
@@ -39,6 +41,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
 - Emergency repair replay follows the same anchor-bucket rule. Without anchor
   buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
   no mutation.
+- Micro maintenance follows the same anchor-bucket rule. Without anchor buckets
+  it must report `no_anchor_bucket_scope_for_micro_replay` and apply no refresh.
+  Anchored micro refresh updates CPU metadata only; it must not call the live
+  competitive plasticity path.
 - Zero-pressure replay is retired. No replay updates apply when the best score
   is zero.
 - Replay-window recall is non-mutating: it can compare routing keys and stored
@@ -75,6 +81,17 @@ still reanchor a disturbed prototype, while no-anchor repair records
 current-tree hot-path check
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json`
 kept the live tick in band at `6252.073 tokens/sec`.
+
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`
+keeps the same positive-pressure recall/prototype result after removing the old
+micro-maintenance zero-LR competitive refresh. The focused micro tests prove
+anchored micro refresh uses `bucket_indexed_candidate_window`, reports
+`bounded_micro_maintenance_refresh`, bypasses `competitive.process(...)`, and
+leaves prototypes/input weights unchanged; no-anchor micro refresh records
+`no_anchor_bucket_scope_for_micro_replay` and leaves replay counters/tags
+unchanged. The 262144-token hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
+kept the live tick in band at `6332.439 tokens/sec`.
 
 ## Relationships
 

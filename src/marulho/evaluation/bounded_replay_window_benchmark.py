@@ -440,8 +440,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "trials": trials,
         "quality_claim": (
             "bounded input-pattern recall is measured separately from prototype "
-            "repair; unanchored deep replay blocks global mutation; prototype "
-            "reconstruction remains open until its gate passes"
+            "repair; unanchored deep replay blocks global mutation; bounded "
+            "candidate repair passes the prototype reconstruction gate; micro "
+            "maintenance is anchor-bucket metadata refresh only"
         ),
     }
 

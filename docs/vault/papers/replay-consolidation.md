@@ -19,9 +19,11 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
+  - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
 ---
 
 # Replay/consolidation
@@ -78,6 +80,14 @@ window; without anchors it records
 applies no mutation. This retires the remaining unscoped repair-global mutation
 path while preserving anchored repair as an explicit slow-path operation.
 
+Micro maintenance now follows the same anchor-bucket boundary. Unanchored micro
+refresh records
+`global_fallback_blocked_reason=no_anchor_bucket_scope_for_micro_replay` and
+applies no tag/replay-count refresh. Anchored micro refresh reports
+`bounded_micro_maintenance_refresh`, selects through the bucket index, updates
+CPU memory metadata only, and bypasses the old zero-LR
+`CompetitiveColumnLayer.process(...)` call.
+
 Positive-pressure deep replay no longer commits the old stored-bucket
 `CompetitiveColumnLayer.process(...)` mutation. The promoted slow-window commit
 path is `bounded_reconstruction_gated_candidate_repair`: selected replay entries
@@ -108,6 +118,14 @@ processed `262144` tokens at `6306.507 tokens/sec`, with
 `state_transition_cached_count=65526`, zero graph/native/sequence failures, and
 no observed contention. Replay repair remains an explicit sleep/replay window;
 it is not every-token background work.
+
+After the micro-maintenance cleanup, the current synthetic report
+`reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`
+kept the same recall/prototype gates and the 262144-token hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
+stayed in band at `6332.439 tokens/sec` with zero graph/native/sequence
+failures. Micro refresh is now bounded CPU metadata maintenance, not hidden
+competitive replay.
 
 ## Status
 

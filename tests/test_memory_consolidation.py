@@ -718,6 +718,10 @@ class MemoryConsolidationTests(unittest.TestCase):
             trainer.train_step(pattern, raw_window="alpha memory trace")
 
         tagged = trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=2.0)
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=trainer.token_count,
+            strength=2.0,
+        )
         self.assertGreater(tagged, 0)
 
         before_proto = trainer.model.competitive.prototypes.detach().clone()
@@ -726,7 +730,9 @@ class MemoryConsolidationTests(unittest.TestCase):
         before_tags = list(trainer.model.memory_store.slow_capture_tag)
 
         updates = trainer.run_sleep_maintenance(mode="micro", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
 
+        self.assertGreater(anchored, 0)
         self.assertGreater(updates, 0)
         self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
         self.assertTrue(torch.allclose(before_weights, trainer.model.competitive.input_weights))
@@ -736,6 +742,66 @@ class MemoryConsolidationTests(unittest.TestCase):
             max(trainer.model.memory_store.slow_capture_tag),
             max(before_tags),
         )
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertFalse(report["global_score_scan"])
+        self.assertEqual(
+            report["sleep_replay_commit_strategy"],
+            "bounded_micro_maintenance_refresh",
+        )
+        self.assertEqual(
+            report["sleep_replay_winner_source"],
+            "bucket_indexed_replay_window",
+        )
+        self.assertTrue(report["sleep_replay_bypasses_competitive_process"])
+        self.assertTrue(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
+
+    def test_micro_sleep_without_anchors_blocks_global_maintenance_refresh(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=10,
+            column_latent_dim=20,
+            bootstrap_tokens=0,
+            memory_capacity=48,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[1:5] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="unanchored micro trace")
+
+        tagged = trainer.tag_recent_memories(
+            window_tokens=trainer.token_count,
+            strength=2.0,
+        )
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+        before_weights = trainer.model.competitive.input_weights.detach().clone()
+        before_replay_count = list(trainer.model.memory_store.slow_replay_count)
+        before_tags = list(trainer.model.memory_store.slow_capture_tag)
+
+        updates = trainer.run_sleep_maintenance(mode="micro", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertGreater(tagged, 0)
+        self.assertEqual(updates, 0)
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertTrue(torch.allclose(before_weights, trainer.model.competitive.input_weights))
+        self.assertEqual(before_replay_count, trainer.model.memory_store.slow_replay_count)
+        self.assertEqual(before_tags, list(trainer.model.memory_store.slow_capture_tag))
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_bucket_ids"], [])
+        self.assertFalse(report["global_score_scan"])
+        self.assertTrue(report["unscoped_global_fallback_retired"])
+        self.assertEqual(
+            report["global_fallback_blocked_reason"],
+            "no_anchor_bucket_scope_for_micro_replay",
+        )
+        self.assertFalse(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
 
     def test_repair_sleep_reanchors_prototypes_without_consolidation(self) -> None:
         set_seed(7)

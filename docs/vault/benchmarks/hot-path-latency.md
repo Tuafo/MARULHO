@@ -2425,6 +2425,20 @@ GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
 `1822 MiB` before/after measurement. This is not a new speed ceiling; it proves
 the no-anchor repair retirement does not tax the live tick.
 
+The micro-maintenance cleanup then bounded micro refresh to the same
+anchor-bucket window, blocked no-anchor micro refresh, and removed the old
+zero-LR `CompetitiveColumnLayer.process(...)` call from micro sleep. The longer
+current-tree rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
+processed `262144` tokens at `6332.439 tokens/sec` with
+`train_compute=0.129001 ms/token`, `prepare_training=0.006330 ms/token`,
+`finalize_total=0.006198 ms/token`, `tick_duration_ms.p95=20.048`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+zero graph/native/sequence failures, no observed contention, CPU max `28%`,
+GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
+`1881 MiB` before/after measurement. The live tick remains protected; micro
+maintenance is now a bounded slow-window CPU metadata refresh.
+
 The column structural-review queue first tried to capture candidate evidence on
 every CUDA host-truth boundary. That was rejected by the longer real-path run at
 `reports/column_scheduler_20260616/structural-review-queue-8192-131072-i32.json`:
