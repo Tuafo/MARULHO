@@ -893,9 +893,12 @@ This file records research anchors for current architecture work. It is not a pr
   the existing transition-memory prediction gate. It records corpus provenance
   including license/terms/cache path, grounding coverage, device placement,
   latency, memory/VRAM cost, mutation absence, and a promote/reject decision
-  for bounded operator review. Runtime Truth only projects the latest saved
-  report; it does not run the evaluator or weaken the throughput contract for
-  long hot-path runs. The paired long CUDA gate used the same active-pressure
+  for bounded operator review. A paired checkpoint-review artifact writes an
+  isolated sparse transition checkpoint, verifies restore, and records a
+  rollback manifest while keeping production runtime unchanged. Runtime Truth
+  only projects the latest saved reports; it does not run the evaluator or
+  weaken the throughput contract for long hot-path runs. The paired long CUDA
+  gate used the same active-pressure
   `65536`-column checkpoint for `262144` tokens and reached `6307.305
   tokens/sec` with no observed contention, `train_compute=0.129545 ms/token`,
   `route_input_rows_scored=12/65536`, and zero native sequence failures or

@@ -4,6 +4,7 @@ import io
 import json
 
 from marulho.evaluation.snn_language_readout_corpus import (
+    build_snn_language_readout_corpus_checkpoint_review,
     evaluate_snn_language_readout_corpus,
     main as readout_corpus_main,
 )
@@ -107,6 +108,59 @@ def test_readout_corpus_evaluation_rejects_missing_transition_memory() -> None:
     assert report["trains_runtime_model"] is False
 
 
+def test_readout_corpus_checkpoint_review_writes_restorable_sparse_checkpoint(tmp_path) -> None:
+    corpus = _promotable_fixture()
+    report = evaluate_snn_language_readout_corpus(corpus, top_k=4)
+    checkpoint_path = tmp_path / "readout-checkpoint.json"
+
+    review = build_snn_language_readout_corpus_checkpoint_review(
+        corpus,
+        report,
+        checkpoint_path,
+    )
+
+    assert review["artifact_kind"] == "terminus_snn_language_readout_corpus_checkpoint_review"
+    assert review["surface"] == "snn_language_readout_corpus_checkpoint_review.v1"
+    assert review["ready"] is True
+    assert review["status"] == "promote_checkpointed_bounded_readout_review"
+    assert review["writes_checkpoint"] is True
+    assert review["writes_live_checkpoint"] is False
+    assert review["mutates_runtime_state"] is False
+    assert review["loads_external_checkpoint"] is False
+    assert checkpoint_path.exists()
+    assert review["rollback_evidence"]["available"] is True
+    assert review["rollback_evidence"]["checkpoint_restore_verified"] is True
+    assert review["rollback_evidence"]["production_runtime_changed"] is False
+    assert review["checkpoint_weight_evidence"]["transition_weight_count"] == 1
+    payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert payload["artifact_kind"] == "marulho_snn_language_sparse_readout_checkpoint"
+    assert payload["surface"] == "snn_language_sparse_readout_checkpoint.v1"
+    assert payload["sparse_transition_weights"]
+    assert payload["source_report_hash"] == report["provenance_evidence"]["report_hash"]
+    assert review["runtime_truth_gate"]["checkpoint_status"] == "restore_verified"
+    assert review["promotion_gate"]["eligible_for_checkpointed_bounded_readout_review"] is True
+
+
+def test_readout_corpus_checkpoint_review_rejects_failed_evaluation_without_writing(tmp_path) -> None:
+    corpus = _promotable_fixture()
+    corpus["transition_memory_state"] = {"sparse_transition_weights": {}}
+    report = evaluate_snn_language_readout_corpus(corpus, top_k=4)
+    checkpoint_path = tmp_path / "blocked-checkpoint.json"
+
+    review = build_snn_language_readout_corpus_checkpoint_review(
+        corpus,
+        report,
+        checkpoint_path,
+    )
+
+    assert review["ready"] is False
+    assert review["status"] == "reject_checkpointed_readout_collect_evidence"
+    assert review["writes_checkpoint"] is False
+    assert checkpoint_path.exists() is False
+    assert "evaluation_passed" in review["runtime_truth_gate"]["reason_codes"]
+    assert "transition_weights_available" in review["runtime_truth_gate"]["reason_codes"]
+
+
 def test_readout_corpus_cli_writes_report(tmp_path) -> None:
     input_path = tmp_path / "corpus.json"
     output_path = tmp_path / "readout-corpus-evaluation.json"
@@ -132,3 +186,39 @@ def test_readout_corpus_cli_writes_report(tmp_path) -> None:
     assert payload["surface"] == "snn_language_readout_corpus_evaluation.v1"
     assert payload["output_path"] == str(output_path)
     assert json.loads(stdout.getvalue())["passed"] is True
+
+
+def test_readout_corpus_cli_writes_checkpoint_review(tmp_path) -> None:
+    input_path = tmp_path / "corpus.json"
+    output_path = tmp_path / "readout-corpus-evaluation.json"
+    checkpoint_path = tmp_path / "readout-corpus-checkpoint.json"
+    review_path = tmp_path / "readout-corpus-checkpoint-review.json"
+    input_path.write_text(json.dumps(_promotable_fixture()), encoding="utf-8")
+    stdout = io.StringIO()
+
+    exit_code = readout_corpus_main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--checkpoint-output",
+            str(checkpoint_path),
+            "--checkpoint-review-output",
+            str(review_path),
+            "--top-k",
+            "4",
+        ],
+        stdout=stdout,
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+    assert checkpoint_path.exists()
+    assert review_path.exists()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    assert payload["checkpoint_review"]["ready"] is True
+    assert review["ready"] is True
+    assert review["rollback_evidence"]["checkpoint_restore_verified"] is True
+    assert json.loads(stdout.getvalue())["checkpoint_review"]["ready"] is True

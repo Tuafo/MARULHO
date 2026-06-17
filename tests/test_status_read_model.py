@@ -3453,6 +3453,24 @@ class StatusReadModelSNNLanguageReadoutCorpusEvaluationTests(unittest.TestCase):
         self.assertEqual(evidence["available_status"], "missing_evaluation_report")
         self.assertEqual(evidence["promotion_decision"], "reject_live_readout_collect_evidence")
         self.assertEqual(evidence["reason_codes"], ["missing_readout_corpus_evaluation_report"])
+        checkpoint = result["runtime_truth"]["evidence"][
+            "snn_language_readout_corpus_checkpoint_review"
+        ]
+        self.assertEqual(
+            checkpoint["surface"],
+            "snn_language_readout_corpus_checkpoint_review_runtime_truth.v1",
+        )
+        self.assertEqual(checkpoint["status"], "missing")
+        self.assertFalse(checkpoint["current"])
+        self.assertFalse(checkpoint["report_available"])
+        self.assertEqual(
+            checkpoint["promotion_decision"],
+            "reject_checkpointed_readout_collect_evidence",
+        )
+        self.assertEqual(
+            checkpoint["reason_codes"],
+            ["missing_readout_corpus_checkpoint_review_report"],
+        )
         self.assertEqual(runtime_state.state_revision, before_revision)
 
     def test_runtime_truth_reports_current_snn_readout_corpus_evaluation(self) -> None:
@@ -3538,6 +3556,101 @@ class StatusReadModelSNNLanguageReadoutCorpusEvaluationTests(unittest.TestCase):
         self.assertEqual(evidence["tensor_device"], "cpu")
         self.assertFalse(evidence["loads_external_checkpoint"])
         self.assertFalse(evidence["runtime_cognition_dependency"])
+        self.assertFalse(evidence["runs_evaluation"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertEqual(runtime_state.state_revision, before_revision)
+
+    def test_runtime_truth_reports_current_snn_readout_corpus_checkpoint_review(self) -> None:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports = Path(tmpdir) / "reports" / "snn_language_readout_corpus"
+            reports.mkdir(parents=True)
+            (reports / "readout-corpus-checkpoint-review.json").write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "terminus_snn_language_readout_corpus_checkpoint_review",
+                        "surface": "snn_language_readout_corpus_checkpoint_review.v1",
+                        "generated_at": generated_at,
+                        "status": "promote_checkpointed_bounded_readout_review",
+                        "ready": True,
+                        "writes_checkpoint": True,
+                        "writes_live_checkpoint": False,
+                        "mutates_runtime_state": False,
+                        "checkpoint_path": "reports/readout-corpus-checkpoint.json",
+                        "checkpoint_sha256": "abc123",
+                        "checkpoint_file_bytes": 2048,
+                        "corpus_provenance": {
+                            "dataset_name": "bounded-fixture-readout-corpus",
+                            "license": "repo-test-fixture",
+                            "terms": "local deterministic fixture",
+                            "split": "eval",
+                            "sample_size": 2,
+                        },
+                        "device_evidence": {
+                            "tensor_device": "cpu",
+                            "cuda_tensor": False,
+                        },
+                        "checkpoint_weight_evidence": {
+                            "transition_weight_count": 1,
+                            "checkpointed_transition_weight_count": 1,
+                            "within_checkpoint_bound": True,
+                        },
+                        "rollback_evidence": {
+                            "available": True,
+                            "rollback_manifest_path": "reports/readout-corpus-checkpoint.json.rollback.json",
+                            "rollback_manifest_hash": "rollback123",
+                            "checkpoint_restore_verified": True,
+                            "production_runtime_changed": False,
+                            "rollback_action": "delete_isolated_sparse_readout_checkpoint_and_checkpoint_review_report",
+                        },
+                        "runtime_truth_gate": {
+                            "available_status": "available",
+                            "trained_status": "checkpointed_sparse_transition_memory_review_only",
+                            "grounded_status": "grounded",
+                            "device_status": "cpu",
+                            "mutation_gate_status": "runtime_mutation_absent",
+                            "checkpoint_status": "restore_verified",
+                            "rollback_status": "rollback_manifest_available",
+                            "latency_ms": 2.0,
+                            "memory_cost_bytes": 2048,
+                            "vram_delta_bytes": None,
+                            "promotion_decision": "promote_checkpointed_bounded_readout_review",
+                            "promotable": True,
+                            "next_gate": "operator_review_checkpointed_bounded_snn_readout",
+                            "reason_codes": ["checkpointed_bounded_sparse_readout_review_passed"],
+                        },
+                        "promotion_gate": {
+                            "status": "ready_for_operator_review",
+                            "next_gate": "operator_review_checkpointed_bounded_snn_readout",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            model, _, _, runtime_state = _build_read_model(report_root=reports.parent)
+            before_revision = runtime_state.state_revision
+
+            result = model.status()
+
+        evidence = result["runtime_truth"]["evidence"][
+            "snn_language_readout_corpus_checkpoint_review"
+        ]
+        self.assertEqual(evidence["status"], "current")
+        self.assertTrue(evidence["current"])
+        self.assertTrue(evidence["report_available"])
+        self.assertTrue(evidence["writes_checkpoint"])
+        self.assertFalse(evidence["writes_live_checkpoint"])
+        self.assertEqual(evidence["checkpoint_status"], "restore_verified")
+        self.assertEqual(evidence["rollback_status"], "rollback_manifest_available")
+        self.assertTrue(evidence["checkpoint_restore_verified"])
+        self.assertTrue(evidence["rollback_available"])
+        self.assertFalse(evidence["production_runtime_changed"])
+        self.assertEqual(evidence["promotion_decision"], "promote_checkpointed_bounded_readout_review")
+        self.assertEqual(evidence["transition_weight_count"], 1)
+        self.assertEqual(evidence["checkpointed_transition_weight_count"], 1)
+        self.assertTrue(evidence["transition_weights_within_bound"])
+        self.assertEqual(evidence["dataset_name"], "bounded-fixture-readout-corpus")
+        self.assertEqual(evidence["tensor_device"], "cpu")
         self.assertFalse(evidence["runs_evaluation"])
         self.assertFalse(evidence["mutates_runtime_state"])
         self.assertEqual(runtime_state.state_revision, before_revision)
@@ -4264,6 +4377,25 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("mutation_gate_status", readout_corpus)
         self.assertIn("promotion_decision", readout_corpus)
         self.assertIn("reason_codes", readout_corpus)
+        self.assertIn("snn_language_readout_corpus_checkpoint_review", truth["evidence"])
+        readout_checkpoint = truth["evidence"]["snn_language_readout_corpus_checkpoint_review"]
+        self.assertEqual(
+            readout_checkpoint["artifact_kind"],
+            "terminus_snn_language_readout_corpus_checkpoint_review_runtime_truth",
+        )
+        self.assertEqual(
+            readout_checkpoint["surface"],
+            "snn_language_readout_corpus_checkpoint_review_runtime_truth.v1",
+        )
+        self.assertTrue(readout_checkpoint["advisory"])
+        self.assertFalse(readout_checkpoint["executable"])
+        self.assertFalse(readout_checkpoint["runs_evaluation"])
+        self.assertFalse(readout_checkpoint["mutates_runtime_state"])
+        self.assertIn("checkpoint_status", readout_checkpoint)
+        self.assertIn("rollback_status", readout_checkpoint)
+        self.assertIn("checkpoint_restore_verified", readout_checkpoint)
+        self.assertIn("promotion_decision", readout_checkpoint)
+        self.assertIn("reason_codes", readout_checkpoint)
         self.assertIn("snn_language_plasticity_path", truth["evidence"])
         plasticity_path = truth["evidence"]["snn_language_plasticity_path"]
         self.assertEqual(

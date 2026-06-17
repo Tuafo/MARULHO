@@ -13,7 +13,7 @@ related_benchmarks: []
 
         ## Current Evaluation Path
 
-        `src/marulho/evaluation/snn_language_readout_corpus.py` evaluates bounded next-readout trajectories over explicit corpus windows and writes `snn_language_readout_corpus_evaluation.v1` reports. `StatusReadModel` projects the latest saved report into Runtime Truth as `snn_language_readout_corpus_runtime_truth.v1` without running evaluation, training, or mutating runtime state.
+        `src/marulho/evaluation/snn_language_readout_corpus.py` evaluates bounded next-readout trajectories over explicit corpus windows and writes `snn_language_readout_corpus_evaluation.v1` reports. It can also write `snn_language_readout_corpus_checkpoint_review.v1` reports with an isolated sparse transition checkpoint and rollback manifest. `StatusReadModel` projects the latest saved reports into Runtime Truth without running evaluation, training, or mutating runtime state.
 
 
         ## Links

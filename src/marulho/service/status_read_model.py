@@ -87,6 +87,13 @@ SNN_LANGUAGE_READOUT_CORPUS_REPORT_NAMES = {
     "snn-language-readout-corpus-evaluation.json",
     "readout-corpus-evaluation.json",
 }
+SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_ARTIFACT_KIND = (
+    "terminus_snn_language_readout_corpus_checkpoint_review"
+)
+SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_REPORT_NAMES = {
+    "snn-language-readout-corpus-checkpoint-review.json",
+    "readout-corpus-checkpoint-review.json",
+}
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -901,6 +908,9 @@ class StatusReadModel:
         snn_language_readout_corpus_evaluation = (
             self._snn_language_readout_corpus_evaluation_truth()
         )
+        snn_language_readout_corpus_checkpoint_review = (
+            self._snn_language_readout_corpus_checkpoint_review_truth()
+        )
         benchmark_evidence_currency = self._benchmark_evidence_currency()
         runtime_device = self._runtime_device_evidence(runtime_scope=runtime_scope)
         column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
@@ -1089,6 +1099,9 @@ class StatusReadModel:
                 "snn_language_readout_corpus_evaluation": (
                     snn_language_readout_corpus_evaluation
                 ),
+                "snn_language_readout_corpus_checkpoint_review": (
+                    snn_language_readout_corpus_checkpoint_review
+                ),
                 "snn_language_plasticity_path": snn_language_plasticity_path,
                 "snn_readout_rollout_server_state_binding": (
                     snn_readout_rollout_server_state_binding
@@ -1262,6 +1275,29 @@ class StatusReadModel:
             if payload is None:
                 continue
             if str(payload.get("artifact_kind", "")) != SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND:
+                continue
+            return {"path": path, "payload": payload}
+        return None
+
+    def _latest_snn_language_readout_corpus_checkpoint_review_report(
+        self,
+    ) -> dict[str, Any] | None:
+        if self._report_root is None or not self._report_root.exists():
+            return None
+        candidates = [
+            path
+            for path in self._report_root.rglob("*.json")
+            if path.name in SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_REPORT_NAMES
+        ]
+        candidates.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+        for path in candidates[:40]:
+            payload = self._load_report_json(path)
+            if payload is None:
+                continue
+            if (
+                str(payload.get("artifact_kind", ""))
+                != SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_ARTIFACT_KIND
+            ):
                 continue
             return {"path": path, "payload": payload}
         return None
@@ -1485,6 +1521,132 @@ class StatusReadModel:
             "tensor_device": device.get("tensor_device"),
             "cuda_tensor": bool(device.get("cuda_tensor")),
             "next_operator_action": "continue_monitoring" if current else "inspect_snn_language_readout_corpus_evaluation",
+        }
+
+    def _snn_language_readout_corpus_checkpoint_review_truth(self) -> dict[str, Any]:
+        report = self._latest_snn_language_readout_corpus_checkpoint_review_report()
+        base = {
+            "surface": "snn_language_readout_corpus_checkpoint_review_runtime_truth.v1",
+            "artifact_kind": "terminus_snn_language_readout_corpus_checkpoint_review_runtime_truth",
+            "source": "status_read_model.report_root",
+            "advisory": True,
+            "executable": False,
+            "runs_evaluation": False,
+            "mutates_runtime_state": False,
+            "changes_runtime_truth_verdict": False,
+            "report_root": str(self._report_root) if self._report_root is not None else "",
+        }
+        if report is None:
+            return {
+                **base,
+                "status": "missing",
+                "current": False,
+                "report_available": False,
+                "available_status": "missing_checkpoint_review_report",
+                "trained_status": "unknown_missing_report",
+                "grounded_status": "unknown_missing_report",
+                "device_status": "unknown_missing_report",
+                "mutation_gate_status": "unknown_missing_report",
+                "checkpoint_status": "missing",
+                "rollback_status": "missing",
+                "promotion_decision": "reject_checkpointed_readout_collect_evidence",
+                "promotion_status": "missing",
+                "promotable": False,
+                "writes_checkpoint": False,
+                "writes_live_checkpoint": False,
+                "checkpoint_path": None,
+                "checkpoint_sha256": None,
+                "checkpoint_file_bytes": 0,
+                "checkpoint_restore_verified": False,
+                "rollback_manifest_path": None,
+                "rollback_manifest_hash": None,
+                "rollback_available": False,
+                "rollback_action": None,
+                "production_runtime_changed": False,
+                "transition_weight_count": 0,
+                "checkpointed_transition_weight_count": 0,
+                "transition_weights_within_bound": False,
+                "next_operator_action": "run_snn_language_readout_corpus_checkpoint_review",
+                "reason_codes": ["missing_readout_corpus_checkpoint_review_report"],
+            }
+
+        path = report["path"]
+        payload = report["payload"]
+        freshness = self._benchmark_evidence_freshness(payload.get("generated_at"))
+        runtime_gate = payload.get("runtime_truth_gate")
+        if not isinstance(runtime_gate, Mapping):
+            runtime_gate = {}
+        promotion_gate = payload.get("promotion_gate")
+        if not isinstance(promotion_gate, Mapping):
+            promotion_gate = {}
+        rollback = payload.get("rollback_evidence")
+        if not isinstance(rollback, Mapping):
+            rollback = {}
+        weights = payload.get("checkpoint_weight_evidence")
+        if not isinstance(weights, Mapping):
+            weights = {}
+        provenance = payload.get("corpus_provenance")
+        if not isinstance(provenance, Mapping):
+            provenance = {}
+        device = payload.get("device_evidence")
+        if not isinstance(device, Mapping):
+            device = {}
+
+        stale = freshness["status"] in {"stale", "unknown_timestamp"}
+        failed = str(payload.get("status", "")).startswith("reject") or not bool(payload.get("ready"))
+        restore_verified = bool(rollback.get("checkpoint_restore_verified"))
+        runtime_unchanged = rollback.get("production_runtime_changed") is False
+        current = bool(payload.get("ready")) and restore_verified and runtime_unchanged and not stale
+        return {
+            **base,
+            "status": "current" if current else "stale" if stale else "rejected",
+            "current": current,
+            "report_available": True,
+            "report_path": str(path),
+            "report_status": payload.get("status"),
+            "freshness_status": freshness["status"],
+            "age_hours": freshness["age_hours"],
+            "generated_at": freshness["generated_at"],
+            "available_status": runtime_gate.get("available_status"),
+            "trained_status": runtime_gate.get("trained_status"),
+            "grounded_status": runtime_gate.get("grounded_status"),
+            "device_status": runtime_gate.get("device_status"),
+            "mutation_gate_status": runtime_gate.get("mutation_gate_status"),
+            "checkpoint_status": runtime_gate.get("checkpoint_status"),
+            "rollback_status": runtime_gate.get("rollback_status"),
+            "latency_ms": runtime_gate.get("latency_ms"),
+            "memory_cost_bytes": runtime_gate.get("memory_cost_bytes"),
+            "vram_delta_bytes": runtime_gate.get("vram_delta_bytes"),
+            "promotion_decision": runtime_gate.get("promotion_decision"),
+            "promotion_status": promotion_gate.get("status"),
+            "promotable": bool(runtime_gate.get("promotable")),
+            "next_gate": runtime_gate.get("next_gate") or promotion_gate.get("next_gate"),
+            "reason_codes": list(runtime_gate.get("reason_codes") or []),
+            "failed": failed,
+            "writes_checkpoint": bool(payload.get("writes_checkpoint")),
+            "writes_live_checkpoint": bool(payload.get("writes_live_checkpoint")),
+            "checkpoint_path": payload.get("checkpoint_path"),
+            "checkpoint_sha256": payload.get("checkpoint_sha256"),
+            "checkpoint_file_bytes": payload.get("checkpoint_file_bytes"),
+            "checkpoint_restore_verified": restore_verified,
+            "rollback_manifest_path": rollback.get("rollback_manifest_path"),
+            "rollback_manifest_hash": rollback.get("rollback_manifest_hash"),
+            "rollback_available": bool(rollback.get("available")),
+            "rollback_action": rollback.get("rollback_action"),
+            "production_runtime_changed": bool(rollback.get("production_runtime_changed")),
+            "transition_weight_count": int(weights.get("transition_weight_count", 0) or 0),
+            "checkpointed_transition_weight_count": int(
+                weights.get("checkpointed_transition_weight_count", 0) or 0
+            ),
+            "transition_weights_within_bound": bool(weights.get("within_checkpoint_bound")),
+            "dataset_name": provenance.get("dataset_name"),
+            "dataset_license": provenance.get("license"),
+            "dataset_terms": provenance.get("terms"),
+            "split": provenance.get("split"),
+            "sample_size": provenance.get("sample_size"),
+            "tensor_device": device.get("tensor_device"),
+            "cuda_tensor": bool(device.get("cuda_tensor")),
+            "next_operator_action": "continue_monitoring" if current else "inspect_snn_language_readout_checkpoint_review",
         }
 
     def _snn_language_capacity_pressure(self) -> dict[str, Any]:

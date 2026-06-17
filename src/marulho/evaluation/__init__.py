@@ -47,7 +47,10 @@ from .arc_agi import (
 )
 from .snn_language_readout_corpus import (
     ARTIFACT_KIND as SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND,
+    CHECKPOINT_REVIEW_ARTIFACT_KIND as SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_ARTIFACT_KIND,
+    CHECKPOINT_REVIEW_SURFACE as SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_SURFACE,
     SURFACE as SNN_LANGUAGE_READOUT_CORPUS_SURFACE,
+    build_snn_language_readout_corpus_checkpoint_review,
     evaluate_snn_language_readout_corpus,
     evaluate_snn_language_readout_corpus_file,
 )
@@ -95,7 +98,10 @@ __all__ = [
     "translate_transform",
     "validate_grid",
     "SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND",
+    "SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_ARTIFACT_KIND",
+    "SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_SURFACE",
     "SNN_LANGUAGE_READOUT_CORPUS_SURFACE",
+    "build_snn_language_readout_corpus_checkpoint_review",
     "evaluate_snn_language_readout_corpus",
     "evaluate_snn_language_readout_corpus_file",
 ]
