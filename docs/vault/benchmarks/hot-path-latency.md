@@ -12,7 +12,9 @@ related_code:
   - ../../../tests/test_service_benchmark.py
 related_docs: []
 related_papers: []
-related_benchmarks: []
+related_benchmarks:
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
 ---
 
 # Hot Path Latency
@@ -2703,3 +2705,40 @@ and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `28%`, GPU utilization max `18%`, GPU memory
 utilization max `12%`, and GPU memory flat at `1719 MiB` before and after
 measurement.
+
+### Unscoped Replay Helper Retirement, 2026-06-17
+
+The helper-retirement slice removes attractive full-buffer defaults from replay
+and SFA helpers. `DualMemoryStore.sample_replay_indices(...)` now requires
+bucket ids unless a caller explicitly opts into a diagnostic global scorer, and
+`sample_for_sfa(...)` returns no samples without selected candidate indices
+unless `allow_global_diagnostic=true` marks the call as diagnostic. This is a
+slow-window API cleanup, but it still received a long hot-path gate.
+
+The first 65536-column run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6068.338 tokens/sec`, with
+`train_compute=0.135063 ms/token`, `prepare_training=0.006458 ms/token`,
+`finalize_total=0.006376 ms/token`, `tick_duration_ms.p95=21.140`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`, zero
+graph/native/sequence failures, and flat `1856 MiB` GPU memory. It is secondary
+evidence because the environment reported `contention_observed` with GPU
+utilization max `21%`.
+
+The accepted clean rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `5668.688 tokens/sec`, with
+`train_compute=0.141909 ms/token`, `prepare_training=0.007435 ms/token`,
+`finalize_total=0.006774 ms/token`, and `tick_duration_ms.p95=25.429`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `71%`, GPU utilization max `11%`, GPU memory
+utilization max `11%`, and GPU memory moved from `1877 MiB` before measurement
+to `1844 MiB` after measurement. Treat this as same-band live-tick protection
+for removing unscoped helper defaults, not as a new speed ceiling.

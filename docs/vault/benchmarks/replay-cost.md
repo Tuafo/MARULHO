@@ -28,6 +28,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
 ---
 
 # Replay Cost
@@ -291,7 +293,20 @@ Deep replay with abstraction also bounds SFA correction to the processed replay
 window by passing `candidate_indices=processed_indices` into
 `sample_for_sfa(...)`; Runtime Truth records
 `sleep_replay_sfa_correction_scope`, candidate/sample counts, and
-`sleep_replay_sfa_full_memory_sample_retired=true`.
+`sleep_replay_sfa_full_memory_sample_retired=true`. The helper defaults now
+enforce the selected-window contract: `sample_replay_indices(...)` returns no
+indices for unscoped calls unless `allow_global_score_scan=true` marks an
+explicit diagnostic, and `sample_for_sfa(...)` returns no samples without
+`candidate_indices` unless `allow_global_diagnostic=true` is supplied.
+
+The helper-retirement verification passed the focused helper tests and the
+broader memory/SFA suite after the STC robustness test was made explicit about
+captured anchors:
+`PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_fragility_priority_prefers_stale_unconsolidated_memories tests\test_memory_consolidation.py::MemoryConsolidationTests::test_unscoped_replay_selection_requires_diagnostic_opt_in tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_sfa_correction.py::TestSampleForSFA -q`
+returned `7 passed`, and
+`PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py tests\test_sfa_correction.py -q`
+returned `47 passed`. These tests prove the helper defaults refuse unscoped
+archival scans, while explicit diagnostics remain available and visibly marked.
 
 The focused replay/checkpoint/SFA suite passed `19` tests, including the new
 text-payload exclusion, bounded SFA sample, deep replay SFA scope, and
@@ -321,6 +336,32 @@ stayed flat at `1719 MiB` before/after measurement. This is accepted as
 same-band live-tick protection while replay text and SFA stay selected,
 measured, and slow-windowed.
 
+The unscoped-helper retirement then received its own 65536-column long-run gate.
+The first 262144-token run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired.json`
+processed `262144` tokens at `6068.338 tokens/sec`, with
+`train_compute=0.135063 ms/token`, `prepare_training=0.006458 ms/token`,
+`finalize_total=0.006376 ms/token`, `tick_duration_ms.p95=21.140`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+flat `1856 MiB` GPU memory, and zero graph/native/sequence failures, but it was
+kept as secondary evidence because `velocity_environment` reported
+`contention_observed` with GPU utilization max `21%`.
+
+The accepted clean rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json`
+processed `262144` tokens at `5668.688 tokens/sec`, with
+`train_compute=0.141909 ms/token`, `prepare_training=0.007435 ms/token`,
+`finalize_total=0.006774 ms/token`, and `tick_duration_ms.p95=25.429`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `71%`,
+GPU utilization max `11%`, GPU memory utilization max `11%`, and GPU memory
+moved from `1877 MiB` before measurement to `1844 MiB` after measurement. This
+protects the live tick for retiring the unscoped helper defaults; the retired
+paths remain slow-window diagnostics only when explicitly opted in.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
-grounded target. Do not broaden a schedule without a target-specific quality
-gate and a clean long-run check proving replay remains slow-window work.
+grounded target. Do not broaden a schedule or revive unscoped helper scans
+without a target-specific quality gate and a clean long-run check proving replay
+remains slow-window work.

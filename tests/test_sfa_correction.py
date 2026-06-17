@@ -101,12 +101,15 @@ class TestSampleForSFA(unittest.TestCase):
         result = store.sample_for_sfa(10)
         self.assertEqual(result, [])
 
-    def test_sample_returns_tensors(self) -> None:
+    def test_unscoped_sample_requires_diagnostic_opt_in(self) -> None:
         store = self._make_store()
         for i in range(20):
             store.slow_buffer.append(torch.randn(32))
 
         result = store.sample_for_sfa(10)
+        self.assertEqual(result, [])
+
+        result = store.sample_for_sfa(10, allow_global_diagnostic=True)
         self.assertEqual(len(result), 10)
         for t in result:
             self.assertIsInstance(t, torch.Tensor)
@@ -117,7 +120,7 @@ class TestSampleForSFA(unittest.TestCase):
         for i in range(5):
             store.slow_buffer.append(torch.randn(32))
 
-        result = store.sample_for_sfa(100)
+        result = store.sample_for_sfa(100, allow_global_diagnostic=True)
         self.assertEqual(len(result), 5)  # capped at buffer size
 
     def test_sample_can_use_bounded_candidate_indices(self) -> None:

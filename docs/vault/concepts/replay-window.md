@@ -18,6 +18,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
   - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json
 ---
 
 # Replay Window
@@ -36,9 +37,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
   tick.
 - A column-anchored replay window must score only memory entries attached to
   the supplied bucket ids through the bucket index.
-- A global slow-path scorer must report `global_slow_path_score_scan`; it must
-  not hide a full-memory scorer. Production deep replay cannot mutate from that
-  unscoped path.
+- A global slow-path scorer must require explicit diagnostic opt-in and report
+  `global_slow_path_score_scan`; it must not hide a full-memory scorer.
+  Unscoped selection defaults to `unscoped_global_score_scan_retired`.
+  Production deep replay cannot mutate from that unscoped path.
 - Emergency repair replay follows the same anchor-bucket rule. Without anchor
   buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
   no mutation.
@@ -57,6 +59,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
   bucket fallback candidates; rejected commits are evidence, not silent success.
 - Archival metadata stays CPU-resident; active replay tensors move to the model
   device only when replay is actually applied.
+- Replay/SFA helper APIs must default to bounded inputs. `sample_replay_indices`
+  requires bucket ids unless explicitly marked as a global diagnostic, and
+  `sample_for_sfa` requires selected candidate indices unless explicitly marked
+  as a global diagnostic.
 
 ## Evidence
 
@@ -93,6 +99,16 @@ leaves prototypes/input weights unchanged; no-anchor micro refresh records
 unchanged. The 262144-token hot-path check
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
 kept the live tick in band at `6332.439 tokens/sec`.
+
+The unscoped-helper retirement preserves the same rule at the helper API
+boundary. Unscoped `sample_replay_indices(...)` now returns no replay indices
+unless a caller explicitly marks a diagnostic global scorer; unscoped
+`sample_for_sfa(...)` returns no tensors unless a diagnostic flag is set. The
+clean 262144-token active-pressure hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json`
+processed `262144` tokens at `5668.688 tokens/sec`, kept route scoring bounded
+at `12/65536`, cached `65526` transition rows, reported no observed contention,
+and had zero graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`

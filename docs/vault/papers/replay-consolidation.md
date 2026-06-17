@@ -60,8 +60,12 @@ when tags/PRP/replay pressure are positive enough to justify the cost.
 `DualMemoryStore.select_replay_window(...)` records
 `bounded_replay_window_selection.v1`. When deep sleep has column anchors, the
 selection scores only entries attached to those bucket ids through the
-bucket-to-entry index. If no bucket scope is available, the report says
-`global_slow_path_score_scan` so the full slow-memory scorer is not hidden.
+bucket-to-entry index. If no bucket scope is available, selection now returns
+empty by default with
+`fallback_reason=global_score_scan_requires_explicit_diagnostic_opt_in`.
+The full slow-memory scorer is available only when a caller explicitly sets
+`allow_global_score_scan=true`, and that diagnostic report must say
+`global_slow_path_score_scan`.
 
 `DualMemoryStore.recall_replay_window(...)` records
 `bounded_replay_window_recall.v1`. It is a non-mutating slow-path local memory
@@ -218,8 +222,12 @@ and `language_reasoning=false`, while the sleep replay report exposes
 Deep sleep with an abstraction layer also samples SFA correction from the
 processed replay indices instead of the whole slow buffer, with
 `sleep_replay_sfa_correction_scope=selected_replay_window` and
-`sleep_replay_sfa_full_memory_sample_retired=true`. The synthetic boundary
-report
+`sleep_replay_sfa_full_memory_sample_retired=true`. The helper defaults enforce
+the same rule: `sample_replay_indices(...)` now returns no indices for unscoped
+calls unless the caller explicitly sets `allow_global_score_scan=true`, and
+`sample_for_sfa(...)` returns no samples without selected candidate indices
+unless `allow_global_diagnostic=true` marks the call as diagnostic. The
+synthetic boundary report
 `reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json`
 kept bounded recall and prototype gates passing with `2` accepted post-B
 repairs and `0` updates in the zero-pressure/no-anchor controls. The matching
@@ -229,7 +237,12 @@ stayed in band at `6237.420 tokens/sec`, scored `12/65536` route rows, cached
 `65526` transition rows, reported no observed contention, kept flat `1719 MiB`
 GPU memory, and had zero graph/native/sequence failures. Replay therefore
 remains bounded associative memory inside explicit slow windows, not a text
-reasoning loop.
+reasoning loop. The follow-up helper-default retirement gate confirmed the
+live tick still stayed protected after unscoped helper defaults were removed:
+the clean 262144-token active-pressure rerun reached `5668.688 tokens/sec`,
+`train_compute=0.141909 ms/token`, bounded route rows at `12/65536`, cached
+`65526` transition rows, no observed contention, and zero graph/native/sequence
+failures.
 
 ## Status
 

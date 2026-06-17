@@ -1347,13 +1347,13 @@ class DualMemoryStore:
         strategy: str = "priority",
         candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
         scope: str = "sleep_slow_path",
+        allow_global_score_scan: bool = False,
     ) -> dict[str, Any]:
         """Select a bounded replay window and record the selection evidence.
 
         Candidate bucket ids make selection score only indexed memory entries
-        attached to those buckets.  When no bucket scope is supplied, selection
-        intentionally falls back to the existing slow-path global scorer and
-        reports that fallback instead of hiding a full-memory scan.
+        attached to those buckets. Unscoped full-memory scoring is diagnostic
+        only and must be requested explicitly.
         """
 
         started = time.perf_counter()
@@ -1416,6 +1416,10 @@ class DualMemoryStore:
                 selected_scores = [float(score) for _, score in selected_pairs]
                 if not selected:
                     fallback_reason = "empty_bucket_candidate_pool"
+        elif not allow_global_score_scan:
+            candidate_count = 0
+            score_count = 0
+            fallback_reason = "global_score_scan_requires_explicit_diagnostic_opt_in"
         else:
             if strategy == "maintenance":
                 scores = self.maintenance_scores(token_marker)
@@ -1478,7 +1482,11 @@ class DualMemoryStore:
             "candidate_scope": (
                 "bucket_indexed_candidate_window"
                 if bucket_scoped
-                else "global_slow_path_score_scan"
+                else (
+                    "global_slow_path_score_scan"
+                    if allow_global_score_scan
+                    else "unscoped_global_score_scan_retired"
+                )
             ),
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
@@ -1489,7 +1497,14 @@ class DualMemoryStore:
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "bounded_by_bucket_index": bool(bucket_scoped),
-            "global_score_scan": bool(not bucket_scoped and strategy != "random"),
+            "global_score_scan": bool(
+                not bucket_scoped
+                and bool(allow_global_score_scan)
+                and strategy != "random"
+            ),
+            "diagnostic_global_score_scan": bool(
+                not bucket_scoped and bool(allow_global_score_scan)
+            ),
             "runs_live_tick": False,
             "records_replay_artifact": False,
             "raw_text_payload_loaded": False,
@@ -1684,12 +1699,17 @@ class DualMemoryStore:
         current_token: int,
         candidate_pool: Optional[int] = None,
         strategy: str = "priority",
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
+        allow_global_score_scan: bool = False,
     ) -> list[int]:
         report = self.select_replay_window(
             n=n,
             current_token=current_token,
             candidate_pool=candidate_pool,
             strategy=strategy,
+            candidate_bucket_ids=candidate_bucket_ids,
+            scope="sample_replay_indices_slow_path",
+            allow_global_score_scan=allow_global_score_scan,
         )
         return [int(idx) for idx in report.get("selected_indices", [])]
 
@@ -1698,6 +1718,7 @@ class DualMemoryStore:
         n: int = 100,
         *,
         candidate_indices: Sequence[int] | None = None,
+        allow_global_diagnostic: bool = False,
     ) -> list[torch.Tensor]:
         """Sample assembly vectors for SFA correction from a bounded window."""
 
@@ -1705,6 +1726,8 @@ class DualMemoryStore:
         if count == 0 or n <= 0:
             return []
         if candidate_indices is None:
+            if not allow_global_diagnostic:
+                return []
             candidates = list(range(count))
         else:
             seen: set[int] = set()

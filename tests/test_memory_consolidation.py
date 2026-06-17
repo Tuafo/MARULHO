@@ -461,7 +461,19 @@ class MemoryConsolidationTests(unittest.TestCase):
         scores = store.maintenance_scores(current_token=40)
 
         self.assertGreater(float(scores[1].item()), float(scores[0].item()))
-        self.assertEqual(store.sample_replay_indices(n=1, current_token=40, strategy="maintenance"), [1])
+        self.assertEqual(
+            store.sample_replay_indices(
+                n=1,
+                current_token=40,
+                strategy="maintenance",
+                candidate_bucket_ids=[1],
+            ),
+            [1],
+        )
+        self.assertEqual(
+            store.summary_stats()["last_replay_selection_report"]["candidate_scope"],
+            "bucket_indexed_candidate_window",
+        )
 
     def test_bounded_replay_window_selection_scores_only_bucket_candidates(self) -> None:
         store = DualMemoryStore(
@@ -515,7 +527,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(restored_report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(restored_report["selected_count"], 2)
 
-    def test_global_replay_selection_retires_zero_pressure_window(self) -> None:
+    def test_unscoped_replay_selection_requires_diagnostic_opt_in(self) -> None:
         store = DualMemoryStore(
             capacity=4,
             ema_alpha=0.1,
@@ -538,13 +550,29 @@ class MemoryConsolidationTests(unittest.TestCase):
             strategy="consolidation",
         )
 
-        self.assertEqual(report["candidate_scope"], "global_slow_path_score_scan")
-        self.assertTrue(report["global_score_scan"])
+        self.assertEqual(report["candidate_scope"], "unscoped_global_score_scan_retired")
+        self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["runs_live_tick"])
         self.assertEqual(report["selected_count"], 0)
         self.assertEqual(report["selected_indices"], [])
-        self.assertEqual(report["fallback_reason"], "no_positive_global_scores")
+        self.assertEqual(
+            report["fallback_reason"],
+            "global_score_scan_requires_explicit_diagnostic_opt_in",
+        )
         self.assertEqual(store.sample_replay_indices(n=1, current_token=9), [])
+
+        diagnostic = store.select_replay_window(
+            n=1,
+            current_token=8,
+            candidate_pool=2,
+            strategy="consolidation",
+            allow_global_score_scan=True,
+        )
+
+        self.assertEqual(diagnostic["candidate_scope"], "global_slow_path_score_scan")
+        self.assertTrue(diagnostic["global_score_scan"])
+        self.assertTrue(diagnostic["diagnostic_global_score_scan"])
+        self.assertEqual(diagnostic["fallback_reason"], "no_positive_global_scores")
 
     def test_bounded_replay_window_recall_uses_bucket_routing_keys(self) -> None:
         store = DualMemoryStore(
@@ -1543,6 +1571,13 @@ class MemoryConsolidationTests(unittest.TestCase):
             ref_asm = collect_assemblies(trainer, task_a)
 
             trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+            self.assertGreater(
+                trainer.capture_recent_memory_anchors(
+                    window_tokens=trainer.token_count,
+                    strength=3.0,
+                ),
+                0,
+            )
             trainer.run_sleep_maintenance(mode="deep", cycles=2)
 
             for _ in range(18):
@@ -1550,6 +1585,14 @@ class MemoryConsolidationTests(unittest.TestCase):
                     trainer.train_step(task_b[i], raw_window=w)
             a_after_b = mean_reconstruction_error(trainer, task_a)
 
+            trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+            self.assertGreater(
+                trainer.capture_recent_memory_anchors(
+                    window_tokens=trainer.token_count,
+                    strength=3.0,
+                ),
+                0,
+            )
             trainer.run_sleep_maintenance(mode="deep", cycles=4)
             a_after_consol = mean_reconstruction_error(trainer, task_a)
             overlap = mean_assembly_overlap(ref_asm, collect_assemblies(trainer, task_a))
