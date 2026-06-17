@@ -756,6 +756,82 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertFalse(report["cycle_reports"][0]["sleep_replay_mutates_runtime_state"])
 
+    def test_reconstruction_guard_skips_repeated_rejected_selection(self) -> None:
+        set_seed(9)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[6:10] = 1.0
+        pattern = pattern / pattern.sum()
+        call_count = 0
+
+        def _harmful_replay(mode: str, cycles: int = 1) -> int:
+            nonlocal call_count
+            call_count += 1
+            self.assertEqual(mode, "deep")
+            self.assertEqual(cycles, 1)
+            trainer.model.competitive.prototypes[2] = torch.roll(
+                trainer.model.competitive.prototypes[2],
+                shifts=1,
+                dims=0,
+            )
+            trainer._last_sleep_replay_selection_report = {
+                "surface": "bounded_replay_window_selection.v1",
+                "scope": "deep_sleep_slow_path",
+                "strategy": "consolidation",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "candidate_bucket_ids": [2],
+                "selected_indices": [0, 1],
+                "selected_count": 2,
+                "score_count": 2,
+                "sleep_replay_applied_count": 1,
+                "sleep_replay_mutates_runtime_state": True,
+                "sleep_replay_applies_plasticity": True,
+            }
+            return 1
+
+        with (
+            patch.object(
+                trainer,
+                "run_sleep_maintenance",
+                side_effect=_harmful_replay,
+            ),
+            patch(
+                "marulho.training.memory_consolidation_runner.mean_reconstruction_error",
+                side_effect=[0.10, 0.20],
+            ),
+        ):
+            updates, report = _run_reconstruction_guarded_sleep_maintenance(
+                trainer,
+                [pattern],
+                mode="deep",
+                cycles=3,
+                quality_scope="unit_reconstruction",
+            )
+
+        self.assertEqual(call_count, 1)
+        self.assertEqual(updates, 0)
+        self.assertEqual(report["cycle_count"], 3)
+        self.assertEqual(report["attempted_update_count"], 1)
+        self.assertEqual(report["rejected_cycle_count"], 1)
+        self.assertEqual(report["skipped_repeated_rejection_cycle_count"], 2)
+        self.assertEqual(
+            report["cadence_strategy"],
+            "skip_repeated_rejected_selection",
+        )
+        self.assertEqual(
+            report["cycle_reports"][1]["sleep_replay_rollback_reason"],
+            "repeated_rejected_selection_skipped",
+        )
+        self.assertFalse(report["cycle_reports"][1]["sleep_replay_mutates_runtime_state"])
+
     def test_deep_sleep_uses_anchor_bucket_replay_window_report(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

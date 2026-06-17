@@ -2622,3 +2622,24 @@ failures. The run reported no observed contention: CPU max `6%`, GPU utilization
 max `10%`, GPU memory utilization max `10%`, and GPU memory flat at `1539 MiB`
 before/after. This protects the live tick while replay acceptance remains an
 explicit slow-path window.
+
+The follow-up cadence cleanup skips repeated identical rejected replay
+selections inside the same slow window. The HF report
+`reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation-cadenced/summary.json`
+reduced attempted post-Task-B replay repairs from `9` to `3`, skipped `2`
+repeated rejected cycles, kept effective updates at `0`, and kept both bounded
+recall and the memory-consolidation gate passing. Guard latency fell from
+`1003.442 ms` in the previous guarded report to `559.694 ms`.
+
+The first matching 262144-token live-path run,
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced.json`,
+completed at only `5388.450 tokens/sec` with `train_compute=0.152640 ms/token`
+and `tick_duration_ms.p95=43.215`; it is not accepted as throughput evidence.
+The immediate rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json`
+stayed in the maintained band at `6199.988 tokens/sec`, with
+`train_compute=0.130574 ms/token`, `prepare_training=0.006633 ms/token`,
+`finalize_total=0.006399 ms/token`, `tick_duration_ms.p95=20.215`,
+`route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+zero graph/native/sequence failures, and no observed contention. GPU memory was
+`1688 MiB` before and `1689 MiB` after the accepted rerun.

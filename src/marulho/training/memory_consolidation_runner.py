@@ -211,12 +211,66 @@ def _run_reconstruction_guarded_sleep_maintenance(
     accepted_cycles = 0
     rejected_cycles = 0
     no_update_cycles = 0
+    skipped_repeated_rejection_cycles = 0
     cycle_reports: list[dict[str, Any]] = []
     final_selection_report: dict[str, Any] = dict(
         getattr(trainer, "_last_sleep_replay_selection_report", {})
     )
+    repeated_rejection_signature: tuple[Any, ...] | None = None
+
+    def _selection_signature(report: dict[str, Any]) -> tuple[Any, ...]:
+        def _tuple_value(value: Any) -> tuple[Any, ...]:
+            if isinstance(value, torch.Tensor):
+                return tuple(int(item) for item in value.detach().cpu().flatten().tolist())
+            if isinstance(value, (list, tuple)):
+                return tuple(int(item) for item in value)
+            return tuple()
+
+        return (
+            str(report.get("surface")),
+            str(report.get("scope")),
+            str(report.get("strategy")),
+            str(report.get("candidate_scope")),
+            _tuple_value(report.get("candidate_bucket_ids")),
+            _tuple_value(report.get("selected_indices")),
+            int(report.get("selected_count", 0) or 0),
+            int(report.get("score_count", 0) or 0),
+        )
 
     for cycle_index in range(requested_cycles):
+        if repeated_rejection_signature is not None:
+            skipped_repeated_rejection_cycles += 1
+            cycle_report = {
+                **final_selection_report,
+                "guard_cycle_index": int(cycle_index),
+                "sleep_replay_guard_strategy": "bounded_reconstruction_acceptance",
+                "sleep_replay_guard_quality_metric": "mean_reconstruction_error",
+                "sleep_replay_guard_quality_scope": str(quality_scope),
+                "sleep_replay_guard_before": float(current_best),
+                "sleep_replay_guard_after": float(current_best),
+                "sleep_replay_guard_delta": 0.0,
+                "sleep_replay_guard_tolerance": float(tolerance),
+                "sleep_replay_commit_accepted": False,
+                "sleep_replay_rollback_reason": "repeated_rejected_selection_skipped",
+                "sleep_replay_attempted_applied_count": 0,
+                "sleep_replay_effective_applied_count": 0,
+                "sleep_replay_repeated_rejection_skip": True,
+                "sleep_replay_repeated_rejection_signature": list(
+                    repeated_rejection_signature
+                ),
+                "sleep_replay_applied_count": 0,
+                "sleep_replay_updated_column_count": 0,
+                "sleep_replay_mutates_runtime_state": False,
+                "sleep_replay_applies_plasticity": False,
+                "runs_live_tick": False,
+            }
+            trainer._last_sleep_replay_selection_report = dict(cycle_report)
+            trainer.model.memory_store.last_replay_selection_report = dict(cycle_report)
+            trainer.model.memory_store._invalidate_summary_cache()
+            cycle_reports.append(cycle_report)
+            final_selection_report = dict(cycle_report)
+            continue
+
         before_score = float(current_best)
         snapshot = _model_snapshot(trainer)
         attempted = trainer.run_sleep_maintenance(mode=mode, cycles=1)
@@ -232,6 +286,7 @@ def _run_reconstruction_guarded_sleep_maintenance(
             if accepted:
                 no_update_cycles += 1
                 current_best = float(after_score)
+                repeated_rejection_signature = None
             else:
                 rejected_cycles += 1
                 effective_updates = 0
@@ -241,6 +296,7 @@ def _run_reconstruction_guarded_sleep_maintenance(
             accepted_cycles += 1
             accepted_updates += int(attempted)
             current_best = float(after_score)
+            repeated_rejection_signature = None
         else:
             rejected_cycles += 1
             rejected_attempted_updates += int(attempted)
@@ -276,6 +332,7 @@ def _run_reconstruction_guarded_sleep_maintenance(
             trainer._last_sleep_replay_selection_report = dict(cycle_report)
             trainer.model.memory_store.last_replay_selection_report = dict(cycle_report)
             trainer.model.memory_store._invalidate_summary_cache()
+            repeated_rejection_signature = _selection_signature(cycle_report)
 
         cycle_reports.append(cycle_report)
         final_selection_report = dict(cycle_report)
@@ -288,6 +345,9 @@ def _run_reconstruction_guarded_sleep_maintenance(
         "accepted_cycle_count": int(accepted_cycles),
         "rejected_cycle_count": int(rejected_cycles),
         "no_update_cycle_count": int(no_update_cycles),
+        "skipped_repeated_rejection_cycle_count": int(
+            skipped_repeated_rejection_cycles
+        ),
         "attempted_update_count": int(attempted_updates),
         "accepted_update_count": int(accepted_updates),
         "rejected_attempted_update_count": int(rejected_attempted_updates),
@@ -297,6 +357,7 @@ def _run_reconstruction_guarded_sleep_maintenance(
         "quality_final": float(current_best),
         "quality_delta": float(initial_score - current_best),
         "tolerance": float(tolerance),
+        "cadence_strategy": "skip_repeated_rejected_selection",
         "runs_live_tick": False,
         "score_device": str(trainer.model.device),
         "archival_storage_device": "cpu",

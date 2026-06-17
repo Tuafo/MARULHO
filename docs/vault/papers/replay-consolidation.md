@@ -22,11 +22,13 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
   - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation/summary.json
+  - reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation-cadenced/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
 ---
 
 # Replay/consolidation
@@ -157,11 +159,26 @@ observed contention, and flat `1539 MiB` GPU memory. Replay guard scoring uses
 the model device inside explicit slow windows; archival replay metadata remains
 CPU-resident.
 
+The cadenced follow-up keeps the same slow-window acceptance boundary but stops
+retrying an identical rejected selection after rollback. The report
+`reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation-cadenced/summary.json`
+records `cadence_strategy=skip_repeated_rejected_selection`: the first
+post-Task-B replay cycle rejected `3` attempted repairs, then skipped `2`
+repeated rejected cycles, keeping effective updates at `0` while recall and the
+memory-consolidation gate stayed passing. The clean hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json`
+stayed in the maintained band at `6199.988 tokens/sec`,
+`train_compute=0.130574 ms/token`, bounded route scoring at `12/65536`, `65526`
+cached transition rows, zero graph/native/sequence failures, and no observed
+contention. This retires repeated dead replay attempts inside a slow window; it
+does not make replay continuous or live-tick work.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
-candidate repair, and reconstruction-guarded HF replay acceptance implemented;
-long-run hot-path protection remains required for future larger replay windows
+candidate repair, reconstruction-guarded HF replay acceptance, and skipped
+repeated rejected replay attempts implemented; long-run hot-path protection
+remains required for future larger replay windows
 
 ## Links
 
