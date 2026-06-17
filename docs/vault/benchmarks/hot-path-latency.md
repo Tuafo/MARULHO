@@ -1970,18 +1970,33 @@ already supports that refresh shape. These commands all used the restored
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | bank256 probe64 | `320/8192` | `0.92578125` | `0.630859375` | `0.8824218749999989` | `8` | rejected |
 | bank512 probe128 | `640/8192` | `1.0` | `0.826171875` | `0.9757812499999993` | `0` | rejected |
-| bank1024 probe256 | `1280/8192` | `1.0` | `0.97265625` | `0.9949218749999997` | `0` | quality pass, runtime kernel missing |
+| bank1024 probe256 | `1280/8192` | `1.0` | `0.97265625` | `0.9949218749999997` | `0` | quality pass, runtime throughput rejected |
 
-The pass is not a runtime promotion. The live fused route/vote kernel refreshes
-only the awake `k=10` rows into the next bank; it does not yet write the top
-`1024` retained bank positions while emitting only `10` awake candidates. An
-isolated synchronized route-row lower-bound at
+The pass is not a runtime promotion. An isolated synchronized route-row lower-bound at
 `reports/column_scheduler_20260617/wider-bank-route-rows-fused-lower-bound-8192.json`
 measured the current fused route/vote path at `0.236956 ms` mean for `12` rows,
 `0.271268 ms` for `320`, `0.319130 ms` for `640`, and `0.476562 ms` for `1280`.
-That is only a kernel lower bound: the missing top-retained refresh and the
-full 131072-token graph/burst path still have to prove the 6k-ish band before
-any wider retained bank can become the single promoted scheduler.
+That lower bound predicted risk correctly. A live CUDA attempt added a
+GPU-owned top-retained refresh for a `1024` row retained bank plus `256` probe
+rows while still waking only `10` candidates:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260617\checkpoints\wide-bank-promoted-scheduler-65536-seeded.pt --report reports\column_scheduler_20260617\wide-bank-promoted-scheduler-65536-checkpoint.json --n-columns 65536 --column-latent-dim 64 --k-routing 10 --seed 20260617 --device cuda`
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\wide-bank-promoted-scheduler-65536-seeded.pt --output reports\column_scheduler_20260617\wide-bank-runtime-65536-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --host-truth-sync-interval-tokens 32 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+The runtime truth was real but too expensive: `route_input_rows_scored=1280/65536`,
+`route_output_candidate_count=10`, `refresh_owner=fused_route_vote_topk_device`,
+`state_transition_cached_count=65526`, zero graph/native/sequence failures, and
+no observed contention, but throughput fell to `4656.790 tokens/sec` with
+`train_compute=0.186216 ms/token`. The same-session retained k+2 long run at
+`reports/column_scheduler_20260617/wider-bank-eval-no-runtime-change-65536-131072-i32.json`
+was `6156.500 tokens/sec` with `train_compute=0.130623 ms/token`. A cheap
+`sorted=False` top-k variant did not recover the path: the 32768-token check at
+`reports/column_scheduler_20260617/wide-bank-runtime-unsorted-topk-65536-32768-i32.json`
+measured `4596.633 tokens/sec` and `train_compute=0.176464 ms/token`. The
+runtime branch was removed after this gate; the promoted scheduler remains the
+k+2 route-bank/probe lane until a different bounded discovery router passes both
+winner quality and the 6k-ish long-run cost gate.
 
 The attempted live implementation built a fixed neighbor graph and scored the
 bank plus bounded neighbors on the 8192 real path:
