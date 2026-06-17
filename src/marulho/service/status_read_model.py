@@ -82,6 +82,11 @@ BENCHMARK_EVIDENCE_ARTIFACT_KINDS = {
     "marulho_service_benchmark_baseline_run_bundle",
     "marulho_service_benchmark_regression_gate",
 }
+SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND = "terminus_snn_language_readout_corpus_evaluation"
+SNN_LANGUAGE_READOUT_CORPUS_REPORT_NAMES = {
+    "snn-language-readout-corpus-evaluation.json",
+    "readout-corpus-evaluation.json",
+}
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -893,6 +898,9 @@ class StatusReadModel:
             "eligible_for_plasticity": False,
             "eligible_for_structural_write": False,
         }
+        snn_language_readout_corpus_evaluation = (
+            self._snn_language_readout_corpus_evaluation_truth()
+        )
         benchmark_evidence_currency = self._benchmark_evidence_currency()
         runtime_device = self._runtime_device_evidence(runtime_scope=runtime_scope)
         column_runtime = self._column_runtime_evidence(runtime_scope=runtime_scope)
@@ -1078,6 +1086,9 @@ class StatusReadModel:
                 "self_repair_evaluation_gate": self_repair_evaluation_gate,
                 "structural_plasticity_gate": structural_plasticity_gate,
                 "snn_language_readiness_gate": snn_language_readiness_gate,
+                "snn_language_readout_corpus_evaluation": (
+                    snn_language_readout_corpus_evaluation
+                ),
                 "snn_language_plasticity_path": snn_language_plasticity_path,
                 "snn_readout_rollout_server_state_binding": (
                     snn_readout_rollout_server_state_binding
@@ -1237,6 +1248,24 @@ class StatusReadModel:
                 break
         return latest
 
+    def _latest_snn_language_readout_corpus_report(self) -> dict[str, Any] | None:
+        if self._report_root is None or not self._report_root.exists():
+            return None
+        candidates = [
+            path
+            for path in self._report_root.rglob("*.json")
+            if path.name in SNN_LANGUAGE_READOUT_CORPUS_REPORT_NAMES
+        ]
+        candidates.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+        for path in candidates[:40]:
+            payload = self._load_report_json(path)
+            if payload is None:
+                continue
+            if str(payload.get("artifact_kind", "")) != SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND:
+                continue
+            return {"path": path, "payload": payload}
+        return None
+
     @staticmethod
     def _report_failed_checks(payload: Mapping[str, Any]) -> list[str]:
         checks = payload.get("checks")
@@ -1359,6 +1388,103 @@ class StatusReadModel:
             "accepted_baseline": baseline,
             "fresh_bundle": bundle,
             "regression_gate": regression_gate,
+        }
+
+    def _snn_language_readout_corpus_evaluation_truth(self) -> dict[str, Any]:
+        report = self._latest_snn_language_readout_corpus_report()
+        base = {
+            "surface": "snn_language_readout_corpus_runtime_truth.v1",
+            "artifact_kind": "terminus_snn_language_readout_corpus_runtime_truth",
+            "source": "status_read_model.report_root",
+            "advisory": True,
+            "executable": False,
+            "runs_evaluation": False,
+            "mutates_runtime_state": False,
+            "changes_runtime_truth_verdict": False,
+            "report_root": str(self._report_root) if self._report_root is not None else "",
+        }
+        if report is None:
+            return {
+                **base,
+                "status": "missing",
+                "current": False,
+                "report_available": False,
+                "available_status": "missing_evaluation_report",
+                "trained_status": "unknown_missing_report",
+                "grounded_status": "unknown_missing_report",
+                "device_status": "unknown_missing_report",
+                "mutation_gate_status": "unknown_missing_report",
+                "promotion_decision": "reject_live_readout_collect_evidence",
+                "promotion_status": "missing",
+                "promotable": False,
+                "next_operator_action": "run_snn_language_readout_corpus_evaluation",
+                "reason_codes": ["missing_readout_corpus_evaluation_report"],
+            }
+
+        path = report["path"]
+        payload = report["payload"]
+        freshness = self._benchmark_evidence_freshness(payload.get("generated_at"))
+        runtime_gate = payload.get("runtime_truth_gate")
+        if not isinstance(runtime_gate, Mapping):
+            runtime_gate = {}
+        summary = payload.get("sequence_evaluation_summary")
+        if not isinstance(summary, Mapping):
+            summary = {}
+        provenance = payload.get("corpus_provenance")
+        if not isinstance(provenance, Mapping):
+            provenance = {}
+        device = payload.get("device_evidence")
+        if not isinstance(device, Mapping):
+            device = {}
+        promotion_gate = payload.get("promotion_gate")
+        if not isinstance(promotion_gate, Mapping):
+            promotion_gate = {}
+
+        stale = freshness["status"] in {"stale", "unknown_timestamp"}
+        failed = str(payload.get("status", "")).startswith("reject") or not bool(payload.get("passed"))
+        current = bool(payload.get("passed")) and not stale
+        return {
+            **base,
+            "status": "current" if current else "stale" if stale else "rejected",
+            "current": current,
+            "report_available": True,
+            "report_path": str(path),
+            "report_status": payload.get("status"),
+            "freshness_status": freshness["status"],
+            "age_hours": freshness["age_hours"],
+            "generated_at": freshness["generated_at"],
+            "available_status": runtime_gate.get("available_status"),
+            "trained_status": runtime_gate.get("trained_status"),
+            "grounded_status": runtime_gate.get("grounded_status"),
+            "device_status": runtime_gate.get("device_status"),
+            "mutation_gate_status": runtime_gate.get("mutation_gate_status"),
+            "latency_ms": runtime_gate.get("latency_ms"),
+            "memory_cost_bytes": runtime_gate.get("memory_cost_bytes"),
+            "vram_delta_bytes": runtime_gate.get("vram_delta_bytes"),
+            "promotion_decision": runtime_gate.get("promotion_decision"),
+            "promotion_status": promotion_gate.get("status"),
+            "promotable": bool(runtime_gate.get("promotable")),
+            "next_gate": runtime_gate.get("next_gate") or promotion_gate.get("next_gate"),
+            "reason_codes": list(runtime_gate.get("reason_codes") or []),
+            "failed": failed,
+            "evaluation_pair_count": int(summary.get("evaluation_pair_count", 0) or 0),
+            "persistent_transition_weight_count": int(
+                summary.get("persistent_transition_weight_count", 0) or 0
+            ),
+            "mean_mismatch_delta": summary.get("mean_mismatch_delta"),
+            "worsened_sequence_count": int(summary.get("worsened_sequence_count", 0) or 0),
+            "dataset_name": provenance.get("dataset_name"),
+            "dataset_license": provenance.get("license"),
+            "dataset_terms": provenance.get("terms"),
+            "split": provenance.get("split"),
+            "sample_size": provenance.get("sample_size"),
+            "cache_path": provenance.get("cache_path"),
+            "external_data_source": bool(provenance.get("external_data_source")),
+            "runtime_cognition_dependency": bool(provenance.get("runtime_cognition_dependency")),
+            "loads_external_checkpoint": bool(payload.get("loads_external_checkpoint")),
+            "tensor_device": device.get("tensor_device"),
+            "cuda_tensor": bool(device.get("cuda_tensor")),
+            "next_operator_action": "continue_monitoring" if current else "inspect_snn_language_readout_corpus_evaluation",
         }
 
     def _snn_language_capacity_pressure(self) -> dict[str, Any]:

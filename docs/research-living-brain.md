@@ -885,6 +885,22 @@ This file records research anchors for current architecture work. It is not a pr
   https://openreview.net/forum?id=iu9dbz2lB9,
   https://research.nvidia.com/labs/nemotron/Nemotron-3-Ultra/,
   and https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v3.
+- SNN language readout corpus evaluation note, June 2026: NeuronSpark,
+  SpikeGPT, SpikingSSMs, Nord-AI, multi-token prediction, and speculative
+  decoding all support evaluating bounded sparse readout trajectories before a
+  draft is trusted, but none justify importing a checkpoint as MARULHO
+  cognition. MARULHO therefore adds a slow-path readout-corpus evaluator around
+  the existing transition-memory prediction gate. It records corpus provenance
+  including license/terms/cache path, grounding coverage, device placement,
+  latency, memory/VRAM cost, mutation absence, and a promote/reject decision
+  for bounded operator review. Runtime Truth only projects the latest saved
+  report; it does not run the evaluator or weaken the throughput contract for
+  long hot-path runs. The paired long CUDA gate used the same active-pressure
+  `65536`-column checkpoint for `262144` tokens and reached `6307.305
+  tokens/sec` with no observed contention, `train_compute=0.129545 ms/token`,
+  `route_input_rows_scored=12/65536`, and zero native sequence failures or
+  fallbacks, keeping the same-day throughput level while the readout evaluator
+  stays slow-path.
 
 ## Engineering Implications
 

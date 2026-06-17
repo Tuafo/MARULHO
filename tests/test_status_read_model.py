@@ -3425,6 +3425,124 @@ class StatusReadModelBenchmarkEvidenceCurrencyTests(unittest.TestCase):
         self.assertEqual(result["runtime_truth"]["verdict"], "partial")
 
 
+class StatusReadModelSNNLanguageReadoutCorpusEvaluationTests(unittest.TestCase):
+    """Runtime Truth projects bounded SNN readout corpus reports without running them."""
+
+    def test_runtime_truth_reports_missing_snn_readout_corpus_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports = Path(tmpdir) / "reports"
+            model, _, _, runtime_state = _build_read_model(report_root=reports)
+            before_revision = runtime_state.state_revision
+
+            result = model.status()
+
+        evidence = result["runtime_truth"]["evidence"]["snn_language_readout_corpus_evaluation"]
+        self.assertEqual(
+            evidence["surface"],
+            "snn_language_readout_corpus_runtime_truth.v1",
+        )
+        self.assertEqual(
+            evidence["artifact_kind"],
+            "terminus_snn_language_readout_corpus_runtime_truth",
+        )
+        self.assertEqual(evidence["status"], "missing")
+        self.assertFalse(evidence["current"])
+        self.assertFalse(evidence["report_available"])
+        self.assertFalse(evidence["runs_evaluation"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertEqual(evidence["available_status"], "missing_evaluation_report")
+        self.assertEqual(evidence["promotion_decision"], "reject_live_readout_collect_evidence")
+        self.assertEqual(evidence["reason_codes"], ["missing_readout_corpus_evaluation_report"])
+        self.assertEqual(runtime_state.state_revision, before_revision)
+
+    def test_runtime_truth_reports_current_snn_readout_corpus_evaluation(self) -> None:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports = Path(tmpdir) / "reports" / "snn_language_readout_corpus"
+            reports.mkdir(parents=True)
+            (reports / "readout-corpus-evaluation.json").write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "terminus_snn_language_readout_corpus_evaluation",
+                        "surface": "snn_language_readout_corpus_evaluation.v1",
+                        "generated_at": generated_at,
+                        "status": "promote_bounded_readout_review",
+                        "passed": True,
+                        "loads_external_checkpoint": False,
+                        "corpus_provenance": {
+                            "dataset_name": "bounded-fixture-readout-corpus",
+                            "license": "repo-test-fixture",
+                            "terms": "local deterministic fixture",
+                            "split": "eval",
+                            "sample_size": 2,
+                            "cache_path": "tests/fixtures/readout.json",
+                            "external_data_source": False,
+                            "runtime_cognition_dependency": False,
+                        },
+                        "device_evidence": {
+                            "tensor_device": "cpu",
+                            "cuda_tensor": False,
+                        },
+                        "sequence_evaluation_summary": {
+                            "evaluation_pair_count": 1,
+                            "persistent_transition_weight_count": 1,
+                            "mean_mismatch_delta": 0.25,
+                            "worsened_sequence_count": 0,
+                        },
+                        "runtime_truth_gate": {
+                            "available_status": "available",
+                            "trained_status": "isolated_evaluation_only_not_runtime_trained",
+                            "grounded_status": "grounded",
+                            "device_status": "cpu",
+                            "mutation_gate_status": "mutation_absent",
+                            "latency_ms": 1.25,
+                            "memory_cost_bytes": 4096,
+                            "vram_delta_bytes": None,
+                            "promotion_decision": "promote_bounded_readout_review",
+                            "promotable": True,
+                            "next_gate": "operator_review_bounded_snn_readout_corpus_report",
+                            "reason_codes": ["bounded_sparse_readout_evaluation_passed"],
+                        },
+                        "promotion_gate": {
+                            "status": "ready_for_operator_review",
+                            "next_gate": "operator_review_bounded_snn_readout_corpus_report",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            model, _, _, runtime_state = _build_read_model(report_root=reports.parent)
+            before_revision = runtime_state.state_revision
+
+            result = model.status()
+
+        evidence = result["runtime_truth"]["evidence"]["snn_language_readout_corpus_evaluation"]
+        self.assertEqual(evidence["status"], "current")
+        self.assertTrue(evidence["current"])
+        self.assertTrue(evidence["report_available"])
+        self.assertEqual(evidence["available_status"], "available")
+        self.assertEqual(evidence["trained_status"], "isolated_evaluation_only_not_runtime_trained")
+        self.assertEqual(evidence["grounded_status"], "grounded")
+        self.assertEqual(evidence["device_status"], "cpu")
+        self.assertEqual(evidence["mutation_gate_status"], "mutation_absent")
+        self.assertEqual(evidence["promotion_decision"], "promote_bounded_readout_review")
+        self.assertEqual(evidence["promotion_status"], "ready_for_operator_review")
+        self.assertTrue(evidence["promotable"])
+        self.assertEqual(evidence["evaluation_pair_count"], 1)
+        self.assertEqual(evidence["persistent_transition_weight_count"], 1)
+        self.assertEqual(evidence["mean_mismatch_delta"], 0.25)
+        self.assertEqual(evidence["worsened_sequence_count"], 0)
+        self.assertEqual(evidence["dataset_name"], "bounded-fixture-readout-corpus")
+        self.assertEqual(evidence["dataset_license"], "repo-test-fixture")
+        self.assertEqual(evidence["sample_size"], 2)
+        self.assertEqual(evidence["tensor_device"], "cpu")
+        self.assertFalse(evidence["loads_external_checkpoint"])
+        self.assertFalse(evidence["runtime_cognition_dependency"])
+        self.assertFalse(evidence["runs_evaluation"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertEqual(runtime_state.state_revision, before_revision)
+
+
 class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
     """Runtime Truth verdict progression through injected brain snapshots."""
 
@@ -4125,6 +4243,27 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "suggested_input",
         ):
             self.assertNotIn(forbidden_key, language_gate)
+        self.assertIn("snn_language_readout_corpus_evaluation", truth["evidence"])
+        readout_corpus = truth["evidence"]["snn_language_readout_corpus_evaluation"]
+        self.assertEqual(
+            readout_corpus["artifact_kind"],
+            "terminus_snn_language_readout_corpus_runtime_truth",
+        )
+        self.assertEqual(
+            readout_corpus["surface"],
+            "snn_language_readout_corpus_runtime_truth.v1",
+        )
+        self.assertTrue(readout_corpus["advisory"])
+        self.assertFalse(readout_corpus["executable"])
+        self.assertFalse(readout_corpus["runs_evaluation"])
+        self.assertFalse(readout_corpus["mutates_runtime_state"])
+        self.assertIn("available_status", readout_corpus)
+        self.assertIn("trained_status", readout_corpus)
+        self.assertIn("grounded_status", readout_corpus)
+        self.assertIn("device_status", readout_corpus)
+        self.assertIn("mutation_gate_status", readout_corpus)
+        self.assertIn("promotion_decision", readout_corpus)
+        self.assertIn("reason_codes", readout_corpus)
         self.assertIn("snn_language_plasticity_path", truth["evidence"])
         plasticity_path = truth["evidence"]["snn_language_plasticity_path"]
         self.assertEqual(

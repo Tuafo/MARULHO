@@ -45,6 +45,12 @@ from .arc_agi import (
     translate_transform,
     validate_grid,
 )
+from .snn_language_readout_corpus import (
+    ARTIFACT_KIND as SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND,
+    SURFACE as SNN_LANGUAGE_READOUT_CORPUS_SURFACE,
+    evaluate_snn_language_readout_corpus,
+    evaluate_snn_language_readout_corpus_file,
+)
 
 __all__ = [
     "GROUNDING_PROBE_TRIPLES_50",
@@ -88,4 +94,8 @@ __all__ = [
     "search_arc_object_dsl_baseline",
     "translate_transform",
     "validate_grid",
+    "SNN_LANGUAGE_READOUT_CORPUS_ARTIFACT_KIND",
+    "SNN_LANGUAGE_READOUT_CORPUS_SURFACE",
+    "evaluate_snn_language_readout_corpus",
+    "evaluate_snn_language_readout_corpus_file",
 ]
