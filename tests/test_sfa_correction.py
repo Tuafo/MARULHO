@@ -120,6 +120,20 @@ class TestSampleForSFA(unittest.TestCase):
         result = store.sample_for_sfa(100)
         self.assertEqual(len(result), 5)  # capped at buffer size
 
+    def test_sample_can_use_bounded_candidate_indices(self) -> None:
+        store = self._make_store()
+        for i in range(8):
+            store.slow_buffer.append(torch.full((4,), float(i)))
+
+        result = store.sample_for_sfa(
+            10,
+            candidate_indices=[5, 2, 5, 99, -1],
+        )
+
+        self.assertEqual(len(result), 2)
+        values = {float(sample[0].item()) for sample in result}
+        self.assertEqual(values, {2.0, 5.0})
+
 
 if __name__ == "__main__":
     unittest.main()

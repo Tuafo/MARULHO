@@ -78,6 +78,36 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(replay_entry["raw_window"], "purrs safe.")
         self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
 
+    def test_replay_entry_can_exclude_text_payload_for_sleep_replay(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        pattern = torch.tensor([0.0, 1.0], dtype=torch.float32)
+        store.update(
+            assembly,
+            importance=1.0,
+            token_count=12,
+            bucket_id=1,
+            input_pattern=pattern,
+            routing_key=assembly,
+            raw_window="bounded replay raw window",
+            text="expanded replay text should stay out of sleep replay",
+            metadata={"source": "unit"},
+            capture_tag=0.4,
+        )
+
+        replay_entry = store.replay_entry(
+            0,
+            current_token=12,
+            include_text_payload=False,
+        )
+
+        self.assertIsInstance(replay_entry["assembly"], torch.Tensor)
+        self.assertIsInstance(replay_entry["input_pattern"], torch.Tensor)
+        self.assertIsInstance(replay_entry["routing_key"], torch.Tensor)
+        self.assertIsNone(replay_entry["raw_window"])
+        self.assertIsNone(replay_entry["text"])
+        self.assertIsNone(replay_entry["metadata"])
+
     def test_memory_store_device_report_marks_archival_storage_cpu(self) -> None:
         store = DualMemoryStore(capacity=8)
         store.update(
@@ -463,6 +493,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertTrue(report["bounded_by_bucket_index"])
         self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["raw_text_payload_loaded"])
+        self.assertFalse(report["language_reasoning"])
         self.assertEqual(report["candidate_bucket_ids"], [1])
         self.assertEqual(report["candidate_index_count"], 2)
         self.assertEqual(report["score_count"], 2)
@@ -549,6 +581,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertFalse(report["runs_live_tick"])
         self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["raw_text_payload_loaded"])
+        self.assertFalse(report["language_reasoning"])
         self.assertEqual(report["score_device"], "cpu")
         self.assertEqual(report["archival_storage_device"], "cpu")
         self.assertEqual(report["routing_key_count"], 2)
@@ -983,6 +1017,18 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_commit_strategy"],
             "bounded_reconstruction_gated_candidate_repair",
         )
+        self.assertFalse(report["sleep_replay_text_payload_loaded"])
+        self.assertFalse(report["sleep_replay_language_reasoning"])
+        self.assertEqual(
+            report["sleep_replay_text_payload_policy"],
+            "sleep_replay_uses_tensor_payloads_only",
+        )
+        self.assertEqual(
+            report["sleep_replay_local_trace_source"],
+            "stored_input_pattern_or_routing_key",
+        )
+        self.assertTrue(report["sleep_replay_sfa_full_memory_sample_retired"])
+        self.assertEqual(report["sleep_replay_sfa_correction_scope"], "not_run")
         self.assertEqual(report["sleep_replay_winner_source"], "bounded_route_candidates")
         self.assertFalse(report["sleep_replay_forced_stored_bucket_winner"])
         self.assertGreater(report["sleep_replay_candidate_column_union_count"], 0)
@@ -990,6 +1036,74 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertGreaterEqual(
             report["sleep_replay_quality_before"],
             report["sleep_replay_quality_after"],
+        )
+
+    def test_deep_sleep_sfa_correction_samples_selected_replay_window(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+            enable_abstraction_layer=True,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        patterns = []
+        for offset in (2, 5, 8):
+            pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+            pattern[offset : offset + 3] = 1.0
+            pattern = pattern / pattern.sum()
+            patterns.append(pattern)
+
+        for index in range(3):
+            for pattern in patterns:
+                trainer.train_step(pattern, raw_window=f"anchored sfa replay {index}")
+        trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=trainer.token_count,
+            strength=2.0,
+        )
+        for idx in range(len(trainer.model.memory_store.slow_local_prp)):
+            trainer.model.memory_store.slow_local_prp[idx] = 1.0
+
+        captured: dict[str, list[int]] = {}
+        original_sample = trainer.model.memory_store.sample_for_sfa
+
+        def _sample_for_sfa(*args, **kwargs):
+            captured["candidate_indices"] = [
+                int(index)
+                for index in kwargs.get("candidate_indices") or []
+            ]
+            return original_sample(*args, **kwargs)
+
+        with patch.object(
+            trainer.model.memory_store,
+            "sample_for_sfa",
+            side_effect=_sample_for_sfa,
+        ):
+            updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertGreater(anchored, 0)
+        self.assertGreater(updates, 0)
+        self.assertIn("candidate_indices", captured)
+        self.assertTrue(captured["candidate_indices"])
+        self.assertEqual(
+            report["sleep_replay_sfa_correction_scope"],
+            "selected_replay_window",
+        )
+        self.assertTrue(report["sleep_replay_sfa_full_memory_sample_retired"])
+        self.assertEqual(
+            report["sleep_replay_sfa_candidate_index_count"],
+            len(set(captured["candidate_indices"])),
+        )
+        self.assertLessEqual(
+            report["sleep_replay_sfa_sample_count"],
+            report["sleep_replay_sfa_candidate_index_count"],
         )
 
     def test_deep_sleep_without_anchors_blocks_global_replay_mutation(self) -> None:
@@ -1235,6 +1349,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertFalse(report["global_score_scan"])
         self.assertEqual(report["sleep_replay_commit_strategy"], "bounded_repair_reanchor")
+        self.assertFalse(report["sleep_replay_text_payload_loaded"])
+        self.assertFalse(report["sleep_replay_language_reasoning"])
         self.assertEqual(
             report["sleep_replay_winner_source"],
             "stored_replay_bucket_with_anchor_scope",

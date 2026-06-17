@@ -53,6 +53,29 @@ Positive-pressure deep replay now commits through `bounded_reconstruction_gated_
 
 Target-aware replay-strength search now sits inside `reconstruction_guarded_replay_consolidation.v1` rather than beside it. Runtime Truth records `repair_strength_strategy`, the exact schedule, `repair_strength_trial_budget`, budget policy, per-strength trial reports, selected strength, attempted versus effective applied counts, rejected trial attempts, and repeated-rejection skips. HF text consolidation now uses the single-strength `[0.1]` budget: `reports/bounded_replay_window_20260617/hf-recall-target-strength-budget-single-010-promoted/summary.json` accepted `6` post-Task-B repairs with `0` rejected trial attempts, improved Task-A reconstruction from `0.0170305534` to `0.0149637708`, cut post-B guard latency from the prior four-low-strength `3477.025 ms` to `1040.506 ms`, and preserved exact bounded recall (`mean_input_pattern_distance=0.0`) plus the memory-consolidation gate. The synthetic prototype stress default now uses compact escalation `[0.1, 0.5, 1.0]`: `reports/bounded_replay_window_20260617/synthetic-target-strength-budget-compact-default.json` keeps recall and prototype gates passing with `repair_strength_trial_budget=3` and `2585.941 ms` guard latency, while the single-strength synthetic control is rejected because it failed the prototype gate. The matching 65536-column hot-path check stayed in band at `6232.282 tokens/sec`, with `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`, no all-column transition, zero graph/native/sequence failures, flat `1715 MiB` GPU memory, and no observed contention. Replay selection and archival metadata remain CPU-resident; only active guard scoring and repair trials touch the model device inside explicit slow windows.
 
+Sleep replay now also has explicit replay-text and SFA boundaries. Query and
+display paths may still request stored `raw_window`/`text` payloads, but sleep
+replay calls `DualMemoryStore.replay_entry(..., include_text_payload=False)`.
+Selection and recall reports record `raw_text_payload_loaded=false` and
+`language_reasoning=false`; sleep replay records
+`sleep_replay_text_payload_loaded=false`,
+`sleep_replay_language_reasoning=false`,
+`sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`, and
+`sleep_replay_local_trace_source=stored_input_pattern_or_routing_key`. The old
+raw-window eligibility-trace branch is retired for sleep replay. Deep replay
+with abstraction now samples SFA correction from the selected
+`processed_indices` rather than the whole slow buffer and exposes
+`sleep_replay_sfa_correction_scope`, `sleep_replay_sfa_candidate_index_count`,
+`sleep_replay_sfa_sample_count`, and
+`sleep_replay_sfa_full_memory_sample_retired=true`. The final boundary report
+`reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json`
+keeps bounded recall/prototype gates passing, and the matching 65536-column
+262144-token check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json`
+stayed in band at `6237.420 tokens/sec` with `12/65536` route rows, `65526`
+cached transition rows, zero graph/native/sequence failures, flat `1719 MiB`
+GPU memory, and no observed contention.
+
 `PredictiveColumnState` owns `prediction_failure_streak` beside prediction error and confidence. Repeated raw failures increment the streak on the predictive tensor device; successful prediction resets it. The streak is saved in trainer checkpoints and restored with the model, so growth evidence survives rollback and does not live in `service`.
 
 When that gate is ready, the explicit binding-growth trial endpoint can ask core for a deterministic candidate-scoped hypercube outreach plan. The plan is bounded by an edge budget, hashes the exact baseline adjacency, and remains read-only. This narrows the path from surprise to structural experimentation without making the scheduler, Runtime Truth, or status polling a mutation authority.

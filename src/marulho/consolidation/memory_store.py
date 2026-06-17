@@ -215,6 +215,8 @@ class DualMemoryStore:
             "strategy": "not_run",
             "runs_live_tick": False,
             "records_replay_artifact": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "score_device": "cpu",
@@ -234,6 +236,8 @@ class DualMemoryStore:
             "status": "not_run",
             "scope": "replay_recall_slow_path",
             "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "score_device": "cpu",
@@ -1187,7 +1191,13 @@ class DualMemoryStore:
             tagged += 1
         return tagged
 
-    def replay_entry(self, index: int, current_token: Optional[int] = None) -> dict[str, Any]:
+    def replay_entry(
+        self,
+        index: int,
+        current_token: Optional[int] = None,
+        *,
+        include_text_payload: bool = True,
+    ) -> dict[str, Any]:
         idx = int(index)
         if idx < 0 or idx >= len(self.slow_buffer):
             raise IndexError(f"Memory index out of range: {index}")
@@ -1200,13 +1210,10 @@ class DualMemoryStore:
         consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
         input_pattern = self.slow_input_patterns[idx]
         routing_key = self.slow_routing_keys[idx]
-        return {
+        entry = {
             "assembly": self.slow_buffer[idx].detach().clone(),
             "input_pattern": input_pattern.detach().clone() if isinstance(input_pattern, torch.Tensor) else None,
             "routing_key": routing_key.detach().clone() if isinstance(routing_key, torch.Tensor) else None,
-            "raw_window": self.slow_raw_windows[idx],
-            "text": self.slow_texts[idx],
-            "metadata": None if self.slow_metadata[idx] is None else dict(self.slow_metadata[idx]),
             "bucket_id": self.slow_bucket_ids[idx],
             "importance": float(self.slow_importance[idx]),
             "tag_strength": tag_strength,
@@ -1230,6 +1237,19 @@ class DualMemoryStore:
                 else 1.0
             ),
         }
+        if include_text_payload:
+            entry.update(
+                {
+                    "raw_window": self.slow_raw_windows[idx],
+                    "text": self.slow_texts[idx],
+                    "metadata": None
+                    if self.slow_metadata[idx] is None
+                    else dict(self.slow_metadata[idx]),
+                }
+            )
+        else:
+            entry.update({"raw_window": None, "text": None, "metadata": None})
+        return entry
 
     def _score_replay_index(
         self,
@@ -1472,6 +1492,8 @@ class DualMemoryStore:
             "global_score_scan": bool(not bucket_scoped and strategy != "random"),
             "runs_live_tick": False,
             "records_replay_artifact": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "latency_ms": float(latency_ms),
@@ -1644,6 +1666,8 @@ class DualMemoryStore:
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "latency_ms": float(latency_ms),
@@ -1669,14 +1693,36 @@ class DualMemoryStore:
         )
         return [int(idx) for idx in report.get("selected_indices", [])]
 
-    def sample_for_sfa(self, n: int = 100) -> list[torch.Tensor]:
-        """Sample assembly vectors from slow memory for SFA correction (§4.8)."""
+    def sample_for_sfa(
+        self,
+        n: int = 100,
+        *,
+        candidate_indices: Sequence[int] | None = None,
+    ) -> list[torch.Tensor]:
+        """Sample assembly vectors for SFA correction from a bounded window."""
+
         count = len(self.slow_buffer)
         if count == 0 or n <= 0:
             return []
-        k = min(count, int(n))
-        perm = torch.randperm(count)[:k]
-        return [self.slow_buffer[int(i)].detach().clone() for i in perm]
+        if candidate_indices is None:
+            candidates = list(range(count))
+        else:
+            seen: set[int] = set()
+            candidates = []
+            for raw_index in candidate_indices:
+                index = int(raw_index)
+                if index in seen or index < 0 or index >= count:
+                    continue
+                seen.add(index)
+                candidates.append(index)
+        if not candidates:
+            return []
+        k = min(len(candidates), int(n))
+        perm = torch.randperm(len(candidates))[:k]
+        return [
+            self.slow_buffer[candidates[int(i)]].detach().clone()
+            for i in perm.tolist()
+        ]
 
     def refresh_maintenance(
         self,

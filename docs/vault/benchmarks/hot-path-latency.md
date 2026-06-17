@@ -2676,3 +2676,30 @@ contention: CPU max `33%`, GPU utilization max `10%`, GPU memory utilization
 max `10%`, and GPU memory stayed flat at `1715 MiB` before and after
 measurement. This is the accepted live-tick protection evidence for the
 target-specific replay-strength budget defaults.
+
+### Replay Tensor Payload and Bounded SFA, 2026-06-17
+
+The replay text/SFA cleanup changes only slow-window replay and memory-store
+reporting, but it still gets a current long-run gate because the goal requires
+throughput to stay in the same band. Sleep replay now loads tensor payloads only
+from `DualMemoryStore.replay_entry(..., include_text_payload=False)` and reports
+`sleep_replay_text_payload_loaded=false`,
+`sleep_replay_language_reasoning=false`, and
+`sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`.
+Deep replay SFA correction now samples from selected replay indices and reports
+`sleep_replay_sfa_full_memory_sample_retired=true`.
+
+The final 65536-column 262144-token check reused the active-pressure checkpoint:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6237.420 tokens/sec`, with
+`train_compute=0.130490 ms/token`, `prepare_training=0.006495 ms/token`,
+`finalize_total=0.006446 ms/token`, and `tick_duration_ms.p95=20.383`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `28%`, GPU utilization max `18%`, GPU memory
+utilization max `12%`, and GPU memory flat at `1719 MiB` before and after
+measurement.

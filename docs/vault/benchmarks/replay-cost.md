@@ -26,6 +26,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
 ---
 
 # Replay Cost
@@ -36,12 +38,18 @@ Replay selection, rehearsal, and artifact-review cost checks.
 
 - Focused tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_recall_uses_bucket_routing_keys tests\test_memory_consolidation.py::MemoryConsolidationTests::test_hf_recall_evaluation_reports_bounded_anchor_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_rolls_back_harmful_replay_cycle tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_rejects_regression_even_when_no_updates_reported tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_skips_repeated_rejected_selection tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_global_replay_selection_retires_zero_pressure_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_uses_anchor_bucket_replay_window_report tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_without_anchors_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_refreshes_tags_without_weight_commit tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_without_anchors_blocks_global_maintenance_refresh tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_reanchors_prototypes_without_consolidation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_without_anchors_blocks_global_repair_mutation tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
+- Replay text/SFA boundary tests:
+  `PYTHONPATH=src python -m pytest tests\test_sfa_correction.py::TestSampleForSFA::test_sample_can_use_bounded_candidate_indices tests\test_memory_consolidation.py::MemoryConsolidationTests::test_replay_entry_can_exclude_text_payload_for_sleep_replay tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_sfa_correction_samples_selected_replay_window tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report -q`
 - Synthetic replay selector:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-bounded-micro.json`
+- Synthetic replay text/SFA boundary:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-tensor-payload-boundary.json`
 - HF-backed replay recall:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-guarded-consolidation-cadenced`
 - Hot-path protection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for replay text/SFA boundary:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -267,6 +275,51 @@ processed `262144` tokens at `6232.282 tokens/sec`, with
 failures, and no observed contention. CPU max was `33%`, GPU utilization max
 `10%`, GPU memory utilization max `10%`, and GPU memory stayed flat at
 `1715 MiB` before and after measurement.
+
+The replay text/SFA boundary cleanup removes old implementation shapes from the
+same slow-window path. Sleep replay now calls
+`DualMemoryStore.replay_entry(..., include_text_payload=False)`, so deep
+candidate repair and anchored repair receive tensor payloads only; raw windows,
+expanded text, and metadata remain available to explicit query/display callers
+but are not loaded by replay consolidation. `bounded_replay_window_selection.v1`
+and `bounded_replay_window_recall.v1` record `raw_text_payload_loaded=false` and
+`language_reasoning=false`; sleep replay records
+`sleep_replay_text_payload_loaded=false`,
+`sleep_replay_language_reasoning=false`, and
+`sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`.
+Deep replay with abstraction also bounds SFA correction to the processed replay
+window by passing `candidate_indices=processed_indices` into
+`sample_for_sfa(...)`; Runtime Truth records
+`sleep_replay_sfa_correction_scope`, candidate/sample counts, and
+`sleep_replay_sfa_full_memory_sample_retired=true`.
+
+The focused replay/checkpoint/SFA suite passed `19` tests, including the new
+text-payload exclusion, bounded SFA sample, deep replay SFA scope, and
+checkpoint roundtrip assertions. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json`
+kept the positive-pressure arm passing stored input-pattern recall
+(`5.960464477539063e-08` mean distance) and the prototype gate. It accepted `2`
+post-B repairs from `4` attempted updates, kept recovery at `0.0017409722`,
+reported `score_device=cuda`, `archival_storage_device=cpu`, `runs_live_tick=false`,
+`raw_text_payload_loaded=false`,
+`sleep_replay_text_payload_loaded=false`,
+`sleep_replay_language_reasoning=false`, and
+`sleep_replay_sfa_full_memory_sample_retired=true`. Zero-pressure and
+no-anchor/global-control arms still applied `0` updates.
+
+The matching final 65536-column hot-path run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json`
+processed `262144` tokens at `6237.420 tokens/sec`, with
+`train_compute=0.130490 ms/token`, `prepare_training=0.006495 ms/token`,
+`finalize_total=0.006446 ms/token`, and `tick_duration_ms.p95=20.383`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `28%`,
+GPU utilization max `18%`, GPU memory utilization max `12%`, and GPU memory
+stayed flat at `1719 MiB` before/after measurement. This is accepted as
+same-band live-tick protection while replay text and SFA stay selected,
+measured, and slow-windowed.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target. Do not broaden a schedule without a target-specific quality

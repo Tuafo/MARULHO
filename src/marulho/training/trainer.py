@@ -2636,6 +2636,7 @@ class MarulhoTrainer:
             replay_entry = self.model.memory_store.replay_entry(
                 idx,
                 current_token=self.token_count,
+                include_text_payload=False,
             )
             assembly = replay_entry["assembly"]
             input_pattern = replay_entry["input_pattern"]
@@ -2818,29 +2819,16 @@ class MarulhoTrainer:
             steps = self.config.micro_sleep_replay_steps
             candidate_pool = self.config.micro_sleep_candidate_pool
             sampling_strategy = "maintenance"
-            memory_blend = self.config.micro_sleep_memory_blend
-            modulator = 0.0
-            protein_synthesis_level = 0.0
-            prototype_lr_scale = 0.0
-            input_lr_scale = 0.0
         elif mode == "deep":
             steps = self.config.deep_sleep_replay_steps
             candidate_pool = self.config.deep_sleep_candidate_pool
             sampling_strategy = "consolidation"
             memory_blend = self.config.deep_sleep_memory_blend
-            modulator = 0.08
             protein_synthesis_level = 1.35
-            prototype_lr_scale = 0.10
-            input_lr_scale = 0.05
         elif mode == "repair":
             steps = self.config.deep_sleep_replay_steps
             candidate_pool = self.config.deep_sleep_candidate_pool
             sampling_strategy = "repair"
-            memory_blend = 0.0
-            modulator = 0.0
-            protein_synthesis_level = 0.0
-            prototype_lr_scale = 0.0
-            input_lr_scale = 0.0
         else:
             raise ValueError(f"Unknown sleep mode: {mode}")
 
@@ -2896,6 +2884,10 @@ class MarulhoTrainer:
             "sleep_replay_mutates_runtime_state": False,
             "sleep_replay_applies_plasticity": False,
             "sleep_replay_commit_strategy": "not_run",
+            "sleep_replay_text_payload_loaded": False,
+            "sleep_replay_language_reasoning": False,
+            "sleep_replay_text_payload_policy": "sleep_replay_uses_tensor_payloads_only",
+            "sleep_replay_local_trace_source": "stored_input_pattern_or_routing_key",
         }
         if not replay_idx:
             self.model.memory_store.last_replay_selection_report = dict(
@@ -2930,28 +2922,22 @@ class MarulhoTrainer:
                 "sleep_replay_quality_metric": "maintenance_score_tag_refresh_only",
                 "sleep_replay_quality_scope": "anchored_replay_window_cpu_metadata",
             }
-        else:
+        elif mode == "repair":
             commit_report = {
                 "sleep_replay_commit_strategy": "bounded_repair_reanchor",
                 "sleep_replay_winner_source": "stored_replay_bucket_with_anchor_scope",
             }
 
             for idx in replay_idx:
-                replay_entry = self.model.memory_store.replay_entry(idx, current_token=self.token_count)
+                replay_entry = self.model.memory_store.replay_entry(
+                    idx,
+                    current_token=self.token_count,
+                    include_text_payload=False,
+                )
                 assembly = replay_entry["assembly"]
                 input_pattern = replay_entry["input_pattern"]
                 stored_routing_key = replay_entry["routing_key"]
                 stored_bucket_id = replay_entry["bucket_id"]
-                importance_value = replay_entry["importance"]
-                tag_strength_value = replay_entry.get("capture_tag", replay_entry.get("tag_strength", 0.0))
-                prp_level_value = replay_entry.get("prp_level", 0.0)
-                capture_strength_value = replay_entry.get("capture_strength", 0.0)
-                consolidation_value = replay_entry.get("consolidation_level", 0.0)
-                replay_importance = float(importance_value) if isinstance(importance_value, (int, float)) else 0.0
-                replay_tag_strength = float(tag_strength_value) if isinstance(tag_strength_value, (int, float)) else 0.0
-                replay_prp_level = float(prp_level_value) if isinstance(prp_level_value, (int, float)) else 0.0
-                replay_capture_strength = float(capture_strength_value) if isinstance(capture_strength_value, (int, float)) else 0.0
-                replay_consolidation = float(consolidation_value) if isinstance(consolidation_value, (int, float)) else 0.0
 
                 if not isinstance(assembly, torch.Tensor):
                     continue
@@ -2989,50 +2975,12 @@ class MarulhoTrainer:
                         context_gain=context_gain,
                     )
 
-                if mode == "repair":
-                    self._repair_column_from_replay(
-                        int(winner.item()),
-                        routing_key,
-                        strength=repair_anchor_strength,
-                    )
-                    updated_ids.append(int(winner.item()))
-                    processed_indices.append(int(idx))
-                    applied += 1
-                    continue
-
-                replay_priority = (
-                    replay_importance
-                    + replay_capture_strength
-                    + 0.40 * replay_prp_level
-                    + 0.30 * replay_tag_strength
-                    + max(0.0, 1.0 - replay_consolidation)
-                )
-                replay_modulator = modulator * (1.0 + min(2.0, replay_priority))
-                replay_local_trace = self._local_trace_from_raw_window(
-                    replay_entry.get("raw_window"),
-                    context_confidence=max(
-                        0.0,
-                        min(
-                            1.0,
-                            0.25 * replay_importance
-                            + 0.25 * replay_tag_strength
-                            + 0.25 * replay_prp_level
-                            + 0.25 * replay_consolidation,
-                        ),
-                    ),
-                )
-
-                self.model.competitive.process(
+                self._repair_column_from_replay(
+                    int(winner.item()),
                     routing_key,
-                    winner,
-                    modulator=replay_modulator,
-                    eligibility_trace=replay_local_trace,
-                    assembly_projection=self.model.W_assembly_project,
-                    prototype_lr_scale=prototype_lr_scale,
-                    input_lr_scale=input_lr_scale,
-                    update_global_state=False,
+                    strength=repair_anchor_strength,
                 )
-                self.model._invalidate_projection_cache()
+                updated_ids.append(int(winner.item()))
                 processed_indices.append(int(idx))
                 applied += 1
 
@@ -3075,9 +3023,45 @@ class MarulhoTrainer:
             else:
                 self.deep_sleep_events += 1
                 self.last_deep_sleep_token = self.token_count
+        sfa_report = {
+            "sleep_replay_sfa_correction_scope": "not_run",
+            "sleep_replay_sfa_full_memory_sample_retired": True,
+            "sleep_replay_sfa_candidate_index_count": 0,
+            "sleep_replay_sfa_sample_count": 0,
+            "sleep_replay_sfa_applied": False,
+        }
+
+        # SFA correction during deep sleep (§4.8)
+        if mode == "deep":
+            sfa_report.update(
+                {
+                    "sleep_replay_sfa_correction_scope": (
+                        "selected_replay_window"
+                        if applied > 0 and self.model.abstraction_layer is not None
+                        else "not_run"
+                    ),
+                    "sleep_replay_sfa_candidate_index_count": int(
+                        len(set(int(index) for index in processed_indices))
+                    ),
+                }
+            )
+        if mode == "deep" and applied > 0 and self.model.abstraction_layer is not None:
+            sfa_samples = self.model.memory_store.sample_for_sfa(
+                n=min(100, max(10, applied)),
+                candidate_indices=processed_indices,
+            )
+            sfa_report["sleep_replay_sfa_sample_count"] = int(len(sfa_samples))
+            if len(sfa_samples) >= 2:
+                self.model.abstraction_layer.sfa_correction_step(
+                    sfa_samples,
+                    lr=0.01,
+                )
+                sfa_report["sleep_replay_sfa_applied"] = True
+
         self._last_sleep_replay_selection_report = {
             **self._last_sleep_replay_selection_report,
             **commit_report,
+            **sfa_report,
             "sleep_replay_applied_count": int(applied),
             "sleep_replay_mutates_runtime_state": bool(applied > 0),
             "sleep_replay_applies_plasticity": bool(
@@ -3088,17 +3072,6 @@ class MarulhoTrainer:
             self._last_sleep_replay_selection_report
         )
         self.model.memory_store._invalidate_summary_cache()
-
-        # SFA correction during deep sleep (§4.8)
-        if mode == "deep" and applied > 0 and self.model.abstraction_layer is not None:
-            sfa_samples = self.model.memory_store.sample_for_sfa(
-                n=min(100, max(10, applied)),
-            )
-            if len(sfa_samples) >= 2:
-                self.model.abstraction_layer.sfa_correction_step(
-                    sfa_samples,
-                    lr=0.01,
-                )
 
         # Dead column census during deep sleep (§4.9)
         if mode == "deep":

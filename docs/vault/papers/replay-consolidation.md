@@ -29,6 +29,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
 ---
 
 # Replay/consolidation
@@ -204,11 +206,37 @@ processed `262144` tokens at `6232.282 tokens/sec`, kept route scoring bounded
 at `12/65536`, cached `65526` state-transition rows, had zero
 graph/native/sequence failures, and reported no observed contention.
 
+The replay text/SFA boundary cleanup makes the "no hidden language reasoning"
+claim concrete. Sleep replay now asks `DualMemoryStore.replay_entry(...)` for
+tensor payloads only by passing `include_text_payload=false`; deep candidate
+repair and anchored repair do not receive `raw_window`, expanded text, or
+metadata. Selection and recall reports expose `raw_text_payload_loaded=false`
+and `language_reasoning=false`, while the sleep replay report exposes
+`sleep_replay_text_payload_loaded=false`,
+`sleep_replay_language_reasoning=false`, and
+`sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`.
+Deep sleep with an abstraction layer also samples SFA correction from the
+processed replay indices instead of the whole slow buffer, with
+`sleep_replay_sfa_correction_scope=selected_replay_window` and
+`sleep_replay_sfa_full_memory_sample_retired=true`. The synthetic boundary
+report
+`reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json`
+kept bounded recall and prototype gates passing with `2` accepted post-B
+repairs and `0` updates in the zero-pressure/no-anchor controls. The matching
+262144-token hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json`
+stayed in band at `6237.420 tokens/sec`, scored `12/65536` route rows, cached
+`65526` transition rows, reported no observed contention, kept flat `1719 MiB`
+GPU memory, and had zero graph/native/sequence failures. Replay therefore
+remains bounded associative memory inside explicit slow windows, not a text
+reasoning loop.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
 candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
-rejected replay attempts, and target-specific repair-strength budgets
+rejected replay attempts, target-specific repair-strength budgets, tensor-only
+sleep replay payloads, and selected-window SFA correction
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

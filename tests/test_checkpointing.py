@@ -139,6 +139,15 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "sleep_replay_applies_plasticity": True,
                 "sleep_replay_commit_strategy": "bounded_reconstruction_gated_candidate_repair",
                 "sleep_replay_winner_source": "bounded_route_candidates",
+                "sleep_replay_text_payload_loaded": False,
+                "sleep_replay_language_reasoning": False,
+                "sleep_replay_text_payload_policy": "sleep_replay_uses_tensor_payloads_only",
+                "sleep_replay_local_trace_source": "stored_input_pattern_or_routing_key",
+                "sleep_replay_sfa_correction_scope": "selected_replay_window",
+                "sleep_replay_sfa_full_memory_sample_retired": True,
+                "sleep_replay_sfa_candidate_index_count": 1,
+                "sleep_replay_sfa_sample_count": 1,
+                "sleep_replay_sfa_applied": False,
                 "sleep_replay_quality_before": 0.25,
                 "sleep_replay_quality_after": 0.10,
                 "sleep_replay_candidate_column_union_count": 4,
@@ -168,6 +177,17 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 restored_report["sleep_replay_winner_source"],
                 "bounded_route_candidates",
             )
+            self.assertFalse(restored_report["sleep_replay_text_payload_loaded"])
+            self.assertFalse(restored_report["sleep_replay_language_reasoning"])
+            self.assertEqual(
+                restored_report["sleep_replay_text_payload_policy"],
+                "sleep_replay_uses_tensor_payloads_only",
+            )
+            self.assertEqual(
+                restored_report["sleep_replay_sfa_correction_scope"],
+                "selected_replay_window",
+            )
+            self.assertTrue(restored_report["sleep_replay_sfa_full_memory_sample_retired"])
             self.assertEqual(restored_report["sleep_replay_quality_after"], 0.10)
             self.assertEqual(
                 restored_report["sleep_replay_candidate_column_union_count"],
