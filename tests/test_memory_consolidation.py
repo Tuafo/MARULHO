@@ -11,7 +11,11 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.core.columns import CompetitiveColumnLayer
 from marulho.consolidation.memory_store import DualMemoryStore
 from marulho.training.runner_utils import set_seed
-from marulho.training.memory_consolidation_runner import build_memory_consolidation_gate
+from marulho.training.memory_consolidation_runner import (
+    _bounded_replay_recall_evaluation,
+    _collect_anchor_replay_queries,
+    build_memory_consolidation_gate,
+)
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -561,6 +565,66 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(restored_report["surface"], "bounded_replay_window_recall.v1")
         self.assertLess(restored_report["best_distance"], 1e-5)
         self.assertLess(restored_report["best_input_distance"], 1e-5)
+
+    def test_hf_recall_evaluation_reports_bounded_anchor_window(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 10
+
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+        routing_key = trainer.model.routing_key_from_pattern(pattern)
+        assembly = trainer.model.competitive.assembly_from_input(
+            pattern.to(trainer.model.device)
+        ).detach().cpu()
+        trainer.model.memory_store.update(
+            assembly,
+            importance=1.0,
+            token_count=trainer.token_count,
+            bucket_id=0,
+            input_pattern=pattern,
+            routing_key=routing_key.detach().cpu(),
+            raw_window="hf-like anchor replay trace",
+            text="hf-like anchor replay trace",
+            capture_tag=1.0,
+        )
+        trainer.model.memory_store.slow_local_prp[0] = 1.0
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=1,
+            strength=2.0,
+        )
+
+        queries = _collect_anchor_replay_queries(trainer, max_queries=4)
+        report = _bounded_replay_recall_evaluation(
+            trainer,
+            queries,
+            max_candidates=4,
+            scope="unit_hf_anchor_replay",
+        )
+
+        self.assertGreater(anchored, 0)
+        self.assertEqual(report["surface"], "bounded_replay_window_hf_recall.v1")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["query_count"], 1)
+        self.assertTrue(report["gate"]["pass"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(report["score_device"], "cpu")
+        self.assertLess(report["mean_input_pattern_distance"], 1e-5)
+        self.assertEqual(
+            report["reports"][0]["candidate_scope"],
+            "bucket_indexed_candidate_window",
+        )
 
     def test_deep_sleep_uses_anchor_bucket_replay_window_report(self) -> None:
         set_seed(7)

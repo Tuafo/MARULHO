@@ -16,6 +16,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
@@ -32,6 +33,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_recall_uses_bucket_routing_keys tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_global_replay_selection_retires_zero_pressure_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_uses_anchor_bucket_replay_window_report tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_without_anchors_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_refreshes_tags_without_weight_commit tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_without_anchors_blocks_global_maintenance_refresh tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_reanchors_prototypes_without_consolidation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_without_anchors_blocks_global_repair_mutation tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Synthetic replay selector:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-bounded-micro.json`
+- HF-backed replay recall:
+  `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-bounded-window`
 - Hot-path protection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-bounded-micro.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.25 --host-truth-sync-interval-tokens 32`
 
@@ -123,5 +126,22 @@ zero graph/native/sequence failures, and no observed contention. CPU max was
 `28%`, GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU
 memory stayed `1881 MiB` before/after measurement.
 
+The HF-backed recall report
+`reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
+adds less-synthetic stored-experience recall evidence to the consolidation
+runner. `bounded_replay_window_hf_recall_summary.v1` snapshots stored Task-A
+anchor-window patterns and evaluates recall after Task B and after consolidation
+without using replay text as hidden reasoning. The after-consolidation recall
+gate passed with `3` queries, `3` candidate buckets, `3` scored CPU entries,
+`max_candidates=32`, `mean_input_pattern_distance=0.0`,
+`mean_routing_key_distance=1.9868214925130207e-08`, `runs_live_tick=false`, and
+`mutates_runtime_state=false`; observed per-query recall latency was about
+`0.82-1.04 ms`. The overall memory-consolidation gate remained false because
+Task-A reconstruction worsened from `0.0137995831` after Task B to
+`0.0200071791` after consolidation (`task_a_recovery_nonnegative=false`), even
+though it stayed better than the Task-A-after-A baseline `0.0571274995` and
+overlap remained `0.9909951999`.
+
 Next gate: repeat quality on a less synthetic grounding/prediction target and
-scale the replay-window benchmark without widening live-tick memory work.
+turn the HF recall evidence into a reconstruction/grounding improvement without
+widening live-tick memory work.

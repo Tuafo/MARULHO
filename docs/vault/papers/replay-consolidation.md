@@ -20,6 +20,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
@@ -126,6 +127,18 @@ kept the same recall/prototype gates and the 262144-token hot-path rerun
 stayed in band at `6332.439 tokens/sec` with zero graph/native/sequence
 failures. Micro refresh is now bounded CPU metadata maintenance, not hidden
 competitive replay.
+
+The less-synthetic HF-backed consolidation runner now records
+`bounded_replay_window_hf_recall_summary.v1`. It snapshots stored Task-A
+anchor-window input patterns and recalls them after Task B and after
+consolidation through the same CPU bucket-index operator, without replaying text
+or mutating runtime state. The report
+`reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
+passed the after-consolidation recall gate over `3` Task-A replay queries from
+`3` anchor buckets with `mean_input_pattern_distance=0.0`, but the broader
+reconstruction recovery gate remained false. That result supports bounded local
+stored-experience recall, not a claim that consolidation has solved HF
+forgetting/reconstruction.
 
 ## Status
 

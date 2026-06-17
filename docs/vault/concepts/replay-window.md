@@ -16,6 +16,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
 ---
 
@@ -92,6 +93,19 @@ leaves prototypes/input weights unchanged; no-anchor micro refresh records
 unchanged. The 262144-token hot-path check
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json`
 kept the live tick in band at `6332.439 tokens/sec`.
+
+The less-synthetic HF-backed report
+`reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
+adds `bounded_replay_window_hf_recall_summary.v1` to the consolidation runner.
+It snapshots stored Task-A anchor-window input patterns and measures recall
+after Task B and after consolidation without replaying text or mutating runtime
+state. The after-consolidation recall gate passed over `3` queries from `3`
+anchor buckets, scored `3` CPU entries, used `max_candidates=32`, reached
+`0.0` mean input-pattern distance and `1.9868214925130207e-08` mean routing-key
+distance, and kept per-query latency around `0.82-1.04 ms`. The broader
+reconstruction recovery gate still failed on this small HF run, so this is
+bounded stored-experience recall evidence, not a consolidation-quality
+promotion.
 
 ## Relationships
 

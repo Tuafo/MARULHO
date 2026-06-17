@@ -48,6 +48,144 @@ def mean_assembly_overlap(
     return float(sum(overlaps) / len(overlaps))
 
 
+def _collect_anchor_replay_queries(
+    trainer: MarulhoTrainer,
+    *,
+    max_queries: int = 16,
+) -> list[tuple[int, torch.Tensor]]:
+    candidate_bucket_ids = {int(bucket_id) for bucket_id in trainer.column_anchors}
+    if not candidate_bucket_ids:
+        return []
+
+    queries: list[tuple[int, torch.Tensor]] = []
+    store = trainer.model.memory_store
+    for index, bucket_id in enumerate(store.slow_bucket_ids):
+        if len(queries) >= max(0, int(max_queries)):
+            break
+        if bucket_id is None or int(bucket_id) not in candidate_bucket_ids:
+            continue
+        if index >= len(store.slow_input_patterns):
+            continue
+        pattern = store.slow_input_patterns[index]
+        if not isinstance(pattern, torch.Tensor) or int(pattern.numel()) <= 0:
+            continue
+        queries.append((int(index), pattern.detach().clone().cpu()))
+    return queries
+
+
+def _bounded_replay_recall_evaluation(
+    trainer: MarulhoTrainer,
+    queries: list[tuple[int, torch.Tensor]],
+    *,
+    max_candidates: int,
+    scope: str,
+) -> dict[str, Any]:
+    candidate_bucket_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
+    if not queries:
+        return {
+            "surface": "bounded_replay_window_hf_recall.v1",
+            "status": "empty",
+            "scope": str(scope),
+            "candidate_bucket_ids": candidate_bucket_ids,
+            "candidate_bucket_count": int(len(candidate_bucket_ids)),
+            "candidate_scope": "bucket_indexed_candidate_window",
+            "query_count": 0,
+            "max_candidates": int(max_candidates),
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "gate": {
+                "pass": False,
+                "fallback_reason": "no_anchor_replay_queries",
+            },
+        }
+
+    reports: list[dict[str, Any]] = []
+    routing_distances: list[float] = []
+    input_distances: list[float] = []
+    for _source_index, pattern in queries:
+        report = trainer.model.memory_store.recall_replay_window(
+            query_routing_key=trainer.model.routing_key_from_pattern(pattern),
+            query_input_pattern=pattern,
+            current_token=trainer.token_count,
+            candidate_bucket_ids=candidate_bucket_ids,
+            max_candidates=max_candidates,
+            strategy="consolidation",
+            scope=scope,
+        )
+        reports.append(report)
+        routing_distance = report.get("best_distance")
+        input_distance = report.get("best_input_distance")
+        routing_distances.append(
+            float(routing_distance)
+            if isinstance(routing_distance, (float, int))
+            else float("inf")
+        )
+        input_distances.append(
+            float(input_distance)
+            if isinstance(input_distance, (float, int))
+            else float("inf")
+        )
+
+    mean_routing_distance = float(sum(routing_distances) / max(1, len(routing_distances)))
+    mean_input_distance = float(sum(input_distances) / max(1, len(input_distances)))
+    all_bucket_scoped = all(
+        report.get("candidate_scope") == "bucket_indexed_candidate_window"
+        and bool(report.get("selection_report", {}).get("bounded_by_bucket_index"))
+        for report in reports
+    )
+    any_live_tick = any(bool(report.get("runs_live_tick")) for report in reports)
+    any_mutation = any(bool(report.get("mutates_runtime_state")) for report in reports)
+    has_input_recall = all(
+        int(report.get("input_pattern_count", 0) or 0) > 0
+        for report in reports
+    )
+    return {
+        "surface": "bounded_replay_window_hf_recall.v1",
+        "status": "recalled" if reports else "empty",
+        "scope": str(scope),
+        "candidate_bucket_ids": candidate_bucket_ids,
+        "candidate_bucket_count": int(len(candidate_bucket_ids)),
+        "candidate_scope": (
+            "bucket_indexed_candidate_window"
+            if all_bucket_scoped
+            else str(reports[0].get("candidate_scope") or "unknown")
+        ),
+        "query_source_indices": [int(index) for index, _pattern in queries],
+        "query_count": int(len(queries)),
+        "max_candidates": int(max_candidates),
+        "mean_routing_key_distance": mean_routing_distance,
+        "mean_input_pattern_distance": mean_input_distance,
+        "reports": reports,
+        "score_device": "cpu",
+        "archival_storage_device": "cpu",
+        "runs_live_tick": bool(any_live_tick),
+        "mutates_runtime_state": bool(any_mutation),
+        "applies_plasticity": False,
+        "gate": {
+            "pass": bool(
+                all_bucket_scoped
+                and has_input_recall
+                and not any_live_tick
+                and not any_mutation
+                and mean_input_distance <= 0.01
+            ),
+            "bounded_bucket_scoped": bool(all_bucket_scoped),
+            "has_input_recall": bool(has_input_recall),
+            "runs_live_tick": bool(any_live_tick),
+            "mutates_runtime_state": bool(any_mutation),
+            "mean_input_pattern_distance_lte_0_01": bool(
+                mean_input_distance <= 0.01
+            ),
+            "thresholds": {
+                "mean_input_pattern_distance_max": 0.01,
+            },
+        },
+    }
+
+
 def build_memory_consolidation_gate(
     *,
     task_a_after_a: float,
@@ -224,6 +362,10 @@ def run_memory_consolidation(
         cycles=task_boundary_consolidation_cycles,
     )
     boundary_latency_ms = (time.perf_counter() - boundary_started) * 1000.0
+    task_a_replay_queries = _collect_anchor_replay_queries(
+        trainer,
+        max_queries=min(16, max(1, eval_tokens)),
+    )
 
     for raw_window, pattern in task_b_train_examples:
         trainer.train_step(pattern, raw_window=raw_window)
@@ -232,6 +374,12 @@ def run_memory_consolidation(
     task_a_overlap_after_b = mean_assembly_overlap(task_a_reference_assemblies, collect_assemblies(trainer, task_a_eval))
     task_b_overlap_after_b = mean_assembly_overlap(task_b_reference_assemblies, collect_assemblies(trainer, task_b_eval))
     memory_before = model.memory_store.summary_stats()
+    task_a_replay_recall_after_b = _bounded_replay_recall_evaluation(
+        trainer,
+        task_a_replay_queries,
+        max_candidates=deep_sleep_candidate_pool,
+        scope="hf_task_a_anchor_replay_after_task_b",
+    )
 
     consolidation_started = time.perf_counter()
     consolidation_updates = trainer.run_sleep_maintenance(
@@ -244,6 +392,12 @@ def run_memory_consolidation(
     task_a_overlap_after_consolidation = mean_assembly_overlap(task_a_reference_assemblies, collect_assemblies(trainer, task_a_eval))
     task_b_overlap_after_consolidation = mean_assembly_overlap(task_b_reference_assemblies, collect_assemblies(trainer, task_b_eval))
     memory_after = model.memory_store.summary_stats()
+    task_a_replay_recall_after_consolidation = _bounded_replay_recall_evaluation(
+        trainer,
+        task_a_replay_queries,
+        max_candidates=deep_sleep_candidate_pool,
+        scope="hf_task_a_anchor_replay_after_consolidation",
+    )
 
     gate = build_memory_consolidation_gate(
         task_a_after_a=task_a_after_a,
@@ -312,6 +466,12 @@ def run_memory_consolidation(
             "mean_consolidation_level_before": float(memory_before.get("mean_consolidation_level", 0.0)),
             "mean_consolidation_level_after": float(memory_after.get("mean_consolidation_level", 0.0)),
         },
+        "bounded_replay_recall": {
+            "surface": "bounded_replay_window_hf_recall_summary.v1",
+            "task_a_anchor_query_count": int(len(task_a_replay_queries)),
+            "after_task_b": task_a_replay_recall_after_b,
+            "after_consolidation": task_a_replay_recall_after_consolidation,
+        },
         "metrics": {
             "task_a_recon_after_a": task_a_after_a,
             "task_b_recon_before_b": task_b_before_b,
@@ -372,6 +532,18 @@ def run_memory_consolidation(
     print(f"task_a_relative_degradation_after_consolidation={task_a_relative_degradation:.6f}")
     print(f"consolidation_replay_updates={consolidation_updates}")
     print(f"memory_consolidation_gate_pass={memory_consolidation_success}")
+    print(
+        "bounded_replay_recall_after_b_gate_pass="
+        f"{bool(task_a_replay_recall_after_b.get('gate', {}).get('pass'))}"
+    )
+    print(
+        "bounded_replay_recall_after_consolidation_gate_pass="
+        f"{bool(task_a_replay_recall_after_consolidation.get('gate', {}).get('pass'))}"
+    )
+    print(
+        "bounded_replay_recall_after_consolidation_mean_input_distance="
+        f"{float(task_a_replay_recall_after_consolidation.get('mean_input_pattern_distance', float('inf'))):.8f}"
+    )
     print(f"summary_json={output_dir / 'summary.json'}")
     if checkpoint_path is not None:
         print(f"checkpoint_path={checkpoint_path}")
