@@ -428,6 +428,127 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertGreater(float(scores[1].item()), float(scores[0].item()))
         self.assertEqual(store.sample_replay_indices(n=1, current_token=40, strategy="maintenance"), [1])
 
+    def test_bounded_replay_window_selection_scores_only_bucket_candidates(self) -> None:
+        store = DualMemoryStore(
+            capacity=8,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token, bucket_id in enumerate([1, 2, 1, 3], start=1):
+            admitted = store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=bucket_id,
+                capture_tag=1.0,
+            )
+            self.assertIsNotNone(admitted)
+            store.slow_local_prp[int(admitted)] = 1.0
+
+        report = store.select_replay_window(
+            n=2,
+            current_token=8,
+            candidate_pool=4,
+            strategy="consolidation",
+            candidate_bucket_ids=[1, 1],
+        )
+
+        self.assertEqual(report["surface"], "bounded_replay_window_selection.v1")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertTrue(report["bounded_by_bucket_index"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertEqual(report["candidate_bucket_ids"], [1])
+        self.assertEqual(report["candidate_index_count"], 2)
+        self.assertEqual(report["score_count"], 2)
+        self.assertEqual(report["selected_count"], 2)
+        self.assertEqual(
+            {store.slow_bucket_ids[idx] for idx in report["selected_indices"]},
+            {1},
+        )
+        self.assertEqual(
+            store.summary_stats()["last_replay_selection_report"]["score_count"],
+            2,
+        )
+
+        restored = DualMemoryStore(capacity=1)
+        restored.restore(store.snapshot())
+        restored_report = restored.summary_stats()["last_replay_selection_report"]
+        self.assertEqual(restored_report["surface"], "bounded_replay_window_selection.v1")
+        self.assertEqual(restored_report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(restored_report["selected_count"], 2)
+
+    def test_global_replay_selection_retires_zero_pressure_window(self) -> None:
+        store = DualMemoryStore(
+            capacity=4,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        admitted = store.update(
+            torch.tensor([1.0, 0.0], dtype=torch.float32),
+            token_count=1,
+            importance=1.0,
+            bucket_id=1,
+            capture_tag=0.0,
+        )
+        self.assertIsNotNone(admitted)
+
+        report = store.select_replay_window(
+            n=1,
+            current_token=8,
+            candidate_pool=2,
+            strategy="consolidation",
+        )
+
+        self.assertEqual(report["candidate_scope"], "global_slow_path_score_scan")
+        self.assertTrue(report["global_score_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertEqual(report["selected_count"], 0)
+        self.assertEqual(report["selected_indices"], [])
+        self.assertEqual(report["fallback_reason"], "no_positive_global_scores")
+        self.assertEqual(store.sample_replay_indices(n=1, current_token=9), [])
+
+    def test_deep_sleep_uses_anchor_bucket_replay_window_report(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="anchored alpha replay")
+        trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=trainer.token_count,
+            strength=2.0,
+        )
+        for idx in range(len(trainer.model.memory_store.slow_local_prp)):
+            trainer.model.memory_store.slow_local_prp[idx] = 1.0
+
+        updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertGreater(anchored, 0)
+        self.assertGreater(updates, 0)
+        self.assertEqual(report["candidate_bucket_source"], "column_anchor_bucket_index")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertTrue(report["bounded_by_bucket_index"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertEqual(report["sleep_replay_applied_count"], updates)
+        self.assertTrue(report["sleep_replay_mutates_runtime_state"])
+        self.assertTrue(report["sleep_replay_applies_plasticity"])
+
     def test_micro_sleep_refreshes_tags_without_weight_commit(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

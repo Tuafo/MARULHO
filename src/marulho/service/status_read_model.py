@@ -971,6 +971,14 @@ class StatusReadModel:
             "awake_ripple_last_tagged": int(
                 getattr(self._trainer, "_awake_ripple_last_tagged", 0)
             ),
+            "sleep_replay_selection": dict(
+                getattr(
+                    self._trainer,
+                    "_last_sleep_replay_selection_report",
+                    memory_store.get("last_replay_selection_report", {}),
+                )
+                or {}
+            ),
         }
         cross_modal_hot_path = {
             "fast_idle_skip_count": int(

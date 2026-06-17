@@ -155,6 +155,15 @@ class MarulhoTrainer:
         self._slow_memory_archive_count = 0
         self._slow_memory_archive_skip_count = 0
         self._slow_memory_last_archive_reason = "not_run"
+        self._last_sleep_replay_selection_report: dict[str, Any] = {
+            "surface": "bounded_replay_window_selection.v1",
+            "status": "not_run",
+            "scope": "sleep_slow_path",
+            "runs_live_tick": False,
+            "sleep_replay_applied_count": 0,
+            "sleep_replay_mutates_runtime_state": False,
+            "sleep_replay_applies_plasticity": False,
+        }
         self._awake_ripple_tag_count = 0
         self._awake_ripple_tag_skip_count = 0
         self._awake_ripple_last_reason = "not_run"
@@ -2552,6 +2561,14 @@ class MarulhoTrainer:
         self.model.competitive.prototypes[idx] = repaired
         self.model.competitive.prototype_velocity[idx] = 0.0
 
+    def _sleep_replay_candidate_bucket_ids(
+        self,
+        mode: str,
+    ) -> list[int] | None:
+        if mode != "deep" or not self.column_anchors:
+            return None
+        return sorted(int(bucket_id) for bucket_id in self.column_anchors)
+
     def _sleep_replay(self, mode: str) -> int:
         """Replay slow-buffer assemblies with spaced priority and mode-specific depth."""
         replay_use_stored_bucket = True
@@ -2589,13 +2606,66 @@ class MarulhoTrainer:
         else:
             raise ValueError(f"Unknown sleep mode: {mode}")
 
-        replay_idx = self.model.memory_store.sample_replay_indices(
+        candidate_bucket_ids = self._sleep_replay_candidate_bucket_ids(mode)
+        selection_report = self.model.memory_store.select_replay_window(
             n=steps,
             current_token=self.token_count,
             candidate_pool=candidate_pool,
             strategy=sampling_strategy,
+            candidate_bucket_ids=candidate_bucket_ids,
+            scope=f"{mode}_sleep_slow_path",
         )
+        bounded_bucket_fallback = False
+        if (
+            candidate_bucket_ids is not None
+            and sampling_strategy != "random"
+            and float(selection_report.get("selected_score_max", 0.0) or 0.0) <= 0.0
+        ):
+            bounded_bucket_fallback = True
+            bounded_attempt = dict(selection_report)
+            selection_report = self.model.memory_store.select_replay_window(
+                n=steps,
+                current_token=self.token_count,
+                candidate_pool=candidate_pool,
+                strategy=sampling_strategy,
+                scope=f"{mode}_sleep_slow_path",
+            )
+            selection_report = {
+                **selection_report,
+                "bounded_bucket_attempt": bounded_attempt,
+                "candidate_bucket_fallback_reason": (
+                    "bucket_window_zero_positive_replay_pressure"
+                ),
+            }
+        replay_idx = [
+            int(index)
+            for index in selection_report.get("selected_indices", [])
+        ]
+        self._last_sleep_replay_selection_report = {
+            **selection_report,
+            "sleep_mode": str(mode),
+            "candidate_bucket_source": (
+                "unanchored_slow_path_after_bucket_zero_pressure"
+                if bounded_bucket_fallback
+                else "column_anchor_bucket_index"
+                if candidate_bucket_ids is not None
+                else "unanchored_slow_path"
+            ),
+            "bounded_bucket_source": (
+                "column_anchor_bucket_index"
+                if candidate_bucket_ids is not None
+                else None
+            ),
+            "bounded_bucket_fallback": bool(bounded_bucket_fallback),
+            "sleep_replay_applied_count": 0,
+            "sleep_replay_mutates_runtime_state": False,
+            "sleep_replay_applies_plasticity": False,
+        }
         if not replay_idx:
+            self.model.memory_store.last_replay_selection_report = dict(
+                self._last_sleep_replay_selection_report
+            )
+            self.model.memory_store._invalidate_summary_cache()
             return 0
 
         applied = 0
@@ -2763,6 +2833,18 @@ class MarulhoTrainer:
             else:
                 self.deep_sleep_events += 1
                 self.last_deep_sleep_token = self.token_count
+        self._last_sleep_replay_selection_report = {
+            **self._last_sleep_replay_selection_report,
+            "sleep_replay_applied_count": int(applied),
+            "sleep_replay_mutates_runtime_state": bool(applied > 0),
+            "sleep_replay_applies_plasticity": bool(
+                mode == "deep" and applied > 0
+            ),
+        }
+        self.model.memory_store.last_replay_selection_report = dict(
+            self._last_sleep_replay_selection_report
+        )
+        self.model.memory_store._invalidate_summary_cache()
 
         # SFA correction during deep sleep (§4.8)
         if mode == "deep" and applied > 0 and self.model.abstraction_layer is not None:
@@ -3058,6 +3140,9 @@ class MarulhoTrainer:
         metrics["sleep_triggered"] = int(sleep_triggered)
         metrics["sleep_type"] = sleep_type
         metrics["sleep_replay_updates"] = int(replay_updates)
+        metrics["sleep_replay_selection"] = dict(
+            self._last_sleep_replay_selection_report
+        )
         metrics["sleep_events_total"] = int(self.sleep_events)
         metrics["micro_sleep_events_total"] = int(self.micro_sleep_events)
         metrics["deep_sleep_events_total"] = int(self.deep_sleep_events)

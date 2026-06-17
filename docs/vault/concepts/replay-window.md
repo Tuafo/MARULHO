@@ -1,30 +1,64 @@
 ---
 type: concept
 status: active
-related_code: []
-related_docs: []
-related_papers: []
-related_benchmarks: []
+related_code:
+  - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/training/trainer.py
+  - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
+related_docs:
+  - ../papers/replay-consolidation.md
+  - ../benchmarks/replay-cost.md
+  - ../benchmarks/hot-path-latency.md
+related_papers:
+  - ../papers/replay-consolidation.md
+related_benchmarks:
+  - reports/bounded_replay_window_20260617/synthetic-selection.json
 ---
 
-        # Replay Window
+# Replay Window
 
-        ## Definition
+## Definition
 
-        A bounded, provenance-hashed window selected for review or isolated replay before any consolidation or plasticity authority.
+A bounded, measured set of memory entries selected for review or isolated sleep
+replay before any consolidation or plasticity authority.
 
-        ## Relationships
+Current runtime surface: `bounded_replay_window_selection.v1`.
 
-        - [Subcortex](subcortex.md)
-        - [Runtime Truth](runtime-truth.md)
-        - [Runtime Evidence](runtime-evidence.md)
+## Rules
 
-        ## Source Links
+- Replay-window selection must run in explicit slow-path windows, not the live
+  tick.
+- A column-anchored replay window must score only memory entries attached to
+  the supplied bucket ids through the bucket index.
+- A global slow-path fallback must report `global_slow_path_score_scan`; it must
+  not hide a full-memory scorer.
+- Zero-pressure replay is retired. No replay updates apply when the best score
+  is zero.
+- Archival metadata stays CPU-resident; active replay tensors move to the model
+  device only when replay is actually applied.
 
-        - [CONTEXT.md](../../../CONTEXT.md)
-        - [README.md](../../../README.md)
-        - [Research notes](../../research-living-brain.md)
+## Evidence
 
-        ## Ambiguity
+`reports/bounded_replay_window_20260617/synthetic-selection.json` proves the
+selection/retirement guardrail but does not pass reconstruction quality. The
+matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json`
+keeps the 65536-column live tick in band.
 
-        Keep claims evidence-gated. Do not widen this term into a generic programming or biology concept without updating [CONTEXT.md](../../../CONTEXT.md).
+## Relationships
+
+- [Subcortex](subcortex.md)
+- [Runtime Truth](runtime-truth.md)
+- [Runtime Evidence](runtime-evidence.md)
+- [Replay Cost](../benchmarks/replay-cost.md)
+
+## Source Links
+
+- [CONTEXT.md](../../../CONTEXT.md)
+- [README.md](../../../README.md)
+- [Research notes](../../research-living-brain.md)
+
+## Ambiguity
+
+Keep claims evidence-gated. Do not widen this term into a generic programming or
+biology concept without updating [CONTEXT.md](../../../CONTEXT.md).

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
+import time
 from typing import Any, List, Optional
 
 import torch
@@ -217,10 +218,12 @@ def run_memory_consolidation(
         window_tokens=task_a_train_tokens,
         strength=task_boundary_anchor_strength,
     )
+    boundary_started = time.perf_counter()
     boundary_updates = trainer.run_sleep_maintenance(
         mode="deep",
         cycles=task_boundary_consolidation_cycles,
     )
+    boundary_latency_ms = (time.perf_counter() - boundary_started) * 1000.0
 
     for raw_window, pattern in task_b_train_examples:
         trainer.train_step(pattern, raw_window=raw_window)
@@ -230,10 +233,12 @@ def run_memory_consolidation(
     task_b_overlap_after_b = mean_assembly_overlap(task_b_reference_assemblies, collect_assemblies(trainer, task_b_eval))
     memory_before = model.memory_store.summary_stats()
 
+    consolidation_started = time.perf_counter()
     consolidation_updates = trainer.run_sleep_maintenance(
         mode=consolidation_mode,
         cycles=consolidation_cycles,
     )
+    consolidation_latency_ms = (time.perf_counter() - consolidation_started) * 1000.0
     task_a_after_consolidation = mean_reconstruction_error(trainer, task_a_eval)
     task_b_after_consolidation = mean_reconstruction_error(trainer, task_b_eval)
     task_a_overlap_after_consolidation = mean_assembly_overlap(task_a_reference_assemblies, collect_assemblies(trainer, task_a_eval))
@@ -288,11 +293,16 @@ def run_memory_consolidation(
             "anchor_strength": task_boundary_anchor_strength,
             "boundary_consolidation_cycles": task_boundary_consolidation_cycles,
             "boundary_replay_updates": boundary_updates,
+            "boundary_replay_latency_ms": boundary_latency_ms,
         },
         "consolidation": {
             "mode": consolidation_mode,
             "cycles": consolidation_cycles,
             "replay_updates": consolidation_updates,
+            "replay_latency_ms": consolidation_latency_ms,
+            "bounded_replay_window_selection": dict(
+                getattr(trainer, "_last_sleep_replay_selection_report", {})
+            ),
             "mean_capture_tag_before": float(memory_before.get("mean_capture_tag", 0.0)),
             "mean_capture_tag_after": float(memory_after.get("mean_capture_tag", 0.0)),
             "mean_prp_level_before": float(memory_before.get("mean_prp_level", 0.0)),

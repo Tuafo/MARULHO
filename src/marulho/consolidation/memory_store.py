@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from array import array
 import math
+import time
 from collections import defaultdict
 from typing import Any, List, Mapping, Optional, Sequence
 
@@ -101,6 +102,7 @@ class DualMemoryStore:
         self.last_ripple_awake_bucket_count = 0
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
+        self.last_replay_selection_report = self._empty_replay_selection_report()
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -146,6 +148,7 @@ class DualMemoryStore:
         self.last_ripple_awake_bucket_count = 0
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
+        self.last_replay_selection_report = self._empty_replay_selection_report()
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -200,6 +203,27 @@ class DualMemoryStore:
         """Monotonic identity for graph-safe bucket-consolidation cache reuse."""
 
         return int(self._bucket_consolidation_cache_generation)
+
+    @staticmethod
+    def _empty_replay_selection_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_replay_window_selection.v1",
+            "status": "not_run",
+            "scope": "sleep_slow_path",
+            "strategy": "not_run",
+            "runs_live_tick": False,
+            "records_replay_artifact": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "selected_indices": [],
+            "selected_count": 0,
+            "score_count": 0,
+            "global_score_scan": False,
+            "bounded_by_bucket_index": False,
+            "fallback_reason": "not_run",
+        }
 
     def _adjust_bucket_consolidation_cache(
         self,
@@ -361,6 +385,9 @@ class DualMemoryStore:
                 ),
                 "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             },
+            "last_replay_selection_report": dict(
+                self.last_replay_selection_report
+            ),
             "all_archival_tensors_cpu": all(
                 device == "cpu"
                 for counts in (
@@ -1177,6 +1204,265 @@ class DualMemoryStore:
             ),
         }
 
+    def _score_replay_index(
+        self,
+        idx: int,
+        *,
+        current_token: int,
+        strategy: str,
+    ) -> float:
+        if idx < 0 or idx >= len(self.slow_buffer):
+            return 0.0
+        if strategy == "maintenance":
+            consolidation = float(
+                max(0.0, min(1.0, self.slow_consolidation_level[idx]))
+            )
+            if consolidation >= 0.8:
+                return 0.0
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+            fragility = self.fragility_score(idx, current_token)
+            return float(importance * fragility * (1.0 + 0.5 * tag_strength))
+        if strategy in {"priority", "consolidation"}:
+            consolidation = float(
+                max(0.0, min(1.0, self.slow_consolidation_level[idx]))
+            )
+            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+            prp_level = float(max(0.0, self._available_prp(idx)))
+            capture_strength = float(max(0.0, tag_strength * prp_level))
+            if (
+                consolidation >= 0.8
+                or capture_strength <= self.prp_capture_threshold
+            ):
+                return 0.0
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            consolidation_gap = max(0.0, 0.8 - consolidation)
+            return float(importance * capture_strength * (1.0 + consolidation_gap))
+        if strategy == "repair":
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            consolidation = float(
+                max(0.0, min(1.0, self.slow_consolidation_level[idx]))
+            )
+            replay_age = max(
+                0,
+                int(current_token) - int(self.slow_last_replay_token[idx]),
+            )
+            return float(
+                importance
+                * (0.5 + consolidation)
+                * (
+                    1.0
+                    + math.log1p(
+                        float(replay_age) / max(1.0, float(self.functional_minute))
+                    )
+                )
+            )
+        raise ValueError(f"Unknown replay sampling strategy: {strategy}")
+
+    def _candidate_indices_for_bucket_ids(
+        self,
+        bucket_ids: Sequence[int] | torch.Tensor | None,
+    ) -> tuple[list[int] | None, list[int]]:
+        normalized = self._normalise_awake_bucket_ids(bucket_ids)
+        if normalized is None:
+            return None, []
+        candidates: set[int] = set()
+        size = len(self.slow_buffer)
+        for bucket_id in normalized:
+            candidates.update(self._bucket_entry_indices.get(int(bucket_id), ()))
+        bounded = sorted(
+            int(index)
+            for index in candidates
+            if 0 <= int(index) < size
+        )
+        return normalized, bounded
+
+    @staticmethod
+    def _selection_score_summary(scores: Sequence[float]) -> dict[str, float]:
+        if not scores:
+            return {
+                "selected_score_min": 0.0,
+                "selected_score_max": 0.0,
+                "selected_score_mean": 0.0,
+            }
+        return {
+            "selected_score_min": float(min(scores)),
+            "selected_score_max": float(max(scores)),
+            "selected_score_mean": float(sum(scores) / len(scores)),
+        }
+
+    def select_replay_window(
+        self,
+        *,
+        n: int,
+        current_token: int,
+        candidate_pool: Optional[int] = None,
+        strategy: str = "priority",
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
+        scope: str = "sleep_slow_path",
+    ) -> dict[str, Any]:
+        """Select a bounded replay window and record the selection evidence.
+
+        Candidate bucket ids make selection score only indexed memory entries
+        attached to those buckets.  When no bucket scope is supplied, selection
+        intentionally falls back to the existing slow-path global scorer and
+        reports that fallback instead of hiding a full-memory scan.
+        """
+
+        started = time.perf_counter()
+        requested = max(0, int(n))
+        token_marker = int(current_token)
+        count = len(self.slow_buffer)
+        normalized_buckets, bucket_candidates = self._candidate_indices_for_bucket_ids(
+            candidate_bucket_ids
+        )
+        bucket_scoped = normalized_buckets is not None
+        selected: list[int] = []
+        selected_scores: list[float] = []
+        score_count = 0
+        candidate_count = count
+        pool_limit = 0
+        fallback_reason: str | None = None
+
+        if requested <= 0 or count <= 0:
+            fallback_reason = "empty_request_or_memory"
+        elif strategy == "random":
+            candidate_indices = bucket_candidates if bucket_scoped else list(range(count))
+            candidate_count = len(candidate_indices)
+            score_count = 0
+            pool_limit = min(candidate_count, requested)
+            if candidate_count > 0:
+                perm = torch.randperm(candidate_count)
+                selected = [
+                    int(candidate_indices[int(local_idx)])
+                    for local_idx in perm[:pool_limit].tolist()
+                ]
+        elif bucket_scoped:
+            candidate_count = len(bucket_candidates)
+            if candidate_count <= 0:
+                fallback_reason = "empty_bucket_index_candidate_window"
+            else:
+                self._advance_state(token_marker)
+                score_count = candidate_count
+                scored = [
+                    (
+                        int(idx),
+                        self._score_replay_index(
+                            int(idx),
+                            current_token=token_marker,
+                            strategy=strategy,
+                        ),
+                    )
+                    for idx in bucket_candidates
+                ]
+                scored.sort(key=lambda item: (-item[1], item[0]))
+                pool_limit = min(
+                    len(scored),
+                    max(
+                        requested,
+                        int(candidate_pool) if candidate_pool is not None else requested,
+                    ),
+                )
+                window = scored[:pool_limit]
+                selected_pairs = window[: min(requested, len(window))]
+                selected = [idx for idx, _ in selected_pairs]
+                selected_scores = [float(score) for _, score in selected_pairs]
+                if not selected:
+                    fallback_reason = "empty_bucket_candidate_pool"
+        else:
+            if strategy == "maintenance":
+                scores = self.maintenance_scores(token_marker)
+            elif strategy in {"priority", "consolidation"}:
+                scores = self.consolidation_scores(token_marker)
+            elif strategy == "repair":
+                scores = self.repair_scores(token_marker)
+            else:
+                raise ValueError(f"Unknown replay sampling strategy: {strategy}")
+            score_count = int(scores.numel())
+            if score_count <= 0:
+                fallback_reason = "empty_score_tensor"
+            elif float(scores.max().item()) <= 0.0:
+                fallback_reason = "no_positive_global_scores"
+            else:
+                pool_limit = min(
+                    count,
+                    max(
+                        requested,
+                        int(candidate_pool) if candidate_pool is not None else requested,
+                    ),
+                )
+                top_values, top_indices = torch.topk(scores, k=pool_limit)
+                if pool_limit <= requested:
+                    selected = [int(idx) for idx in top_indices.tolist()]
+                    selected_scores = [float(value) for value in top_values.tolist()]
+                else:
+                    weights = torch.clamp(top_values, min=1e-8)
+                    weights = weights / (weights.sum() + 1e-8)
+                    draw = torch.multinomial(
+                        weights,
+                        num_samples=min(requested, pool_limit),
+                        replacement=False,
+                    )
+                    selected = [
+                        int(top_indices[int(local_idx)].item())
+                        for local_idx in draw.tolist()
+                    ]
+                    selected.sort(
+                        key=lambda item: float(scores[item].item()),
+                        reverse=True,
+                    )
+                    selected_scores = [float(scores[item].item()) for item in selected]
+                if not selected:
+                    fallback_reason = "no_positive_global_scores"
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_replay_window_selection.v1",
+            "status": "selected" if selected else "empty",
+            "scope": str(scope),
+            "strategy": str(strategy),
+            "current_token": token_marker,
+            "memory_size": int(count),
+            "requested_count": int(requested),
+            "candidate_pool_limit": int(
+                candidate_pool if candidate_pool is not None else requested
+            ),
+            "candidate_pool_sampled_count": int(pool_limit),
+            "candidate_scope": (
+                "bucket_indexed_candidate_window"
+                if bucket_scoped
+                else "global_slow_path_score_scan"
+            ),
+            "candidate_bucket_ids": list(normalized_buckets or []),
+            "candidate_bucket_count": int(len(normalized_buckets or [])),
+            "candidate_index_count": int(candidate_count),
+            "score_count": int(score_count),
+            "selected_indices": selected,
+            "selected_count": int(len(selected)),
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "bounded_by_bucket_index": bool(bucket_scoped),
+            "global_score_scan": bool(not bucket_scoped and strategy != "random"),
+            "runs_live_tick": False,
+            "records_replay_artifact": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(count),
+                "score_budget_entries": int(score_count),
+                "selected_budget_entries": int(requested),
+                "candidate_pool_entries": int(
+                    candidate_pool if candidate_pool is not None else requested
+                ),
+            },
+            **self._selection_score_summary(selected_scores),
+        }
+        self.last_replay_selection_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def sample_replay_indices(
         self,
         *,
@@ -1185,35 +1471,13 @@ class DualMemoryStore:
         candidate_pool: Optional[int] = None,
         strategy: str = "priority",
     ) -> list[int]:
-        if n <= 0 or not self.slow_buffer:
-            return []
-
-        count = len(self.slow_buffer)
-        if strategy == "random":
-            perm = torch.randperm(count)
-            return [int(idx) for idx in perm[: min(count, int(n))].tolist()]
-        if strategy == "maintenance":
-            scores = self.maintenance_scores(current_token)
-        elif strategy in {"priority", "consolidation"}:
-            scores = self.consolidation_scores(current_token)
-        elif strategy == "repair":
-            scores = self.repair_scores(current_token)
-        else:
-            raise ValueError(f"Unknown replay sampling strategy: {strategy}")
-        if int(scores.numel()) <= 0:
-            return []
-
-        top_k = min(count, max(int(n), int(candidate_pool) if candidate_pool is not None else int(n)))
-        top_values, top_indices = torch.topk(scores, k=top_k)
-        if top_k <= int(n):
-            return [int(idx) for idx in top_indices.tolist()]
-
-        weights = torch.clamp(top_values, min=1e-8)
-        weights = weights / (weights.sum() + 1e-8)
-        draw = torch.multinomial(weights, num_samples=min(int(n), top_k), replacement=False)
-        chosen = [int(top_indices[int(local_idx)].item()) for local_idx in draw.tolist()]
-        chosen.sort(key=lambda item: float(scores[item].item()), reverse=True)
-        return chosen
+        report = self.select_replay_window(
+            n=n,
+            current_token=current_token,
+            candidate_pool=candidate_pool,
+            strategy=strategy,
+        )
+        return [int(idx) for idx in report.get("selected_indices", [])]
 
     def sample_for_sfa(self, n: int = 100) -> list[torch.Tensor]:
         """Sample assembly vectors from slow memory for SFA correction (§4.8)."""
@@ -1424,6 +1688,9 @@ class DualMemoryStore:
                     self.last_ripple_awake_candidate_count
                 ),
                 "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
+                "last_replay_selection_report": dict(
+                    self.last_replay_selection_report
+                ),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -1490,6 +1757,9 @@ class DualMemoryStore:
                 self.last_ripple_awake_candidate_count
             ),
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
+            "last_replay_selection_report": dict(
+                self.last_replay_selection_report
+            ),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
             "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
@@ -1578,6 +1848,9 @@ class DualMemoryStore:
                 self.last_ripple_awake_candidate_count
             ),
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
+            "last_replay_selection_report": dict(
+                self.last_replay_selection_report
+            ),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
             "slow_mean_token": None if self._slow_mean_token is None else int(self._slow_mean_token),
@@ -1745,6 +2018,12 @@ class DualMemoryStore:
         )
         self.last_ripple_scan_mode = str(
             snapshot.get("last_ripple_scan_mode", "not_run")
+        )
+        raw_replay_selection = snapshot.get("last_replay_selection_report")
+        self.last_replay_selection_report = (
+            dict(raw_replay_selection)
+            if isinstance(raw_replay_selection, Mapping)
+            else self._empty_replay_selection_report()
         )
         self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")

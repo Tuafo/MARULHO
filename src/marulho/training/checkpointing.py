@@ -186,6 +186,9 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
             "memory_warm_started": bool(trainer.memory_warm_started),
             "last_winner": None if trainer.last_winner is None else int(trainer.last_winner),
             "pending_emergency_deep_sleep": bool(trainer.pending_emergency_deep_sleep),
+            "last_sleep_replay_selection_report": dict(
+                getattr(trainer, "_last_sleep_replay_selection_report", {})
+            ),
             "developmental_stage": int(trainer.developmental_stage),
             "stage2_bootstrap_budget": int(trainer._stage2_bootstrap_budget),
             "stage2_bootstrap_used_visual": int(trainer._stage2_bootstrap_used_visual),
@@ -482,6 +485,17 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
     last_winner = trainer_snapshot.get("last_winner")
     trainer.last_winner = None if last_winner is None else int(last_winner)
     trainer.pending_emergency_deep_sleep = bool(trainer_snapshot.get("pending_emergency_deep_sleep", False))
+    raw_sleep_replay_selection = trainer_snapshot.get(
+        "last_sleep_replay_selection_report"
+    )
+    if isinstance(raw_sleep_replay_selection, dict):
+        trainer._last_sleep_replay_selection_report = dict(
+            raw_sleep_replay_selection
+        )
+        trainer.model.memory_store.last_replay_selection_report = dict(
+            raw_sleep_replay_selection
+        )
+        trainer.model.memory_store._invalidate_summary_cache()
     trainer.developmental_stage = int(trainer_snapshot.get("developmental_stage", 1))
     trainer._stage2_bootstrap_budget = int(trainer_snapshot.get("stage2_bootstrap_budget", 50))
     trainer._stage2_bootstrap_used_visual = int(trainer_snapshot.get("stage2_bootstrap_used_visual", 0))

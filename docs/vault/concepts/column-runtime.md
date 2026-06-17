@@ -4,6 +4,8 @@ status: draft
 related_code:
   - ../../../src/marulho/core/column_runtime.py
   - ../../../src/marulho/core/hypercube.py
+  - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
 related_docs:
@@ -11,8 +13,10 @@ related_docs:
   - ../concepts/runtime-truth.md
 related_papers:
   - ../papers/predictive-coding.md
+  - ../papers/replay-consolidation.md
 related_benchmarks:
   - ../benchmarks/hot-path-latency.md
+  - ../benchmarks/replay-cost.md
 ---
 
 # Column Runtime
@@ -42,6 +46,8 @@ Column reporting is control-plane work. When source state is on CUDA, Runtime Tr
 The isolated structural-plasticity evaluator now has a checkpointed-candidate gate. A ticket can feed reviewed transaction design only when the evaluator binds candidate reason, exact baseline hash, cost/usefulness metrics, latency/RAM/VRAM impact, Runtime Truth summary, rollback artifact, and no-mutation proof. Structural Mutation Preflight carries those candidate hashes into the final preflight hash, and the executor rejects tampered candidate provenance before mutation. This keeps repeated prediction failure and prune/sleep pressure on the slow evidence path and prevents service status from becoming a mutation selector.
 
 Awake-ripple replay tagging now consumes the same scheduler boundary. `DualMemoryStore` keeps archival replay storage on CPU, but it maintains a bucket-to-entry index as entries are admitted, restored, or reservoir-replaced. When retained `train_step` or CUDA text burst flushing has awake route candidates, it calls `ripple_tag_awake(..., awake_bucket_ids=...)`; the store then touches only entries attached to those awake buckets and reports `last_ripple_scan_mode=awake_bucket_index`. The legacy scalar/vector recent-memory scan remains only when a caller omits scheduler context. The direct report `reports/column_scheduler_20260616/awake-ripple-scope-8192-i256.json` compared an 8192-entry unscoped scan with a 10-bucket scoped path over 256 iterations: scoped tagging used `0` scalar/vector scans, `256` bucket-index scans, `last_ripple_awake_candidate_count=10`, and improved mean tag time from `1.1831957031063212 ms` to `0.9895980468854759 ms` (`1.1956326175361276x`). The matching long real-path run at `reports/column_scheduler_20260616/awake-ripple-scope-8192-131072-i32.json` stayed in the promoted band at `6286.386 tokens/sec`, `train_compute=0.130081 ms/token`, `route_input_rows_scored=10`, `state_transition_runs_all_columns=false`, zero graph/native/sequence failures, and no observed contention.
+
+Sleep replay now has the same bounded-window accounting. `DualMemoryStore.select_replay_window(...)` reports `bounded_replay_window_selection.v1` before any replay mutation. Deep sleep passes checkpointed `column_anchors` as candidate bucket ids, so a positive-pressure replay window scores only entries reachable through the memory store's bucket-to-entry index. The report records candidate bucket ids/count, candidate entries scored, selected count, CPU archival/score placement, `runs_live_tick=false`, and whether the final selector used `bucket_indexed_candidate_window` or the explicit `global_slow_path_score_scan` fallback. The retired zero-pressure global behavior no longer rehearses arbitrary entries: if all scores are zero, the report is empty with `fallback_reason=no_positive_global_scores`. The 2026-06-17 synthetic report `reports/bounded_replay_window_20260617/synthetic-selection.json` is therefore a guardrail result, not a quality promotion: bounded positive pressure produced one bucket-indexed replay cycle, while zero-pressure and global-control trials applied `0` replay updates and failed the reconstruction gate. The matching 65536-column hot-path check at `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json` stayed in the same band at `6275.851 tokens/sec`, `train_compute=0.130522 ms/token`, `tick_duration_ms.p95=19.927`, `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`, zero graph/native/sequence failures, and no observed contention.
 
 `PredictiveColumnState` owns `prediction_failure_streak` beside prediction error and confidence. Repeated raw failures increment the streak on the predictive tensor device; successful prediction resets it. The streak is saved in trainer checkpoints and restored with the model, so growth evidence survives rollback and does not live in `service`.
 

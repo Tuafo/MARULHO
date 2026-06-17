@@ -109,6 +109,59 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 )
             )
 
+    def test_checkpoint_roundtrip_preserves_sleep_replay_selection_report(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            report = {
+                "surface": "bounded_replay_window_selection.v1",
+                "status": "selected",
+                "scope": "deep_sleep_slow_path",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "bounded_by_bucket_index": True,
+                "global_score_scan": False,
+                "score_count": 2,
+                "selected_count": 1,
+                "selected_indices": [3],
+                "sleep_replay_applied_count": 1,
+                "sleep_replay_mutates_runtime_state": True,
+                "sleep_replay_applies_plasticity": True,
+                "runs_live_tick": False,
+            }
+            trainer._last_sleep_replay_selection_report = dict(report)
+            trainer.model.memory_store.last_replay_selection_report = dict(report)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "sleep-replay-selection.pt",
+                trainer,
+            )
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            restored_report = restored._last_sleep_replay_selection_report
+            self.assertEqual(restored_report["surface"], "bounded_replay_window_selection.v1")
+            self.assertEqual(restored_report["candidate_scope"], "bucket_indexed_candidate_window")
+            self.assertEqual(restored_report["score_count"], 2)
+            self.assertEqual(restored_report["selected_indices"], [3])
+            self.assertTrue(restored_report["sleep_replay_mutates_runtime_state"])
+            self.assertEqual(
+                restored.model.memory_store.last_replay_selection_report[
+                    "selected_indices"
+                ],
+                [3],
+            )
+
     def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
         from tempfile import TemporaryDirectory
 
