@@ -2594,3 +2594,31 @@ This is accepted as a true scheduler-consumer cleanup: the memory/replay helper
 uses the training-owned wake mask and the long CUDA path stayed neutral or
 better. It is not a new route-discovery solution and does not move archival
 memory storage to GPU.
+
+### Reconstruction-Guarded Replay Consolidation, 2026-06-17
+
+The replay/consolidation slice added a slow-window quality guard, not live-tick
+work. The guarded HF consolidation report at
+`reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation/summary.json`
+kept bounded stored-experience recall passing over `3` Task-A anchor-window
+queries with `mean_input_pattern_distance=0.0`, but rejected all `9` attempted
+candidate repair updates across `3` post-Task-B replay cycles because Task-A
+`mean_reconstruction_error` would regress. The guard restored model and memory
+state after each rejected cycle, left effective replay updates at `0`, and
+recorded `runs_live_tick=false`.
+
+The matching current-tree hot-path check reused the 65536-column
+active-pressure checkpoint:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.25 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6606.251 tokens/sec`, with
+`train_compute=0.123393 ms/token`, `prepare_training=0.005897 ms/token`,
+`finalize_total=0.005707 ms/token`, and `tick_duration_ms.p95=18.562`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`, with zero graph/native/sequence
+failures. The run reported no observed contention: CPU max `6%`, GPU utilization
+max `10%`, GPU memory utilization max `10%`, and GPU memory flat at `1539 MiB`
+before/after. This protects the live tick while replay acceptance remains an
+explicit slow-path window.

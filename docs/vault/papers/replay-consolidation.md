@@ -21,10 +21,12 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-repair.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json
   - reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json
+  - reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation/summary.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-bounded-micro.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json
 ---
 
 # Replay/consolidation
@@ -132,19 +134,34 @@ The less-synthetic HF-backed consolidation runner now records
 `bounded_replay_window_hf_recall_summary.v1`. It snapshots stored Task-A
 anchor-window input patterns and recalls them after Task B and after
 consolidation through the same CPU bucket-index operator, without replaying text
-or mutating runtime state. The report
-`reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`
-passed the after-consolidation recall gate over `3` Task-A replay queries from
-`3` anchor buckets with `mean_input_pattern_distance=0.0`, but the broader
-reconstruction recovery gate remained false. That result supports bounded local
-stored-experience recall, not a claim that consolidation has solved HF
-forgetting/reconstruction.
+or mutating runtime state. The guarded report
+`reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation/summary.json`
+also records `reconstruction_guarded_replay_consolidation.v1`: sleep replay is
+selected from the bounded anchor window, but each cycle is accepted only if a
+Task-A reconstruction score does not regress after the attempted repair. The
+2026-06-17 HF run attempted `9` bounded repair updates across `3` post-Task-B
+cycles, rejected all `9`, rolled the model/memory snapshot back each time, and
+kept effective replay updates at `0`. The memory-consolidation gate then passed,
+while after-consolidation stored-experience recall still passed over `3` Task-A
+queries from `3` anchor buckets with `mean_input_pattern_distance=0.0`. That
+result supports bounded local stored-experience recall plus quality-gated replay
+acceptance, not a claim that replay should run continuously or reason through
+text.
+
+The matching current-tree hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json`
+processed `262144` tokens at `6606.251 tokens/sec` with
+`train_compute=0.123393 ms/token`, bounded route scoring at `12/65536`,
+`state_transition_cached_count=65526`, zero graph/native/sequence failures, no
+observed contention, and flat `1539 MiB` GPU memory. Replay guard scoring uses
+the model device inside explicit slow windows; archival replay metadata remains
+CPU-resident.
 
 ## Status
 
-bounded slow-path selection, stored-experience recall, and reconstruction-gated
-candidate repair implemented; long-run hot-path protection remains required for
-future larger replay windows
+bounded slow-path selection, stored-experience recall, reconstruction-gated
+candidate repair, and reconstruction-guarded HF replay acceptance implemented;
+long-run hot-path protection remains required for future larger replay windows
 
 ## Links
 

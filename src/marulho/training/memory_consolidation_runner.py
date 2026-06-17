@@ -13,7 +13,11 @@ from marulho.config.presets import get_memory_consolidation_preset, memory_conso
 from marulho.data.pattern_loader import load_train_eval_examples
 from marulho.data.rtf_encoder import RTFEncoder
 from marulho.reporting.io import write_json_file
-from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.checkpointing import (
+    _model_snapshot,
+    _restore_model,
+    save_trainer_checkpoint,
+)
 from marulho.training.runner_utils import set_seed
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -184,6 +188,123 @@ def _bounded_replay_recall_evaluation(
             },
         },
     }
+
+
+def _run_reconstruction_guarded_sleep_maintenance(
+    trainer: MarulhoTrainer,
+    eval_patterns: List[torch.Tensor],
+    *,
+    mode: str,
+    cycles: int,
+    quality_scope: str,
+    tolerance: float = 1e-8,
+) -> tuple[int, dict[str, Any]]:
+    """Run sleep replay one cycle at a time and roll back harmful reconstruction."""
+
+    started = time.perf_counter()
+    requested_cycles = max(0, int(cycles))
+    current_best = mean_reconstruction_error(trainer, eval_patterns)
+    initial_score = float(current_best)
+    accepted_updates = 0
+    attempted_updates = 0
+    rejected_attempted_updates = 0
+    accepted_cycles = 0
+    rejected_cycles = 0
+    no_update_cycles = 0
+    cycle_reports: list[dict[str, Any]] = []
+    final_selection_report: dict[str, Any] = dict(
+        getattr(trainer, "_last_sleep_replay_selection_report", {})
+    )
+
+    for cycle_index in range(requested_cycles):
+        before_score = float(current_best)
+        snapshot = _model_snapshot(trainer)
+        attempted = trainer.run_sleep_maintenance(mode=mode, cycles=1)
+        attempted_updates += int(attempted)
+        after_score = mean_reconstruction_error(trainer, eval_patterns)
+        raw_report = dict(getattr(trainer, "_last_sleep_replay_selection_report", {}))
+        quality_accepted = bool(after_score <= before_score + tolerance)
+        accepted = quality_accepted
+        rollback_reason: str | None = None
+        effective_updates = int(attempted)
+
+        if int(attempted) <= 0:
+            if accepted:
+                no_update_cycles += 1
+                current_best = float(after_score)
+            else:
+                rejected_cycles += 1
+                effective_updates = 0
+                rollback_reason = "task_a_reconstruction_regression_no_updates_reported"
+                _restore_model(trainer, snapshot)
+        elif accepted:
+            accepted_cycles += 1
+            accepted_updates += int(attempted)
+            current_best = float(after_score)
+        else:
+            rejected_cycles += 1
+            rejected_attempted_updates += int(attempted)
+            effective_updates = 0
+            rollback_reason = "task_a_reconstruction_regression"
+            _restore_model(trainer, snapshot)
+
+        cycle_report = {
+            **raw_report,
+            "guard_cycle_index": int(cycle_index),
+            "sleep_replay_guard_strategy": "bounded_reconstruction_acceptance",
+            "sleep_replay_guard_quality_metric": "mean_reconstruction_error",
+            "sleep_replay_guard_quality_scope": str(quality_scope),
+            "sleep_replay_guard_before": float(before_score),
+            "sleep_replay_guard_after": float(after_score),
+            "sleep_replay_guard_delta": float(before_score - after_score),
+            "sleep_replay_guard_tolerance": float(tolerance),
+            "sleep_replay_commit_accepted": bool(accepted),
+            "sleep_replay_rollback_reason": rollback_reason,
+            "sleep_replay_attempted_applied_count": int(attempted),
+            "sleep_replay_effective_applied_count": int(effective_updates),
+            "runs_live_tick": False,
+        }
+        if not accepted:
+            cycle_report = {
+                **cycle_report,
+                "sleep_replay_applied_count": 0,
+                "sleep_replay_updated_column_count": 0,
+                "sleep_replay_rejected_by_guard_count": 1,
+                "sleep_replay_mutates_runtime_state": False,
+                "sleep_replay_applies_plasticity": False,
+            }
+            trainer._last_sleep_replay_selection_report = dict(cycle_report)
+            trainer.model.memory_store.last_replay_selection_report = dict(cycle_report)
+            trainer.model.memory_store._invalidate_summary_cache()
+
+        cycle_reports.append(cycle_report)
+        final_selection_report = dict(cycle_report)
+
+    latency_ms = (time.perf_counter() - started) * 1000.0
+    report = {
+        "surface": "reconstruction_guarded_replay_consolidation.v1",
+        "mode": str(mode),
+        "cycle_count": int(requested_cycles),
+        "accepted_cycle_count": int(accepted_cycles),
+        "rejected_cycle_count": int(rejected_cycles),
+        "no_update_cycle_count": int(no_update_cycles),
+        "attempted_update_count": int(attempted_updates),
+        "accepted_update_count": int(accepted_updates),
+        "rejected_attempted_update_count": int(rejected_attempted_updates),
+        "quality_metric": "mean_reconstruction_error",
+        "quality_scope": str(quality_scope),
+        "quality_initial": float(initial_score),
+        "quality_final": float(current_best),
+        "quality_delta": float(initial_score - current_best),
+        "tolerance": float(tolerance),
+        "runs_live_tick": False,
+        "score_device": str(trainer.model.device),
+        "archival_storage_device": "cpu",
+        "latency_ms": float(latency_ms),
+        "cycle_reports": cycle_reports,
+        "final_selection_report": final_selection_report,
+    }
+    return accepted_updates, report
 
 
 def build_memory_consolidation_gate(
@@ -357,9 +478,12 @@ def run_memory_consolidation(
         strength=task_boundary_anchor_strength,
     )
     boundary_started = time.perf_counter()
-    boundary_updates = trainer.run_sleep_maintenance(
+    boundary_updates, boundary_guard_report = _run_reconstruction_guarded_sleep_maintenance(
+        trainer,
+        task_a_eval,
         mode="deep",
         cycles=task_boundary_consolidation_cycles,
+        quality_scope="task_a_boundary_eval_reconstruction",
     )
     boundary_latency_ms = (time.perf_counter() - boundary_started) * 1000.0
     task_a_replay_queries = _collect_anchor_replay_queries(
@@ -382,9 +506,12 @@ def run_memory_consolidation(
     )
 
     consolidation_started = time.perf_counter()
-    consolidation_updates = trainer.run_sleep_maintenance(
+    consolidation_updates, consolidation_guard_report = _run_reconstruction_guarded_sleep_maintenance(
+        trainer,
+        task_a_eval,
         mode=consolidation_mode,
         cycles=consolidation_cycles,
+        quality_scope="task_a_after_task_b_eval_reconstruction",
     )
     consolidation_latency_ms = (time.perf_counter() - consolidation_started) * 1000.0
     task_a_after_consolidation = mean_reconstruction_error(trainer, task_a_eval)
@@ -448,14 +575,16 @@ def run_memory_consolidation(
             "boundary_consolidation_cycles": task_boundary_consolidation_cycles,
             "boundary_replay_updates": boundary_updates,
             "boundary_replay_latency_ms": boundary_latency_ms,
+            "reconstruction_guard": boundary_guard_report,
         },
         "consolidation": {
             "mode": consolidation_mode,
             "cycles": consolidation_cycles,
             "replay_updates": consolidation_updates,
             "replay_latency_ms": consolidation_latency_ms,
+            "reconstruction_guard": consolidation_guard_report,
             "bounded_replay_window_selection": dict(
-                getattr(trainer, "_last_sleep_replay_selection_report", {})
+                consolidation_guard_report.get("final_selection_report", {})
             ),
             "mean_capture_tag_before": float(memory_before.get("mean_capture_tag", 0.0)),
             "mean_capture_tag_after": float(memory_after.get("mean_capture_tag", 0.0)),
@@ -532,6 +661,18 @@ def run_memory_consolidation(
     print(f"task_a_relative_degradation_after_consolidation={task_a_relative_degradation:.6f}")
     print(f"consolidation_replay_updates={consolidation_updates}")
     print(f"memory_consolidation_gate_pass={memory_consolidation_success}")
+    print(
+        "consolidation_guard_accepted_cycles="
+        f"{int(consolidation_guard_report.get('accepted_cycle_count', 0))}"
+    )
+    print(
+        "consolidation_guard_rejected_cycles="
+        f"{int(consolidation_guard_report.get('rejected_cycle_count', 0))}"
+    )
+    print(
+        "consolidation_guard_accepted_updates="
+        f"{int(consolidation_guard_report.get('accepted_update_count', 0))}"
+    )
     print(
         "bounded_replay_recall_after_b_gate_pass="
         f"{bool(task_a_replay_recall_after_b.get('gate', {}).get('pass'))}"
