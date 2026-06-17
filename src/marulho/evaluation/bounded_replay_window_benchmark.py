@@ -341,7 +341,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "trials": trials,
         "quality_claim": (
             "bounded input-pattern recall is measured separately from prototype "
-            "repair; prototype reconstruction remains open until its gate passes"
+            "repair; unanchored deep replay blocks global mutation; prototype "
+            "reconstruction remains open until its gate passes"
         ),
     }
 
@@ -378,6 +379,7 @@ def main() -> None:
             f"global_fallback_cycles={trial['global_fallback_cycle_count']} "
             f"score_count={selection.get('score_count')} "
             f"selected_count={selection.get('selected_count')} "
+            f"blocked_fallback={selection.get('global_fallback_blocked_reason')} "
             f"recall_gate_pass={recall_gate['pass']} "
             f"prototype_gate_pass={trial['memory_consolidation_gate']['pass']} "
             f"input_distance={metrics['task_a_bounded_replay_recall_input_pattern_distance']:.8f} "

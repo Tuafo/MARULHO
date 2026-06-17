@@ -35,6 +35,9 @@ Current bounded selection evidence:
   memory entries.
 - Zero-pressure global replay is retired with
   `fallback_reason=no_positive_global_scores`.
+- Deep sleep blocks unanchored global replay mutation with
+  `unscoped_global_fallback_retired=true`, so no-anchor and zero-pressure bucket
+  cases apply `0` replay updates.
 - `reports/bounded_replay_window_20260617/synthetic-selection.json` passes the
   bounded stored input-pattern recall gate for positive-pressure windows
   (`5.960464477539063e-08` mean distance against threshold `0.01`), but does

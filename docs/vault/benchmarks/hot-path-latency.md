@@ -2394,20 +2394,21 @@ plain 65536 scale gate.
 
 The bounded replay-window slice reused that same active-pressure checkpoint to
 prove live-tick protection after adding slow-path replay selection, bounded
-stored-experience recall, and retiring zero-pressure replay:
+stored-experience recall, retiring zero-pressure replay, and blocking
+unanchored deep-sleep global replay mutation:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-131072-i32.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 360 --sample-interval-seconds 0.25 --host-truth-sync-interval-tokens 32`
 
-The latest run processed `131072` tokens at `6192.821 tokens/sec` with
-`train_compute=0.130963 ms/token`, `prepare_training=0.006237 ms/token`,
-`finalize_total=0.006184 ms/token`, and `tick_duration_ms.p95=20.415`.
+The latest run processed `131072` tokens at `6277.353 tokens/sec` with
+`train_compute=0.130380 ms/token`, `prepare_training=0.006136 ms/token`,
+`finalize_total=0.006208 ms/token`, and `tick_duration_ms.p95=20.123`.
 Runtime Truth stayed on CUDA RTX 3060 with `contention.verdict=not_observed`,
 `route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
 `state_transition_cached_count=65526`, `state_transition_runs_all_columns=false`,
 `observed_filtered_memory_pressure_total=2`, `observed_filtered_deep_sleep_total=254`,
 zero graph/native/sequence failures, and `slow_memory_cadence_execution_gate=false`.
-CPU max was `25%`, GPU utilization max `10%`, and GPU memory stayed at
-`1764 MiB` before/after measurement. This is hot-path protection evidence only:
+CPU max was `52%`, GPU utilization max `10%`, GPU memory utilization max `11%`,
+and GPU memory stayed at `1759 MiB` before/after measurement. This is hot-path protection evidence only:
 replay-window selection and recall remain inside explicit sleep/replay
 maintenance and do not run in the live tick.
 

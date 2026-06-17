@@ -602,6 +602,91 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(report["sleep_replay_mutates_runtime_state"])
         self.assertTrue(report["sleep_replay_applies_plasticity"])
 
+    def test_deep_sleep_without_anchors_blocks_global_replay_mutation(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="unanchored alpha replay")
+        trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+
+        updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertEqual(updates, 0)
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_bucket_ids"], [])
+        self.assertFalse(report["global_score_scan"])
+        self.assertTrue(report["unscoped_global_fallback_retired"])
+        self.assertEqual(
+            report["global_fallback_blocked_reason"],
+            "no_anchor_bucket_scope_for_deep_replay",
+        )
+        self.assertFalse(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
+
+    def test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="zero-pressure alpha replay")
+        trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=trainer.token_count,
+            strength=2.0,
+        )
+        store = trainer.model.memory_store
+        for idx in range(len(store.slow_buffer)):
+            store.slow_capture_tag[idx] = 0.0
+            store.slow_local_prp[idx] = 0.0
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+
+        updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
+        report = trainer._last_sleep_replay_selection_report
+
+        self.assertGreater(anchored, 0)
+        self.assertEqual(updates, 0)
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertGreater(report["candidate_bucket_count"], 0)
+        self.assertFalse(report["global_score_scan"])
+        self.assertTrue(report["unscoped_global_fallback_retired"])
+        self.assertEqual(
+            report["global_fallback_blocked_reason"],
+            "bucket_window_zero_positive_replay_pressure",
+        )
+        self.assertFalse(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
+
     def test_micro_sleep_refreshes_tags_without_weight_commit(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

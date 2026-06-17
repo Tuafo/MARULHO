@@ -61,14 +61,21 @@ consolidation/repair/maintenance pressure, it returns an empty selection with
 `fallback_reason=no_positive_global_scores` instead of rehearsing arbitrary
 zero-score entries.
 
+Deep-sleep consolidation no longer uses the global scorer as a production
+mutation fallback. When no anchor buckets exist, or when the anchor-bucket
+window has no positive replay pressure, the trainer records
+`unscoped_global_fallback_retired=true`, leaves `sleep_replay_applied_count=0`,
+and does not apply plasticity.
+
 The 2026-06-17 synthetic benchmark now separates stored-experience recall from
 prototype repair. With positive anchor pressure, the bounded replay window
 recalled stored Task-A input patterns with mean distance
 `5.960464477539063e-08` under the `0.01` gate while scoring only bucket-indexed
 entries. The zero-pressure guard applied `0` replay updates, and the global
-control stayed unbounded for recall. The reconstruction/prototype consolidation
-gate still failed, so the next replay slice must improve that target before
-claiming consolidation promotion.
+control now applies `0` replay updates because unanchored deep replay is
+retired. The reconstruction/prototype consolidation gate still failed, so the
+next replay slice must improve that target before claiming consolidation
+promotion.
 
 ## Status
 

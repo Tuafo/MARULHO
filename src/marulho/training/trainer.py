@@ -2565,8 +2565,10 @@ class MarulhoTrainer:
         self,
         mode: str,
     ) -> list[int] | None:
-        if mode != "deep" or not self.column_anchors:
+        if mode != "deep":
             return None
+        if not self.column_anchors:
+            return []
         return sorted(int(bucket_id) for bucket_id in self.column_anchors)
 
     def _sleep_replay(self, mode: str) -> int:
@@ -2615,28 +2617,23 @@ class MarulhoTrainer:
             candidate_bucket_ids=candidate_bucket_ids,
             scope=f"{mode}_sleep_slow_path",
         )
-        bounded_bucket_fallback = False
+        global_fallback_blocked_reason: str | None = None
         if (
             candidate_bucket_ids is not None
             and sampling_strategy != "random"
             and float(selection_report.get("selected_score_max", 0.0) or 0.0) <= 0.0
         ):
-            bounded_bucket_fallback = True
-            bounded_attempt = dict(selection_report)
-            selection_report = self.model.memory_store.select_replay_window(
-                n=steps,
-                current_token=self.token_count,
-                candidate_pool=candidate_pool,
-                strategy=sampling_strategy,
-                scope=f"{mode}_sleep_slow_path",
-            )
             selection_report = {
                 **selection_report,
-                "bounded_bucket_attempt": bounded_attempt,
-                "candidate_bucket_fallback_reason": (
-                    "bucket_window_zero_positive_replay_pressure"
-                ),
+                "selected_indices": [],
+                "selected_count": 0,
+                "status": "empty",
             }
+            global_fallback_blocked_reason = (
+                "no_anchor_bucket_scope_for_deep_replay"
+                if not candidate_bucket_ids
+                else "bucket_window_zero_positive_replay_pressure"
+            )
         replay_idx = [
             int(index)
             for index in selection_report.get("selected_indices", [])
@@ -2645,9 +2642,7 @@ class MarulhoTrainer:
             **selection_report,
             "sleep_mode": str(mode),
             "candidate_bucket_source": (
-                "unanchored_slow_path_after_bucket_zero_pressure"
-                if bounded_bucket_fallback
-                else "column_anchor_bucket_index"
+                "column_anchor_bucket_index"
                 if candidate_bucket_ids is not None
                 else "unanchored_slow_path"
             ),
@@ -2656,7 +2651,11 @@ class MarulhoTrainer:
                 if candidate_bucket_ids is not None
                 else None
             ),
-            "bounded_bucket_fallback": bool(bounded_bucket_fallback),
+            "bounded_bucket_fallback": False,
+            "unscoped_global_fallback_retired": bool(
+                global_fallback_blocked_reason is not None
+            ),
+            "global_fallback_blocked_reason": global_fallback_blocked_reason,
             "sleep_replay_applied_count": 0,
             "sleep_replay_mutates_runtime_state": False,
             "sleep_replay_applies_plasticity": False,

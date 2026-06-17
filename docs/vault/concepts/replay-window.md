@@ -31,8 +31,9 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
   tick.
 - A column-anchored replay window must score only memory entries attached to
   the supplied bucket ids through the bucket index.
-- A global slow-path fallback must report `global_slow_path_score_scan`; it must
-  not hide a full-memory scorer.
+- A global slow-path scorer must report `global_slow_path_score_scan`; it must
+  not hide a full-memory scorer. Production deep replay cannot mutate from that
+  unscoped path.
 - Zero-pressure replay is retired. No replay updates apply when the best score
   is zero.
 - Replay-window recall is non-mutating: it can compare routing keys and stored
@@ -46,8 +47,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1` and
 `reports/bounded_replay_window_20260617/synthetic-selection.json` proves the
 selection/retirement guardrail and passes the bounded stored input-pattern
 recall gate for positive-pressure windows (`5.960464477539063e-08` mean input
-distance, threshold `0.01`). It still does not pass prototype reconstruction
-quality. The matching hot-path report
+distance, threshold `0.01`). It also proves deep replay blocks global mutation
+when there are no anchor buckets or the anchored bucket window has zero positive
+pressure. It still does not pass prototype reconstruction quality. The matching
+hot-path report
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json`
 keeps the 65536-column live tick in band.
 

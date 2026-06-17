@@ -34,6 +34,9 @@ Current status:
   plasticity.
 - Active replay still moves tensors to the model device only when sleep replay
   actually applies plasticity.
+- Deep sleep consolidation applies plasticity only from a positive-pressure
+  anchor-bucket window; unanchored and zero-pressure bucket cases block global
+  mutation and record the blocked reason.
 - Checkpoints preserve `last_sleep_replay_selection_report` and the memory
   store's `last_replay_recall_report` so replay-window evidence survives restore.
 - The 2026-06-17 benchmark retired zero-pressure replay and passed bounded
