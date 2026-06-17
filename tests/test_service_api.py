@@ -13971,6 +13971,23 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     default=str,
                 ).encode("utf-8")
             ).hexdigest()
+            candidate_ticket_evidence = {
+                "prediction_error": 0.91,
+                "confidence": 0.18,
+                "prediction_failure_streak": 5,
+                "estimated_cost": 0.40,
+                "usefulness": 0.20,
+                "memory_pressure": 0.10,
+            }
+            candidate_ticket_hash = hashlib.sha256(
+                json.dumps(
+                    candidate_ticket_evidence,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
             with TestClient(app) as client:
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
@@ -14006,6 +14023,50 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             "available": True,
                             "snapshot_id": "pre-structural-eval",
                             "pre_snapshot_hash": pre_snapshot_hash,
+                            "rollback_artifact": {
+                                "artifact_path": str(root / "pre_structural_eval.rollback.json"),
+                                "artifact_hash": "d" * 64,
+                                "pre_snapshot_hash": pre_snapshot_hash,
+                            },
+                        },
+                        "candidate_evidence": {
+                            "surface": "column_structural_review_queue.v1",
+                            "source": "training.column_structural_review_queue",
+                            "checkpoint_baseline": {"queue_state_hash": pre_snapshot_hash},
+                            "ticket": {
+                                "surface": "column_structural_review_ticket.v1",
+                                "ticket_id": "growth-ticket-service-api",
+                                "kind": "growth_review",
+                                "column_id": 7,
+                                "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+                                "candidate_evidence_hash": candidate_ticket_hash,
+                                "evidence": candidate_ticket_evidence,
+                                "mutates_runtime_state": False,
+                                "calls_growth_or_prune": False,
+                                "writes_checkpoint": False,
+                            },
+                        },
+                        "cost_evidence": {
+                            "latency_ms_before": 12.0,
+                            "latency_ms_after": 11.8,
+                            "ram_bytes_before": 4096,
+                            "ram_bytes_after": 4096,
+                            "vram_bytes_before": 8192,
+                            "vram_bytes_after": 8192,
+                        },
+                        "runtime_truth_summary": {
+                            "pre_verdict": "degraded",
+                            "post_verdict": "alive",
+                            "candidate_runtime_truth_status": "isolated_candidate_non_worsening",
+                        },
+                        "no_mutation_evidence": {
+                            "source": "service_api_isolated_evaluation",
+                            "state_revision_before": before_revision,
+                            "state_revision_after": before_revision,
+                            "mutates_runtime_state": False,
+                            "calls_growth_or_prune": False,
+                            "writes_checkpoint": False,
+                            "applies_structural_mutation": False,
                         },
                     },
                 )
@@ -14098,9 +14159,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(evaluation["snapshot_binding"]["raw_snapshots_exposed"])
         self.assertTrue(evaluation["rollback_evidence"]["bound_to_pre_snapshot"])
         self.assertTrue(evaluation["rollback_evidence"]["pre_snapshot_hash_match"])
+        self.assertTrue(evaluation["rollback_evidence"]["rollback_artifact"]["available"])
+        self.assertEqual(
+            evaluation["checkpointed_candidate_gate"]["status"],
+            "ready_for_checkpointed_candidate_review",
+        )
+        self.assertTrue(evaluation["cost_usefulness_impact"]["latency_ram_vram_impact_available"])
+        self.assertTrue(evaluation["no_mutation_proof"]["valid"])
         self.assertTrue(evaluation["promotion_gate"]["requires_bound_snapshot_hashes"])
         self.assertTrue(evaluation["promotion_gate"]["requires_nonzero_structural_delta"])
         self.assertTrue(evaluation["promotion_gate"]["requires_rollback_pre_snapshot_binding"])
+        self.assertTrue(evaluation["promotion_gate"]["requires_checkpointed_candidate_evidence"])
         self.assertEqual(design["artifact_kind"], "terminus_subcortical_structural_mutation_design")
         self.assertEqual(design["surface"], "subcortical_structural_mutation_design.v1")
         self.assertFalse(design["executable"])

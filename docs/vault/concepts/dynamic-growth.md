@@ -13,6 +13,8 @@ related_benchmarks: []
 
         Bounded structural addition driven by local evidence such as surprise, mismatch, replay failures, or concept pressure.
 
+        Growth from one-shot surprise is blocked. A growth candidate must carry repeated-failure evidence through a checkpointed structural-review ticket, then prove usefulness and cost impact in isolated evaluation before any operator-reviewed transaction can apply topology changes.
+
         ## Relationships
 
         - [Subcortex](subcortex.md)

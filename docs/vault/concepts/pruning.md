@@ -13,6 +13,8 @@ related_benchmarks: []
 
         Bounded structural removal or repair, evaluated by retained support, topology evidence, and rollback readiness.
 
+        Pruning is not a status-side decision. A weak, slow, noisy, high-pressure, or low-usefulness structure may become prune/sleep review evidence only through a checkpointed candidate ticket, isolated cost/usefulness and Runtime Truth comparison, rollback artifact, and no-mutation proof.
+
         ## Relationships
 
         - [Subcortex](subcortex.md)

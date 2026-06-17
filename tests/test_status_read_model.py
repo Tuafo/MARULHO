@@ -32,6 +32,53 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
+def _hash_json(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _structural_candidate_evidence(pre_snapshot_hash: str) -> dict[str, Any]:
+    evidence = {
+        "prediction_error": 0.9,
+        "confidence": 0.2,
+        "prediction_failure_streak": 5,
+        "estimated_cost": 0.4,
+        "usefulness": 0.2,
+        "memory_pressure": 0.1,
+    }
+    return {
+        "surface": "column_structural_review_queue.v1",
+        "checkpoint_baseline": {"queue_state_hash": pre_snapshot_hash},
+        "ticket": {
+            "surface": "column_structural_review_ticket.v1",
+            "ticket_id": "growth-ticket-status-read-model",
+            "kind": "growth_review",
+            "column_id": 3,
+            "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+            "candidate_evidence_hash": _hash_json(evidence),
+            "evidence": evidence,
+        },
+    }
+
+
+def _structural_cost_evidence() -> dict[str, Any]:
+    return {
+        "latency_ms_before": 1.0,
+        "latency_ms_after": 1.0,
+        "ram_bytes_before": 10,
+        "ram_bytes_after": 10,
+        "vram_bytes_before": 20,
+        "vram_bytes_after": 20,
+    }
+
+
 def _build_config() -> MarulhoConfig:
     return MarulhoConfig(
         n_columns=4,
@@ -2975,6 +3022,62 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-grow-prune",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-grow-prune.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence={
+                "surface": "column_structural_review_queue.v1",
+                "checkpoint_baseline": {"queue_state_hash": pre_snapshot_hash},
+                "ticket": {
+                    "surface": "column_structural_review_ticket.v1",
+                    "ticket_id": "growth-ticket-3",
+                    "kind": "growth_review",
+                    "column_id": 3,
+                    "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+                    "candidate_evidence_hash": hashlib.sha256(
+                        json.dumps(
+                            {
+                                "prediction_error": 0.9,
+                                "confidence": 0.2,
+                                "prediction_failure_streak": 5,
+                                "estimated_cost": 0.4,
+                                "usefulness": 0.2,
+                                "memory_pressure": 0.1,
+                            },
+                            ensure_ascii=True,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                    "evidence": {
+                        "prediction_error": 0.9,
+                        "confidence": 0.2,
+                        "prediction_failure_streak": 5,
+                        "estimated_cost": 0.4,
+                        "usefulness": 0.2,
+                        "memory_pressure": 0.1,
+                    },
+                },
+            },
+            cost_evidence={
+                "latency_ms_before": 1.0,
+                "latency_ms_after": 1.0,
+                "ram_bytes_before": 10,
+                "ram_bytes_after": 10,
+                "vram_bytes_before": 20,
+                "vram_bytes_after": 20,
+            },
+            runtime_truth_summary={"pre_verdict": "degraded", "post_verdict": "alive"},
+            no_mutation_evidence={
+                "state_revision_before": rev_before,
+                "state_revision_after": rev_before,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
         rev_after = runtime_state.state_revision
@@ -2985,6 +3088,10 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["mutates_runtime_state"])
         self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertTrue(report["rollback_evidence"]["bound_to_pre_snapshot"])
+        self.assertEqual(
+            report["checkpointed_candidate_gate"]["status"],
+            "ready_for_checkpointed_candidate_review",
+        )
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
     def test_binding_growth_trial_design_uses_live_failure_streaks_without_mutation(
@@ -3047,6 +3154,22 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-grow-prune",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-grow-prune.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence=_structural_candidate_evidence(pre_snapshot_hash),
+            cost_evidence=_structural_cost_evidence(),
+            runtime_truth_summary={"pre_verdict": "degraded", "post_verdict": "alive"},
+            no_mutation_evidence={
+                "state_revision_before": runtime_state.state_revision,
+                "state_revision_after": runtime_state.state_revision,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
         rev_before = runtime_state.state_revision
@@ -3066,6 +3189,10 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(design["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertTrue(
             design["promotion_gate"]["eligible_for_structural_mutation_preflight_review"]
+        )
+        self.assertEqual(
+            design["checkpointed_candidate_binding"]["gate_status"],
+            "ready_for_checkpointed_candidate_review",
         )
 
     def test_structural_mutation_preflight_does_not_advance_revision(self) -> None:
@@ -3097,6 +3224,22 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-grow-prune",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-grow-prune.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence=_structural_candidate_evidence(pre_snapshot_hash),
+            cost_evidence=_structural_cost_evidence(),
+            runtime_truth_summary={"pre_verdict": "degraded", "post_verdict": "alive"},
+            no_mutation_evidence={
+                "state_revision_before": runtime_state.state_revision,
+                "state_revision_after": runtime_state.state_revision,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
         design = model.subcortical_structural_mutation_design(
@@ -3119,6 +3262,11 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(preflight["mutates_runtime_state"])
         self.assertFalse(preflight["writes_checkpoint"])
         self.assertFalse(preflight["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "checkpointed_candidate_gate_ready"
+            ]
+        )
         self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
 
     def test_cognitive_signal_state_returns_cached_on_lock_contention(self) -> None:

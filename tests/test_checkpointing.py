@@ -212,6 +212,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 ),
                 estimated_cost=trainer.model.column_metabolism.estimated_cost,
                 memory_pressure=trainer.model.column_metabolism.memory_pressure,
+                usefulness=trainer.model.column_metabolism.usefulness,
                 wake_reason="unit_awake",
                 sleep_reason=None,
             )
@@ -230,6 +231,12 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertFalse(report["runs_all_columns"])
             self.assertTrue(report["checkpoint_backed"])
             self.assertEqual(report["tickets_sample"][0]["column_id"], 3)
+            self.assertEqual(len(report["checkpoint_baseline"]["queue_state_hash"]), 64)
+            self.assertEqual(
+                len(report["tickets_sample"][0]["candidate_evidence_hash"]),
+                64,
+            )
+            self.assertFalse(report["no_mutation_proof"]["mutates_runtime_state"])
 
     def test_legacy_checkpoint_migrates_retired_slow_memory_archive_cadence(self) -> None:
         from tempfile import TemporaryDirectory

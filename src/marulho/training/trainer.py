@@ -2039,6 +2039,7 @@ class MarulhoTrainer:
             ),
             estimated_cost=getattr(self.model.column_metabolism, "estimated_cost", None),
             memory_pressure=getattr(self.model.column_metabolism, "memory_pressure", None),
+            usefulness=getattr(self.model.column_metabolism, "usefulness", None),
             wake_reason=wake_reason,
             sleep_reason=sleep_reason,
         )

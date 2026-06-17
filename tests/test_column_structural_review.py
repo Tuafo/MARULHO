@@ -16,6 +16,8 @@ def test_structural_review_queue_records_only_bounded_awake_candidates() -> None
     confidence[7] = 0.2
     streak[7] = 4
     pressure[9] = 0.99
+    usefulness = torch.full((1024,), 0.5)
+    usefulness[7] = 0.12
 
     queue.record_candidates(
         torch.tensor([7, 9]),
@@ -26,6 +28,7 @@ def test_structural_review_queue_records_only_bounded_awake_candidates() -> None
         prediction_failure_streak=streak,
         estimated_cost=cost,
         memory_pressure=pressure,
+        usefulness=usefulness,
         wake_reason="unit_awake",
         sleep_reason=None,
     )
@@ -39,11 +42,51 @@ def test_structural_review_queue_records_only_bounded_awake_candidates() -> None
     assert report["last_cached_column_count"] == 1022
     assert report["runs_all_columns"] is False
     assert report["checkpoint_backed"] is True
+    assert len(report["checkpoint_baseline"]["queue_state_hash"]) == 64
+    assert report["calls_growth_or_prune"] is False
+    assert report["writes_checkpoint"] is False
+    assert report["no_mutation_proof"]["mutates_runtime_state"] is False
     assert report["requires_operator_review"] is True
     assert report["mutates_runtime_state"] is False
     assert report["next_gate"] == "operator_review_column_structural_ticket"
     assert {ticket["column_id"] for ticket in report["tickets_sample"]} == {7, 9}
     assert all(ticket["mutates_runtime_state"] is False for ticket in report["tickets_sample"])
+    assert all(len(ticket["candidate_evidence_hash"]) == 64 for ticket in report["tickets_sample"])
+    growth_ticket = next(ticket for ticket in report["tickets_sample"] if ticket["kind"] == "growth_review")
+    assert growth_ticket["candidate_reason"] == "repeated_prediction_failure_on_awake_candidate"
+    assert growth_ticket["evidence"]["usefulness"] == 0.12
+
+
+def test_structural_review_queue_blocks_one_shot_surprise_growth() -> None:
+    queue = ColumnStructuralReviewQueue(n_columns=16, device="cpu")
+    prediction_error = torch.zeros(16)
+    confidence = torch.ones(16)
+    streak = torch.zeros(16, dtype=torch.long)
+    prediction_error[4] = 0.99
+    confidence[4] = 0.1
+    streak[4] = 1
+
+    queue.record_candidates(
+        torch.tensor([4]),
+        token_count=1,
+        mode="awake_mask_tick",
+        prediction_error=prediction_error,
+        confidence=confidence,
+        prediction_failure_streak=streak,
+        estimated_cost=torch.zeros(16),
+        memory_pressure=torch.zeros(16),
+        usefulness=torch.full((16,), 0.5),
+        wake_reason="unit_awake",
+        sleep_reason=None,
+    )
+
+    report = queue.report()
+    assert report["pending_count"] == 0
+    assert report["growth_ticket_count"] == 0
+    assert report["last_reason"] == "no_structural_review_candidate_in_awake_set"
+    assert report["mutates_runtime_state"] is False
+    assert report["calls_growth_or_prune"] is False
+    assert report["runs_all_columns"] is False
 
 
 def test_structural_review_queue_deferred_burst_records_truth_not_fake_scan() -> None:

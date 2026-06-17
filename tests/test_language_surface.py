@@ -44,6 +44,52 @@ from marulho.semantics import (
 )
 
 
+def _canonical_hash(payload: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _checkpointed_candidate_evidence(pre_snapshot: dict) -> dict:
+    evidence = {
+        "prediction_error": 0.91,
+        "confidence": 0.18,
+        "prediction_failure_streak": 5,
+        "estimated_cost": 0.42,
+        "usefulness": 0.22,
+        "memory_pressure": 0.33,
+        "candidate_boundary": "bounded_awake_or_route_candidate_set",
+    }
+    ticket = {
+        "surface": "column_structural_review_ticket.v1",
+        "ticket_id": "growth-ticket-7",
+        "kind": "growth_review",
+        "column_id": 7,
+        "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+        "candidate_evidence_hash": _canonical_hash(evidence),
+        "evidence": evidence,
+        "source": "training.column_structural_review_queue",
+        "mutates_runtime_state": False,
+        "calls_growth_or_prune": False,
+        "writes_checkpoint": False,
+    }
+    return {
+        "surface": "column_structural_review_queue.v1",
+        "source": "training.column_structural_review_queue",
+        "checkpoint_baseline": {
+            "queue_state_hash": _canonical_hash(pre_snapshot),
+            "hash_algorithm": "sha256_canonical_json",
+        },
+        "ticket": ticket,
+    }
+
+
 class BindingGrowthTrialDesignTests(unittest.TestCase):
     def test_repeated_failure_candidates_bind_to_bounded_read_only_topology_plan(self) -> None:
         runtime = {
@@ -2544,6 +2590,34 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-structural-eval",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-structural-eval.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence=_checkpointed_candidate_evidence(pre_snapshot),
+            cost_evidence={
+                "latency_ms_before": 12.5,
+                "latency_ms_after": 12.1,
+                "ram_bytes_before": 1024,
+                "ram_bytes_after": 960,
+                "vram_bytes_before": 2048,
+                "vram_bytes_after": 2048,
+            },
+            runtime_truth_summary={
+                "pre_verdict": "degraded",
+                "post_verdict": "alive",
+                "candidate_runtime_truth_status": "isolated_candidate_non_worsening",
+            },
+            no_mutation_evidence={
+                "source": "isolated_structural_plasticity_evaluator",
+                "state_revision_before": 10,
+                "state_revision_after": 10,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
 
@@ -2559,6 +2633,7 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertTrue(report["rollback_evidence"]["available"])
         self.assertTrue(report["rollback_evidence"]["bound_to_pre_snapshot"])
         self.assertTrue(report["rollback_evidence"]["pre_snapshot_hash_match"])
+        self.assertTrue(report["rollback_evidence"]["rollback_artifact"]["available"])
         self.assertEqual(report["snapshot_binding"]["hash_algorithm"], "sha256_canonical_json")
         self.assertEqual(len(report["snapshot_binding"]["pre_snapshot_hash"]), 64)
         self.assertEqual(len(report["snapshot_binding"]["post_snapshot_hash"]), 64)
@@ -2569,9 +2644,29 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertTrue(report["snapshot_binding"]["state_revision_order_valid"])
         self.assertFalse(report["snapshot_binding"]["raw_snapshots_exposed"])
         self.assertIn("pre_post_snapshot_hash_binding", report["success_evidence"])
+        self.assertIn("candidate_reason_and_baseline_hash", report["success_evidence"])
+        self.assertIn("cost_usefulness_latency_ram_vram_impact", report["success_evidence"])
+        self.assertTrue(report["checkpointed_candidate_evidence"]["candidate_reason_available"])
+        self.assertTrue(
+            report["checkpointed_candidate_evidence"][
+                "candidate_evidence_hash_recomputed_match"
+            ]
+        )
+        self.assertTrue(
+            report["checkpointed_candidate_evidence"][
+                "candidate_reason_proves_growth_or_prune_pressure"
+            ]
+        )
+        self.assertTrue(report["cost_usefulness_impact"]["latency_ram_vram_impact_available"])
+        self.assertTrue(report["no_mutation_proof"]["valid"])
+        self.assertEqual(
+            report["checkpointed_candidate_gate"]["status"],
+            "ready_for_checkpointed_candidate_review",
+        )
         self.assertTrue(report["promotion_gate"]["requires_bound_snapshot_hashes"])
         self.assertTrue(report["promotion_gate"]["requires_nonzero_structural_delta"])
         self.assertTrue(report["promotion_gate"]["requires_rollback_pre_snapshot_binding"])
+        self.assertTrue(report["promotion_gate"]["requires_checkpointed_candidate_evidence"])
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
     def test_structural_plasticity_isolated_evaluator_blocks_identical_snapshots(self) -> None:
@@ -2688,6 +2783,29 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-structural-design",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-structural-design.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence=_checkpointed_candidate_evidence(pre_snapshot),
+            cost_evidence={
+                "latency_ms_before": 12.5,
+                "latency_ms_after": 12.1,
+                "ram_bytes_before": 1024,
+                "ram_bytes_after": 960,
+                "vram_bytes_before": 2048,
+                "vram_bytes_after": 2048,
+            },
+            runtime_truth_summary={"pre_verdict": "degraded", "post_verdict": "alive"},
+            no_mutation_evidence={
+                "state_revision_before": 30,
+                "state_revision_after": 30,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
 
@@ -2713,6 +2831,10 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertFalse(design["applies_structural_mutation"])
         self.assertEqual(len(design["structural_mutation_design_hash"]), 64)
         self.assertTrue(design["evaluation_binding"]["rollback_bound_to_pre_snapshot"])
+        self.assertEqual(
+            design["checkpointed_candidate_binding"]["gate_status"],
+            "ready_for_checkpointed_candidate_review",
+        )
         self.assertEqual(design["structural_mutation_design"]["total_edge_delta"], 2)
         self.assertFalse(design["structural_mutation_design"]["runtime_update_applied"])
         self.assertFalse(design["structural_mutation_design"]["checkpoint_written"])
@@ -2723,6 +2845,11 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertFalse(design["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertTrue(
             design["promotion_gate"]["eligible_for_structural_mutation_preflight_review"]
+        )
+        self.assertTrue(
+            design["promotion_gate"]["required_evidence"][
+                "checkpointed_candidate_gate_ready"
+            ]
         )
         self.assertEqual(
             blocked["promotion_gate"]["status"],
@@ -2775,6 +2902,29 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
                 "available": True,
                 "snapshot_id": "pre-structural-design",
                 "pre_snapshot_hash": pre_snapshot_hash,
+                "rollback_artifact": {
+                    "artifact_path": "reports/structural/pre-structural-design.rollback.json",
+                    "artifact_hash": "d" * 64,
+                    "pre_snapshot_hash": pre_snapshot_hash,
+                },
+            },
+            candidate_evidence=_checkpointed_candidate_evidence(pre_snapshot),
+            cost_evidence={
+                "latency_ms_before": 12.5,
+                "latency_ms_after": 12.1,
+                "ram_bytes_before": 1024,
+                "ram_bytes_after": 960,
+                "vram_bytes_before": 2048,
+                "vram_bytes_after": 2048,
+            },
+            runtime_truth_summary={"pre_verdict": "degraded", "post_verdict": "alive"},
+            no_mutation_evidence={
+                "state_revision_before": 40,
+                "state_revision_after": 40,
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "applies_structural_mutation": False,
             },
         )
         design = build_subcortical_structural_mutation_design(
@@ -2806,6 +2956,15 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertFalse(preflight["applies_structural_mutation"])
         self.assertEqual(len(preflight["structural_mutation_preflight_hash"]), 64)
         self.assertTrue(preflight["design_binding"]["design_hash_recomputed_match"])
+        self.assertEqual(
+            preflight["design_binding"]["checkpointed_candidate_gate_status"],
+            "ready_for_checkpointed_candidate_review",
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "checkpointed_candidate_gate_ready"
+            ]
+        )
         self.assertTrue(
             preflight["checkpoint_transaction_requirements"]["expected_state_revision_current"]
         )

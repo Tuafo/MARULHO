@@ -324,6 +324,24 @@ def test_real_design_and_preflight_artifacts_execute_without_test_only_fields(
         "device_evidence": {"consistent": True},
         "spike_health_delta": {"improved_or_stable": True},
         "runtime_truth_delta": {"improved_or_stable": True},
+        "checkpointed_candidate_gate": {
+            "status": "ready_for_checkpointed_candidate_review",
+        },
+        "checkpointed_candidate_evidence": {
+            "ticket_id": "growth-ticket-executor",
+            "kind": "growth_review",
+            "column_id": 7,
+            "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+            "candidate_evidence_hash": "e" * 64,
+            "baseline_hash": "b" * 64,
+            "baseline_hash_available": True,
+            "candidate_evidence_hash_recomputed_match": True,
+            "candidate_reason_proves_growth_or_prune_pressure": True,
+        },
+        "cost_usefulness_impact": {
+            "impact_summary_hash": "f" * 64,
+            "latency_ram_vram_impact_available": True,
+        },
         "promotion_gate": {"status": "ready_for_operator_review"},
     }
     design = build_subcortical_structural_mutation_design(

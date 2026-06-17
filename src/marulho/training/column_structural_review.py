@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any, Mapping
 
 import torch
@@ -63,6 +64,17 @@ def _ticket_hash(parts: list[str]) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _sha256_json(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        dict(payload),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 class ColumnStructuralReviewQueue:
     """Durable review queue for growth/prune continuations.
 
@@ -121,7 +133,12 @@ class ColumnStructuralReviewQueue:
             ticket["last_seen_token"] = int(token_count)
             ticket["observation_count"] = int(ticket.get("observation_count", 1)) + 1
             ticket["reason"] = str(reason)
+            ticket["candidate_reason"] = str(reason)
             ticket["evidence"] = dict(evidence)
+            ticket["candidate_evidence_hash"] = _sha256_json(dict(evidence))
+            ticket["candidate_reason_hash"] = _ticket_hash(
+                ["column_structural_review_reason.v1", str(kind), str(reason)]
+            )
             return
 
         next_gate = (
@@ -147,6 +164,11 @@ class ColumnStructuralReviewQueue:
             "observation_count": 1,
             "status": "pending_operator_review",
             "reason": str(reason),
+            "candidate_reason": str(reason),
+            "candidate_reason_hash": _ticket_hash(
+                ["column_structural_review_reason.v1", str(kind), str(reason)]
+            ),
+            "candidate_evidence_hash": _sha256_json(dict(evidence)),
             "next_gate": next_gate,
             "requires_operator_review": True,
             "requires_checkpoint_transaction": True,
@@ -188,8 +210,9 @@ class ColumnStructuralReviewQueue:
         prediction_failure_streak: torch.Tensor | None,
         estimated_cost: torch.Tensor | None,
         memory_pressure: torch.Tensor | None,
-        wake_reason: str | None,
-        sleep_reason: str | None,
+        usefulness: torch.Tensor | None = None,
+        wake_reason: str | None = None,
+        sleep_reason: str | None = None,
     ) -> None:
         ids = self._candidate_indices(candidates)
         count = int(ids.numel())
@@ -234,6 +257,13 @@ class ColumnStructuralReviewQueue:
             fill=0.0,
             device=source_device,
         )
+        utility = _index_float_tensor(
+            usefulness,
+            ids=ids,
+            n_columns=self.n_columns,
+            fill=0.5,
+            device=source_device,
+        )
         pressure = _index_float_tensor(
             memory_pressure,
             ids=ids,
@@ -249,6 +279,7 @@ class ColumnStructuralReviewQueue:
                 conf.clamp(0.0, 1.0),
                 streak.to(dtype=torch.float32),
                 cost.clamp(0.0, 1.0),
+                utility.clamp(0.0, 1.0),
                 pressure.clamp(0.0, 1.0),
             ],
             dim=1,
@@ -262,12 +293,14 @@ class ColumnStructuralReviewQueue:
             conf_value = float(row[2])
             streak_value = int(row[3])
             cost_value = float(row[4])
-            pressure_value = float(row[5])
+            usefulness_value = float(row[5])
+            pressure_value = float(row[6])
             evidence = {
                 "prediction_error": round(pred_error, 6),
                 "confidence": round(conf_value, 6),
                 "prediction_failure_streak": int(streak_value),
                 "estimated_cost": round(cost_value, 6),
+                "usefulness": round(usefulness_value, 6),
                 "memory_pressure": round(pressure_value, 6),
                 "wake_reason": wake_reason,
                 "sleep_reason": sleep_reason,
@@ -315,6 +348,19 @@ class ColumnStructuralReviewQueue:
             if tickets
             else "continue_bounded_candidate_evidence_collection"
         )
+        queue_baseline = {
+            "tickets": tickets,
+            "update_count": int(self.update_count),
+            "deferred_update_count": int(self.deferred_update_count),
+            "last_update_token": self.last_update_token,
+            "last_update_mode": str(self.last_update_mode),
+            "last_evaluated_column_count": int(self.last_evaluated_column_count),
+            "last_cached_column_count": int(self.last_cached_column_count),
+            "last_growth_candidate_count": int(self.last_growth_candidate_count),
+            "last_prune_candidate_count": int(self.last_prune_candidate_count),
+            "last_reason": str(self.last_reason),
+        }
+        queue_state_hash = _sha256_json(queue_baseline)
         return {
             "surface": "column_structural_review_queue.v1",
             "artifact_kind": "marulho_column_structural_review_queue",
@@ -335,10 +381,29 @@ class ColumnStructuralReviewQueue:
             "last_reason": str(self.last_reason),
             "max_candidates_per_update": int(self.max_candidates_per_update),
             "checkpoint_backed": True,
+            "checkpoint_baseline": {
+                "hash_algorithm": "sha256_canonical_json",
+                "queue_state_hash": queue_state_hash,
+                "source": "ColumnStructuralReviewQueue.report",
+                "ticket_hashes": [
+                    str(ticket.get("candidate_evidence_hash") or "")
+                    for ticket in tickets
+                    if ticket.get("candidate_evidence_hash")
+                ],
+            },
             "requires_operator_review": True,
             "mutates_runtime_state": False,
+            "calls_growth_or_prune": False,
+            "writes_checkpoint": False,
             "runs_all_columns": False,
             "next_gate": next_gate,
+            "no_mutation_proof": {
+                "mutates_runtime_state": False,
+                "calls_growth_or_prune": False,
+                "writes_checkpoint": False,
+                "runs_all_columns": False,
+                "selection_owner": "training.column_structural_review_queue",
+            },
             "tickets_sample": [dict(ticket) for ticket in tickets[-8:]],
             "claim_boundary": STRUCTURAL_REVIEW_CLAIM_BOUNDARY,
         }

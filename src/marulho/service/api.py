@@ -3392,6 +3392,10 @@ def create_app(
             pre_snapshot=request.pre_snapshot,
             post_snapshot=request.post_snapshot,
             rollback_policy=request.rollback_policy,
+            candidate_evidence=request.candidate_evidence,
+            cost_evidence=request.cost_evidence,
+            runtime_truth_summary=request.runtime_truth_summary,
+            no_mutation_evidence=request.no_mutation_evidence,
         )
 
     @app.post("/terminus/subcortical-structural-plasticity/mutation-design")

@@ -4171,6 +4171,10 @@ class StatusReadModel:
         post_snapshot: Mapping[str, Any],
         *,
         rollback_policy: Mapping[str, Any] | None = None,
+        candidate_evidence: Mapping[str, Any] | None = None,
+        cost_evidence: Mapping[str, Any] | None = None,
+        runtime_truth_summary: Mapping[str, Any] | None = None,
+        no_mutation_evidence: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Evaluate an isolated growth/prune trial without mutating runtime state."""
 
@@ -4181,6 +4185,10 @@ class StatusReadModel:
                 pre_snapshot,
                 post_snapshot,
                 rollback_policy=rollback_policy,
+                candidate_evidence=candidate_evidence,
+                cost_evidence=cost_evidence,
+                runtime_truth_summary=runtime_truth_summary,
+                no_mutation_evidence=no_mutation_evidence,
             ),
         )
 

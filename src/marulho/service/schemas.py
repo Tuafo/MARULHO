@@ -1718,6 +1718,10 @@ class StructuralPlasticityIsolatedEvaluationRequest(BaseModel):
     pre_snapshot: dict[str, Any] = Field(..., min_length=1)
     post_snapshot: dict[str, Any] = Field(..., min_length=1)
     rollback_policy: dict[str, Any] | None = None
+    candidate_evidence: dict[str, Any] | None = None
+    cost_evidence: dict[str, Any] | None = None
+    runtime_truth_summary: dict[str, Any] | None = None
+    no_mutation_evidence: dict[str, Any] | None = None
 
 
 class StructuralMutationDesignRequest(BaseModel):

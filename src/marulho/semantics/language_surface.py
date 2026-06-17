@@ -1041,6 +1041,10 @@ def evaluate_subcortical_structural_plasticity_isolated(
     post_snapshot: Mapping[str, Any],
     *,
     rollback_policy: Mapping[str, Any] | None = None,
+    candidate_evidence: Mapping[str, Any] | None = None,
+    cost_evidence: Mapping[str, Any] | None = None,
+    runtime_truth_summary: Mapping[str, Any] | None = None,
+    no_mutation_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate a bounded structural-plasticity trial without mutating runtime state."""
 
@@ -1053,6 +1057,17 @@ def evaluate_subcortical_structural_plasticity_isolated(
         rollback_policy or {},
         pre_snapshot_hash=str(snapshot_binding["pre_snapshot_hash"]),
     )
+    candidate_binding = _isolated_candidate_evidence(
+        candidate_evidence or {},
+        pre_snapshot_hash=str(snapshot_binding["pre_snapshot_hash"]),
+    )
+    cost_impact = _isolated_cost_usefulness_impact(cost_evidence or {}, candidate_binding)
+    truth_summary = _isolated_runtime_truth_summary(
+        pre_snapshot,
+        post_snapshot,
+        runtime_truth_summary or {},
+    )
+    no_mutation_proof = _isolated_no_mutation_proof(no_mutation_evidence or {})
 
     bounded_delta = (
         structural_delta["edges_added_delta"] >= 0
@@ -1072,6 +1087,14 @@ def evaluate_subcortical_structural_plasticity_isolated(
         and rollback_evidence["bound_to_pre_snapshot"]
     )
     promotion_status = "ready_for_operator_review" if ready_for_review else "blocked_evidence_incomplete"
+    checkpointed_candidate_gate = _checkpointed_candidate_gate(
+        ready_for_review=ready_for_review,
+        candidate_binding=candidate_binding,
+        cost_impact=cost_impact,
+        truth_summary=truth_summary,
+        rollback_evidence=rollback_evidence,
+        no_mutation_proof=no_mutation_proof,
+    )
     return {
         "schema_version": 1,
         "artifact_kind": "terminus_subcortical_structural_plasticity_isolated_evaluation",
@@ -1087,8 +1110,13 @@ def evaluate_subcortical_structural_plasticity_isolated(
         "device_evidence": device_evidence,
         "spike_health_delta": spike_health_delta,
         "runtime_truth_delta": runtime_truth_delta,
+        "runtime_truth_summary": truth_summary,
         "rollback_evidence": rollback_evidence,
         "snapshot_binding": snapshot_binding,
+        "checkpointed_candidate_evidence": candidate_binding,
+        "cost_usefulness_impact": cost_impact,
+        "no_mutation_proof": no_mutation_proof,
+        "checkpointed_candidate_gate": checkpointed_candidate_gate,
         "promotion_gate": {
             "status": promotion_status,
             "next_gate": (
@@ -1106,15 +1134,22 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_bound_snapshot_hashes": True,
             "requires_nonzero_structural_delta": True,
             "requires_rollback_pre_snapshot_binding": True,
+            "checkpointed_candidate_gate_status": checkpointed_candidate_gate["status"],
+            "requires_checkpointed_candidate_evidence": True,
         },
         "success_evidence": [
             "pre_mutation_structural_snapshot",
             "post_mutation_structural_snapshot",
             "pre_post_snapshot_hash_binding",
+            "candidate_reason_and_baseline_hash",
+            "cost_usefulness_latency_ram_vram_impact",
             "runtime_truth_delta",
+            "runtime_truth_summary",
             "spike_health_delta",
             "device_evidence_report",
             "rollback_policy",
+            "rollback_artifact",
+            "no_mutation_proof",
         ],
         "safety_invariants": {
             "eligible_for_action": False,
@@ -1128,10 +1163,13 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_bound_snapshot_hashes": True,
             "requires_nonzero_structural_delta": True,
             "requires_rollback_pre_snapshot_binding": True,
+            "requires_checkpointed_candidate_evidence": True,
+            "requires_no_mutation_proof": True,
         },
         "limitations": [
             "Evaluation only; it compares snapshots and never calls growth, pruning, or binding mutation code.",
             "Ready-for-review status does not authorize runtime structural mutation.",
+            "Checkpointed candidate readiness requires ticket, baseline hash, cost/usefulness impact, Runtime Truth summary, rollback artifact, and no-mutation proof.",
         ],
     }
 
@@ -1178,6 +1216,21 @@ def build_subcortical_structural_mutation_design(
         if isinstance(evaluation.get("runtime_truth_delta"), Mapping)
         else {}
     )
+    candidate_gate = (
+        evaluation.get("checkpointed_candidate_gate")
+        if isinstance(evaluation.get("checkpointed_candidate_gate"), Mapping)
+        else {}
+    )
+    candidate_binding = (
+        evaluation.get("checkpointed_candidate_evidence")
+        if isinstance(evaluation.get("checkpointed_candidate_evidence"), Mapping)
+        else {}
+    )
+    cost_impact = (
+        evaluation.get("cost_usefulness_impact")
+        if isinstance(evaluation.get("cost_usefulness_impact"), Mapping)
+        else {}
+    )
 
     bounded_edge_delta = int(_float(structural_delta.get("total_edge_delta"), 0.0)) <= int(max_total_edge_delta)
     required_evidence = {
@@ -1194,6 +1247,10 @@ def build_subcortical_structural_mutation_design(
         "operator_confirmation": bool(confirmation),
         "operator_id_available": bool(_text(operator_id)),
         "mutation_reason_available": bool(_text(mutation_reason)),
+        "checkpointed_candidate_gate_ready": (
+            not bool(candidate_gate)
+            or candidate_gate.get("status") == "ready_for_checkpointed_candidate_review"
+        ),
     }
     ready = all(bool(value) for value in required_evidence.values())
     design_material = {
@@ -1210,6 +1267,11 @@ def build_subcortical_structural_mutation_design(
         "confirmation": bool(confirmation),
         "mutation_target": "marulho.subcortex.binding.hub_topology",
         "mutation_reason": _text(mutation_reason),
+        "checkpointed_candidate_gate_status": candidate_gate.get("status"),
+        "candidate_evidence_hash": candidate_binding.get("candidate_evidence_hash"),
+        "candidate_baseline_hash": candidate_binding.get("baseline_hash"),
+        "candidate_reason": candidate_binding.get("candidate_reason"),
+        "cost_impact_summary_hash": cost_impact.get("impact_summary_hash"),
     }
     design_hash = _sha256_json(design_material)
     return {
@@ -1238,6 +1300,26 @@ def build_subcortical_structural_mutation_design(
             "rollback_snapshot_id": rollback.get("snapshot_id"),
             "rollback_pre_snapshot_hash": rollback.get("pre_snapshot_hash"),
             "rollback_bound_to_pre_snapshot": bool(rollback.get("bound_to_pre_snapshot")),
+        },
+        "checkpointed_candidate_binding": {
+            "gate_status": candidate_gate.get("status"),
+            "ticket_id": candidate_binding.get("ticket_id"),
+            "kind": candidate_binding.get("kind"),
+            "column_id": candidate_binding.get("column_id"),
+            "candidate_reason": candidate_binding.get("candidate_reason"),
+            "candidate_evidence_hash": candidate_binding.get("candidate_evidence_hash"),
+            "candidate_evidence_hash_recomputed_match": bool(
+                candidate_binding.get("candidate_evidence_hash_recomputed_match")
+            ),
+            "baseline_hash": candidate_binding.get("baseline_hash"),
+            "baseline_hash_available": bool(candidate_binding.get("baseline_hash_available")),
+            "candidate_reason_proves_growth_or_prune_pressure": bool(
+                candidate_binding.get("candidate_reason_proves_growth_or_prune_pressure")
+            ),
+            "cost_impact_summary_hash": cost_impact.get("impact_summary_hash"),
+            "latency_ram_vram_impact_available": bool(
+                cost_impact.get("latency_ram_vram_impact_available")
+            ),
         },
         "application_target": {
             "target_id": "marulho.subcortex.binding.hub_topology",
@@ -1275,6 +1357,7 @@ def build_subcortical_structural_mutation_design(
             "requires_operator_approval": True,
             "requires_checkpoint_transaction": True,
             "requires_rollback_pre_snapshot_binding": True,
+            "requires_checkpointed_candidate_evidence": bool(candidate_gate),
             "required_evidence": required_evidence,
         },
         "safety_invariants": {
@@ -1285,6 +1368,7 @@ def build_subcortical_structural_mutation_design(
             "requires_checkpoint_transaction": True,
             "requires_preflight": True,
             "requires_rollback_pre_snapshot_binding": True,
+            "requires_checkpointed_candidate_evidence": bool(candidate_gate),
         },
         "limitations": [
             "Design only; it does not call growth, pruning, binding mutation, checkpoint save, or checkpoint restore.",
@@ -1324,6 +1408,11 @@ def build_subcortical_structural_mutation_preflight(
         if isinstance(design.get("application_target"), Mapping)
         else {}
     )
+    candidate = (
+        design.get("checkpointed_candidate_binding")
+        if isinstance(design.get("checkpointed_candidate_binding"), Mapping)
+        else {}
+    )
     design_material = {
         "surface": binding.get("evaluation_surface"),
         "pre_snapshot_hash": binding.get("pre_snapshot_hash"),
@@ -1346,6 +1435,11 @@ def build_subcortical_structural_mutation_preflight(
         "confirmation": bool(operator.get("confirmation")),
         "mutation_target": target.get("target_id"),
         "mutation_reason": _text(operator.get("mutation_reason")),
+        "checkpointed_candidate_gate_status": candidate.get("gate_status"),
+        "candidate_evidence_hash": candidate.get("candidate_evidence_hash"),
+        "candidate_baseline_hash": candidate.get("baseline_hash"),
+        "candidate_reason": candidate.get("candidate_reason"),
+        "cost_impact_summary_hash": candidate.get("cost_impact_summary_hash"),
     }
     recomputed_design_hash = _sha256_json(design_material)
     supplied_design_hash = str(design.get("structural_mutation_design_hash") or "")
@@ -1372,6 +1466,22 @@ def build_subcortical_structural_mutation_preflight(
         "binding_hub_refresh_method_bound": target.get("mutation_method")
         == "HypercubeBindingLayer.refresh_hub_topology",
         "mutation_reason_available": bool(_text(operator.get("mutation_reason"))),
+        "checkpointed_candidate_gate_ready": (
+            not bool(candidate)
+            or candidate.get("gate_status") == "ready_for_checkpointed_candidate_review"
+        ),
+        "checkpointed_candidate_hash_bound": (
+            not bool(candidate)
+            or len(_text(candidate.get("candidate_evidence_hash"))) == 64
+        ),
+        "checkpointed_candidate_baseline_hash_bound": (
+            not bool(candidate)
+            or len(_text(candidate.get("baseline_hash"))) == 64
+        ),
+        "checkpointed_candidate_cost_impact_bound": (
+            not bool(candidate)
+            or bool(candidate.get("latency_ram_vram_impact_available"))
+        ),
     }
     ready = all(bool(value) for value in required_evidence.values())
     preflight_material = {
@@ -1415,6 +1525,11 @@ def build_subcortical_structural_mutation_preflight(
             "mutation_method": target.get("mutation_method"),
             "mutation_reason": _text(operator.get("mutation_reason")) or None,
             "max_total_edge_delta": int(_float(mutation.get("max_total_edge_delta"), 0.0)),
+            "checkpointed_candidate_gate_status": candidate.get("gate_status"),
+            "candidate_evidence_hash": candidate.get("candidate_evidence_hash"),
+            "candidate_baseline_hash": candidate.get("baseline_hash"),
+            "candidate_reason": candidate.get("candidate_reason"),
+            "cost_impact_summary_hash": candidate.get("cost_impact_summary_hash"),
         },
         "checkpoint_transaction_requirements": {
             "expected_state_revision": int(expected_state_revision),
@@ -2322,13 +2437,30 @@ def _isolated_rollback_evidence(
     pre_snapshot_hash: str | None = None,
 ) -> dict[str, Any]:
     available = bool(rollback_policy.get("available") or rollback_policy.get("reversible"))
+    artifact = (
+        rollback_policy.get("rollback_artifact")
+        if isinstance(rollback_policy.get("rollback_artifact"), Mapping)
+        else {}
+    )
     rollback_hash = (
         rollback_policy.get("pre_snapshot_hash")
         or rollback_policy.get("rollback_snapshot_hash")
         or rollback_policy.get("snapshot_hash")
+        or artifact.get("pre_snapshot_hash")
     )
     rollback_hash_text = str(rollback_hash) if rollback_hash is not None else None
     hash_match = bool(pre_snapshot_hash and rollback_hash_text == pre_snapshot_hash)
+    artifact_path = _text(rollback_policy.get("artifact_path") or artifact.get("artifact_path"))
+    artifact_hash = _text(
+        rollback_policy.get("artifact_hash")
+        or rollback_policy.get("rollback_artifact_hash")
+        or artifact.get("artifact_hash")
+    )
+    tombstone_hash = _text(
+        rollback_policy.get("tombstone_manifest_hash")
+        or artifact.get("tombstone_manifest_hash")
+    )
+    artifact_available = bool(available and (artifact_path or artifact_hash or tombstone_hash))
     return {
         "available": available,
         "reversible": available,
@@ -2338,6 +2470,274 @@ def _isolated_rollback_evidence(
         "expected_pre_snapshot_hash": pre_snapshot_hash,
         "pre_snapshot_hash_match": hash_match,
         "bound_to_pre_snapshot": available and hash_match,
+        "rollback_artifact": {
+            "available": artifact_available,
+            "artifact_path": artifact_path or None,
+            "artifact_hash": artifact_hash or None,
+            "tombstone_manifest_hash": tombstone_hash or None,
+        },
+    }
+
+
+def _isolated_candidate_evidence(
+    candidate_evidence: Mapping[str, Any],
+    *,
+    pre_snapshot_hash: str,
+) -> dict[str, Any]:
+    ticket = (
+        candidate_evidence.get("ticket")
+        if isinstance(candidate_evidence.get("ticket"), Mapping)
+        else candidate_evidence.get("candidate_ticket")
+        if isinstance(candidate_evidence.get("candidate_ticket"), Mapping)
+        else {}
+    )
+    if not ticket and isinstance(candidate_evidence.get("tickets_sample"), Sequence):
+        for item in candidate_evidence.get("tickets_sample") or []:
+            if isinstance(item, Mapping):
+                ticket = item
+                break
+    if not ticket and candidate_evidence.get("surface") == "column_structural_review_ticket.v1":
+        ticket = candidate_evidence
+
+    evidence = ticket.get("evidence") if isinstance(ticket.get("evidence"), Mapping) else {}
+    checkpoint_baseline = (
+        candidate_evidence.get("checkpoint_baseline")
+        if isinstance(candidate_evidence.get("checkpoint_baseline"), Mapping)
+        else {}
+    )
+    baseline_hash = _text(
+        candidate_evidence.get("baseline_hash")
+        or candidate_evidence.get("queue_state_hash")
+        or checkpoint_baseline.get("queue_state_hash")
+        or candidate_evidence.get("pre_snapshot_hash")
+    )
+    ticket_hash = _text(ticket.get("candidate_evidence_hash") or candidate_evidence.get("candidate_evidence_hash"))
+    recomputed_ticket_hash = _sha256_json(dict(evidence)) if evidence else ""
+    reason = _text(ticket.get("candidate_reason") or ticket.get("reason") or candidate_evidence.get("candidate_reason"))
+    kind = _text(ticket.get("kind") or candidate_evidence.get("kind"))
+    metrics = {
+        "prediction_error": _float(evidence.get("prediction_error"), 0.0),
+        "confidence": _float(evidence.get("confidence"), 1.0),
+        "prediction_failure_streak": int(_float(evidence.get("prediction_failure_streak"), 0.0)),
+        "estimated_cost": _float(evidence.get("estimated_cost"), 0.0),
+        "usefulness": _float(evidence.get("usefulness"), 0.5),
+        "memory_pressure": _float(evidence.get("memory_pressure"), 0.0),
+    }
+    repeated_failure_ready = (
+        metrics["prediction_failure_streak"] >= 3
+        and metrics["prediction_error"] >= 0.60
+        and metrics["confidence"] <= 0.45
+    )
+    prune_pressure_ready = (
+        metrics["memory_pressure"] >= 0.95
+        or (metrics["estimated_cost"] >= 0.85 and metrics["confidence"] <= 0.25)
+        or (metrics["estimated_cost"] >= 0.85 and metrics["usefulness"] <= 0.25)
+    )
+    return {
+        "available": bool(candidate_evidence),
+        "source": candidate_evidence.get("source") or ticket.get("source"),
+        "ticket_surface": ticket.get("surface"),
+        "ticket_id": ticket.get("ticket_id"),
+        "kind": kind or None,
+        "column_id": ticket.get("column_id"),
+        "candidate_reason": reason or None,
+        "candidate_reason_available": bool(reason),
+        "candidate_evidence_hash": ticket_hash or None,
+        "candidate_evidence_hash_recomputed": recomputed_ticket_hash or None,
+        "candidate_evidence_hash_recomputed_match": bool(
+            ticket_hash and recomputed_ticket_hash and ticket_hash == recomputed_ticket_hash
+        ),
+        "baseline_hash": baseline_hash or None,
+        "baseline_hash_available": len(baseline_hash) == 64,
+        "baseline_hash_matches_pre_snapshot": bool(
+            baseline_hash and baseline_hash == pre_snapshot_hash
+        ),
+        "hash_algorithm": "sha256_canonical_json",
+        "metrics": metrics,
+        "repeated_failure_ready": repeated_failure_ready,
+        "prune_or_sleep_pressure_ready": prune_pressure_ready,
+        "candidate_reason_proves_growth_or_prune_pressure": bool(
+            repeated_failure_ready or prune_pressure_ready
+        ),
+        "mutates_runtime_state": False,
+        "calls_growth_or_prune": False,
+        "writes_checkpoint": False,
+    }
+
+
+def _metric_delta(payload: Mapping[str, Any], prefix: str) -> tuple[float | None, float | None, float | None]:
+    before = payload.get(f"{prefix}_before")
+    after = payload.get(f"{prefix}_after")
+    delta = payload.get(f"{prefix}_delta")
+    before_value = None if before is None else _float(before, 0.0)
+    after_value = None if after is None else _float(after, 0.0)
+    delta_value = None if delta is None else _float(delta, 0.0)
+    if delta_value is None and before_value is not None and after_value is not None:
+        delta_value = after_value - before_value
+    return before_value, after_value, delta_value
+
+
+def _isolated_cost_usefulness_impact(
+    cost_evidence: Mapping[str, Any],
+    candidate_binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    metrics = (
+        candidate_binding.get("metrics")
+        if isinstance(candidate_binding.get("metrics"), Mapping)
+        else {}
+    )
+    latency_before, latency_after, latency_delta = _metric_delta(cost_evidence, "latency_ms")
+    ram_before, ram_after, ram_delta = _metric_delta(cost_evidence, "ram_bytes")
+    vram_before, vram_after, vram_delta = _metric_delta(cost_evidence, "vram_bytes")
+    latency_available = latency_delta is not None
+    ram_available = ram_delta is not None
+    vram_available = vram_delta is not None
+    return {
+        "available": bool(cost_evidence) or bool(metrics),
+        "estimated_cost": _float(metrics.get("estimated_cost"), 0.0),
+        "usefulness": _float(metrics.get("usefulness"), 0.5),
+        "memory_pressure": _float(metrics.get("memory_pressure"), 0.0),
+        "latency_ms_before": latency_before,
+        "latency_ms_after": latency_after,
+        "latency_ms_delta": latency_delta,
+        "ram_bytes_before": ram_before,
+        "ram_bytes_after": ram_after,
+        "ram_bytes_delta": ram_delta,
+        "vram_bytes_before": vram_before,
+        "vram_bytes_after": vram_after,
+        "vram_bytes_delta": vram_delta,
+        "latency_impact_available": latency_available,
+        "ram_impact_available": ram_available,
+        "vram_impact_available": vram_available,
+        "latency_ram_vram_impact_available": bool(
+            latency_available and ram_available and vram_available
+        ),
+        "impact_summary_hash": _sha256_json(
+            {
+                "cost_evidence": dict(cost_evidence),
+                "candidate_metrics": dict(metrics),
+            }
+        ),
+    }
+
+
+def _isolated_runtime_truth_summary(
+    pre_snapshot: Mapping[str, Any],
+    post_snapshot: Mapping[str, Any],
+    runtime_truth_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    pre_truth = pre_snapshot.get("runtime_truth") if isinstance(pre_snapshot.get("runtime_truth"), Mapping) else {}
+    post_truth = post_snapshot.get("runtime_truth") if isinstance(post_snapshot.get("runtime_truth"), Mapping) else {}
+    supplied = dict(runtime_truth_summary or {})
+    pre_verdict = _text(supplied.get("pre_verdict") or pre_truth.get("verdict")) or "unknown"
+    post_verdict = _text(supplied.get("post_verdict") or post_truth.get("verdict")) or "unknown"
+    summary = {
+        "available": bool(supplied or pre_truth or post_truth),
+        "pre_verdict": pre_verdict,
+        "post_verdict": post_verdict,
+        "pre_rank": _runtime_truth_rank(pre_verdict),
+        "post_rank": _runtime_truth_rank(post_verdict),
+        "tick_latency_ms_before": supplied.get("tick_latency_ms_before"),
+        "tick_latency_ms_after": supplied.get("tick_latency_ms_after"),
+        "throughput_tokens_per_sec_before": supplied.get("throughput_tokens_per_sec_before"),
+        "throughput_tokens_per_sec_after": supplied.get("throughput_tokens_per_sec_after"),
+        "candidate_runtime_truth_status": supplied.get("candidate_runtime_truth_status"),
+        "report_path": supplied.get("report_path"),
+    }
+    summary["rank_delta"] = int(summary["post_rank"]) - int(summary["pre_rank"])
+    summary["improved_or_stable"] = int(summary["post_rank"]) >= int(summary["pre_rank"])
+    summary["summary_hash"] = _sha256_json(
+        {"pre_runtime_truth": dict(pre_truth), "post_runtime_truth": dict(post_truth), "supplied": supplied}
+    )
+    return summary
+
+
+def _isolated_no_mutation_proof(no_mutation_evidence: Mapping[str, Any]) -> dict[str, Any]:
+    before_revision = no_mutation_evidence.get("state_revision_before")
+    after_revision = no_mutation_evidence.get("state_revision_after")
+    revision_stable = (
+        before_revision is None
+        or after_revision is None
+        or int(_float(before_revision, 0.0)) == int(_float(after_revision, 0.0))
+    )
+    mutates_runtime_state = bool(no_mutation_evidence.get("mutates_runtime_state"))
+    calls_growth_or_prune = bool(no_mutation_evidence.get("calls_growth_or_prune"))
+    writes_checkpoint = bool(no_mutation_evidence.get("writes_checkpoint"))
+    applies_structural_mutation = bool(no_mutation_evidence.get("applies_structural_mutation"))
+    valid = (
+        revision_stable
+        and not mutates_runtime_state
+        and not calls_growth_or_prune
+        and not writes_checkpoint
+        and not applies_structural_mutation
+    )
+    return {
+        "available": bool(no_mutation_evidence),
+        "source": no_mutation_evidence.get("source"),
+        "state_revision_before": before_revision,
+        "state_revision_after": after_revision,
+        "state_revision_stable": revision_stable,
+        "mutates_runtime_state": mutates_runtime_state,
+        "calls_growth_or_prune": calls_growth_or_prune,
+        "writes_checkpoint": writes_checkpoint,
+        "applies_structural_mutation": applies_structural_mutation,
+        "valid": valid,
+        "proof_hash": _sha256_json(dict(no_mutation_evidence)) if no_mutation_evidence else None,
+    }
+
+
+def _checkpointed_candidate_gate(
+    *,
+    ready_for_review: bool,
+    candidate_binding: Mapping[str, Any],
+    cost_impact: Mapping[str, Any],
+    truth_summary: Mapping[str, Any],
+    rollback_evidence: Mapping[str, Any],
+    no_mutation_proof: Mapping[str, Any],
+) -> dict[str, Any]:
+    rollback_artifact = (
+        rollback_evidence.get("rollback_artifact")
+        if isinstance(rollback_evidence.get("rollback_artifact"), Mapping)
+        else {}
+    )
+    required = {
+        "isolated_evaluation_ready": bool(ready_for_review),
+        "candidate_evidence_available": bool(candidate_binding.get("available")),
+        "candidate_reason_available": bool(candidate_binding.get("candidate_reason_available")),
+        "candidate_evidence_hash_bound": bool(
+            candidate_binding.get("candidate_evidence_hash_recomputed_match")
+        ),
+        "exact_baseline_hash_available": bool(candidate_binding.get("baseline_hash_available")),
+        "candidate_reason_proves_growth_or_prune_pressure": bool(
+            candidate_binding.get("candidate_reason_proves_growth_or_prune_pressure")
+        ),
+        "cost_usefulness_metrics_available": bool(cost_impact.get("available")),
+        "latency_ram_vram_impact_available": bool(
+            cost_impact.get("latency_ram_vram_impact_available")
+        ),
+        "runtime_truth_summary_available": bool(truth_summary.get("available")),
+        "rollback_artifact_available": bool(rollback_artifact.get("available")),
+        "rollback_bound_to_pre_snapshot": bool(rollback_evidence.get("bound_to_pre_snapshot")),
+        "no_mutation_proof_available": bool(no_mutation_proof.get("available")),
+        "no_mutation_proof_valid": bool(no_mutation_proof.get("valid")),
+    }
+    ready = all(bool(value) for value in required.values())
+    return {
+        "status": (
+            "ready_for_checkpointed_candidate_review"
+            if ready
+            else "blocked_missing_checkpointed_candidate_evidence"
+        ),
+        "next_gate": (
+            "operator_approved_structural_mutation_design"
+            if ready
+            else "collect_candidate_baseline_cost_runtime_rollback_no_mutation_evidence"
+        ),
+        "eligible_for_action": False,
+        "eligible_for_fact_promotion": False,
+        "eligible_for_structural_mutation": False,
+        "eligible_for_operator_review": ready,
+        "required_evidence": required,
     }
 
 
