@@ -1266,17 +1266,6 @@ class DualMemoryStore:
         score *= self._ripple_priority_multiplier(ripple_strength)
         return float(score)
 
-    def replay_scores(self, current_token: int) -> torch.Tensor:
-        if not self.slow_buffer:
-            return torch.zeros(0, dtype=torch.float32)
-
-        self._advance_state(current_token)
-        scores = [
-            self._replay_priority_score(idx, current_token)
-            for idx in range(len(self.slow_buffer))
-        ]
-        return torch.tensor(scores, dtype=torch.float32)
-
     def replay_scores_for_indices(
         self,
         indices: Sequence[int] | torch.Tensor,

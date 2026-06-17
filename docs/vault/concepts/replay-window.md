@@ -27,6 +27,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
 ---
 
 # Replay Window
@@ -95,6 +97,9 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   report candidate availability, selected indices, CPU archival placement,
   global scan flags, and `runs_live_tick=false`. Anchor capture additionally
   requires bucketed entries so slow-window replay remains column-local.
+- Replay-priority scoring must be called with explicit candidate indices.
+  The old public full-buffer helper is retired; selected windows should use
+  `replay_scores_for_indices(...)`.
 
 ## Evidence
 
@@ -214,6 +219,17 @@ matching hot-path report
 processed `262144` tokens at `6228.243 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1846 MiB`, and had zero graph/native/sequence failures.
+
+The replay-score helper retirement removes the old public full-buffer priority
+scorer. The formula is still available through `replay_scores_for_indices(...)`
+when a caller has already selected candidate indices. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json`
+kept recall/prototype gates passing with `2` bounded updates, `4` bounded
+cycles, and `0` global fallback cycles. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json`
+processed `262144` tokens at `6211.859 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `1852 MiB`, and had zero graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`

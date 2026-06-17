@@ -19,6 +19,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
 ---
 
 # Hot Path Latency
@@ -2838,4 +2839,26 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `25%`, GPU utilization max `13%`, GPU memory
 utilization max `11%`, and GPU memory stayed flat at `1846 MiB` before and
+after measurement.
+
+### Full-Buffer Replay Score Helper Retirement, 2026-06-17
+
+The replay-score helper cleanup removes a test-only full-buffer slow-memory
+scorer and leaves replay priority available only through explicit candidate
+indices. It does not add live-tick work, but it still received the same
+65536-column protection run because it changes the replay helper API surface.
+
+The 65536-column 262144-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6211.859 tokens/sec`, with
+`train_compute=0.131468 ms/token`, `prepare_training=0.006475 ms/token`,
+`finalize_total=0.006438 ms/token`, and `tick_duration_ms.p95=20.679`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `38%`, GPU utilization max `16%`, GPU memory
+utilization max `14%`, and GPU memory stayed flat at `1852 MiB` before and
 after measurement.

@@ -39,6 +39,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
 ---
 
 # Replay/consolidation
@@ -345,6 +347,20 @@ processed `262144` tokens at `6228.243 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1846 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The replay-score helper cleanup removes a leftover archive-wide scoring API.
+The replay-priority formula remains, but callers must now use
+`replay_scores_for_indices(...)` with explicit candidate indices. That keeps
+priority ranking inside selected replay/query windows and avoids leaving a
+public full-buffer scorer beside the bounded selector. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json`
+kept the positive-pressure recall/prototype gates passing with `2` bounded
+updates and `0` global fallback cycles. The matching 65536-column hot-path
+report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json`
+processed `262144` tokens at `6211.859 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `1852 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -353,7 +369,7 @@ rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
 readout, bounded recent tag/anchor setup, and retired unscoped random replay
-defaults
+defaults plus the full-buffer replay-score helper
 implemented; future larger replay windows still require repeated long-run
 hot-path and grounding checks
 

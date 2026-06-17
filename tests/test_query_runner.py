@@ -23,9 +23,6 @@ class _FakeMemoryStore:
         self.replay_entry_calls: list[int] = []
         self.last_query_memory_match_report: dict[str, object] = {}
 
-    def replay_scores(self, token_count: int) -> torch.Tensor:
-        return torch.zeros(len(self._texts), dtype=torch.float32)
-
     def replay_scores_for_indices(
         self,
         indices: list[int],

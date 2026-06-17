@@ -476,6 +476,17 @@ processed `262144` tokens at `6228.243 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, zero graph/native/sequence
 failures, flat `1846 MiB` GPU memory, and no observed contention.
 
+The same replay cleanup removed the old public full-buffer replay-priority
+helper. Query/readout and replay tests now call `replay_scores_for_indices(...)`
+with selected candidate indices, so replay priority remains available only
+after a bounded window exists. The synthetic helper-retirement report
+`reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json`
+kept recall/prototype gates passing, and the 65536-column hot-path check
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json`
+processed `262144` tokens at `6211.859 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native/sequence
+failures, flat `1852 MiB` GPU memory, and no observed contention.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

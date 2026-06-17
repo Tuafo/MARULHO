@@ -392,13 +392,13 @@ class MemoryConsolidationTests(unittest.TestCase):
         store.update(torch.tensor([0.0, 1.0]), token_count=2, importance=0.5, bucket_id=1, routing_key=torch.tensor([0.0, 1.0]))
 
         tagged = store.tag_recent_entries(current_token=2, window_tokens=1, strength=2.0)
-        scores_before = store.replay_scores(current_token=2)
+        scores_before = store.replay_scores_for_indices([0, 1], current_token=2)
         tagged_entry = store.replay_entry(1, current_token=2)
 
         self.assertEqual(tagged, 1)
         self.assertGreater(tagged_entry["prp_level"], 0.0)
         self.assertGreater(tagged_entry["capture_strength"], 0.0)
-        self.assertGreater(float(scores_before[1].item()), float(scores_before[0].item()))
+        self.assertGreater(float(scores_before[1]), float(scores_before[0]))
 
         store.consolidate_replay([1], current_token=3, blend=0.5, protein_synthesis_level=1.25)
         consolidated_entry = store.replay_entry(1, current_token=3)

@@ -19,6 +19,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
 ---
 
 # Replay Status
@@ -57,6 +59,8 @@ Current bounded selection evidence:
   `candidate_window_policy=recent_bucket_round_robin_candidate_pool`,
   `candidate_window_limit`, `candidate_index_available_count`, and scored
   `candidate_index_count`.
+- Replay-priority scoring no longer has a public full-buffer helper. Callers
+  must pass selected candidate indices to `replay_scores_for_indices(...)`.
 - Zero-pressure global replay is retired with
   `fallback_reason=no_positive_global_scores`.
 - Deep sleep blocks unanchored global replay mutation with
@@ -96,6 +100,13 @@ Current bounded selection evidence:
 - `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json`
   keeps the live tick protected at `6228.243 tokens/sec`, bounded
   `12/65536` route rows, flat `1846 MiB` GPU memory, and zero graph/native
+  failures.
+- `reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json`
+  keeps recall/prototype gates passing after deleting the full-buffer
+  `replay_scores(...)` helper and moving tests to explicit candidate indices.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json`
+  keeps the live tick protected at `6211.859 tokens/sec`, bounded
+  `12/65536` route rows, flat `1852 MiB` GPU memory, and zero graph/native
   failures.
 
 ## Links

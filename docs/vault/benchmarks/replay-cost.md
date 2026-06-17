@@ -38,6 +38,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
 ---
 
 # Replay Cost
@@ -78,6 +80,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-recent-anchor-window.json`
 - Hot-path protection for recent replay tag/anchor setup:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Full-buffer replay-score helper retirement tests:
+  `PYTHONPATH=src python -m pytest tests\test_p1_improvements.py::TestAwakeRippleTagging::test_ripple_tagged_entries_get_higher_replay_scores tests\test_memory_consolidation.py::MemoryConsolidationTests::test_capture_tags_recruit_prp_and_raise_replay_priority tests\test_query_runner.py -q`
+- Synthetic replay-score helper retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-score-helper-retired.json`
+- Hot-path protection for replay-score helper retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 
 ## Latest Known Result
 
@@ -462,9 +470,10 @@ slow-memory scan. `query_runner.memory_matches_with_report(...)` now derives
 candidate bucket ids from routing, asks
 `DualMemoryStore.collect_query_memory_match_indices(...)` for a bounded
 bucket-indexed candidate window, and computes similarity plus replay-priority
-scores only for those candidate indices. The old `replay_scores(...)` formula
-is preserved through `replay_scores_for_indices(...)`, so the ranking signal is
-unchanged inside the selected window. The query report
+scores only for those candidate indices. The replay-priority formula is
+preserved through `replay_scores_for_indices(...)`, so the ranking signal is
+unchanged inside the selected window without exposing a full-buffer score
+helper. The query report
 `reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json`
 emits `bounded_query_memory_match.v1`: it used
 `candidate_window_limit=192`, had `candidate_index_available_count=1`, scored
@@ -520,6 +529,35 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `25%`,
 GPU utilization max `13%`, GPU memory utilization max `11%`, and GPU memory
 stayed flat at `1846 MiB` before and after measurement.
+
+The full-buffer replay-score helper retirement removes the last public helper
+that could compute replay priority for the whole slow buffer by default.
+`DualMemoryStore.replay_scores(...)` is gone; callers must pass explicit
+candidate indices to `replay_scores_for_indices(...)`, which keeps the ranking
+formula scoped to a selected window. Focused tests moved ripple-priority and
+capture-tag checks onto explicit candidate indices, and `rg "replay_scores\("`
+now finds no source or test call sites beyond the retained test name.
+
+The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json`
+kept the positive-pressure recall and prototype gates passing, applied `2`
+bounded updates, ran `4` bounded cycles, kept `global_fallback_cycle_count=0`,
+and preserved stored input-pattern recall at
+`5.960464477539063e-08` mean distance. The final bounded replay selection
+scored `16` candidates and selected `16`, still inside the bucket-indexed
+candidate window.
+
+The matching 65536-column long run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json`
+processed `262144` tokens at `6211.859 tokens/sec`, with
+`train_compute=0.131468 ms/token`, `prepare_training=0.006475 ms/token`,
+`finalize_total=0.006438 ms/token`, and `tick_duration_ms.p95=20.679`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `38%`,
+GPU utilization max `16%`, GPU memory utilization max `14%`, and GPU memory
+stayed flat at `1852 MiB` before and after measurement.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

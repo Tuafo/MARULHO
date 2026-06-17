@@ -68,17 +68,24 @@ class TestAwakeRippleTagging:
                 tag_strength=0.3,
             )
 
-        scores_before = store.replay_scores(current_token=1000)
+        candidate_indices = list(range(len(store.slow_buffer)))
+        scores_before = store.replay_scores_for_indices(
+            candidate_indices,
+            current_token=1000,
+        )
         store.ripple_tag_awake(
             current_token=1000,
             window_tokens=250,
             da_level=0.9,
         )
-        scores_after = store.replay_scores(current_token=1000)
+        scores_after = store.replay_scores_for_indices(
+            candidate_indices,
+            current_token=1000,
+        )
 
         for idx in range(10):
             if store.slow_ripple_strength[idx] > 0.0:
-                assert scores_after[idx].item() > scores_before[idx].item(), \
+                assert scores_after[idx] > scores_before[idx], \
                     f"Entry {idx} should have boosted score"
 
     def test_ripple_strength_tracks_da_and_recency(self):
