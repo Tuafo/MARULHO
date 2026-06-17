@@ -509,6 +509,59 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["fallback_reason"], "no_positive_global_scores")
         self.assertEqual(store.sample_replay_indices(n=1, current_token=9), [])
 
+    def test_bounded_replay_window_recall_uses_bucket_routing_keys(self) -> None:
+        store = DualMemoryStore(
+            capacity=8,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+        )
+        for token, bucket_id, key in (
+            (1, 1, torch.tensor([1.0, 0.0], dtype=torch.float32)),
+            (2, 2, torch.tensor([0.0, 1.0], dtype=torch.float32)),
+            (3, 1, torch.tensor([0.8, 0.2], dtype=torch.float32)),
+        ):
+            admitted = store.update(
+                torch.tensor([float(token), 1.0], dtype=torch.float32),
+                token_count=token,
+                importance=1.0,
+                bucket_id=bucket_id,
+                input_pattern=key,
+                routing_key=key,
+                capture_tag=1.0,
+            )
+            self.assertIsNotNone(admitted)
+
+        report = store.recall_replay_window(
+            query_routing_key=torch.tensor([1.0, 0.0], dtype=torch.float32),
+            query_input_pattern=torch.tensor([1.0, 0.0], dtype=torch.float32),
+            current_token=8,
+            candidate_bucket_ids=[1],
+            max_candidates=4,
+        )
+
+        self.assertEqual(report["surface"], "bounded_replay_window_recall.v1")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(report["score_device"], "cpu")
+        self.assertEqual(report["archival_storage_device"], "cpu")
+        self.assertEqual(report["routing_key_count"], 2)
+        self.assertEqual(report["input_pattern_count"], 2)
+        self.assertEqual(
+            {store.slow_bucket_ids[idx] for idx in report["routing_key_indices"]},
+            {1},
+        )
+        self.assertLess(report["best_distance"], 1e-5)
+        self.assertLess(report["best_input_distance"], 1e-5)
+
+        restored = DualMemoryStore(capacity=1)
+        restored.restore(store.snapshot())
+        restored_report = restored.summary_stats()["last_replay_recall_report"]
+        self.assertEqual(restored_report["surface"], "bounded_replay_window_recall.v1")
+        self.assertLess(restored_report["best_distance"], 1e-5)
+        self.assertLess(restored_report["best_input_distance"], 1e-5)
+
     def test_deep_sleep_uses_anchor_bucket_replay_window_report(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

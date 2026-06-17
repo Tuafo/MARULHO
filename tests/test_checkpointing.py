@@ -162,6 +162,55 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 [3],
             )
 
+    def test_checkpoint_roundtrip_preserves_replay_window_recall_report(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            report = {
+                "surface": "bounded_replay_window_recall.v1",
+                "status": "recalled",
+                "scope": "replay_recall_slow_path",
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "selected_indices": [2, 5],
+                "selected_count": 2,
+                "routing_key_count": 2,
+                "input_pattern_count": 2,
+                "best_distance": 0.001,
+                "best_input_distance": 0.0,
+                "runs_live_tick": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+            }
+            trainer.model.memory_store.last_replay_recall_report = dict(report)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "replay-window-recall.pt",
+                trainer,
+            )
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            restored_report = restored.model.memory_store.last_replay_recall_report
+            self.assertEqual(restored_report["surface"], "bounded_replay_window_recall.v1")
+            self.assertEqual(restored_report["candidate_scope"], "bucket_indexed_candidate_window")
+            self.assertEqual(restored_report["selected_indices"], [2, 5])
+            self.assertEqual(restored_report["routing_key_count"], 2)
+            self.assertEqual(restored_report["input_pattern_count"], 2)
+            self.assertEqual(restored_report["best_input_distance"], 0.0)
+            self.assertFalse(restored_report["runs_live_tick"])
+            self.assertFalse(restored_report["mutates_runtime_state"])
+
     def test_checkpoint_roundtrip_preserves_column_metabolism_state(self) -> None:
         from tempfile import TemporaryDirectory
 

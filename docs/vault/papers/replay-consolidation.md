@@ -50,21 +50,30 @@ selection scores only entries attached to those bucket ids through the
 bucket-to-entry index. If no bucket scope is available, the report says
 `global_slow_path_score_scan` so the full slow-memory scorer is not hidden.
 
+`DualMemoryStore.recall_replay_window(...)` records
+`bounded_replay_window_recall.v1`. It is a non-mutating slow-path local memory
+operator over the selected replay window: routing keys and optional input
+patterns stay CPU-normalized for archival recall evidence, `runs_live_tick=false`,
+`mutates_runtime_state=false`, and no plasticity is applied.
+
 Zero-pressure replay is now retired: if the global scorer finds no positive
 consolidation/repair/maintenance pressure, it returns an empty selection with
 `fallback_reason=no_positive_global_scores` instead of rehearsing arbitrary
 zero-score entries.
 
-The 2026-06-17 synthetic benchmark shows this as a guardrail, not a quality
-promotion. `bounded_positive_pressure` produced one bounded replay cycle and
-then stopped when pressure was exhausted; `bounded_zero_pressure_guard` and
-`global_control` applied `0` replay updates. The reconstruction gate still
-failed, so the next replay slice must improve the quality target before claiming
-better memory.
+The 2026-06-17 synthetic benchmark now separates stored-experience recall from
+prototype repair. With positive anchor pressure, the bounded replay window
+recalled stored Task-A input patterns with mean distance
+`5.960464477539063e-08` under the `0.01` gate while scoring only bucket-indexed
+entries. The zero-pressure guard applied `0` replay updates, and the global
+control stayed unbounded for recall. The reconstruction/prototype consolidation
+gate still failed, so the next replay slice must improve that target before
+claiming consolidation promotion.
 
 ## Status
 
-bounded slow-path selection implemented; quality promotion open
+bounded slow-path selection and stored-experience recall implemented; prototype
+consolidation promotion open
 
 ## Links
 

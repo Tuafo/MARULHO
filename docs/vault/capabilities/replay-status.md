@@ -28,12 +28,18 @@ prediction/grounding/reconstruction target.
 Current bounded selection evidence:
 
 - `bounded_replay_window_selection.v1` is emitted from `DualMemoryStore`.
+- `bounded_replay_window_recall.v1` is emitted from `DualMemoryStore` as a
+  CPU slow-path, non-mutating associative recall report over selected replay
+  windows.
 - Deep sleep can select from column-anchor bucket ids without scoring unrelated
   memory entries.
 - Zero-pressure global replay is retired with
   `fallback_reason=no_positive_global_scores`.
-- `reports/bounded_replay_window_20260617/synthetic-selection.json` did not pass
-  the reconstruction gate, so replay remains quality-open.
+- `reports/bounded_replay_window_20260617/synthetic-selection.json` passes the
+  bounded stored input-pattern recall gate for positive-pressure windows
+  (`5.960464477539063e-08` mean distance against threshold `0.01`), but does
+  not pass the prototype reconstruction gate, so consolidation promotion remains
+  quality-open.
 
 ## Links
 

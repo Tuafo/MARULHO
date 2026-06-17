@@ -39,6 +39,81 @@ def _mean_reconstruction(
     )
 
 
+def _bounded_replay_recall_summary(
+    trainer: MarulhoTrainer,
+    items: list[tuple[str, torch.Tensor]],
+    *,
+    max_candidates: int,
+) -> dict[str, Any]:
+    candidate_bucket_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
+    reports: list[dict[str, Any]] = []
+    routing_distances: list[float] = []
+    input_distances: list[float] = []
+    for _raw_window, pattern in items:
+        report = trainer.model.memory_store.recall_replay_window(
+            query_routing_key=trainer.model.routing_key_from_pattern(pattern),
+            query_input_pattern=pattern,
+            current_token=trainer.token_count,
+            candidate_bucket_ids=candidate_bucket_ids,
+            max_candidates=max_candidates,
+            strategy="consolidation",
+        )
+        reports.append(report)
+        routing_distance = report.get("best_distance")
+        input_distance = report.get("best_input_distance")
+        routing_distances.append(
+            float(routing_distance)
+            if isinstance(routing_distance, (float, int))
+            else float("inf")
+        )
+        input_distances.append(
+            float(input_distance)
+            if isinstance(input_distance, (float, int))
+            else float("inf")
+        )
+
+    mean_routing_distance = float(sum(routing_distances) / max(1, len(routing_distances)))
+    mean_input_distance = float(sum(input_distances) / max(1, len(input_distances)))
+    all_bucket_scoped = all(
+        report.get("candidate_scope") == "bucket_indexed_candidate_window"
+        and bool(report.get("selection_report", {}).get("bounded_by_bucket_index"))
+        for report in reports
+    )
+    any_live_tick = any(bool(report.get("runs_live_tick")) for report in reports)
+    any_mutation = any(bool(report.get("mutates_runtime_state")) for report in reports)
+    has_input_recall = all(
+        int(report.get("input_pattern_count", 0) or 0) > 0
+        for report in reports
+    )
+    return {
+        "surface": "bounded_replay_window_recall_benchmark.v1",
+        "candidate_bucket_ids": candidate_bucket_ids,
+        "candidate_bucket_count": int(len(candidate_bucket_ids)),
+        "mean_routing_key_distance": mean_routing_distance,
+        "mean_input_pattern_distance": mean_input_distance,
+        "reports": reports,
+        "gate": {
+            "pass": bool(
+                all_bucket_scoped
+                and has_input_recall
+                and not any_live_tick
+                and not any_mutation
+                and mean_input_distance <= 0.01
+            ),
+            "bounded_bucket_scoped": bool(all_bucket_scoped),
+            "has_input_recall": bool(has_input_recall),
+            "runs_live_tick": bool(any_live_tick),
+            "mutates_runtime_state": bool(any_mutation),
+            "mean_input_pattern_distance_lte_0_01": bool(
+                mean_input_distance <= 0.01
+            ),
+            "thresholds": {
+                "mean_input_pattern_distance_max": 0.01,
+            },
+        },
+    }
+
+
 def _inject_anchor_replay_pressure(trainer: MarulhoTrainer) -> int:
     anchor_buckets = {int(bucket_id) for bucket_id in trainer.column_anchors}
     touched = 0
@@ -58,6 +133,22 @@ def _inject_anchor_replay_pressure(trainer: MarulhoTrainer) -> int:
     return touched
 
 
+def _clear_replay_pressure(trainer: MarulhoTrainer) -> int:
+    store = trainer.model.memory_store
+    touched = 0
+    for idx in range(len(store.slow_buffer)):
+        store.slow_capture_tag[idx] = 0.0
+        store.slow_local_prp[idx] = 0.0
+        store.slow_consolidation_level[idx] = min(
+            0.2,
+            float(store.slow_consolidation_level[idx]),
+        )
+        touched += 1
+    if touched:
+        store._invalidate_summary_cache()
+    return touched
+
+
 def run_trial(
     *,
     seed: int,
@@ -65,6 +156,7 @@ def run_trial(
     n_columns: int,
     column_latent_dim: int,
     memory_capacity: int,
+    slow_memory_archive_interval_tokens: int,
     task_repetitions: int,
     boundary_cycles: int,
     consolidation_cycles: int,
@@ -77,6 +169,7 @@ def run_trial(
         column_latent_dim=column_latent_dim,
         bootstrap_tokens=0,
         memory_capacity=memory_capacity,
+        slow_memory_archive_interval_tokens=slow_memory_archive_interval_tokens,
         eta_competitive=0.05,
         eta_decay=0.0,
         input_weight_blend=0.0,
@@ -124,8 +217,16 @@ def run_trial(
         trainer.column_anchors.clear()
     elif final_selector == "bounded_positive_pressure":
         pressure_entries = _inject_anchor_replay_pressure(trainer)
-    elif final_selector != "bounded_zero_pressure_guard":
+    elif final_selector == "bounded_zero_pressure_guard":
+        pressure_entries = _clear_replay_pressure(trainer)
+    else:
         raise ValueError(f"Unknown final selector: {final_selector}")
+
+    recall_summary = _bounded_replay_recall_summary(
+        trainer,
+        task_a,
+        max_candidates=candidate_pool,
+    )
 
     started = time.perf_counter()
     updates = 0
@@ -171,6 +272,12 @@ def run_trial(
             "task_a_recon_after_a": task_a_after_a,
             "task_a_recon_after_b": task_a_after_b,
             "task_a_recon_after_consolidation": task_a_after_consolidation,
+            "task_a_bounded_replay_recall_routing_key_distance": (
+                recall_summary["mean_routing_key_distance"]
+            ),
+            "task_a_bounded_replay_recall_input_pattern_distance": (
+                recall_summary["mean_input_pattern_distance"]
+            ),
             "task_a_recovery_delta": (
                 task_a_after_b - task_a_after_consolidation
             ),
@@ -179,6 +286,7 @@ def run_trial(
             ),
         },
         "memory_consolidation_gate": gate,
+        "bounded_replay_recall": recall_summary,
         "selection": selection,
         "cycle_selection_reports": cycle_selection_reports,
         "bounded_cycle_count": int(bounded_cycle_count),
@@ -198,6 +306,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             n_columns=args.n_columns,
             column_latent_dim=args.column_latent_dim,
             memory_capacity=args.memory_capacity,
+            slow_memory_archive_interval_tokens=(
+                args.slow_memory_archive_interval_tokens
+            ),
             task_repetitions=args.task_repetitions,
             boundary_cycles=args.boundary_cycles,
             consolidation_cycles=args.consolidation_cycles,
@@ -218,6 +329,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "n_columns": int(args.n_columns),
             "column_latent_dim": int(args.column_latent_dim),
             "memory_capacity": int(args.memory_capacity),
+            "slow_memory_archive_interval_tokens": int(
+                args.slow_memory_archive_interval_tokens
+            ),
             "task_repetitions": int(args.task_repetitions),
             "boundary_cycles": int(args.boundary_cycles),
             "consolidation_cycles": int(args.consolidation_cycles),
@@ -226,8 +340,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         },
         "trials": trials,
         "quality_claim": (
-            "selection_evidence_only_until reconstruction gate passes under "
-            "bounded replay pressure and long-run hot-path evidence"
+            "bounded input-pattern recall is measured separately from prototype "
+            "repair; prototype reconstruction remains open until its gate passes"
         ),
     }
 
@@ -241,6 +355,7 @@ def main() -> None:
     parser.add_argument("--n-columns", type=int, default=16)
     parser.add_argument("--column-latent-dim", type=int, default=32)
     parser.add_argument("--memory-capacity", type=int, default=128)
+    parser.add_argument("--slow-memory-archive-interval-tokens", type=int, default=4)
     parser.add_argument("--task-repetitions", type=int, default=18)
     parser.add_argument("--boundary-cycles", type=int, default=2)
     parser.add_argument("--consolidation-cycles", type=int, default=4)
@@ -255,6 +370,7 @@ def main() -> None:
     for trial in report["trials"]:
         selection = trial["selection"]
         metrics = trial["metrics"]
+        recall_gate = trial["bounded_replay_recall"]["gate"]
         print(
             f"{trial['trial']}: updates={trial['updates']} "
             f"candidate_scope={selection.get('candidate_scope')} "
@@ -262,7 +378,9 @@ def main() -> None:
             f"global_fallback_cycles={trial['global_fallback_cycle_count']} "
             f"score_count={selection.get('score_count')} "
             f"selected_count={selection.get('selected_count')} "
-            f"gate_pass={trial['memory_consolidation_gate']['pass']} "
+            f"recall_gate_pass={recall_gate['pass']} "
+            f"prototype_gate_pass={trial['memory_consolidation_gate']['pass']} "
+            f"input_distance={metrics['task_a_bounded_replay_recall_input_pattern_distance']:.8f} "
             f"recovery_delta={metrics['task_a_recovery_delta']:.8f}"
         )
 

@@ -29,12 +29,16 @@ Current status:
 
 - Archival memory, tags, PRP, timestamps, bucket ids, and replay-selection
   scoring stay CPU-resident.
+- Bounded replay-window recall also stays CPU-resident and read-only; it reports
+  routing-key/input-pattern distances but does not mutate runtime state or apply
+  plasticity.
 - Active replay still moves tensors to the model device only when sleep replay
   actually applies plasticity.
-- Checkpoints preserve `last_sleep_replay_selection_report` so replay-window
-  evidence survives restore.
-- The 2026-06-17 benchmark retired zero-pressure replay but did not pass the
-  reconstruction quality gate.
+- Checkpoints preserve `last_sleep_replay_selection_report` and the memory
+  store's `last_replay_recall_report` so replay-window evidence survives restore.
+- The 2026-06-17 benchmark retired zero-pressure replay and passed bounded
+  stored input-pattern recall under positive pressure, but did not pass the
+  prototype reconstruction quality gate.
 
 ## Links
 

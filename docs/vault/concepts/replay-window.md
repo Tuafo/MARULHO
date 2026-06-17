@@ -22,7 +22,8 @@ related_benchmarks:
 A bounded, measured set of memory entries selected for review or isolated sleep
 replay before any consolidation or plasticity authority.
 
-Current runtime surface: `bounded_replay_window_selection.v1`.
+Current runtime surfaces: `bounded_replay_window_selection.v1` and
+`bounded_replay_window_recall.v1`.
 
 ## Rules
 
@@ -34,14 +35,19 @@ Current runtime surface: `bounded_replay_window_selection.v1`.
   not hide a full-memory scorer.
 - Zero-pressure replay is retired. No replay updates apply when the best score
   is zero.
+- Replay-window recall is non-mutating: it can compare routing keys and stored
+  input patterns inside the selected window, but it cannot apply plasticity or
+  run from the live tick.
 - Archival metadata stays CPU-resident; active replay tensors move to the model
   device only when replay is actually applied.
 
 ## Evidence
 
 `reports/bounded_replay_window_20260617/synthetic-selection.json` proves the
-selection/retirement guardrail but does not pass reconstruction quality. The
-matching hot-path report
+selection/retirement guardrail and passes the bounded stored input-pattern
+recall gate for positive-pressure windows (`5.960464477539063e-08` mean input
+distance, threshold `0.01`). It still does not pass prototype reconstruction
+quality. The matching hot-path report
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32.json`
 keeps the 65536-column live tick in band.
 

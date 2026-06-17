@@ -4320,6 +4320,16 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             truth["evidence"]["memory_hot_path"]["awake_ripple_last_tagged"],
             0,
         )
+        replay_window_recall = truth["evidence"]["memory_hot_path"][
+            "replay_window_recall"
+        ]
+        self.assertEqual(
+            replay_window_recall["surface"],
+            "bounded_replay_window_recall.v1",
+        )
+        self.assertEqual(replay_window_recall["status"], "not_run")
+        self.assertFalse(replay_window_recall["runs_live_tick"])
+        self.assertFalse(replay_window_recall["mutates_runtime_state"])
         self.assertIn("cross_modal_hot_path", truth["evidence"])
         self.assertEqual(
             truth["evidence"]["cross_modal_hot_path"]["fast_idle_skip_count"],

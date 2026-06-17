@@ -103,6 +103,7 @@ class DualMemoryStore:
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
         self.last_replay_selection_report = self._empty_replay_selection_report()
+        self.last_replay_recall_report = self._empty_replay_recall_report()
 
         self.n_seen = 0
         self._slow_mean: Optional[torch.Tensor] = None
@@ -149,6 +150,7 @@ class DualMemoryStore:
         self.last_ripple_awake_candidate_count = 0
         self.last_ripple_scan_mode = "not_run"
         self.last_replay_selection_report = self._empty_replay_selection_report()
+        self.last_replay_recall_report = self._empty_replay_recall_report()
         self._slow_mean = None
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
@@ -222,6 +224,28 @@ class DualMemoryStore:
             "score_count": 0,
             "global_score_scan": False,
             "bounded_by_bucket_index": False,
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_replay_recall_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_replay_window_recall.v1",
+            "status": "not_run",
+            "scope": "replay_recall_slow_path",
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "candidate_scope": "not_run",
+            "selected_indices": [],
+            "selected_count": 0,
+            "routing_key_count": 0,
+            "input_pattern_count": 0,
+            "best_distance": None,
+            "best_input_distance": None,
+            "recalled_distance": None,
             "fallback_reason": "not_run",
         }
 
@@ -387,6 +411,9 @@ class DualMemoryStore:
             },
             "last_replay_selection_report": dict(
                 self.last_replay_selection_report
+            ),
+            "last_replay_recall_report": dict(
+                self.last_replay_recall_report
             ),
             "all_archival_tensors_cpu": all(
                 device == "cpu"
@@ -1463,6 +1490,169 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
+    @staticmethod
+    def _normalise_cpu_routing_key(value: torch.Tensor) -> torch.Tensor:
+        key = value.detach().clone().cpu().float().clamp(min=1e-6)
+        if key.dim() != 1:
+            key = key.flatten()
+        return key / key.norm().clamp(min=1e-8)
+
+    def recall_replay_window(
+        self,
+        *,
+        query_routing_key: torch.Tensor,
+        query_input_pattern: torch.Tensor | None = None,
+        current_token: int,
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None,
+        max_candidates: int,
+        strategy: str = "repair",
+        temperature: float = 32.0,
+        scope: str = "replay_recall_slow_path",
+    ) -> dict[str, Any]:
+        """Run bounded associative recall over selected replay routing keys.
+
+        This is a slow-path local memory operator.  It never scans memory unless
+        candidate bucket ids are supplied, and it never mutates runtime state.
+        """
+
+        started = time.perf_counter()
+        scoped_bucket_ids = [] if candidate_bucket_ids is None else candidate_bucket_ids
+        selection_report = self.select_replay_window(
+            n=max(0, int(max_candidates)),
+            current_token=int(current_token),
+            candidate_pool=max(0, int(max_candidates)),
+            strategy=strategy,
+            candidate_bucket_ids=scoped_bucket_ids,
+            scope=scope,
+        )
+        selected_indices = [
+            int(index)
+            for index in selection_report.get("selected_indices", [])
+        ]
+        selection_blocked_reason: str | None = None
+        if (
+            strategy != "repair"
+            and float(selection_report.get("selected_score_max", 0.0) or 0.0) <= 0.0
+        ):
+            selected_indices = []
+            selection_blocked_reason = "no_positive_recall_pressure"
+        query = self._normalise_cpu_routing_key(query_routing_key)
+        keys: list[torch.Tensor] = []
+        key_indices: list[int] = []
+        input_patterns: list[torch.Tensor] = []
+        input_indices: list[int] = []
+        fallback_reason: str | None = None
+        for index in selected_indices:
+            if index < 0 or index >= len(self.slow_routing_keys):
+                continue
+            routing_key = self.slow_routing_keys[index]
+            if not isinstance(routing_key, torch.Tensor):
+                routing_key = None
+            if isinstance(routing_key, torch.Tensor) and int(routing_key.numel()) == int(query.numel()):
+                keys.append(self._normalise_cpu_routing_key(routing_key))
+                key_indices.append(index)
+            if query_input_pattern is not None and index < len(self.slow_input_patterns):
+                input_pattern = self.slow_input_patterns[index]
+                if (
+                    isinstance(input_pattern, torch.Tensor)
+                    and int(input_pattern.numel()) == int(query_input_pattern.numel())
+                ):
+                    input_patterns.append(
+                        self._normalise_cpu_routing_key(input_pattern)
+                    )
+                    input_indices.append(index)
+
+        best_index: int | None = None
+        best_similarity: float | None = None
+        best_distance: float | None = None
+        recalled_similarity: float | None = None
+        recalled_distance: float | None = None
+        recalled_key_norm = 0.0
+        attention_entropy = 0.0
+        best_input_index: int | None = None
+        best_input_similarity: float | None = None
+        best_input_distance: float | None = None
+        if not keys:
+            fallback_reason = (
+                selection_blocked_reason
+                or str(selection_report.get("fallback_reason") or "no_routing_keys")
+            )
+        else:
+            matrix = torch.stack(keys, dim=0)
+            similarities = torch.mv(matrix, query)
+            best_local = int(torch.argmax(similarities).item())
+            best_index = int(key_indices[best_local])
+            best_similarity = float(similarities[best_local].item())
+            best_distance = max(0.0, 1.0 - best_similarity)
+            weights = torch.softmax(
+                similarities * max(1e-6, float(temperature)),
+                dim=0,
+            )
+            recalled = torch.mv(matrix.t(), weights)
+            recalled_key_norm = float(recalled.norm().item())
+            recalled = recalled.clamp(min=1e-6)
+            recalled = recalled / recalled.norm().clamp(min=1e-8)
+            recalled_similarity = float(torch.dot(recalled, query).item())
+            recalled_distance = max(0.0, 1.0 - recalled_similarity)
+            attention_entropy = float(
+                -(weights * torch.log(weights.clamp(min=1e-12))).sum().item()
+            )
+        if query_input_pattern is not None and input_patterns:
+            query_input = self._normalise_cpu_routing_key(query_input_pattern)
+            input_matrix = torch.stack(input_patterns, dim=0)
+            input_similarities = torch.mv(input_matrix, query_input)
+            input_best_local = int(torch.argmax(input_similarities).item())
+            best_input_index = int(input_indices[input_best_local])
+            best_input_similarity = float(input_similarities[input_best_local].item())
+            best_input_distance = max(0.0, 1.0 - best_input_similarity)
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_replay_window_recall.v1",
+            "status": "recalled" if keys else "empty",
+            "scope": str(scope),
+            "strategy": str(strategy),
+            "current_token": int(current_token),
+            "candidate_scope": selection_report.get("candidate_scope"),
+            "candidate_bucket_ids": list(
+                selection_report.get("candidate_bucket_ids", [])
+            ),
+            "candidate_bucket_count": int(
+                selection_report.get("candidate_bucket_count", 0) or 0
+            ),
+            "candidate_index_count": int(
+                selection_report.get("candidate_index_count", 0) or 0
+            ),
+            "selected_indices": selected_indices,
+            "selected_count": int(len(selected_indices)),
+            "routing_key_indices": key_indices,
+            "routing_key_count": int(len(keys)),
+            "input_pattern_indices": input_indices,
+            "input_pattern_count": int(len(input_patterns)),
+            "best_index": best_index,
+            "best_similarity": best_similarity,
+            "best_distance": best_distance,
+            "best_input_index": best_input_index,
+            "best_input_similarity": best_input_similarity,
+            "best_input_distance": best_input_distance,
+            "recalled_similarity": recalled_similarity,
+            "recalled_distance": recalled_distance,
+            "recalled_key_norm": recalled_key_norm,
+            "attention_entropy": attention_entropy,
+            "temperature": float(temperature),
+            "selection_report": dict(selection_report),
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+        }
+        self.last_replay_recall_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def sample_replay_indices(
         self,
         *,
@@ -1691,6 +1881,9 @@ class DualMemoryStore:
                 "last_replay_selection_report": dict(
                     self.last_replay_selection_report
                 ),
+                "last_replay_recall_report": dict(
+                    self.last_replay_recall_report
+                ),
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -1759,6 +1952,9 @@ class DualMemoryStore:
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "last_replay_selection_report": dict(
                 self.last_replay_selection_report
+            ),
+            "last_replay_recall_report": dict(
+                self.last_replay_recall_report
             ),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
@@ -1850,6 +2046,9 @@ class DualMemoryStore:
             "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
             "last_replay_selection_report": dict(
                 self.last_replay_selection_report
+            ),
+            "last_replay_recall_report": dict(
+                self.last_replay_recall_report
             ),
             "slow_mean": None if self._slow_mean is None else self._slow_mean.detach().clone().cpu(),
             "slow_weight_sum": float(self._slow_weight_sum),
@@ -2024,6 +2223,12 @@ class DualMemoryStore:
             dict(raw_replay_selection)
             if isinstance(raw_replay_selection, Mapping)
             else self._empty_replay_selection_report()
+        )
+        raw_replay_recall = snapshot.get("last_replay_recall_report")
+        self.last_replay_recall_report = (
+            dict(raw_replay_recall)
+            if isinstance(raw_replay_recall, Mapping)
+            else self._empty_replay_recall_report()
         )
         self._rebuild_bucket_entry_index()
         slow_mean = snapshot.get("slow_mean")

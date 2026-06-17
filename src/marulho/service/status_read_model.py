@@ -979,6 +979,9 @@ class StatusReadModel:
                 )
                 or {}
             ),
+            "replay_window_recall": dict(
+                memory_store.get("last_replay_recall_report", {}) or {}
+            ),
         }
         cross_modal_hot_path = {
             "fast_idle_skip_count": int(
