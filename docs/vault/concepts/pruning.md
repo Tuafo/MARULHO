@@ -13,7 +13,7 @@ related_benchmarks: []
 
         Bounded structural removal or repair, evaluated by retained support, topology evidence, and rollback readiness.
 
-        Pruning is not a status-side decision. A weak, slow, noisy, high-pressure, or low-usefulness structure may become prune/sleep review evidence only through a checkpointed candidate ticket, isolated cost/usefulness and Runtime Truth comparison, rollback artifact, and no-mutation proof.
+        Pruning is not a status-side decision. A weak, slow, noisy, high-pressure, or low-usefulness structure may become prune/sleep review evidence only through a checkpointed candidate ticket, isolated cost/usefulness and Runtime Truth comparison, rollback artifact, and no-mutation proof. If the reviewed transaction is blocked, no-delta, over-budget, or fails commit verification, the executor must emit a Structural Candidate Tombstone with candidate provenance and rollback evidence instead of silently dropping the candidate.
 
         ## Relationships
 

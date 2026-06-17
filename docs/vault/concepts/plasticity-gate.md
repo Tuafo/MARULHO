@@ -13,7 +13,7 @@ related_benchmarks: []
 
         A read-only or operator-confirmed boundary that blocks learning/mutation until evidence, rollback, and revision checks align.
 
-        For structural growth/pruning, the current gate includes checkpointed candidate evidence: exact baseline hash, candidate reason, cost/usefulness metrics, latency/RAM/VRAM impact, Runtime Truth summary, rollback artifact, and no-mutation proof must be bound before transaction review.
+        For structural growth/pruning, the current gate includes checkpointed candidate evidence: exact baseline hash, candidate reason, cost/usefulness metrics, latency/RAM/VRAM impact, Runtime Truth summary, rollback artifact, and no-mutation proof must be bound before transaction review. Structural Mutation Preflight binds the candidate gate status, candidate evidence hash, baseline hash, reason, and cost-impact hash into the preflight hash, and the executor rejects tampered candidate provenance before any mutation.
 
         ## Relationships
 

@@ -14217,6 +14217,28 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(
             blocked_application["promotion_gate"]["required_evidence"]["confirmation"]
         )
+        self.assertEqual(
+            blocked_application["candidate_provenance"]["surface"],
+            "subcortical_structural_candidate_provenance.v1",
+        )
+        self.assertEqual(
+            blocked_application["candidate_provenance"]["candidate_evidence_hash"],
+            candidate_ticket_hash,
+        )
+        self.assertFalse(blocked_application["rollback_artifact"]["available"])
+        self.assertEqual(
+            blocked_application["tombstone_manifest"]["surface"],
+            "subcortical_structural_candidate_tombstone.v1",
+        )
+        self.assertEqual(
+            blocked_application["tombstone_manifest"]["status"],
+            "blocked_before_mutation",
+        )
+        self.assertEqual(
+            blocked_application["tombstone_manifest"]["candidate_evidence_hash"],
+            candidate_ticket_hash,
+        )
+        self.assertFalse(blocked_application["tombstone_manifest"]["mutates_runtime_state"])
         self.assertEqual(before_revision, after_revision)
         self.assertEqual(before_history, after_history)
 

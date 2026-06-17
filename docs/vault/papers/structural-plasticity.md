@@ -23,7 +23,7 @@ related_benchmarks: []
 
         Structural plasticity belongs behind repeated-surprise, usefulness, homeostasis, budget, isolated-evaluation, and checkpoint gates. It should grow or prune candidates only when evidence shows existing columns or synapses are not enough, and it must not run topology mutation inside the always-on tick.
 
-        Current implementation implication: the isolated structural evaluator must bind a training-owned structural-review ticket to an exact baseline hash, candidate reason, cost/usefulness and latency/RAM/VRAM impact, Runtime Truth summary, rollback artifact, and no-mutation proof. This follows reward-modulated STDP and homeostatic-plasticity work for local evidence, sparse GPU structural-plasticity work for bounded sparse edits, event-based delay learning for timing/cost-aware evidence, and self-growing/growth-stability work for proving newborn structures before trust.
+        Current implementation implication: the isolated structural evaluator must bind a training-owned structural-review ticket to an exact baseline hash, candidate reason, cost/usefulness and latency/RAM/VRAM impact, Runtime Truth summary, rollback artifact, and no-mutation proof. The executor must then recompute the candidate-bound preflight hash and tombstone rejected or retired candidates with rollback/provenance evidence instead of mutating or forgetting them silently. This follows reward-modulated STDP and homeostatic-plasticity work for local evidence, sparse GPU structural-plasticity work for bounded sparse edits, event-based delay learning for timing/cost-aware evidence, and self-growing/growth-stability work for proving newborn structures before trust.
 
         ## Status
 

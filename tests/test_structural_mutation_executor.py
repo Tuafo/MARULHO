@@ -72,6 +72,11 @@ def _ready_preflight(checkpoint_path: Path, expected_revision: int = 0) -> dict[
         "mutation_method": "HypercubeBindingLayer.refresh_hub_topology",
         "mutation_reason": "repeated isolated prediction failure",
         "max_total_edge_delta": 16,
+        "checkpointed_candidate_gate_status": None,
+        "candidate_evidence_hash": None,
+        "candidate_baseline_hash": None,
+        "candidate_reason": None,
+        "cost_impact_summary_hash": None,
     }
     required_evidence = {"design_hash_recomputed_match": True}
     preflight_material = {
@@ -80,6 +85,13 @@ def _ready_preflight(checkpoint_path: Path, expected_revision: int = 0) -> dict[
         "mutation_method": design_binding["mutation_method"],
         "mutation_reason": design_binding["mutation_reason"],
         "max_total_edge_delta": design_binding["max_total_edge_delta"],
+        "checkpointed_candidate_gate_status": design_binding[
+            "checkpointed_candidate_gate_status"
+        ],
+        "candidate_evidence_hash": design_binding["candidate_evidence_hash"],
+        "candidate_baseline_hash": design_binding["candidate_baseline_hash"],
+        "candidate_reason": design_binding["candidate_reason"],
+        "cost_impact_summary_hash": design_binding["cost_impact_summary_hash"],
         "expected_state_revision": expected_revision,
         "current_state_revision": expected_revision,
         "checkpoint_path": str(checkpoint_path),
@@ -146,6 +158,69 @@ def _executor(
     )
 
 
+def _real_checkpointed_candidate_preflight(tmp_path: Path) -> dict[str, Any]:
+    evaluation = {
+        "surface": "subcortical_structural_plasticity_isolated_evaluation.v1",
+        "artifact_kind": "terminus_subcortical_structural_plasticity_isolated_evaluation",
+        "structural_delta": {
+            "edges_added_delta": 2,
+            "edges_removed_delta": 0,
+            "growth_events_delta": 1,
+            "prune_events_delta": 0,
+            "total_edge_delta": 2,
+            "bounded_edge_delta_limit": 16,
+            "bounded": True,
+        },
+        "snapshot_binding": {
+            "pre_snapshot_hash": "b" * 64,
+            "post_snapshot_hash": "c" * 64,
+            "pre_state_revision": 0,
+            "post_state_revision": 1,
+            "snapshot_hashes_distinct": True,
+            "structural_delta_present": True,
+        },
+        "rollback_evidence": {
+            "snapshot_id": "isolated-pre",
+            "pre_snapshot_hash": "b" * 64,
+            "bound_to_pre_snapshot": True,
+        },
+        "device_evidence": {"consistent": True},
+        "spike_health_delta": {"improved_or_stable": True},
+        "runtime_truth_delta": {"improved_or_stable": True},
+        "checkpointed_candidate_gate": {
+            "status": "ready_for_checkpointed_candidate_review",
+        },
+        "checkpointed_candidate_evidence": {
+            "ticket_id": "growth-ticket-executor",
+            "kind": "growth_review",
+            "column_id": 7,
+            "candidate_reason": "repeated_prediction_failure_on_awake_candidate",
+            "candidate_evidence_hash": "e" * 64,
+            "baseline_hash": "b" * 64,
+            "baseline_hash_available": True,
+            "candidate_evidence_hash_recomputed_match": True,
+            "candidate_reason_proves_growth_or_prune_pressure": True,
+        },
+        "cost_usefulness_impact": {
+            "impact_summary_hash": "f" * 64,
+            "latency_ram_vram_impact_available": True,
+        },
+        "promotion_gate": {"status": "ready_for_operator_review"},
+    }
+    design = build_subcortical_structural_mutation_design(
+        evaluation,
+        operator_id="operator-structural",
+        confirmation=True,
+        mutation_reason="repeated isolated prediction failure",
+    )
+    return build_subcortical_structural_mutation_preflight(
+        design,
+        expected_state_revision=0,
+        current_state_revision=0,
+        checkpoint_path=str(tmp_path / "pre.pt"),
+    )
+
+
 def test_structural_mutation_application_commits_real_binding_edge_delta(tmp_path: Path) -> None:
     runtime_state = RuntimeState(lock=RLock())
     binding = _FakeBindingLayer(changes=True)
@@ -160,6 +235,9 @@ def test_structural_mutation_application_commits_real_binding_edge_delta(tmp_pat
 
     assert result["accepted"] is True
     assert result["checkpoint_transaction"]["restore_verified"] is True
+    assert result["candidate_provenance"]["surface"] == (
+        "subcortical_structural_candidate_provenance.v1"
+    )
     assert result["application_target"]["target_id"] == "marulho.subcortex.binding.hub_topology"
     assert result["structural_delta"] == {
         "edges_added_delta": 2,
@@ -191,6 +269,11 @@ def test_structural_mutation_application_restores_when_refresh_has_no_topology_d
     assert result["accepted"] is False
     assert result["reason"] == "blocked_no_binding_hub_topology_delta"
     assert result["promotion_gate"]["required_evidence"]["binding_hub_topology_delta_observed"] is False
+    assert result["rollback_artifact"]["available"] is True
+    assert result["rollback_artifact"]["binding_state_restored"] is True
+    assert result["tombstone_manifest"]["status"] == "rejected_with_rollback"
+    assert result["tombstone_manifest"]["reason"] == "blocked_no_binding_hub_topology_delta"
+    assert len(result["tombstone_manifest"]["tombstone_manifest_hash"]) == 64
     assert runtime_state.state_revision == 0
     assert binding.state_dict() == before
 
@@ -218,6 +301,9 @@ def test_structural_mutation_application_rolls_back_binding_and_revision_on_comm
     assert result["accepted"] is False
     assert result["reason"] == "post_structural_mutation_checkpoint_commit_failed"
     assert result["promotion_gate"]["required_evidence"]["rollback_recovered_in_memory"] is True
+    assert result["rollback_artifact"]["available"] is True
+    assert result["rollback_artifact"]["state_revision_restored"] is True
+    assert result["tombstone_manifest"]["status"] == "retired_after_rollback"
     assert runtime_state.state_revision == 0
     assert binding.state_dict() == before
 
@@ -242,6 +328,8 @@ def test_structural_mutation_application_requires_bound_preflight_revision_and_o
     assert evidence["expected_revision_matches_preflight"] is False
     assert evidence["operator_id_available"] is False
     assert evidence["confirmation"] is False
+    assert result["rollback_artifact"]["available"] is False
+    assert result["tombstone_manifest"]["status"] == "blocked_before_mutation"
     assert runtime_state.state_revision == 0
 
 
@@ -261,6 +349,34 @@ def test_structural_mutation_application_rejects_tampered_target_reason(tmp_path
 
     assert result["accepted"] is False
     assert result["promotion_gate"]["required_evidence"]["preflight_hash_recomputed_match"] is False
+    assert result["tombstone_manifest"]["status"] == "blocked_before_mutation"
+    assert runtime_state.state_revision == 0
+    assert binding.state_dict()["version"] == 0
+
+
+def test_structural_mutation_application_rejects_tampered_candidate_provenance(
+    tmp_path: Path,
+) -> None:
+    runtime_state = RuntimeState(lock=RLock())
+    binding = _FakeBindingLayer(changes=True)
+    executor = _executor(tmp_path, binding, runtime_state)
+    preflight = _real_checkpointed_candidate_preflight(tmp_path)
+    preflight["design_binding"]["candidate_evidence_hash"] = "d" * 64
+
+    result = executor.apply_subcortical_structural_mutation(
+        structural_mutation_preflight=preflight,
+        expected_state_revision=0,
+        operator_id="operator-structural",
+        confirmation=True,
+    )
+
+    assert result["accepted"] is False
+    evidence = result["promotion_gate"]["required_evidence"]
+    assert evidence["preflight_hash_recomputed_match"] is False
+    assert result["candidate_provenance"]["candidate_evidence_hash"] == "d" * 64
+    assert result["candidate_provenance"]["preflight_hash_recomputed_match"] is False
+    assert result["tombstone_manifest"]["status"] == "blocked_before_mutation"
+    assert result["tombstone_manifest"]["candidate_evidence_hash"] == "d" * 64
     assert runtime_state.state_revision == 0
     assert binding.state_dict()["version"] == 0
 
@@ -286,6 +402,9 @@ def test_structural_mutation_application_rolls_back_over_budget_edge_delta(
     assert evidence["actual_total_edge_delta"] == 17
     assert evidence["max_total_edge_delta"] == 16
     assert evidence["actual_edge_delta_within_budget"] is False
+    assert result["rollback_artifact"]["available"] is True
+    assert result["rollback_artifact"]["binding_state_restored"] is True
+    assert result["tombstone_manifest"]["status"] == "rejected_with_rollback"
     assert runtime_state.state_revision == 0
     assert binding.state_dict() == before
 
@@ -365,6 +484,9 @@ def test_real_design_and_preflight_artifacts_execute_without_test_only_fields(
     )
 
     assert result["accepted"] is True
+    assert result["candidate_provenance"]["candidate_evidence_hash"] == "e" * 64
+    assert result["candidate_provenance"]["candidate_baseline_hash"] == "b" * 64
+    assert result["candidate_provenance"]["preflight_hash_recomputed_match"] is True
     assert result["structural_mutation_event"]["mutation_reason"] == (
         "repeated isolated prediction failure"
     )

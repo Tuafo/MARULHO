@@ -67,12 +67,24 @@ class StructuralMutationExecutor:
                 "mutation_method": design.get("mutation_method"),
                 "mutation_reason": str(design.get("mutation_reason") or "").strip(),
                 "max_total_edge_delta": int(design.get("max_total_edge_delta", 0)),
+                "checkpointed_candidate_gate_status": design.get(
+                    "checkpointed_candidate_gate_status"
+                ),
+                "candidate_evidence_hash": design.get("candidate_evidence_hash"),
+                "candidate_baseline_hash": design.get("candidate_baseline_hash"),
+                "candidate_reason": design.get("candidate_reason"),
+                "cost_impact_summary_hash": design.get("cost_impact_summary_hash"),
                 "expected_state_revision": int(transaction.get("expected_state_revision", -1)),
                 "current_state_revision": int(transaction.get("current_state_revision", -1)),
                 "checkpoint_path": preflight_checkpoint or None,
                 "required_evidence": dict(gate_evidence),
             }
             recomputed_preflight_hash = self._sha256_json(preflight_material)
+            candidate_provenance = self._candidate_provenance(
+                preflight=preflight,
+                design=design,
+                recomputed_preflight_hash=recomputed_preflight_hash,
+            )
             required = {
                 "preflight_surface_available": preflight.get("surface")
                 == "subcortical_structural_mutation_preflight.v1",
@@ -112,6 +124,7 @@ class StructuralMutationExecutor:
                     before_revision=before_revision,
                     required_evidence=required,
                     checkpoint_path=effective_checkpoint or None,
+                    candidate_provenance=candidate_provenance,
                 )
 
             binding = self._binding_layer()
@@ -126,6 +139,7 @@ class StructuralMutationExecutor:
                         "binding_hub_refresh_available": callable(refresh),
                     },
                     checkpoint_path=effective_checkpoint or None,
+                    candidate_provenance=candidate_provenance,
                 )
 
             before_state = deepcopy(binding.state_dict())
@@ -143,6 +157,7 @@ class StructuralMutationExecutor:
                         "pre_structural_mutation_checkpoint_restore_verified": checkpoint_verified,
                     },
                     checkpoint_path=str(checkpoint_file),
+                    candidate_provenance=candidate_provenance,
                 )
 
             report = refresh(reason=str(design["mutation_reason"]))
@@ -158,6 +173,15 @@ class StructuralMutationExecutor:
                         "binding_hub_topology_delta_observed": False,
                     },
                     checkpoint_path=str(checkpoint_file),
+                    candidate_provenance=candidate_provenance,
+                    rollback_artifact=self._binding_rollback_artifact(
+                        scope="binding_hub_topology_no_delta_rejection",
+                        checkpoint_path=str(checkpoint_file),
+                        before_revision=before_revision,
+                        before_state=before_state,
+                        current_state=binding.state_dict(),
+                        checkpoint_verified=checkpoint_verified,
+                    ),
                 )
             structural_delta = self._structural_delta(report)
             total_edge_delta = abs(structural_delta["edges_added_delta"]) + abs(
@@ -177,6 +201,15 @@ class StructuralMutationExecutor:
                         "actual_edge_delta_within_budget": False,
                     },
                     checkpoint_path=str(checkpoint_file),
+                    candidate_provenance=candidate_provenance,
+                    rollback_artifact=self._binding_rollback_artifact(
+                        scope="binding_hub_topology_over_budget_rejection",
+                        checkpoint_path=str(checkpoint_file),
+                        before_revision=before_revision,
+                        before_state=before_state,
+                        current_state=binding.state_dict(),
+                        checkpoint_verified=checkpoint_verified,
+                    ),
                 )
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
@@ -209,6 +242,12 @@ class StructuralMutationExecutor:
                     before_revision=before_revision,
                     required_evidence={**required, **commit},
                     checkpoint_path=str(checkpoint_file),
+                    candidate_provenance=candidate_provenance,
+                    rollback_artifact=self._commit_failure_rollback_artifact(
+                        commit=commit,
+                        checkpoint_path=str(checkpoint_file),
+                        before_revision=before_revision,
+                    ),
                 )
             return {
                 "artifact_kind": "terminus_subcortical_structural_mutation_application",
@@ -245,6 +284,7 @@ class StructuralMutationExecutor:
                     "checkpointed": True,
                     "mutation_method": "HypercubeBindingLayer.refresh_hub_topology",
                 },
+                "candidate_provenance": candidate_provenance,
                 "structural_mutation_event": event,
                 "structural_delta": structural_delta,
                 "structural_report": deepcopy(report),
@@ -265,7 +305,23 @@ class StructuralMutationExecutor:
         before_revision: int,
         required_evidence: Mapping[str, Any],
         checkpoint_path: str | None,
+        candidate_provenance: Mapping[str, Any] | None = None,
+        rollback_artifact: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        provenance = dict(candidate_provenance or {})
+        rollback = self._normalize_rollback_artifact(
+            rollback_artifact,
+            checkpoint_path=checkpoint_path,
+            before_revision=before_revision,
+        )
+        tombstone = self._candidate_tombstone_manifest(
+            reason=reason,
+            before_revision=before_revision,
+            checkpoint_path=checkpoint_path,
+            candidate_provenance=provenance,
+            required_evidence=required_evidence,
+            rollback_artifact=rollback,
+        )
         return {
             "artifact_kind": "terminus_subcortical_structural_mutation_application",
             "surface": "subcortical_structural_mutation_application.v1",
@@ -285,6 +341,9 @@ class StructuralMutationExecutor:
             "calls_growth_or_prune": False,
             "applies_structural_mutation": False,
             "checkpoint_path": checkpoint_path,
+            "candidate_provenance": provenance,
+            "rollback_artifact": rollback,
+            "tombstone_manifest": tombstone,
             "before": {"state_revision": before_revision},
             "after": {"state_revision": int(self._runtime_state.state_revision), **self._runtime_state.mutation_summary()},
             "promotion_gate": {
@@ -294,6 +353,151 @@ class StructuralMutationExecutor:
                 "required_evidence": dict(required_evidence),
             },
         }
+
+    def _candidate_provenance(
+        self,
+        *,
+        preflight: Mapping[str, Any],
+        design: Mapping[str, Any],
+        recomputed_preflight_hash: str,
+    ) -> dict[str, Any]:
+        supplied_preflight_hash = str(preflight.get("structural_mutation_preflight_hash") or "")
+        return {
+            "surface": "subcortical_structural_candidate_provenance.v1",
+            "source": "service.structural_mutation_executor",
+            "preflight_hash": supplied_preflight_hash or None,
+            "recomputed_preflight_hash": recomputed_preflight_hash,
+            "preflight_hash_recomputed_match": bool(
+                supplied_preflight_hash and supplied_preflight_hash == recomputed_preflight_hash
+            ),
+            "structural_mutation_design_hash": design.get("structural_mutation_design_hash"),
+            "checkpointed_candidate_gate_status": design.get(
+                "checkpointed_candidate_gate_status"
+            ),
+            "candidate_evidence_hash": design.get("candidate_evidence_hash"),
+            "candidate_baseline_hash": design.get("candidate_baseline_hash"),
+            "candidate_reason": design.get("candidate_reason"),
+            "cost_impact_summary_hash": design.get("cost_impact_summary_hash"),
+            "hash_algorithm": "sha256_canonical_json",
+        }
+
+    def _binding_rollback_artifact(
+        self,
+        *,
+        scope: str,
+        checkpoint_path: str,
+        before_revision: int,
+        before_state: Mapping[str, Any],
+        current_state: Mapping[str, Any],
+        checkpoint_verified: bool,
+    ) -> dict[str, Any]:
+        state_restored = dict(before_state) == dict(current_state)
+        payload = {
+            "surface": "subcortical_structural_mutation_rollback_artifact.v1",
+            "available": True,
+            "scope": scope,
+            "checkpoint_path": checkpoint_path,
+            "checkpoint_restore_verified": bool(checkpoint_verified),
+            "state_revision_after_rollback": int(self._runtime_state.state_revision),
+            "state_revision_restored": int(self._runtime_state.state_revision) == int(before_revision),
+            "binding_state_restored": state_restored,
+        }
+        payload["rollback_artifact_hash"] = self._sha256_json(payload)
+        return payload
+
+    def _commit_failure_rollback_artifact(
+        self,
+        *,
+        commit: Mapping[str, Any],
+        checkpoint_path: str,
+        before_revision: int,
+    ) -> dict[str, Any]:
+        payload = {
+            "surface": "subcortical_structural_mutation_rollback_artifact.v1",
+            "available": bool(commit.get("rollback_recovered_in_memory")),
+            "scope": "binding_hub_topology_commit_failure",
+            "checkpoint_path": checkpoint_path,
+            "committed_checkpoint_path": commit.get("committed_checkpoint_path"),
+            "rollback_checkpoint_rewritten_verified": bool(
+                commit.get("rollback_checkpoint_rewritten_verified")
+            ),
+            "state_revision_after_rollback": int(self._runtime_state.state_revision),
+            "state_revision_restored": int(self._runtime_state.state_revision) == int(before_revision),
+            "binding_state_restored": bool(commit.get("rollback_recovered_in_memory")),
+        }
+        payload["rollback_artifact_hash"] = self._sha256_json(payload)
+        return payload
+
+    def _normalize_rollback_artifact(
+        self,
+        rollback_artifact: Mapping[str, Any] | None,
+        *,
+        checkpoint_path: str | None,
+        before_revision: int,
+    ) -> dict[str, Any]:
+        payload = dict(rollback_artifact or {})
+        payload.setdefault("surface", "subcortical_structural_mutation_rollback_artifact.v1")
+        payload.setdefault("available", False)
+        payload.setdefault("scope", "blocked_before_structural_mutation")
+        payload.setdefault("checkpoint_path", checkpoint_path)
+        payload.setdefault("state_revision_after_rollback", int(self._runtime_state.state_revision))
+        payload.setdefault(
+            "state_revision_restored",
+            int(self._runtime_state.state_revision) == int(before_revision),
+        )
+        payload.setdefault("binding_state_restored", False)
+        payload.setdefault("rollback_artifact_hash", self._sha256_json(payload))
+        return payload
+
+    def _candidate_tombstone_manifest(
+        self,
+        *,
+        reason: str,
+        before_revision: int,
+        checkpoint_path: str | None,
+        candidate_provenance: Mapping[str, Any],
+        required_evidence: Mapping[str, Any],
+        rollback_artifact: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        disposition = self._candidate_disposition(reason)
+        manifest = {
+            "surface": "subcortical_structural_candidate_tombstone.v1",
+            "artifact_kind": "marulho_subcortical_structural_candidate_tombstone",
+            "status": disposition,
+            "reason": reason,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "before_state_revision": int(before_revision),
+            "checkpoint_path": checkpoint_path,
+            "candidate_evidence_hash": candidate_provenance.get("candidate_evidence_hash"),
+            "candidate_baseline_hash": candidate_provenance.get("candidate_baseline_hash"),
+            "candidate_reason": candidate_provenance.get("candidate_reason"),
+            "structural_mutation_design_hash": candidate_provenance.get(
+                "structural_mutation_design_hash"
+            ),
+            "structural_mutation_preflight_hash": candidate_provenance.get("preflight_hash"),
+            "preflight_hash_recomputed_match": bool(
+                candidate_provenance.get("preflight_hash_recomputed_match")
+            ),
+            "rollback_artifact_hash": rollback_artifact.get("rollback_artifact_hash"),
+            "required_evidence_hash": self._sha256_json(dict(required_evidence)),
+            "mutates_runtime_state": False,
+            "calls_growth_or_prune": False,
+            "writes_checkpoint": False,
+            "applies_structural_mutation": False,
+        }
+        manifest["tombstone_manifest_hash"] = self._sha256_json(manifest)
+        return manifest
+
+    @staticmethod
+    def _candidate_disposition(reason: str) -> str:
+        if reason in {
+            "blocked_no_binding_hub_topology_delta",
+            "blocked_binding_hub_topology_delta_over_budget",
+        }:
+            return "rejected_with_rollback"
+        if reason == "post_structural_mutation_checkpoint_commit_failed":
+            return "retired_after_rollback"
+        return "blocked_before_mutation"
 
     def _verify_checkpoint_transaction(
         self,
