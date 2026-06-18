@@ -11207,6 +11207,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(replay_priority["executable"])
         self.assertFalse(replay_priority["mutates_runtime_state"])
         self.assertFalse(replay_priority["generates_text"])
+        self.assertEqual(
+            replay_priority["source_window"]["surface"],
+            "bounded_snn_readout_replay_priority_source_window.v1",
+        )
+        self.assertFalse(replay_priority["source_window"]["global_candidate_scan"])
+        self.assertFalse(replay_priority["source_window"]["runs_live_tick"])
+        self.assertFalse(replay_priority["source_window"]["gpu_used"])
         self.assertEqual(replay_priority["candidate_count"], 1)
         self.assertEqual(replay_priority["candidates"][0]["rank"], 1)
         self.assertFalse(replay_priority["candidates"][0]["eligible_for_action"])

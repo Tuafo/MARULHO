@@ -6,6 +6,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
   - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -54,6 +55,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json
   - reports/bounded_replay_window_20260618/synthetic-bucket-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json
+  - reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-readout-replay-priority-source-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
@@ -84,6 +87,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bucket_candidate_source_window_benchmark --output reports\bounded_replay_window_20260618\bucket-candidate-source-window-bounded.json --archive-size 65536 --candidate-limit 32 --iterations 64`
 - Synthetic replay quality for bucket source windows:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260618\synthetic-bucket-source-window.json`
+- SNN readout replay-priority source window:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_readout_replay_priority_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-readout-replay-priority-source-window.json`
 - HF-backed replay recall with capped query collection:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-capped-query-collection`
 - HF-backed replay recall:
@@ -96,6 +101,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-capped-replay-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for bucket candidate source windows:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+- Hot-path protection for SNN readout replay-priority source window:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-readout-replay-priority-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for capped query collection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded query-memory match readout:
@@ -192,6 +199,20 @@ micro refresh reports `bounded_micro_maintenance_refresh`, selects through
 `sleep_replay_bypasses_competitive_process=true`; no-anchor micro refresh
 records `global_fallback_blocked_reason=no_anchor_bucket_scope_for_micro_replay`
 and leaves replay counters, tags, prototypes, and input weights unchanged.
+
+SNN readout replay-priority scoring is now bounded before it can feed the Replay
+Controller priority queue. `snn_language_readout_replay_priority.v1` reads a
+recent `32`-event CPU source window and reports
+`bounded_snn_readout_replay_priority_source_window.v1`; it does not scan all
+retained readout events, load raw replay text, run language reasoning, use GPU
+archival metadata, run live tick, or run every token. The source benchmark
+`reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json`
+matched the diagnostic full-retained scorer's top high-signal readout while
+scoring `32/2048` retained events, averaging `1.424948 ms` versus
+`51.002932 ms` (`35.792837x`) with no CUDA allocation. The paired `524288`-token
+hot-path check stayed in band at `6284.379 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `1852->1858 MiB`, no
+observed contention, and zero graph/native/sequence failures.
 
 The synthetic selector report at
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

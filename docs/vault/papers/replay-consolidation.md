@@ -304,6 +304,26 @@ band at `6298.310 tokens/sec`, `train_compute=0.129349 ms/token`, bounded
 `12/65536` route rows, `65526` cached transition rows, `1799->1800 MiB` GPU
 memory, no observed contention, and zero graph/native/sequence failures.
 
+The upstream SNN readout priority report now obeys the same selected-source
+rule before it can feed the Replay Controller. `snn_language_readout_replay_priority.v1`
+no longer scores every retained readout event before applying its output limit.
+It reads a CPU-resident `32`-event recent source window, scores provenance,
+label repetition, transition reuse, and recency only inside that window, and
+emits `bounded_snn_readout_replay_priority_source_window.v1` with no global
+candidate or score scan, no raw text payload, `language_reasoning=false`,
+`runs_live_tick=false`, `runs_every_token=false`, and `gpu_used=false`. The
+benchmark
+`reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json`
+matched the diagnostic full-retained scorer's top high-signal readout while
+scoring `32` of `2048` retained events, averaging `1.424948 ms` versus
+`51.002932 ms` (`35.792837x`) with `0.065639 MiB` traced peak allocation and no
+CUDA allocation. The paired `524288`-token hot-path check stayed in band at
+`6284.379 tokens/sec`, `train_compute=0.129905 ms/token`, bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `1852->1858 MiB`, no
+observed contention, and zero graph/native/sequence failures. This treats
+attention-like readout recall as a bounded local replay-priority operator, not
+as a transformer-style text reasoning pass.
+
 The replay-artifact provenance path now follows that same selected-source
 boundary after nomination. Artifact review tickets, evaluated transition-memory
 replay artifacts, regeneration permits, sleep review tickets, and scheduler

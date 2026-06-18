@@ -9,7 +9,10 @@ from threading import RLock
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.runtime_facade import RuntimeFacade
 from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
-from marulho.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
+from marulho.service.snn_language_readout_ledger import (
+    SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
+    SNNLanguageReadoutEvidenceLedger,
+)
 
 
 def _ready_draft() -> dict[str, object]:
@@ -11830,9 +11833,39 @@ def test_readout_ledger_replay_priority_is_deterministic_read_only_advisory() ->
     assert priority["executable"] is False
     assert priority["mutates_runtime_state"] is False
     assert priority["generates_text"] is False
+    assert priority["runs_live_tick"] is False
+    assert priority["runs_every_token"] is False
+    assert priority["raw_text_payload_loaded"] is False
+    assert priority["language_reasoning"] is False
+    assert priority["archival_storage_device"] == "cpu"
+    assert priority["score_device"] == "cpu"
+    assert priority["gpu_used"] is False
+    assert priority["global_candidate_scan"] is False
+    assert priority["global_score_scan"] is False
+    assert priority["source_window"]["surface"] == (
+        "bounded_snn_readout_replay_priority_source_window.v1"
+    )
+    assert priority["source_window"]["source_event_window_count"] == 3
+    assert priority["source_window"]["candidate_count_before_rank"] == 3
+    assert priority["source_window"]["candidate_count_returned"] == 2
+    assert priority["source_window"]["archival_storage_device"] == "cpu"
+    assert priority["source_window"]["score_device"] == "cpu"
+    assert priority["source_window"]["gpu_used"] is False
+    assert priority["source_window"]["global_candidate_scan"] is False
+    assert priority["source_window"]["global_score_scan"] is False
+    assert priority["source_window"]["runs_live_tick"] is False
+    assert priority["source_window"]["language_reasoning"] is False
+    assert priority["ledger_summary"]["unique_count_scope"] == "source_window"
     assert priority["promotion_gate"]["eligible_for_operator_replay_review"] is True
     assert priority["promotion_gate"]["eligible_for_live_replay"] is False
     assert priority["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert priority["promotion_gate"]["required_evidence"]["source_window_bounded"] is True
+    assert priority["promotion_gate"]["required_evidence"][
+        "archival_metadata_cpu_resident"
+    ] is True
+    assert priority["promotion_gate"]["required_evidence"][
+        "language_reasoning_absent"
+    ] is True
     assert priority["candidate_count"] == 2
     assert priority["candidates"][0]["rank"] == 1
     assert priority["candidates"][0]["readout_evidence_hash"]
@@ -11842,7 +11875,61 @@ def test_readout_ledger_replay_priority_is_deterministic_read_only_advisory() ->
     assert priority["candidates"][0]["generates_text"] is False
     assert priority["candidates"][0]["eligible_for_action"] is False
     assert empty_limit["candidate_count"] == 0
+    assert empty_limit["source_window"]["candidate_count_before_rank"] == 3
+    assert empty_limit["source_window"]["candidate_count_returned"] == 0
     assert empty_limit["promotion_gate"]["status"] == "collect_readout_evidence"
+
+
+def test_readout_ledger_replay_priority_caps_source_events_before_rank() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT * 2,
+    )
+    for index in range(SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT * 2):
+        labels = ["outside-window"] if index == 0 else [f"readout-window-{index}"]
+        ledger.record_readout_draft(
+            readout_draft=_ready_draft_for(
+                f"prediction-{index}",
+                f"evaluation-{index}",
+                f"weights-{index}",
+                labels,
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-test",
+            confirmation=True,
+        )
+
+    priority = ledger.replay_priority(limit=8)
+    candidate_labels = {
+        label
+        for candidate in priority["candidates"]
+        for label in list(candidate.get("labels") or [])
+    }
+
+    assert priority["candidate_count"] == 8
+    assert priority["source_window"]["source_event_retention_count"] == (
+        SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT * 2
+    )
+    assert priority["source_window"]["source_event_window_count"] == (
+        SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT
+    )
+    assert priority["source_window"]["source_event_truncated_count"] == (
+        SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT
+    )
+    assert priority["source_window"]["candidate_count_before_rank"] == (
+        SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT
+    )
+    assert priority["source_window"]["candidate_count_returned"] == 8
+    assert priority["source_window"]["global_candidate_scan"] is False
+    assert priority["source_window"]["global_score_scan"] is False
+    assert priority["source_window"]["runs_live_tick"] is False
+    assert priority["source_window"]["gpu_used"] is False
+    assert "outside-window" not in candidate_labels
 
 
 def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:

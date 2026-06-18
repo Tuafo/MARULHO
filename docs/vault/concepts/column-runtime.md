@@ -761,6 +761,22 @@ The promoted default route is now `cuda_graph_text`. It captures production inpu
 
 The replay-priority review surface now preserves the same live-tick boundary as the column scheduler. `snn_replay_consolidation_priority_queue.v1` verifies a bounded source window (`16` recent Replay Controller contexts plus up to `16` readout-target context IDs) through a controller-owned ID index and emits `bounded_snn_replay_priority_source_window.v1`. Due-cycle Runtime Truth carries `queue_source_window_policy`, source/verified context counts, and `queue_global_candidate_scan=false`; the queue itself reports CPU archival/score placement, no raw replay text, no hidden language reasoning, `runs_live_tick=false`, and `gpu_used=false`. The benchmark `reports/bounded_replay_window_20260618/snn-replay-priority-source-window.json` selected an old readout-targeted context outside the recent window while verifying `17/64` retained contexts, and the paired 65536-column `524288`-token run stayed in band at `6298.310 tokens/sec` with `train_compute=0.129349 ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, and zero graph/native/sequence failures.
 
+The upstream readout-priority ledger now preserves that boundary before the
+Replay Controller queue is even called. `snn_language_readout_replay_priority.v1`
+scores only a `32`-event recent CPU source window and emits
+`bounded_snn_readout_replay_priority_source_window.v1` with source/returned
+candidate counts, CPU archival/score placement, no raw text payload, no hidden
+language reasoning, `runs_live_tick=false`, `runs_every_token=false`, and
+`gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json`
+matched the diagnostic full-retained scorer's top high-signal readout while
+scoring `32/2048` retained events, reducing mean priority latency from
+`51.002932 ms` to `1.424948 ms`. The paired 65536-column `524288`-token run
+stayed in band at `6284.379 tokens/sec`, with `train_compute=0.129905
+ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, GPU
+memory `1852->1858 MiB`, no observed contention, and zero graph/native/sequence
+failures.
+
 The follow-on replay-artifact provenance path is indexed as well. Replay
 artifact review tickets, evaluated transition-memory replay artifacts,
 regeneration permits, sleep-plasticity review tickets, and scheduler-design

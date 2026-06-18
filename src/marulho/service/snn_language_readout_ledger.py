@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import math
 import json
+from itertools import islice
 from typing import Any, Callable, Mapping, Sequence
 
 import torch
@@ -14,6 +15,10 @@ from marulho.service.runtime_state import RuntimeState
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
+SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
+SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
+    "recent_readout_event_source_window_v1"
+)
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
@@ -32511,28 +32516,77 @@ class SNNLanguageReadoutEvidenceLedger:
         """Rank readout evidence for future isolated SNN replay review."""
 
         with self._lock:
-            state = self._normalized_state()
-            events = [deepcopy(item) for item in list(state["events"])]
+            state = self._ledger_state()
+            raw_events_value = state.get("events") or []
+            if isinstance(raw_events_value, (str, bytes, Mapping)):
+                raw_events: Sequence[Any] = []
+                retained_event_count = 0
+            else:
+                try:
+                    retained_event_count = min(len(raw_events_value), self._limit)
+                    raw_events = raw_events_value
+                except TypeError:
+                    raw_events = list(raw_events_value)
+                    retained_event_count = min(len(raw_events), self._limit)
+            source_limit = min(
+                self._limit,
+                SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
+            )
+            source_events = [
+                deepcopy(dict(item))
+                for item in islice(raw_events, source_limit)
+                if isinstance(item, Mapping)
+            ]
+            def _retained_count(name: str) -> int:
+                value = state.get(name) or []
+                if isinstance(value, (str, bytes, Mapping)):
+                    return 0
+                try:
+                    return min(len(value), self._limit)
+                except TypeError:
+                    return min(len(list(value)), self._limit)
+
             label_counts: dict[str, int] = {}
             transition_counts: dict[str, int] = {}
-            for event in events:
-                label_key = "|".join(str(value) for value in list(event.get("labels") or []))
+            for event in source_events:
+                label_key = "|".join(
+                    str(value) for value in list(event.get("labels") or [])
+                )
                 transition_key = str(event.get("persistent_transition_weights_hash") or "")
                 if label_key:
                     label_counts[label_key] = label_counts.get(label_key, 0) + 1
                 if transition_key:
                     transition_counts[transition_key] = transition_counts.get(transition_key, 0) + 1
             candidates: list[dict[str, Any]] = []
-            total = max(1, len(events))
-            for index, event in enumerate(events):
+            total = max(1, len(source_events))
+            for index, event in enumerate(source_events):
                 labels = [str(value) for value in list(event.get("labels") or [])]
-                label_grounding = [bool(value) for value in list(event.get("label_grounding") or [])]
+                label_grounding = [
+                    bool(value) for value in list(event.get("label_grounding") or [])
+                ]
                 label_key = "|".join(labels)
                 transition_key = str(event.get("persistent_transition_weights_hash") or "")
-                recency = 1.0 - min(1.0, index / max(1, total - 1)) if total > 1 else 1.0
-                repetition = min(1.0, label_counts.get(label_key, 0) / 3.0) if label_key else 0.0
-                transition_reuse = min(1.0, transition_counts.get(transition_key, 0) / 3.0) if transition_key else 0.0
-                provenance = 1.0 if event.get("prediction_hash") and event.get("transition_memory_evaluation_hash") else 0.0
+                recency = (
+                    1.0 - min(1.0, index / max(1, total - 1))
+                    if total > 1
+                    else 1.0
+                )
+                repetition = (
+                    min(1.0, label_counts.get(label_key, 0) / 3.0)
+                    if label_key
+                    else 0.0
+                )
+                transition_reuse = (
+                    min(1.0, transition_counts.get(transition_key, 0) / 3.0)
+                    if transition_key
+                    else 0.0
+                )
+                provenance = (
+                    1.0
+                    if event.get("prediction_hash")
+                    and event.get("transition_memory_evaluation_hash")
+                    else 0.0
+                )
                 score = 100.0 * (
                     0.45 * provenance
                     + 0.25 * repetition
@@ -32581,6 +32635,12 @@ class SNNLanguageReadoutEvidenceLedger:
                         "eligible_for_fact_promotion": False,
                         "eligible_for_action": False,
                         "eligible_for_cognition_substrate": False,
+                        "source_window": {
+                            "surface": "bounded_snn_readout_replay_priority_source_window.v1",
+                            "source": "recent_readout_event_window",
+                            "source_index": int(index),
+                            "source_window_limit": int(source_limit),
+                        },
                     }
                 )
             candidates.sort(
@@ -32590,12 +32650,108 @@ class SNNLanguageReadoutEvidenceLedger:
                     str(item.get("readout_evidence_hash") or ""),
                 )
             )
-            count = max(0, int(limit))
+            requested_count = max(0, int(limit))
+            count = min(requested_count, len(source_events))
             selected = [
                 {**candidate, "rank": rank}
                 for rank, candidate in enumerate(candidates[:count], start=1)
             ] if count > 0 else []
             ready = bool(selected)
+            truncated_source_count = max(0, retained_event_count - len(source_events))
+            source_prediction_hashes = {
+                str(item.get("prediction_hash") or "")
+                for item in source_events
+                if str(item.get("prediction_hash") or "")
+            }
+            source_transition_memory_hashes = {
+                str(item.get("persistent_transition_weights_hash") or "")
+                for item in source_events
+                if str(item.get("persistent_transition_weights_hash") or "")
+            }
+            source_window = {
+                "surface": "bounded_snn_readout_replay_priority_source_window.v1",
+                "policy": SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "window_policy": SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "selection_criteria": [
+                    "recent_provenance_bound_readout_events",
+                    "label_repetition_within_source_window",
+                    "transition_memory_reuse_within_source_window",
+                    "recency_within_source_window",
+                ],
+                "source_limits": {
+                    "readout_events": int(source_limit),
+                    "returned_candidates": int(requested_count),
+                    "ledger_retention": int(self._limit),
+                },
+                "source_counts": {
+                    "retained_readout_events": int(retained_event_count),
+                    "source_readout_events": int(len(source_events)),
+                },
+                "window_counts": {
+                    "candidate_count_before_rank": int(len(candidates)),
+                    "candidate_count_returned": int(len(selected)),
+                },
+                "truncated_source_counts": {
+                    "readout_events": int(truncated_source_count),
+                },
+                "selection_budget": {
+                    "source_event_window_limit": int(source_limit),
+                    "requested_candidate_limit": int(requested_count),
+                    "returned_candidate_limit": int(count),
+                    "ledger_retention_limit": int(self._limit),
+                },
+                "source_event_retention_count": int(retained_event_count),
+                "source_event_window_limit": int(source_limit),
+                "source_event_window_count": int(len(source_events)),
+                "source_event_truncated_count": int(truncated_source_count),
+                "candidate_count_before_rank": int(len(candidates)),
+                "candidate_count_returned": int(len(selected)),
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "score_device": "cpu",
+                "device_placement": {
+                    "archival_storage": "cpu",
+                    "source_window_selection": "cpu",
+                    "score": "cpu",
+                },
+                "gpu_used": False,
+            }
+            ledger_summary = {
+                "event_count": int(retained_event_count),
+                "rollout_event_count": int(_retained_count("rollout_events")),
+                "emission_review_event_count": int(
+                    _retained_count("emission_review_events")
+                ),
+                "total_recorded_count": int(state.get("total_recorded_count", 0) or 0),
+                "total_rollout_recorded_count": int(
+                    state.get("total_rollout_recorded_count", 0) or 0
+                ),
+                "total_emission_review_count": int(
+                    state.get("total_emission_review_count", 0) or 0
+                ),
+                "unique_prediction_count": int(len(source_prediction_hashes)),
+                "unique_transition_memory_count": int(
+                    len(source_transition_memory_hashes)
+                ),
+                "unique_count_scope": "source_window",
+                "last_recorded_at": state.get("last_recorded_at"),
+                "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
+                "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+                "source_window": {
+                    "surface": source_window["surface"],
+                    "policy": source_window["policy"],
+                    "source_event_window_limit": int(source_limit),
+                    "source_event_window_count": int(len(source_events)),
+                    "source_event_truncated_count": int(truncated_source_count),
+                },
+            }
             return {
                 "artifact_kind": "terminus_snn_language_readout_replay_priority",
                 "surface": "snn_language_readout_replay_priority.v1",
@@ -32609,15 +32765,31 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "advisory": True,
                 "executable": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "archival_storage_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
                 "candidate_count": len(selected),
-                "priority_rules_version": "readout-ledger-deterministic-v1",
+                "limit": int(requested_count),
+                "count": len(selected),
+                "priority_rules_version": "readout-ledger-bounded-source-v2",
                 "priority_weights": {
                     "provenance": 0.45,
                     "label_repetition": 0.25,
                     "recency": 0.20,
                     "transition_memory_reuse": 0.10,
                 },
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "source_window_policy": SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "source_window_limit": int(source_limit),
+                "source_window_count": int(len(source_events)),
+                "source_event_retention_count": int(retained_event_count),
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "ledger_summary": ledger_summary,
                 "candidates": selected,
                 "promotion_gate": {
                     "status": "ready_for_operator_replay_review" if ready else "collect_readout_evidence",
@@ -32633,7 +32805,22 @@ class SNNLanguageReadoutEvidenceLedger:
                     if ready
                     else "record_provenance_matched_readout_evidence",
                     "required_evidence": {
-                        "readout_evidence_available": bool(events),
+                        "readout_evidence_available": bool(source_events),
+                        "source_window_bounded": (
+                            source_window["surface"]
+                            == "bounded_snn_readout_replay_priority_source_window.v1"
+                            and source_window["global_candidate_scan"] is False
+                            and source_window["global_score_scan"] is False
+                            and source_window["runs_live_tick"] is False
+                        ),
+                        "archival_metadata_cpu_resident": (
+                            source_window["archival_storage_device"] == "cpu"
+                            and source_window["gpu_used"] is False
+                        ),
+                        "language_reasoning_absent": (
+                            source_window["language_reasoning"] is False
+                            and source_window["raw_text_payload_loaded"] is False
+                        ),
                         "provenance_hashes_available": all(
                             bool(candidate.get("priority_components", {}).get("provenance"))
                             for candidate in selected
