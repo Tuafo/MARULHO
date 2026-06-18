@@ -29,6 +29,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
   - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
   - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
@@ -259,6 +261,22 @@ cycles, and `0` global fallback cycles. The matching hot-path report
 processed `262144` tokens at `6211.859 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1852 MiB`, and had zero graph/native/sequence failures.
+
+The score tensor helper follow-up removes the remaining public archive-wide
+score tensors (`maintenance_scores(...)`, `consolidation_scores(...)`,
+`repair_scores(...)`, `fragility_scores(...)`, and unused capture/tag/PRP tensor
+builders). Production replay now scores only selected candidate indices through
+`_score_replay_index(...)`. Explicit global diagnostics still require
+`allow_global_score_scan=true` and score privately inside
+`select_replay_window(...)`, so there is no reusable production helper for
+full-buffer replay tensors. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
+kept recall/prototype gates passing, and the accepted 65536-column hot-path
+rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json`
+processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
+route rows, flat `1805 MiB` GPU memory, no observed contention, and zero
+graph/native/sequence failures.
 
 The less-synthetic HF-backed report
 `reports/bounded_replay_window_20260617/hf-recall-bounded-window/summary.json`

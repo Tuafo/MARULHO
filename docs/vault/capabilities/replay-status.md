@@ -21,6 +21,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
   - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
   - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
@@ -68,6 +70,9 @@ Current bounded selection evidence:
   `candidate_index_count`.
 - Replay-priority scoring no longer has a public full-buffer helper. Callers
   must pass selected candidate indices to `replay_scores_for_indices(...)`.
+- The older public full-buffer score tensor helper family is also removed.
+  Production selection scores only selected candidates; explicit global scoring
+  exists only as a diagnostic branch inside `select_replay_window(...)`.
 - Zero-pressure global replay is retired with
   `fallback_reason=no_positive_global_scores`.
 - Deep sleep blocks unanchored global replay mutation with
@@ -115,6 +120,14 @@ Current bounded selection evidence:
   keeps the live tick protected at `6211.859 tokens/sec`, bounded
   `12/65536` route rows, flat `1852 MiB` GPU memory, and zero graph/native
   failures.
+- `reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
+  keeps recall/prototype gates passing after deleting the public
+  `maintenance_scores(...)`, `consolidation_scores(...)`, `repair_scores(...)`,
+  and `fragility_scores(...)` archive-wide tensor helpers.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json`
+  keeps the live tick protected at `6151.952 tokens/sec`, bounded
+  `12/65536` route rows, flat `1805 MiB` GPU memory, no observed contention,
+  and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
   proves wake-bucket scoped ripple tagging avoids global memory scans: scoped
   tagging used `0` scalar/vector scans, `256` awake-bucket scans, and averaged

@@ -624,9 +624,19 @@ class MemoryConsolidationTests(unittest.TestCase):
         store.slow_capture_tag[1] = 0.1
         store.slow_local_prp[1] = 0.1
 
-        scores = store.maintenance_scores(current_token=40)
-
-        self.assertGreater(float(scores[1].item()), float(scores[0].item()))
+        self.assertFalse(hasattr(store, "maintenance_scores"))
+        self.assertFalse(hasattr(store, "consolidation_scores"))
+        self.assertFalse(hasattr(store, "repair_scores"))
+        self.assertFalse(hasattr(store, "fragility_scores"))
+        report = store.select_replay_window(
+            n=1,
+            current_token=40,
+            candidate_pool=2,
+            strategy="maintenance",
+            candidate_bucket_ids=[0, 1],
+        )
+        self.assertEqual(report["selected_indices"], [1])
+        self.assertEqual(report["score_count"], 2)
         self.assertEqual(
             store.sample_replay_indices(
                 n=1,

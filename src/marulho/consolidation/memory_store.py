@@ -878,13 +878,6 @@ class DualMemoryStore:
         importance_scale = 0.5 + min(1.0, importance)
         return float(stability_gap * age_pressure * access_penalty * importance_scale * (0.5 + capture_gap))
 
-    def fragility_scores(self, current_token: int) -> torch.Tensor:
-        self._advance_state(current_token)
-        return torch.tensor(
-            [self.fragility_score(idx, current_token) for idx in range(len(self.slow_buffer))],
-            dtype=torch.float32,
-        )
-
     def bucket_consolidation_level(self, bucket_id: Optional[int]) -> float:
         if bucket_id is None or not self.slow_buffer:
             return 0.0
@@ -914,61 +907,6 @@ class DualMemoryStore:
             return 0.0
         return weighted_sum / total_weight
 
-    def maintenance_scores(self, current_token: int) -> torch.Tensor:
-        if not self.slow_buffer:
-            return torch.zeros(0, dtype=torch.float32)
-
-        self._advance_state(current_token)
-        scores: list[float] = []
-        for idx in range(len(self.slow_buffer)):
-            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
-            if consolidation >= 0.8:
-                scores.append(0.0)
-                continue
-            importance = float(max(1e-6, self.slow_importance[idx]))
-            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
-            fragility = self.fragility_score(idx, current_token)
-            scores.append(float(importance * fragility * (1.0 + 0.5 * tag_strength)))
-        return torch.tensor(scores, dtype=torch.float32)
-
-    def consolidation_scores(self, current_token: int) -> torch.Tensor:
-        if not self.slow_buffer:
-            return torch.zeros(0, dtype=torch.float32)
-
-        self._advance_state(current_token)
-        scores: list[float] = []
-        for idx in range(len(self.slow_buffer)):
-            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
-            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
-            prp_level = float(max(0.0, self._available_prp(idx)))
-            capture_strength = float(max(0.0, tag_strength * prp_level))
-            if consolidation >= 0.8 or capture_strength <= self.prp_capture_threshold:
-                scores.append(0.0)
-                continue
-            importance = float(max(1e-6, self.slow_importance[idx]))
-            consolidation_gap = max(0.0, 0.8 - consolidation)
-            scores.append(float(importance * capture_strength * (1.0 + consolidation_gap)))
-        return torch.tensor(scores, dtype=torch.float32)
-
-    def repair_scores(self, current_token: int) -> torch.Tensor:
-        if not self.slow_buffer:
-            return torch.zeros(0, dtype=torch.float32)
-
-        self._advance_state(current_token)
-        scores: list[float] = []
-        for idx in range(len(self.slow_buffer)):
-            importance = float(max(1e-6, self.slow_importance[idx]))
-            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
-            replay_age = max(0, int(current_token) - int(self.slow_last_replay_token[idx]))
-            scores.append(
-                float(
-                    importance
-                    * (0.5 + consolidation)
-                    * (1.0 + math.log1p(float(replay_age) / max(1.0, float(self.functional_minute))))
-                )
-            )
-        return torch.tensor(scores, dtype=torch.float32)
-
     def _consume_pools(self, idx: int, amount: float) -> float:
         required = float(max(0.0, amount))
         if required <= 0.0:
@@ -995,21 +933,6 @@ class DualMemoryStore:
             return 0.0
         self._advance_state(current_token)
         return float(max(0.0, self.slow_capture_tag[idx]) * max(0.0, self._available_prp(idx)))
-
-    def _effective_capture_tensor(self, current_token: int) -> torch.Tensor:
-        self._advance_state(current_token)
-        return torch.tensor(
-            [self._effective_capture_strength(idx, current_token) for idx in range(len(self.slow_buffer))],
-            dtype=torch.float32,
-        )
-
-    def _tag_strength_tensor(self, current_token: int) -> torch.Tensor:
-        self._advance_state(current_token)
-        return torch.tensor(self.slow_capture_tag, dtype=torch.float32)
-
-    def _prp_tensor(self, current_token: int) -> torch.Tensor:
-        self._advance_state(current_token)
-        return torch.tensor([self._available_prp(idx) for idx in range(len(self.slow_buffer))], dtype=torch.float32)
 
     def _store_slot(
         self,
@@ -2054,42 +1977,59 @@ class DualMemoryStore:
                 perm = torch.randperm(count)
                 selected = [int(idx) for idx in perm[:pool_limit].tolist()]
             else:
-                if strategy == "maintenance":
-                    scores = self.maintenance_scores(token_marker)
-                elif strategy in {"priority", "consolidation"}:
-                    scores = self.consolidation_scores(token_marker)
-                elif strategy == "repair":
-                    scores = self.repair_scores(token_marker)
-                else:
+                if strategy not in {"maintenance", "priority", "consolidation", "repair"}:
                     raise ValueError(f"Unknown replay sampling strategy: {strategy}")
-                score_count = int(scores.numel())
+                self._advance_state(token_marker)
+                scored = [
+                    (
+                        idx,
+                        self._score_replay_index(
+                            idx,
+                            current_token=token_marker,
+                            strategy=strategy,
+                        ),
+                    )
+                    for idx in range(count)
+                ]
+                score_count = int(len(scored))
+                positive_scored = [
+                    (idx, float(score))
+                    for idx, score in scored
+                    if float(score) > 0.0
+                ]
                 if score_count <= 0:
                     fallback_reason = "empty_score_tensor"
-                elif float(scores.max().item()) <= 0.0:
+                elif not positive_scored:
                     fallback_reason = "no_positive_global_scores"
                 else:
                     pool_limit = min(count, candidate_window_limit)
-                    top_values, top_indices = torch.topk(scores, k=pool_limit)
+                    window = sorted(
+                        positive_scored,
+                        key=lambda item: (-item[1], item[0]),
+                    )[:pool_limit]
                     if pool_limit <= requested:
-                        selected = [int(idx) for idx in top_indices.tolist()]
-                        selected_scores = [float(value) for value in top_values.tolist()]
+                        selected_pairs = window
                     else:
-                        weights = torch.clamp(top_values, min=1e-8)
+                        weights = torch.tensor(
+                            [float(score) for _, score in window],
+                            dtype=torch.float32,
+                        )
+                        weights = torch.clamp(weights, min=1e-8)
                         weights = weights / (weights.sum() + 1e-8)
                         draw = torch.multinomial(
                             weights,
-                            num_samples=min(requested, pool_limit),
+                            num_samples=min(requested, len(window)),
                             replacement=False,
                         )
-                        selected = [
-                            int(top_indices[int(local_idx)].item())
+                        selected_pairs = [
+                            window[int(local_idx)]
                             for local_idx in draw.tolist()
                         ]
-                        selected.sort(
-                            key=lambda item: float(scores[item].item()),
-                            reverse=True,
+                        selected_pairs.sort(
+                            key=lambda item: (-item[1], item[0])
                         )
-                        selected_scores = [float(scores[item].item()) for item in selected]
+                    selected = [int(idx) for idx, _ in selected_pairs]
+                    selected_scores = [float(score) for _, score in selected_pairs]
             if not selected:
                 fallback_reason = "no_positive_global_scores"
 

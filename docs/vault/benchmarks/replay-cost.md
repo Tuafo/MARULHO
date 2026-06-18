@@ -40,6 +40,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
   - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
   - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-awake-ripple-bounded-scope.json
@@ -90,6 +92,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-score-helper-retired.json`
 - Hot-path protection for replay-score helper retirement:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Full-buffer score tensor helper family retirement tests:
+  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_fragility_priority_prefers_stale_unconsolidated_memories tests\test_memory_consolidation.py::MemoryConsolidationTests::test_unscoped_replay_selection_requires_diagnostic_opt_in tests\test_memory_consolidation.py::MemoryConsolidationTests::test_unscoped_random_replay_selection_requires_diagnostic_opt_in tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bucket_replay_selection_caps_candidate_window_before_scoring tests\test_sfa_correction.py::TestSampleForSFA -q`
+- Synthetic score tensor helper family retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-score-tensor-helpers-retired.json`
+- Hot-path protection for score tensor helper family retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded awake-ripple scope tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_tagging_uses_awake_bucket_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_tagging_caps_awake_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_awake_ripple_unscoped_requires_diagnostic_opt_in tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report tests\test_p1_improvements.py::TestAwakeRippleTagging -q`
 - Awake-ripple scoped/global diagnostic benchmark:
@@ -572,6 +580,32 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `38%`,
 GPU utilization max `16%`, GPU memory utilization max `14%`, and GPU memory
 stayed flat at `1852 MiB` before and after measurement.
+
+The follow-up score tensor helper retirement removes the remaining public
+full-buffer scoring helpers: `maintenance_scores(...)`,
+`consolidation_scores(...)`, `repair_scores(...)`, `fragility_scores(...)`, and
+unused capture/tag/PRP tensor builders. Production replay selection now reaches
+the priority formula only through `_score_replay_index(...)` for selected
+candidate indices. The explicit global diagnostic branch still exists behind
+`allow_global_score_scan=true`, but it scores privately inside
+`select_replay_window(...)`, samples only positive scores, and reports the
+diagnostic scan.
+
+The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
+kept recall/prototype gates passing with `2` bounded updates, `4` bounded
+cycles, `16` scored/selected positive-pressure entries, and `0` global
+fallback cycles. The accepted 65536-column hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json`
+processed `262144` tokens at `6151.952 tokens/sec`, with
+`train_compute=0.132119 ms/token`, `prepare_training=0.006688 ms/token`,
+`finalize_total=0.006420 ms/token`, and `tick_duration_ms.p95=20.697`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The velocity surface reported no observed contention: CPU max `32%`,
+GPU utilization max `18%`, GPU memory utilization max `14%`, and GPU memory
+stayed flat at `1805 MiB` before and after measurement.
 
 Bounded awake-ripple tagging now retires the production unscoped global
 recent-memory scan. Production callers must pass awake bucket scope; otherwise

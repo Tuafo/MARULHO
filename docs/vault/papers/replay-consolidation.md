@@ -41,6 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
+  - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
   - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
   - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
@@ -391,6 +393,22 @@ processed `262144` tokens at `6211.859 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1852 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The score tensor helper cleanup removes the remaining public archive-wide score
+tensor family. `maintenance_scores(...)`, `consolidation_scores(...)`,
+`repair_scores(...)`, `fragility_scores(...)`, and unused capture/tag/PRP tensor
+builders are gone, so selected replay/query windows no longer sit beside
+production-looking full-buffer helper APIs. The explicit global diagnostic
+branch is still available only through `select_replay_window(...,
+allow_global_score_scan=true)` and scores privately before reporting a
+diagnostic scan. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
+kept recall/prototype gates passing with `2` bounded updates and `0` global
+fallback cycles. The accepted 65536-column hot-path rerun
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json`
+processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -399,9 +417,9 @@ rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
 readout, bounded recent tag/anchor setup, bounded awake-ripple tagging, and
-retired unscoped random replay defaults plus the full-buffer replay-score helper
-implemented; future larger replay windows still require repeated long-run
-hot-path and grounding checks
+retired unscoped random replay defaults plus the full-buffer replay-score and
+score-tensor helper APIs implemented; future larger replay windows still
+require repeated long-run hot-path and grounding checks
 
 ## Links
 

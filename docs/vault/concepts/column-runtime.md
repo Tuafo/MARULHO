@@ -487,6 +487,19 @@ processed `262144` tokens at `6211.859 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, zero graph/native/sequence
 failures, flat `1852 MiB` GPU memory, and no observed contention.
 
+The follow-up cleanup removes the remaining public full-buffer score tensor
+helpers (`maintenance_scores(...)`, `consolidation_scores(...)`,
+`repair_scores(...)`, `fragility_scores(...)`, plus unused capture/tag/PRP tensor
+builders). Production replay selection now scores only bounded candidate
+indices; explicit global scoring remains diagnostic and private to
+`select_replay_window(..., allow_global_score_scan=true)`. The synthetic report
+`reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
+kept recall/prototype gates passing, and the accepted hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json`
+processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native/sequence
+failures, flat `1805 MiB` GPU memory, and no observed contention.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.
