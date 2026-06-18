@@ -15,6 +15,34 @@ from marulho.service.runtime_state import RuntimeState
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
+SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
+    "recent_ledger_event_field_source_window_v1"
+)
+SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
+    "events",
+    "rollout_events",
+    "emission_review_events",
+    "dense_label_candidate_events",
+    "dense_label_calibration_update_events",
+    "autonomous_confidence_use_events",
+    "autonomous_hash_readout_binding_events",
+    "autonomous_bound_readout_observation_events",
+    "autonomous_readout_training_window_events",
+    "autonomous_decoder_probe_events",
+    "autonomous_language_output_events",
+    "autonomous_decoded_output_events",
+    "autonomous_bounded_text_emission_events",
+    "autonomous_text_surface_commit_events",
+    "autonomous_text_surface_materialization_events",
+    "autonomous_bounded_language_surface_commit_events",
+    "autonomous_bounded_language_surface_use_events",
+    "autonomous_snn_language_generation_events",
+    "autonomous_snn_language_decoding_events",
+    "autonomous_snn_language_thought_surface_events",
+    "autonomous_snn_language_thought_memory_events",
+    "autonomous_snn_language_thought_consolidation_events",
+    "autonomous_snn_language_thought_structural_plasticity_events",
+)
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
     "recent_readout_event_source_window_v1"
@@ -32676,6 +32704,9 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "unique_prediction_count": len(prediction_hashes),
                     "unique_transition_memory_count": len(transition_memory_hashes),
+                    "normalization_source_window": deepcopy(
+                        dict(state.get("_normalization_source_window") or {})
+                    ),
                     "last_recorded_at": state.get("last_recorded_at"),
                     "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
                     "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
@@ -32763,34 +32794,20 @@ class SNNLanguageReadoutEvidenceLedger:
 
         with self._lock:
             state = self._ledger_state()
-            raw_events_value = state.get("events") or []
-            if isinstance(raw_events_value, (str, bytes, Mapping)):
-                raw_events: Sequence[Any] = []
-                retained_event_count = 0
-            else:
-                try:
-                    retained_event_count = min(len(raw_events_value), self._limit)
-                    raw_events = raw_events_value
-                except TypeError:
-                    raw_events = list(raw_events_value)
-                    retained_event_count = min(len(raw_events), self._limit)
             source_limit = min(
                 self._limit,
                 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
             )
-            source_events = [
-                deepcopy(dict(item))
-                for item in islice(raw_events, source_limit)
-                if isinstance(item, Mapping)
-            ]
+            source_events, retained_event_count = self._bounded_mapping_source_window(
+                state,
+                "events",
+                source_limit,
+            )
             def _retained_count(name: str) -> int:
-                value = state.get(name) or []
-                if isinstance(value, (str, bytes, Mapping)):
+                source_count = self._source_record_count(state, name)
+                if source_count is None:
                     return 0
-                try:
-                    return min(len(value), self._limit)
-                except TypeError:
-                    return min(len(list(value)), self._limit)
+                return min(int(source_count), self._limit)
 
             label_counts: dict[str, int] = {}
             transition_counts: dict[str, int] = {}
@@ -33088,35 +33105,21 @@ class SNNLanguageReadoutEvidenceLedger:
 
         with self._lock:
             state = self._ledger_state()
-            raw_events_value = state.get("rollout_events") or []
-            if isinstance(raw_events_value, (str, bytes, Mapping)):
-                raw_events: Sequence[Any] = []
-                retained_event_count = 0
-            else:
-                try:
-                    retained_event_count = min(len(raw_events_value), self._limit)
-                    raw_events = raw_events_value
-                except TypeError:
-                    raw_events = list(raw_events_value)
-                    retained_event_count = min(len(raw_events), self._limit)
             source_limit = min(
                 self._limit,
                 SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
             )
-            source_events = [
-                deepcopy(dict(item))
-                for item in islice(raw_events, source_limit)
-                if isinstance(item, Mapping)
-            ]
+            source_events, retained_event_count = self._bounded_mapping_source_window(
+                state,
+                "rollout_events",
+                source_limit,
+            )
 
             def _retained_count(name: str) -> int:
-                value = state.get(name) or []
-                if isinstance(value, (str, bytes, Mapping)):
+                source_count = self._source_record_count(state, name)
+                if source_count is None:
                     return 0
-                try:
-                    return min(len(value), self._limit)
-                except TypeError:
-                    return min(len(list(value)), self._limit)
+                return min(int(source_count), self._limit)
 
             rollout_counts: dict[str, int] = {}
             transition_counts: dict[str, int] = {}
@@ -37350,267 +37353,183 @@ class SNNLanguageReadoutEvidenceLedger:
         name: str,
         limit: int,
     ) -> tuple[list[dict[str, Any]], int]:
+        source_limit = max(0, min(int(limit), self._limit))
         raw_value = state.get(name) or []
         if isinstance(raw_value, (str, bytes, Mapping)):
             return [], 0
         try:
             retained_count = min(len(raw_value), self._limit)
-            raw_events = raw_value
         except TypeError:
-            raw_events = list(raw_value)
-            retained_count = min(len(raw_events), self._limit)
-        source_limit = max(0, min(int(limit), self._limit))
-        return (
-            [
+            retained_count = 0
+        source_events = [
+            deepcopy(dict(item))
+            for item in islice(raw_value, source_limit)
+            if isinstance(item, Mapping)
+        ]
+        if retained_count == 0 and source_events:
+            retained_count = len(source_events)
+        return (source_events, int(retained_count))
+
+    def _bounded_mapping_deque_from_state(
+        self,
+        state: Mapping[str, Any],
+        name: str,
+    ) -> deque[dict[str, Any]]:
+        raw_value = state.get(name) or []
+        if isinstance(raw_value, (str, bytes, Mapping)):
+            return deque(maxlen=self._limit)
+        return deque(
+            (
                 deepcopy(dict(item))
-                for item in islice(raw_events, source_limit)
+                for item in islice(raw_value, self._limit)
                 if isinstance(item, Mapping)
-            ],
-            int(retained_count),
+            ),
+            maxlen=self._limit,
         )
+
+    def _source_record_count(
+        self,
+        state: Mapping[str, Any],
+        name: str,
+    ) -> int | None:
+        raw_value = state.get(name) or []
+        if isinstance(raw_value, (str, bytes, Mapping)):
+            return 0
+        try:
+            return int(len(raw_value))
+        except TypeError:
+            return None
+
+    def _normalization_source_window_report(
+        self,
+        state: Mapping[str, Any],
+        normalized_event_fields: Mapping[str, deque[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        field_window_counts = {
+            name: int(len(normalized_event_fields.get(name) or []))
+            for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+        }
+        source_record_counts = {
+            name: self._source_record_count(state, name)
+            for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+        }
+        truncated_source_counts = {
+            name: (
+                max(0, int(source_count) - int(field_window_counts[name]))
+                if source_count is not None
+                else None
+            )
+            for name, source_count in source_record_counts.items()
+        }
+        known_source_record_total = sum(
+            int(value) for value in source_record_counts.values() if value is not None
+        )
+        return {
+            "surface": "bounded_snn_readout_ledger_normalization_source_window.v1",
+            "policy": SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+            "source": "recent_ledger_event_field_windows",
+            "event_field_count": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+            "source_window_limit_per_field": int(self._limit),
+            "source_window_count_total": int(sum(field_window_counts.values())),
+            "source_record_count_total_known": int(known_source_record_total),
+            "source_record_counts": source_record_counts,
+            "source_window_counts": field_window_counts,
+            "truncated_source_counts": truncated_source_counts,
+            "selection_criteria": (
+                "newest-first ledger event field order, bounded per retained "
+                "event family before deepcopy or review"
+            ),
+            "memory_budget": {
+                "max_fields": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+                "max_records_per_field": int(self._limit),
+                "max_records_total": int(
+                    len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS) * self._limit
+                ),
+            },
+            "archival_storage_device": "cpu",
+            "normalization_device": "cpu",
+            "gpu_used": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
+            "raw_text_scored": False,
+        }
 
     def _normalized_state(self) -> dict[str, Any]:
         state = self._ledger_state()
-        raw_events = list(state.get("events") or [])
-        raw_rollout_events = list(state.get("rollout_events") or [])
-        raw_emission_review_events = list(state.get("emission_review_events") or [])
-        raw_dense_label_candidate_events = list(
-            state.get("dense_label_candidate_events") or []
+        normalized_event_fields = {
+            name: self._bounded_mapping_deque_from_state(state, name)
+            for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+        }
+        normalization_source_window = self._normalization_source_window_report(
+            state,
+            normalized_event_fields,
         )
-        raw_dense_label_calibration_update_events = list(
-            state.get("dense_label_calibration_update_events") or []
-        )
-        raw_autonomous_confidence_use_events = list(
-            state.get("autonomous_confidence_use_events") or []
-        )
-        raw_autonomous_hash_readout_binding_events = list(
-            state.get("autonomous_hash_readout_binding_events") or []
-        )
-        raw_autonomous_bound_readout_observation_events = list(
-            state.get("autonomous_bound_readout_observation_events") or []
-        )
-        raw_autonomous_readout_training_window_events = list(
-            state.get("autonomous_readout_training_window_events") or []
-        )
-        raw_autonomous_decoder_probe_events = list(
-            state.get("autonomous_decoder_probe_events") or []
-        )
-        raw_autonomous_language_output_events = list(
-            state.get("autonomous_language_output_events") or []
-        )
-        raw_autonomous_decoded_output_events = list(
-            state.get("autonomous_decoded_output_events") or []
-        )
-        raw_autonomous_bounded_text_emission_events = list(
-            state.get("autonomous_bounded_text_emission_events") or []
-        )
-        raw_autonomous_text_surface_commit_events = list(
-            state.get("autonomous_text_surface_commit_events") or []
-        )
-        raw_autonomous_text_surface_materialization_events = list(
-            state.get("autonomous_text_surface_materialization_events") or []
-        )
-        raw_autonomous_bounded_language_surface_commit_events = list(
-            state.get("autonomous_bounded_language_surface_commit_events") or []
-        )
-        raw_autonomous_bounded_language_surface_use_events = list(
-            state.get("autonomous_bounded_language_surface_use_events") or []
-        )
-        raw_autonomous_snn_language_generation_events = list(
-            state.get("autonomous_snn_language_generation_events") or []
-        )
-        raw_autonomous_snn_language_decoding_events = list(
-            state.get("autonomous_snn_language_decoding_events") or []
-        )
-        raw_autonomous_snn_language_thought_surface_events = list(
-            state.get("autonomous_snn_language_thought_surface_events") or []
-        )
-        raw_autonomous_snn_language_thought_memory_events = list(
-            state.get("autonomous_snn_language_thought_memory_events") or []
-        )
-        raw_autonomous_snn_language_thought_consolidation_events = list(
-            state.get("autonomous_snn_language_thought_consolidation_events") or []
-        )
-        raw_autonomous_snn_language_thought_structural_plasticity_events = list(
-            state.get("autonomous_snn_language_thought_structural_plasticity_events")
-            or []
-        )
-        events = deque(
-            (deepcopy(dict(item)) for item in raw_events if isinstance(item, Mapping)),
-            maxlen=self._limit,
-        )
-        rollout_events = deque(
-            (deepcopy(dict(item)) for item in raw_rollout_events if isinstance(item, Mapping)),
-            maxlen=self._limit,
-        )
-        emission_review_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_emission_review_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        dense_label_candidate_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_dense_label_candidate_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        dense_label_calibration_update_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_dense_label_calibration_update_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_confidence_use_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_confidence_use_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_hash_readout_binding_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_hash_readout_binding_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_bound_readout_observation_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_bound_readout_observation_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_readout_training_window_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_readout_training_window_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_decoder_probe_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_decoder_probe_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_language_output_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_language_output_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_decoded_output_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_decoded_output_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_bounded_text_emission_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_bounded_text_emission_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_text_surface_commit_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_text_surface_commit_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_text_surface_materialization_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_text_surface_materialization_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_bounded_language_surface_commit_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_bounded_language_surface_commit_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_bounded_language_surface_use_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_bounded_language_surface_use_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_generation_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_generation_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_decoding_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_decoding_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_thought_surface_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_thought_surface_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_thought_memory_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_thought_memory_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_thought_consolidation_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_thought_consolidation_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
-        autonomous_snn_language_thought_structural_plasticity_events = deque(
-            (
-                deepcopy(dict(item))
-                for item in raw_autonomous_snn_language_thought_structural_plasticity_events
-                if isinstance(item, Mapping)
-            ),
-            maxlen=self._limit,
-        )
+        events = normalized_event_fields["events"]
+        rollout_events = normalized_event_fields["rollout_events"]
+        emission_review_events = normalized_event_fields["emission_review_events"]
+        dense_label_candidate_events = normalized_event_fields[
+            "dense_label_candidate_events"
+        ]
+        dense_label_calibration_update_events = normalized_event_fields[
+            "dense_label_calibration_update_events"
+        ]
+        autonomous_confidence_use_events = normalized_event_fields[
+            "autonomous_confidence_use_events"
+        ]
+        autonomous_hash_readout_binding_events = normalized_event_fields[
+            "autonomous_hash_readout_binding_events"
+        ]
+        autonomous_bound_readout_observation_events = normalized_event_fields[
+            "autonomous_bound_readout_observation_events"
+        ]
+        autonomous_readout_training_window_events = normalized_event_fields[
+            "autonomous_readout_training_window_events"
+        ]
+        autonomous_decoder_probe_events = normalized_event_fields[
+            "autonomous_decoder_probe_events"
+        ]
+        autonomous_language_output_events = normalized_event_fields[
+            "autonomous_language_output_events"
+        ]
+        autonomous_decoded_output_events = normalized_event_fields[
+            "autonomous_decoded_output_events"
+        ]
+        autonomous_bounded_text_emission_events = normalized_event_fields[
+            "autonomous_bounded_text_emission_events"
+        ]
+        autonomous_text_surface_commit_events = normalized_event_fields[
+            "autonomous_text_surface_commit_events"
+        ]
+        autonomous_text_surface_materialization_events = normalized_event_fields[
+            "autonomous_text_surface_materialization_events"
+        ]
+        autonomous_bounded_language_surface_commit_events = normalized_event_fields[
+            "autonomous_bounded_language_surface_commit_events"
+        ]
+        autonomous_bounded_language_surface_use_events = normalized_event_fields[
+            "autonomous_bounded_language_surface_use_events"
+        ]
+        autonomous_snn_language_generation_events = normalized_event_fields[
+            "autonomous_snn_language_generation_events"
+        ]
+        autonomous_snn_language_decoding_events = normalized_event_fields[
+            "autonomous_snn_language_decoding_events"
+        ]
+        autonomous_snn_language_thought_surface_events = normalized_event_fields[
+            "autonomous_snn_language_thought_surface_events"
+        ]
+        autonomous_snn_language_thought_memory_events = normalized_event_fields[
+            "autonomous_snn_language_thought_memory_events"
+        ]
+        autonomous_snn_language_thought_consolidation_events = normalized_event_fields[
+            "autonomous_snn_language_thought_consolidation_events"
+        ]
+        autonomous_snn_language_thought_structural_plasticity_events = normalized_event_fields[
+            "autonomous_snn_language_thought_structural_plasticity_events"
+        ]
         current_text_surface_commit = (
             deepcopy(dict(state.get("current_text_surface_commit")))
             if isinstance(state.get("current_text_surface_commit"), Mapping)
@@ -37687,6 +37606,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 current_bounded_language_surface_commit
             ),
             "current_dense_label_calibration_update": current_dense_label_calibration_update,
+            "_normalization_source_window": normalization_source_window,
             "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
             "total_rollout_recorded_count": int(
                 state.get("total_rollout_recorded_count", len(rollout_events)) or 0

@@ -11,6 +11,8 @@ from marulho.service.runtime_facade import RuntimeFacade
 from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
+    SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
+    SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
@@ -12211,6 +12213,67 @@ def test_readout_ledger_replay_priority_caps_source_events_before_rank() -> None
     assert priority["source_window"]["runs_live_tick"] is False
     assert priority["source_window"]["gpu_used"] is False
     assert "outside-window" not in candidate_labels
+
+
+def test_readout_ledger_snapshot_normalizes_retained_histories_from_source_window() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    source_count = 10
+    ledger_limit = 4
+    ledger_state: dict[str, object] = {
+        field: [
+            {
+                "field": field,
+                "ordinal": index,
+                "readout_evidence_hash": f"{field}:readout:{index}",
+                "rollout_evidence_hash": f"{field}:rollout:{index}",
+                "emission_review_hash": f"{field}:review:{index}",
+            }
+            for index in range(source_count)
+        ]
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state["total_recorded_count"] = source_count
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    snapshot = ledger.snapshot(limit=2)
+    source_window = snapshot["summary"]["normalization_source_window"]
+
+    assert snapshot["summary"]["event_count"] == ledger_limit
+    assert len(snapshot["events"]) == 2
+    assert snapshot["events"][0]["ordinal"] == 0
+    assert snapshot["events"][1]["ordinal"] == 1
+    assert source_window["surface"] == (
+        "bounded_snn_readout_ledger_normalization_source_window.v1"
+    )
+    assert source_window["policy"] == (
+        SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY
+    )
+    assert source_window["event_field_count"] == len(
+        SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    )
+    assert source_window["source_window_limit_per_field"] == ledger_limit
+    assert source_window["source_record_counts"]["events"] == source_count
+    assert source_window["source_window_counts"]["events"] == ledger_limit
+    assert source_window["truncated_source_counts"]["events"] == (
+        source_count - ledger_limit
+    )
+    assert source_window["memory_budget"]["max_records_total"] == (
+        len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS) * ledger_limit
+    )
+    assert source_window["archival_storage_device"] == "cpu"
+    assert source_window["normalization_device"] == "cpu"
+    assert source_window["gpu_used"] is False
+    assert source_window["runs_live_tick"] is False
+    assert source_window["runs_every_token"] is False
+    assert source_window["global_candidate_scan"] is False
+    assert source_window["global_score_scan"] is False
+    assert source_window["language_reasoning"] is False
 
 
 def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:

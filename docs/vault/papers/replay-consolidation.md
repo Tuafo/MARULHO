@@ -10,6 +10,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -68,6 +69,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
+  - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
 ---
 
 # Replay/consolidation
@@ -923,6 +926,35 @@ The velocity sampler observed borderline GPU contention at `20%`, so this is
 accepted as hot-path protection and same-band throughput evidence, not a clean
 hardware ceiling.
 
+SNN Readout Evidence Ledger normalization now follows the same selected-source
+rule before replay/readout review methods or ledger status snapshots touch
+retained event history. The old normalizer built `list(...)` for every retained
+ledger event family and then re-wrapped those lists in capped deques. The active
+`bounded_snn_readout_ledger_normalization_source_window.v1` reads only the
+newest `128` records per retained event family before deepcopy/review, reports
+`recent_ledger_event_field_source_window_v1`, CPU archival/normalization
+placement, `max_records_total=2944`, no global candidate/score scan, no live
+tick, no every-token cadence, no hidden language reasoning, and no CUDA archive.
+The benchmark
+`reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json`
+used `23` event families with `2048` records each: the bounded normalizer read
+`2944` source rows instead of `47104`, preserved newest-first recall
+(`bounded_recent_retention_rate=1.0` versus `0.0` for the retired
+full-materialize-then-maxlen shape), and reduced mean normalization latency from
+`2383.787392 ms` to `162.825800 ms` (`14.640109x`) with `3.938222 MiB` traced
+peak Python allocation and `0.0 MiB` CUDA allocation/reservation. A follow-up
+readout-priority benchmark still matched the full-retained top candidate while
+scoring `32/2048` events at `1.253520 ms`, and rollout rehearsal still matched
+top quality while scoring `16/2048` events at `2.705792 ms`. The paired
+`524288`-token hot-path run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json`
+stayed in the maintained band at `6151.219 tokens/sec`,
+`train_compute=0.132544 ms/token`, `prepare_training=0.006809 ms/token`,
+`finalize_total=0.006340 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, flat `2162 MiB` GPU memory, no observed contention, and
+zero graph/native/sequence failures. This retires a broad retained-ledger copy
+shape without promoting ledger normalization into live replay.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -938,11 +970,13 @@ bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded status replay-path projections,
+bounded readout-ledger normalization source windows,
 awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
-source-bank wrapper APIs, retained-ledger replay-path status scans, plus the all-anchor HF replay-query source pass and
+source-bank wrapper APIs, retained-ledger replay-path status scans,
+readout-ledger full-materialization normalization, plus the all-anchor HF replay-query source pass and
 full hot-bucket candidate source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
