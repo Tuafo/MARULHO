@@ -604,6 +604,20 @@ processed `262144` tokens at `6148.846 tokens/sec`, with
 `1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence
 failures.
 
+The source-bank probe-signature follow-up bounds the same planner before bucket
+selection. `concept_frontier_metrics_with_report(...)` and
+`candidate_semantic_signature(...)` now sample an evenly spaced `16`-probe
+source window, report the source-probe budget and selected indices, then score
+only the capped bucket-indexed memory candidates. The direct report
+`reports/bounded_replay_window_20260618/concept-frontier-source-probe-window-bounded.json`
+sampled `16/64` probes, scored `64/16384` memory entries, preserved the
+diagnostic full-scan top-1, and reduced mean latency from `1556.602 ms` to
+`7.637 ms` (`203.829x`). The paired 524288-token protection check kept the
+current tree in the same band as the committed baseline (`6303.548` versus
+`6307.437 tokens/sec`), with bounded `12/65536` route rows, `65526` cached
+transition rows, flat `1789 MiB` GPU memory, no observed contention, and zero
+graph/native/sequence failures.
+
 The source-bank memory-match follow-up applies the same selected-window rule to
 the bank-level acquisition plan. `bank_memory_matches_with_report(...)` samples
 bounded probe patterns, delegates each probe to `bounded_query_memory_match.v1`,

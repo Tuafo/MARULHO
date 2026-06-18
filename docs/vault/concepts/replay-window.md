@@ -289,6 +289,19 @@ processed `262144` tokens at `6148.846 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1805 MiB`, and had zero graph/native/sequence failures.
 
+The source-bank signature feeding that frontier metric is now capped before
+candidate-bucket lookup. `concept_frontier_metrics_with_report(...)` and
+`candidate_semantic_signature(...)` sample an evenly spaced `16`-probe source
+window and report `source_probe_count`, `source_probe_window_limit`,
+`source_probe_indices`, and selection-budget fields. The direct report
+`reports/bounded_replay_window_20260618/concept-frontier-source-probe-window-bounded.json`
+sampled `16/64` probes, scored `64/16384` memory entries, preserved top-1, and
+reduced mean latency from `1556.602 ms` to `7.637 ms`. The paired hot-path
+check stayed in the same band as the committed baseline (`6303.548` versus
+`6307.437 tokens/sec`) with bounded `12/65536` route rows, cached `65526`
+transition rows, no observed contention, flat `1789 MiB` GPU memory, and zero
+graph/native/sequence failures.
+
 Source-bank semantic recall now records the same selected-window contract at
 the bank-planning layer. `bank_memory_matches_with_report(...)` samples a
 capped probe set, delegates each probe to `bounded_query_memory_match.v1`,

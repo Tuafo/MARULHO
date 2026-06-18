@@ -111,11 +111,16 @@ def _build_trainer(
     capacity: int,
     bucket_count: int,
     candidate_bucket_count: int,
+    probe_count: int,
     dim: int,
     seed: int,
 ) -> tuple[Any, SourceBank]:
     torch.manual_seed(seed)
     query = _normalize(torch.randn(dim))
+    probe_patterns = [
+        _normalize(query + 0.005 * torch.randn(dim))
+        for _ in range(max(1, int(probe_count)))
+    ]
     target_bucket = 7 % max(1, int(bucket_count))
     candidate_buckets = [
         (target_bucket + offset) % max(1, int(bucket_count))
@@ -155,8 +160,11 @@ def _build_trainer(
         source_type="synthetic",
         hf_config=None,
         text_field="text",
-        probe_patterns=[query],
-        probe_raw_windows=["concept frontier query"],
+        probe_patterns=probe_patterns,
+        probe_raw_windows=[
+            f"concept frontier query {index}"
+            for index in range(len(probe_patterns))
+        ],
         train_patterns=[],
         train_raw_windows=[],
     )
@@ -168,6 +176,7 @@ def run_benchmark(
     capacity: int,
     bucket_count: int,
     candidate_bucket_count: int,
+    probe_count: int,
     dim: int,
     iterations: int,
     seed: int,
@@ -176,6 +185,7 @@ def run_benchmark(
         capacity=capacity,
         bucket_count=bucket_count,
         candidate_bucket_count=candidate_bucket_count,
+        probe_count=probe_count,
         dim=dim,
         seed=seed,
     )
@@ -215,6 +225,13 @@ def run_benchmark(
         "capacity": int(capacity),
         "bucket_count": int(bucket_count),
         "candidate_bucket_count": int(candidate_bucket_count),
+        "source_probe_count": int(probe_count),
+        "source_probe_window_limit": int(
+            bounded_report.get("source_probe_window_limit", 0)
+        ),
+        "source_probe_index_count": int(
+            bounded_report.get("source_probe_index_count", 0)
+        ),
         "candidate_window_limit": int(bounded_report.get("candidate_window_limit", 0)),
         "iterations": int(max(1, iterations)),
         "dim": int(dim),
@@ -232,6 +249,9 @@ def run_benchmark(
         "bounded_candidate_window": {
             "mean_latency_ms": float(bounded_mean),
             "score_count": int(bounded_report.get("score_count", 0)),
+            "source_probe_index_count": int(
+                bounded_report.get("source_probe_index_count", 0)
+            ),
             "candidate_index_available_count": int(
                 bounded_report.get("candidate_index_available_count", 0)
             ),
@@ -281,6 +301,7 @@ def main() -> None:
     parser.add_argument("--capacity", type=int, default=8192)
     parser.add_argument("--bucket-count", type=int, default=1024)
     parser.add_argument("--candidate-bucket-count", type=int, default=8)
+    parser.add_argument("--probe-count", type=int, default=64)
     parser.add_argument("--dim", type=int, default=16)
     parser.add_argument("--iterations", type=int, default=128)
     parser.add_argument("--seed", type=int, default=20260617)
@@ -289,6 +310,7 @@ def main() -> None:
         capacity=args.capacity,
         bucket_count=args.bucket_count,
         candidate_bucket_count=args.candidate_bucket_count,
+        probe_count=args.probe_count,
         dim=args.dim,
         iterations=args.iterations,
         seed=args.seed,

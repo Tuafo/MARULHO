@@ -3429,3 +3429,47 @@ and native burst failures were all `0`. GPU memory moved from `1801 MiB` to
 `1802 MiB`; the velocity surface observed brief GPU-side contention
 (`23%` max utilization), so this is accepted as sustained-throughput protection
 evidence rather than a contention-free hardware run.
+
+### Source-Bank Frontier Probe Signature Window, 2026-06-18
+
+This slice bounds the source-bank probe signature used by autonomy
+concept-frontier planning. The old implementation averaged every source-bank
+probe before asking the routing index for candidate buckets. That was slow-path
+planning, not neural live-tick work, but it preserved an input-unbounded recall
+shape that would scale poorly for future LLM-size source banks. The maintained
+path samples an evenly spaced `16`-probe source window, reports the source-probe
+budget and selected indices, then scores only the capped bucket-indexed memory
+candidate window. Archival memory stays CPU-resident; active routing signature
+computation uses the existing trainer path.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.concept_frontier_scope_benchmark --output reports\bounded_replay_window_20260618\concept-frontier-source-probe-window-bounded.json --capacity 16384 --bucket-count 2048 --candidate-bucket-count 8 --probe-count 64 --dim 32 --iterations 32`
+
+It sampled `16/64` source probes, scored `64/16384` memory entries, preserved
+the diagnostic full-scan top-1, kept `novelty_delta=0.0000706911`,
+`uncertainty_delta=0.0`, and `support_delta=0.0219844`, and reduced mean
+latency from `1556.602 ms` to `7.637 ms` (`203.829x`). The report kept
+`global_candidate_scan=false`, `global_score_scan=false`,
+`archival_storage_device=cpu`, and `runs_live_tick=false`.
+
+The first same-code long hot-path runs reached `5935.082`, `5753.405`, and
+`5798.030 tokens/sec`, so they were rejected as primary throughput evidence.
+The accepted comparison used a paired committed-baseline/current-code run on the
+same 524288-token shape:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-baseline-29a1ffe-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-concept-frontier-source-probe-window-paired-current.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+The baseline at `29a1ffe` processed `524288` tokens at `6307.437 tokens/sec`.
+The source-probe current tree processed `524288` tokens at
+`6303.548 tokens/sec`, with `train_compute=0.129019 ms/token`,
+`prepare_training=0.006522 ms/token`, `finalize_total=0.006066 ms/token`, and
+`tick_duration_ms.p95=19.815`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `29%`, GPU utilization max `10%`, GPU memory
+utilization max `10%`, and GPU memory stayed flat at `1789 MiB`.

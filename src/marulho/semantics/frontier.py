@@ -15,15 +15,27 @@ from marulho.gap_planner import (
 from .concepts import ConceptStore
 from marulho.training.query_runner import memory_matches_with_report as retrieve_memory_matches_with_report
 
+SOURCE_BANK_SIGNATURE_PROBE_LIMIT = 16
+
 
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
 
-def candidate_semantic_signature(trainer: Any, bank: Any) -> torch.Tensor | None:
+def candidate_semantic_signature(
+    trainer: Any,
+    bank: Any,
+    *,
+    probe_limit: int = SOURCE_BANK_SIGNATURE_PROBE_LIMIT,
+) -> torch.Tensor | None:
     if trainer is None or not getattr(bank, "probe_patterns", None):
         return None
-    vectors = [trainer.routing_key_for_pattern(pattern).detach().cpu() for pattern in bank.probe_patterns]
+    probe_patterns = list(getattr(bank, "probe_patterns", []) or [])
+    probe_indices = _sample_probe_indices(len(probe_patterns), int(probe_limit))
+    vectors = [
+        trainer.routing_key_for_pattern(probe_patterns[index]).detach().cpu()
+        for index in probe_indices
+    ]
     if not vectors:
         return None
     mean = torch.stack(vectors).mean(dim=0)

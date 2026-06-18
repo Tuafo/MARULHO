@@ -197,8 +197,8 @@ class AutonomySelectionTests(unittest.TestCase):
             source_type="test",
             hf_config=None,
             text_field="text",
-            probe_patterns=[torch.tensor([1.0, 0.0])],
-            probe_raw_windows=["frontier"],
+            probe_patterns=[torch.tensor([1.0, 0.0]) for _ in range(40)],
+            probe_raw_windows=[f"frontier {index}" for index in range(40)],
             train_patterns=[],
             train_raw_windows=[],
         )
@@ -212,6 +212,11 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(report["candidate_index_count"], 2)
         self.assertEqual(report["score_count"], 2)
+        self.assertEqual(report["source_probe_count"], 40)
+        self.assertEqual(report["source_probe_window_limit"], 16)
+        self.assertEqual(report["source_probe_index_count"], 16)
+        self.assertEqual(report["selection_budget"]["source_probe_total_entries"], 40)
+        self.assertEqual(report["selection_budget"]["source_probe_window_entries"], 16)
         self.assertEqual(report["selected_indices"], [1, 3])
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["global_score_scan"])

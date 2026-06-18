@@ -73,6 +73,7 @@ AUTONOMY_SELECTION_FEEDBACK_ALPHA = 0.65
 AUTONOMY_SELECTION_FEEDBACK_WEIGHT = 0.08
 AUTONOMY_SELECTION_UNSEEN_BONUS = 0.04
 AUTONOMY_SELECTION_VISIT_PENALTY_EXPONENT = 0.5
+CONCEPT_FRONTIER_SIGNATURE_PROBE_LIMIT = 16
 
 
 @dataclass
@@ -219,6 +220,24 @@ def _mean_signature(vectors: Sequence[torch.Tensor]) -> torch.Tensor | None:
     return torch.nn.functional.normalize(mean, dim=0)
 
 
+def _sample_probe_indices(total: int, limit: int) -> list[int]:
+    count = max(0, int(total))
+    budget = max(0, int(limit))
+    if count <= 0 or budget <= 0:
+        return []
+    if count <= budget:
+        return list(range(count))
+    if budget == 1:
+        return [count // 2]
+    step = float(max(1, count - 1)) / float(max(1, budget - 1))
+    return sorted(
+        {
+            max(0, min(count - 1, int(round(step * float(index)))))
+            for index in range(budget)
+        }
+    )
+
+
 def _frontier_candidate_bucket_ids(
     trainer: MarulhoTrainer,
     bank_signature: torch.Tensor,
@@ -248,14 +267,23 @@ def _empty_concept_frontier_memory_report(
     fallback_reason: str,
     latency_ms: float,
     candidate_bucket_ids: Sequence[int] | None = None,
+    source_probe_count: int = 0,
+    source_probe_window_limit: int = CONCEPT_FRONTIER_SIGNATURE_PROBE_LIMIT,
+    source_probe_indices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     buckets = [int(bucket) for bucket in (candidate_bucket_ids or [])]
+    probes = [int(index) for index in (source_probe_indices or [])]
     return {
         "surface": "bounded_concept_frontier_memory_metrics.v1",
         "status": "empty",
         "scope": "autonomy_concept_frontier_slow_path",
         "bank_name": str(bank_name),
         "memory_size": int(memory_size),
+        "source_probe_count": int(max(0, source_probe_count)),
+        "source_probe_window_limit": int(max(0, source_probe_window_limit)),
+        "source_probe_window_policy": "evenly_sampled_source_bank_probe_signature_window",
+        "source_probe_indices": probes,
+        "source_probe_index_count": int(len(probes)),
         "requested_count": int(requested_count),
         "candidate_window_limit": int(requested_count),
         "candidate_window_policy": "frontier_bucket_indexed_candidate_window",
@@ -281,6 +309,8 @@ def _empty_concept_frontier_memory_report(
         "fallback_reason": str(fallback_reason),
         "selection_budget": {
             "memory_budget_entries": int(memory_size),
+            "source_probe_total_entries": int(max(0, source_probe_count)),
+            "source_probe_window_entries": int(len(probes)),
             "candidate_window_entries": int(requested_count),
         },
     }
@@ -296,10 +326,15 @@ def concept_frontier_metrics_with_report(
     top_k_limit = 8
     max_buckets = max(1, int(getattr(trainer.config, "k_routing", top_k_limit)))
     candidate_limit = max(32, top_k_limit, max_buckets * 8)
+    probe_patterns = list(getattr(bank, "probe_patterns", []) or [])
+    source_probe_indices = _sample_probe_indices(
+        len(probe_patterns),
+        CONCEPT_FRONTIER_SIGNATURE_PROBE_LIMIT,
+    )
     bank_signature = _mean_signature(
         [
-            trainer.routing_key_for_pattern(pattern).detach().cpu()
-            for pattern in bank.probe_patterns
+            trainer.routing_key_for_pattern(probe_patterns[index]).detach().cpu()
+            for index in source_probe_indices
         ]
     )
     if bank_signature is None:
@@ -309,6 +344,8 @@ def concept_frontier_metrics_with_report(
             requested_count=candidate_limit,
             fallback_reason="empty_frontier_probe_signature",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
+            source_probe_count=len(probe_patterns),
+            source_probe_indices=source_probe_indices,
         )
         return 1.0, 1.0, 0.0, report
 
@@ -324,6 +361,8 @@ def concept_frontier_metrics_with_report(
             requested_count=candidate_limit,
             fallback_reason="empty_frontier_candidate_bucket_scope",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
+            source_probe_count=len(probe_patterns),
+            source_probe_indices=source_probe_indices,
         )
         return 1.0, 1.0, 0.0, report
 
@@ -336,6 +375,8 @@ def concept_frontier_metrics_with_report(
             candidate_bucket_ids=candidate_bucket_ids,
             fallback_reason="memory_store_missing_bounded_frontier_collector",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
+            source_probe_count=len(probe_patterns),
+            source_probe_indices=source_probe_indices,
         )
         return 1.0, 1.0, 0.0, report
 
@@ -367,6 +408,8 @@ def concept_frontier_metrics_with_report(
             candidate_bucket_ids=candidate_bucket_ids,
             fallback_reason="empty_frontier_candidate_memory_keys",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
+            source_probe_count=len(probe_patterns),
+            source_probe_indices=source_probe_indices,
         )
         report.update(
             {
@@ -418,6 +461,11 @@ def concept_frontier_metrics_with_report(
             "status": "measured",
             "scope": "autonomy_concept_frontier_slow_path",
             "bank_name": str(bank.name),
+            "source_probe_count": int(len(probe_patterns)),
+            "source_probe_window_limit": int(CONCEPT_FRONTIER_SIGNATURE_PROBE_LIMIT),
+            "source_probe_window_policy": "evenly_sampled_source_bank_probe_signature_window",
+            "source_probe_indices": [int(index) for index in source_probe_indices],
+            "source_probe_index_count": int(len(source_probe_indices)),
             "score_count": int(len(memory_keys)),
             "selected_indices": selected_indices,
             "selected_count": int(len(selected_indices)),
@@ -435,6 +483,8 @@ def concept_frontier_metrics_with_report(
             "fallback_reason": None,
             "selection_budget": {
                 "memory_budget_entries": int(memory_size),
+                "source_probe_total_entries": int(len(probe_patterns)),
+                "source_probe_window_entries": int(len(source_probe_indices)),
                 "candidate_window_entries": int(candidate_limit),
                 "score_budget_entries": int(len(memory_keys)),
             },

@@ -468,6 +468,24 @@ processed `262144` tokens at `6148.846 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The source-bank probe-signature follow-up bounds the recall operator one step
+earlier. A source bank may contain many probe patterns, but the maintained
+frontier path now treats the bank signature as a local associative window:
+`concept_frontier_metrics_with_report(...)` and
+`candidate_semantic_signature(...)` sample `16` evenly spaced probes, report the
+source-probe budget and selected probe indices, and only then ask the routing
+index for candidate buckets. This keeps modern Hopfield-style matching local
+and keeps CLS/continual-replay/STC constraints intact: no full archive scan, no
+every-token admission, no GPU-resident archival metadata, and no hidden replay
+text reasoning. `reports/bounded_replay_window_20260618/concept-frontier-source-probe-window-bounded.json`
+used `64` source probes and a `16384`-entry archive, sampled `16` probes,
+scored `64` memory entries instead of `16384`, preserved top-1, and reduced
+mean latency from `1556.602 ms` to `7.637 ms` (`203.829x`). The paired
+524288-token protection check stayed at the baseline band: committed baseline
+`6307.437 tokens/sec`, current source-probe tree `6303.548 tokens/sec`, bounded
+`12/65536` route rows, `65526` cached transition rows, flat `1789 MiB` current
+GPU memory, no observed contention, and zero graph/native/sequence failures.
+
 The semantic frontier-gap planner follow-up applies that local-memory boundary
 to gap-term planning. The old planner materialized the whole `slow_raw_windows`
 archive and rebuilt side lists while ranking terms; the new path collects a
