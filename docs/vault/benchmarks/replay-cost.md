@@ -9,6 +9,8 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
+  - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -63,6 +65,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json
+  - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
@@ -99,6 +104,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-emission-review-replay-policy-source-window.json`
 - SNN rollout rehearsal source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-rollout-rehearsal-source-window.json`
+- SNN status replay-path source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.status_replay_path_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260618\status-replay-path-source-window.json`
 - HF-backed replay recall with capped query collection:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-capped-query-collection`
 - HF-backed replay recall:
@@ -119,6 +126,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for SNN rollout rehearsal source window:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+- Hot-path protection for SNN status replay-path source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+- No-profile hot-path rerun for SNN status replay-path source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05`
 - Hot-path protection for capped query collection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded query-memory match readout:
@@ -268,6 +279,28 @@ bounded `12/65536` route rows, `65526` cached transition rows, GPU memory
 `1867->1865 MiB`, and zero graph/native/sequence failures. The velocity sampler
 observed GPU contention at `22%`, so this is throughput-protection evidence,
 not contention-free hardware evidence.
+
+Runtime Truth replay-path projection is bounded before it summarizes those
+slow/control-plane replay surfaces. `StatusReadModel` now emits
+`bounded_snn_status_emission_review_history_source_window.v1`,
+`bounded_snn_status_emission_replay_design_path_source_window.v1` and
+`bounded_snn_status_rollout_consolidation_path_source_window.v1`, each capped to
+`16` recent source rows from the relevant status ledgers. The status projection
+keeps retained counts and truncation visible, but it no longer materializes all
+retained readout, emission-review, or rollout events just to compute readiness.
+All three reports state CPU archival/score placement, no live tick, no every-token
+work, no raw text payload, no hidden language reasoning, no global
+candidate/score scan, and no CUDA/VRAM use. The benchmark
+`reports/bounded_replay_window_20260618/status-replay-path-source-window.json`
+matched diagnostic full-retained latest history, emission, and rollout evidence while
+checking `80` source rows instead of `10240` retained rows, reducing combined
+mean projection latency from `102.831789 ms` to `1.309999 ms` (`78.497629x`).
+The profiled `524288`-token protection run stayed bounded and contention-free
+at `6081.034 tokens/sec`; the no-profile rerun reached `6408.252 tokens/sec`
+with bounded `12/65536` route rows, `65526` cached transition rows, and zero
+graph/native/sequence failures, but had observed GPU-side contention. This
+closes the status/export scan shape without promoting status projection into
+replay execution.
 
 The synthetic selector report at
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

@@ -9518,6 +9518,24 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_consolidation_path["eligible_for_plasticity_application"])
         self.assertFalse(status_consolidation_path["eligible_for_cognition_substrate"])
         self.assertEqual(
+            status_consolidation_path["source_window"]["surface"],
+            "bounded_snn_status_rollout_consolidation_path_source_window.v1",
+        )
+        self.assertFalse(status_consolidation_path["source_window"]["global_candidate_scan"])
+        self.assertFalse(status_consolidation_path["source_window"]["global_score_scan"])
+        self.assertFalse(status_consolidation_path["source_window"]["runs_live_tick"])
+        self.assertFalse(status_consolidation_path["source_window"]["runs_every_token"])
+        self.assertEqual(
+            status_consolidation_path["source_window"]["archival_storage_device"],
+            "cpu",
+        )
+        self.assertFalse(status_consolidation_path["source_window"]["gpu_used"])
+        self.assertTrue(
+            status_consolidation_path["promotion_gate"]["required_evidence"][
+                "source_window_bounded"
+            ]
+        )
+        self.assertEqual(
             terminus_consolidation_path["artifact_kind"],
             status_consolidation_path["artifact_kind"],
         )
@@ -9567,6 +9585,25 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_emission_review_history["freeform_language_generation"])
         self.assertFalse(status_emission_review_history["applies_plasticity"])
         self.assertFalse(status_emission_review_history["mutates_runtime_state"])
+        self.assertEqual(
+            status_emission_review_history["source_window"]["surface"],
+            "bounded_snn_status_emission_review_history_source_window.v1",
+        )
+        self.assertFalse(
+            status_emission_review_history["source_window"]["global_candidate_scan"]
+        )
+        self.assertFalse(
+            status_emission_review_history["source_window"]["runs_live_tick"]
+        )
+        self.assertEqual(
+            status_emission_review_history["source_window"]["archival_storage_device"],
+            "cpu",
+        )
+        self.assertTrue(
+            status_emission_review_history["promotion_gate"]["required_evidence"][
+                "source_window_bounded"
+            ]
+        )
         self.assertFalse(status_emission_review_history["eligible_for_replay_memory"])
         self.assertFalse(status_emission_review_history["eligible_for_live_replay"])
         self.assertFalse(
@@ -9625,6 +9662,34 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_emission_replay_design_path["exposes_raw_text"])
         self.assertFalse(status_emission_replay_design_path["applies_plasticity"])
         self.assertFalse(status_emission_replay_design_path["mutates_runtime_state"])
+        self.assertEqual(
+            status_emission_replay_design_path["source_window"]["surface"],
+            "bounded_snn_status_emission_replay_design_path_source_window.v1",
+        )
+        self.assertFalse(
+            status_emission_replay_design_path["source_window"]["global_candidate_scan"]
+        )
+        self.assertFalse(
+            status_emission_replay_design_path["source_window"]["global_score_scan"]
+        )
+        self.assertFalse(
+            status_emission_replay_design_path["source_window"]["runs_live_tick"]
+        )
+        self.assertFalse(
+            status_emission_replay_design_path["source_window"]["runs_every_token"]
+        )
+        self.assertEqual(
+            status_emission_replay_design_path["source_window"][
+                "archival_storage_device"
+            ],
+            "cpu",
+        )
+        self.assertFalse(status_emission_replay_design_path["source_window"]["gpu_used"])
+        self.assertTrue(
+            status_emission_replay_design_path["promotion_gate"]["required_evidence"][
+                "source_window_bounded"
+            ]
+        )
         self.assertFalse(
             status_emission_replay_design_path[
                 "eligible_for_emission_replay_evaluation_design_review"

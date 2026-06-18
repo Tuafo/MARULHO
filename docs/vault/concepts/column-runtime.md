@@ -8,7 +8,9 @@ related_code:
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
+  - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
 related_docs:
@@ -814,6 +816,29 @@ retained events, reducing mean priority latency from `309.922768 ms` to
 `1867->1865 MiB`, and zero graph/native/sequence failures; the environment did
 observe `22%` max GPU utilization, so this is throughput-protection evidence
 rather than contention-free evidence.
+
+Replay-path status projection now follows the same bounded ownership rule. The
+service read model does not select replay or consolidation work, but it also
+must not scan all retained replay ledgers just to summarize readiness.
+`StatusReadModel` now projects emission review-history from a `16`
+reviewed-emission source window, emission replay-design readiness from a `16`
+reviewed-emission plus `16` internal-readout source window, and rollout
+consolidation readiness from a `16` rollout-event plus `16` internal-readout
+source window. The surfaces are
+`bounded_snn_status_emission_review_history_source_window.v1`,
+`bounded_snn_status_emission_replay_design_path_source_window.v1`, and
+`bounded_snn_status_rollout_consolidation_path_source_window.v1`; all three expose
+retained counts, window counts, truncation, CPU archival/score placement, no
+global candidate/score scan, no raw text payload, no hidden language reasoning,
+no live tick, no every-token cadence, and no CUDA archival metadata. The
+benchmark `reports/bounded_replay_window_20260618/status-replay-path-source-window.json`
+preserved latest history/emission/rollout evidence while checking `80/10240`
+retained rows and reducing combined projection latency from `102.831789 ms` to
+`1.309999 ms`; the no-profile paired long run stayed in band at `6408.252
+tokens/sec` with bounded `12/65536` route rows and zero runtime failures, while
+the profiled no-contention run reached `6081.034 tokens/sec`. This keeps
+operator-facing Runtime Truth scalable without making service status a replay
+scheduler.
 
 The follow-on replay-artifact provenance path is indexed as well. Replay
 artifact review tickets, evaluated transition-memory replay artifacts,

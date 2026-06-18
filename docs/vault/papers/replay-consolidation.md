@@ -9,6 +9,8 @@ related_code:
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
+  - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -63,6 +65,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json
   - reports/bounded_replay_window_20260618/snn-replay-artifact-provenance-source-window.json
+  - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
 ---
 
 # Replay/consolidation
@@ -367,6 +372,30 @@ allocation. The paired `524288`-token hot-path check stayed in band at
 route rows, `65526` cached transition rows, GPU memory `1867->1865 MiB`, and
 zero graph/native/sequence failures; GPU contention reached `22%`, so the
 evidence supports protected throughput, not a contention-free environment.
+
+Status projection now obeys that same replay boundary. `StatusReadModel` no
+longer scans all retained readout, emission-review, and rollout ledgers when it
+publishes emission history, replay-design, or consolidation readiness. It emits
+`bounded_snn_status_emission_review_history_source_window.v1` from `16` recent
+reviewed emissions,
+`bounded_snn_status_emission_replay_design_path_source_window.v1` from `16`
+recent reviewed emissions plus `16` recent internal readouts, and
+`bounded_snn_status_rollout_consolidation_path_source_window.v1` from `16`
+recent rollout events plus `16` recent internal readouts. These are
+control-plane reports only: CPU archival/score placement, retained/truncated
+counts, no global candidate or score scan, no raw replay text, no hidden
+language reasoning, no live tick, no every-token cadence, and no CUDA archival
+metadata. The benchmark
+`reports/bounded_replay_window_20260618/status-replay-path-source-window.json`
+kept the same latest history, emission, and rollout evidence as the diagnostic
+full-retained projection while checking `80` source rows instead of `10240`
+retained rows, reducing combined projection latency from `102.831789 ms` to
+`1.309999 ms`. The profiled `524288`-token hot-path run stayed protected and
+contention-free at `6081.034 tokens/sec`; the no-profile rerun reached
+`6408.252 tokens/sec` with bounded `12/65536` route rows and zero
+graph/native/sequence failures, but had observed GPU-side contention. The
+research implication is practical: even observability must not become a hidden
+complementary-memory scan as histories scale.
 
 The replay-artifact provenance path now follows that same selected-source
 boundary after nomination. Artifact review tickets, evaluated transition-memory
@@ -908,11 +937,12 @@ bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
+bounded status replay-path projections,
 awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
-source-bank wrapper APIs, plus the all-anchor HF replay-query source pass and
+source-bank wrapper APIs, retained-ledger replay-path status scans, plus the all-anchor HF replay-query source pass and
 full hot-bucket candidate source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks

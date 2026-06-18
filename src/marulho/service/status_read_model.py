@@ -94,6 +94,40 @@ SNN_LANGUAGE_READOUT_CORPUS_CHECKPOINT_REVIEW_REPORT_NAMES = {
     "snn-language-readout-corpus-checkpoint-review.json",
     "readout-corpus-checkpoint-review.json",
 }
+SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT = 16
+SNN_STATUS_EMISSION_REPLAY_PATH_SOURCE_WINDOW_POLICY = (
+    "recent_status_emission_review_and_readout_source_window_v1"
+)
+SNN_STATUS_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY = (
+    "recent_status_emission_review_history_source_window_v1"
+)
+SNN_STATUS_ROLLOUT_CONSOLIDATION_PATH_SOURCE_WINDOW_POLICY = (
+    "recent_status_rollout_and_readout_source_window_v1"
+)
+
+
+def _bounded_status_mapping_source_window(
+    state: Mapping[str, Any],
+    name: str,
+    limit: int = SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+) -> tuple[list[dict[str, Any]], int]:
+    raw_value = state.get(name) or []
+    if isinstance(raw_value, (str, bytes, Mapping)):
+        return [], 0
+    try:
+        retained_count = len(raw_value)
+    except TypeError:
+        retained_count = 0
+    source_limit = max(0, int(limit))
+    events: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_value):
+        if index >= source_limit:
+            break
+        if isinstance(item, Mapping):
+            events.append(dict(item))
+    if retained_count == 0:
+        retained_count = len(events)
+    return events, int(retained_count)
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -2597,16 +2631,14 @@ class StatusReadModel:
             else {}
         )
         state = dict(state or {})
-        readout_events = [
-            dict(item)
-            for item in list(state.get("events") or [])
-            if isinstance(item, Mapping)
-        ]
-        review_events = [
-            dict(item)
-            for item in list(state.get("emission_review_events") or [])
-            if isinstance(item, Mapping)
-        ]
+        readout_events, retained_readout_count = _bounded_status_mapping_source_window(
+            state,
+            "events",
+        )
+        review_events, retained_review_count = _bounded_status_mapping_source_window(
+            state,
+            "emission_review_events",
+        )
         readout_by_binding: dict[
             tuple[str, str, str, tuple[str, ...]], dict[str, Any]
         ] = {}
@@ -2668,6 +2700,61 @@ class StatusReadModel:
         grounded_count = sum(1 for item in matched if bool(item.get("grounded")))
         ready = grounded_count > 0
         latest = matched[0] if matched else {}
+        truncated_review_count = max(0, int(retained_review_count) - len(review_events))
+        truncated_readout_count = max(0, int(retained_readout_count) - len(readout_events))
+        source_window = {
+            "surface": "bounded_snn_status_emission_replay_design_path_source_window.v1",
+            "policy": SNN_STATUS_EMISSION_REPLAY_PATH_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_STATUS_EMISSION_REPLAY_PATH_SOURCE_WINDOW_POLICY,
+            "selection_criteria": [
+                "recent_reviewed_emission_hash_bindings",
+                "recent_internal_readout_hash_bindings",
+                "matching_prediction_transition_weight_and_label_hashes",
+                "all_internal_readout_labels_grounded",
+            ],
+            "source_limits": {
+                "emission_review_events": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+                "internal_readout_events": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            },
+            "source_counts": {
+                "retained_emission_review_events": int(retained_review_count),
+                "retained_internal_readout_events": int(retained_readout_count),
+                "source_emission_review_events": len(review_events),
+                "source_internal_readout_events": len(readout_events),
+                "matched_candidate_count": len(matched),
+                "grounded_seed_candidate_count": grounded_count,
+            },
+            "truncated_source_counts": {
+                "emission_review_events": int(truncated_review_count),
+                "internal_readout_events": int(truncated_readout_count),
+            },
+            "emission_review_event_retention_count": int(retained_review_count),
+            "emission_review_event_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "emission_review_event_window_count": len(review_events),
+            "emission_review_event_truncated_count": int(truncated_review_count),
+            "internal_readout_event_retention_count": int(retained_readout_count),
+            "internal_readout_event_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "internal_readout_event_window_count": len(readout_events),
+            "internal_readout_event_truncated_count": int(truncated_readout_count),
+            "candidate_count_before_limit": len(matched),
+            "candidate_count_returned": len(matched),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "device_placement": {
+                "archival_storage": "cpu",
+                "source_window_selection": "cpu",
+                "score": "cpu",
+            },
+            "gpu_used": False,
+        }
         promotion_status = (
             "ready_for_emission_replay_evaluation_design_review"
             if ready
@@ -2700,11 +2787,26 @@ class StatusReadModel:
             "trains_runtime_model": False,
             "applies_plasticity": False,
             "mutates_runtime_state": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "gpu_used": False,
             "emission_review_event_count": len(review_events),
             "internal_readout_evidence_count": len(readout_events),
+            "emission_review_event_retention_count": int(retained_review_count),
+            "internal_readout_evidence_retention_count": int(retained_readout_count),
             "policy_candidate_count": len(matched),
             "design_seed_candidate_count": grounded_count,
             "unmatched_emission_review_count": unmatched_count,
+            "source_window": source_window,
+            "source_window_policy": SNN_STATUS_EMISSION_REPLAY_PATH_SOURCE_WINDOW_POLICY,
+            "source_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "source_window_count": len(review_events),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
             "latest_emission_review_hash": latest.get("emission_review_hash"),
             "latest_emission_hash": latest.get("emission_hash"),
             "latest_readout_evidence_hash": latest.get("readout_evidence_hash"),
@@ -2757,6 +2859,21 @@ class StatusReadModel:
                     "reviewed_emission_available": bool(review_events),
                     "matching_internal_readout_evidence_available": bool(matched),
                     "grounded_design_seed_available": ready,
+                    "source_window_bounded": (
+                        source_window["surface"]
+                        == "bounded_snn_status_emission_replay_design_path_source_window.v1"
+                        and source_window["global_candidate_scan"] is False
+                        and source_window["global_score_scan"] is False
+                        and source_window["runs_live_tick"] is False
+                    ),
+                    "archival_metadata_cpu_resident": (
+                        source_window["archival_storage_device"] == "cpu"
+                        and source_window["gpu_used"] is False
+                    ),
+                    "language_reasoning_absent": (
+                        source_window["language_reasoning"] is False
+                        and source_window["raw_text_payload_loaded"] is False
+                    ),
                     "device_review_evidence_required": True,
                     "server_computed_mismatch_probe_required": True,
                     "server_computed_plasticity_pressure_required": True,
@@ -2783,11 +2900,10 @@ class StatusReadModel:
             else {}
         )
         state = dict(state or {})
-        events = [
-            dict(item)
-            for item in list(state.get("emission_review_events") or [])
-            if isinstance(item, Mapping)
-        ]
+        events, retained_event_count = _bounded_status_mapping_source_window(
+            state,
+            "emission_review_events",
+        )
         emission_hashes = sorted(
             {
                 str(item.get("emission_hash") or "")
@@ -2811,6 +2927,49 @@ class StatusReadModel:
         )
         latest = events[0] if events else {}
         review_available = bool(events)
+        truncated_event_count = max(0, int(retained_event_count) - len(events))
+        source_window = {
+            "surface": "bounded_snn_status_emission_review_history_source_window.v1",
+            "policy": SNN_STATUS_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_STATUS_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "selection_criteria": [
+                "recent_reviewed_emission_history_hashes",
+                "operator_display_history_summary_without_text",
+            ],
+            "source_limits": {
+                "emission_review_events": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            },
+            "source_counts": {
+                "retained_emission_review_events": int(retained_event_count),
+                "source_emission_review_events": len(events),
+                "unique_emission_in_source_window": len(emission_hashes),
+                "unique_trajectory_in_source_window": len(trajectory_hashes),
+                "unique_transition_memory_in_source_window": len(transition_hashes),
+            },
+            "truncated_source_counts": {
+                "emission_review_events": int(truncated_event_count),
+            },
+            "emission_review_event_retention_count": int(retained_event_count),
+            "emission_review_event_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "emission_review_event_window_count": len(events),
+            "emission_review_event_truncated_count": int(truncated_event_count),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "device_placement": {
+                "archival_storage": "cpu",
+                "source_window_selection": "cpu",
+                "score": "cpu",
+            },
+            "gpu_used": False,
+        }
         promotion_status = (
             "ready_for_operator_display_history_inspection"
             if review_available
@@ -2836,13 +2995,28 @@ class StatusReadModel:
             "trains_runtime_model": False,
             "applies_plasticity": False,
             "mutates_runtime_state": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "gpu_used": False,
             "emission_review_event_count": len(events),
+            "emission_review_event_retention_count": int(retained_event_count),
             "total_emission_review_count": int(
                 state.get("total_emission_review_count", len(events)) or 0
             ),
             "unique_emission_count": len(emission_hashes),
             "unique_trajectory_count": len(trajectory_hashes),
             "unique_transition_memory_count": len(transition_hashes),
+            "unique_count_scope": "source_window",
+            "source_window": source_window,
+            "source_window_policy": SNN_STATUS_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "source_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "source_window_count": len(events),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
             "latest_emission_reviewed_at": state.get("last_emission_reviewed_at"),
             "latest_emission_review_hash": latest.get("emission_review_hash"),
             "latest_emission_hash": latest.get("emission_hash"),
@@ -2876,6 +3050,21 @@ class StatusReadModel:
                 "eligible_for_action": False,
                 "required_evidence": {
                     "reviewed_emission_available": review_available,
+                    "source_window_bounded": (
+                        source_window["surface"]
+                        == "bounded_snn_status_emission_review_history_source_window.v1"
+                        and source_window["global_candidate_scan"] is False
+                        and source_window["global_score_scan"] is False
+                        and source_window["runs_live_tick"] is False
+                    ),
+                    "archival_metadata_cpu_resident": (
+                        source_window["archival_storage_device"] == "cpu"
+                        and source_window["gpu_used"] is False
+                    ),
+                    "language_reasoning_absent": (
+                        source_window["language_reasoning"] is False
+                        and source_window["raw_text_payload_loaded"] is False
+                    ),
                     "raw_text_exposure_absent": True,
                     "runtime_mutation_absent": True,
                     "endpoint_execution_absent": True,
@@ -3079,16 +3268,14 @@ class StatusReadModel:
             else {}
         )
         state = dict(state or {})
-        events = [
-            dict(item)
-            for item in list(state.get("events") or [])
-            if isinstance(item, Mapping)
-        ]
-        rollout_events = [
-            dict(item)
-            for item in list(state.get("rollout_events") or [])
-            if isinstance(item, Mapping)
-        ]
+        events, retained_event_count = _bounded_status_mapping_source_window(
+            state,
+            "events",
+        )
+        rollout_events, retained_rollout_count = _bounded_status_mapping_source_window(
+            state,
+            "rollout_events",
+        )
         transition_hashes = sorted(
             {
                 str(item.get("persistent_transition_weights_hash") or "")
@@ -3105,6 +3292,58 @@ class StatusReadModel:
         )
         latest_rollout = rollout_events[0] if rollout_events else {}
         rollout_evidence_available = bool(rollout_events)
+        truncated_event_count = max(0, int(retained_event_count) - len(events))
+        truncated_rollout_count = max(0, int(retained_rollout_count) - len(rollout_events))
+        source_window = {
+            "surface": "bounded_snn_status_rollout_consolidation_path_source_window.v1",
+            "policy": SNN_STATUS_ROLLOUT_CONSOLIDATION_PATH_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_STATUS_ROLLOUT_CONSOLIDATION_PATH_SOURCE_WINDOW_POLICY,
+            "selection_criteria": [
+                "recent_internal_readout_hash_bindings",
+                "recent_rollout_replay_evidence_hash_bindings",
+                "latest_rollout_rehearsal_policy_readiness",
+            ],
+            "source_limits": {
+                "internal_readout_events": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+                "rollout_events": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            },
+            "source_counts": {
+                "retained_internal_readout_events": int(retained_event_count),
+                "retained_rollout_events": int(retained_rollout_count),
+                "source_internal_readout_events": len(events),
+                "source_rollout_events": len(rollout_events),
+                "unique_rollouts_in_source_window": len(rollout_hashes),
+                "unique_transition_memory_in_source_window": len(transition_hashes),
+            },
+            "truncated_source_counts": {
+                "internal_readout_events": int(truncated_event_count),
+                "rollout_events": int(truncated_rollout_count),
+            },
+            "internal_readout_event_retention_count": int(retained_event_count),
+            "internal_readout_event_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "internal_readout_event_window_count": len(events),
+            "internal_readout_event_truncated_count": int(truncated_event_count),
+            "rollout_event_retention_count": int(retained_rollout_count),
+            "rollout_event_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "rollout_event_window_count": len(rollout_events),
+            "rollout_event_truncated_count": int(truncated_rollout_count),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "device_placement": {
+                "archival_storage": "cpu",
+                "source_window_selection": "cpu",
+                "score": "cpu",
+            },
+            "gpu_used": False,
+        }
         promotion_status = (
             "ready_for_rollout_rehearsal_policy_review"
             if rollout_evidence_available
@@ -3130,14 +3369,30 @@ class StatusReadModel:
             "trains_runtime_model": False,
             "applies_plasticity": False,
             "mutates_runtime_state": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "gpu_used": False,
             "event_count": len(events),
             "rollout_event_count": len(rollout_events),
+            "event_retention_count": int(retained_event_count),
+            "rollout_event_retention_count": int(retained_rollout_count),
             "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
             "total_rollout_recorded_count": int(
                 state.get("total_rollout_recorded_count", len(rollout_events)) or 0
             ),
             "unique_rollout_count": len(rollout_hashes),
             "unique_transition_memory_count": len(transition_hashes),
+            "unique_count_scope": "source_window",
+            "source_window": source_window,
+            "source_window_policy": SNN_STATUS_ROLLOUT_CONSOLIDATION_PATH_SOURCE_WINDOW_POLICY,
+            "source_window_limit": SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+            "source_window_count": len(rollout_events),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
             "latest_rollout_recorded_at": state.get("last_rollout_recorded_at"),
             "latest_rollout_evidence_hash": latest_rollout.get("rollout_evidence_hash"),
             "latest_rollout_hash": latest_rollout.get("rollout_hash"),
@@ -3168,6 +3423,21 @@ class StatusReadModel:
                 "eligible_for_action": False,
                 "required_evidence": {
                     "recorded_rollout_replay_evidence_available": rollout_evidence_available,
+                    "source_window_bounded": (
+                        source_window["surface"]
+                        == "bounded_snn_status_rollout_consolidation_path_source_window.v1"
+                        and source_window["global_candidate_scan"] is False
+                        and source_window["global_score_scan"] is False
+                        and source_window["runs_live_tick"] is False
+                    ),
+                    "archival_metadata_cpu_resident": (
+                        source_window["archival_storage_device"] == "cpu"
+                        and source_window["gpu_used"] is False
+                    ),
+                    "language_reasoning_absent": (
+                        source_window["language_reasoning"] is False
+                        and source_window["raw_text_payload_loaded"] is False
+                    ),
                     "runtime_mutation_absent": True,
                     "endpoint_execution_absent": True,
                     "tensor_rehearsal_absent": True,

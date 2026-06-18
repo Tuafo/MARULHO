@@ -10,6 +10,8 @@ related_code:
   - ../../../src/marulho/evaluation/sequence_input_staging_benchmark.py
   - ../../../src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
+  - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
 related_docs: []
@@ -26,6 +28,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-noprofile-rerun.json
+  - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -3710,3 +3715,62 @@ reported `contention_observed`, this is accepted as same-band throughput
 protection evidence, not contention-free hardware evidence. The rollout
 rehearsal policy remains a slow/control-plane replay review surface, not
 live-tick or every-token replay work.
+
+## SNN Status Replay-Path Source Windows
+
+`StatusReadModel` now bounds replay-path Runtime Truth projection before
+exporting emission review-history, emission replay-design, and rollout
+consolidation readiness. The old status projection materialized all retained
+readout, emission-review, and rollout events before reporting capped readiness
+fields. The replacement reads `16` recent emission reviews for
+`bounded_snn_status_emission_review_history_source_window.v1`, `16` recent
+emission reviews plus `16` recent internal readout events for
+`bounded_snn_status_emission_replay_design_path_source_window.v1`, and `16`
+recent rollout events plus `16` recent readout events for
+`bounded_snn_status_rollout_consolidation_path_source_window.v1`. All three
+surfaces report retained counts, source counts, truncation, CPU archival/score
+placement, no global candidate or score scan, no raw text payload, no hidden
+language reasoning, `runs_live_tick=false`, `runs_every_token=false`, and
+`gpu_used=false`.
+
+Focused status source-window benchmark:
+
+`python -m marulho.evaluation.status_replay_path_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260618\status-replay-path-source-window.json`
+
+It matched the diagnostic full-retained latest history, emission, and rollout
+evidence while checking `80` source records instead of `10240` retained records
+(`128x` less projection work). The bounded combined mean was `1.309999 ms`
+versus `102.831789 ms` for the benchmark-local retired full-scan projection
+(`78.497629x`). Emission design projection averaged `2.925552 ms` versus
+`276.103140 ms`; rollout consolidation projection averaged `0.550184 ms`
+versus `21.263004 ms`; emission review-history projection averaged
+`0.454260 ms` versus `11.129224 ms`. The report kept Python traced peak
+allocation at `2.121575 MiB`, used CPU archival/score placement, and
+allocated/reserved `0.0 MiB` CUDA memory on RTX 3060.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6081.034 tokens/sec`, with
+`train_compute=0.134328 ms/token`, `prepare_training=0.006811 ms/token`,
+`finalize_total=0.006355 ms/token`, and `tick_duration_ms.p95=21.243`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native sequence, and native
+burst failures were all `0`; the velocity sampler reported no observed
+contention, CPU max `49%`, GPU max `13%`, GPU memory-util max `18%`, and RTX
+3060 memory moved from `2164` to `2159 MiB`.
+
+The no-profile same-code rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05`
+
+It processed `524288` tokens at `6408.252 tokens/sec`, with
+`train_compute=0.127614 ms/token`, `prepare_training=0.006245 ms/token`,
+`finalize_total=0.005869 ms/token`, `tick_duration_ms.p95=19.945`, bounded
+`12/65536` route rows, `65526` cached transition rows, and zero
+graph/native/sequence failures. The sampler observed GPU-side contention before
+measurement (`27%` max GPU utilization, `26%` memory utilization), so this is
+same-band throughput protection evidence rather than contention-free hardware
+evidence.

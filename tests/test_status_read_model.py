@@ -25,7 +25,10 @@ import torch
 from marulho.config.model_config import MarulhoConfig
 from marulho.semantics import build_spike_language_decoder_probe
 from marulho.service.runtime_state import RuntimeState
-from marulho.service.status_read_model import StatusReadModel
+from marulho.service.status_read_model import (
+    SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+    StatusReadModel,
+)
 from marulho.service.status_runtime import RuntimeStatusCore
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
@@ -4703,6 +4706,30 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(emission_review_history["mutates_runtime_state"])
         self.assertEqual(emission_review_history["emission_review_event_count"], 0)
         self.assertEqual(
+            emission_review_history["source_window"]["surface"],
+            "bounded_snn_status_emission_review_history_source_window.v1",
+        )
+        self.assertEqual(emission_review_history["source_window_count"], 0)
+        self.assertFalse(emission_review_history["global_candidate_scan"])
+        self.assertFalse(
+            emission_review_history["source_window"]["global_candidate_scan"]
+        )
+        self.assertFalse(emission_review_history["source_window"]["runs_live_tick"])
+        self.assertEqual(
+            emission_review_history["source_window"]["archival_storage_device"],
+            "cpu",
+        )
+        self.assertTrue(
+            emission_review_history["promotion_gate"]["required_evidence"][
+                "source_window_bounded"
+            ]
+        )
+        self.assertTrue(
+            emission_review_history["promotion_gate"]["required_evidence"][
+                "archival_metadata_cpu_resident"
+            ]
+        )
+        self.assertEqual(
             emission_review_history["promotion_status"],
             "waiting_for_reviewed_snn_language_emission",
         )
@@ -6979,6 +7006,30 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
         self.assertEqual(path["rollout_event_count"], 1)
+        self.assertEqual(path["rollout_event_retention_count"], 1)
+        self.assertEqual(
+            path["source_window"]["surface"],
+            "bounded_snn_status_rollout_consolidation_path_source_window.v1",
+        )
+        self.assertEqual(
+            path["source_window"]["rollout_event_window_count"],
+            1,
+        )
+        self.assertEqual(
+            path["source_window"]["internal_readout_event_window_count"],
+            1,
+        )
+        self.assertFalse(path["source_window"]["global_candidate_scan"])
+        self.assertFalse(path["source_window"]["global_score_scan"])
+        self.assertFalse(path["source_window"]["runs_live_tick"])
+        self.assertFalse(path["source_window"]["runs_every_token"])
+        self.assertFalse(path["source_window"]["gpu_used"])
+        self.assertEqual(path["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(path["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(path["source_window"]["language_reasoning"])
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"]["source_window_bounded"]
+        )
         self.assertEqual(path["total_rollout_recorded_count"], 1)
         self.assertEqual(path["unique_rollout_count"], 1)
         self.assertEqual(path["unique_transition_memory_count"], 1)
@@ -7033,6 +7084,19 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
         self.assertEqual(history["emission_review_event_count"], 1)
+        self.assertEqual(
+            history["source_window"]["surface"],
+            "bounded_snn_status_emission_review_history_source_window.v1",
+        )
+        self.assertEqual(history["source_window_count"], 1)
+        self.assertFalse(history["source_window"]["global_candidate_scan"])
+        self.assertFalse(history["source_window"]["global_score_scan"])
+        self.assertFalse(history["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(history["source_window"]["language_reasoning"])
+        self.assertFalse(history["source_window"]["runs_live_tick"])
+        self.assertFalse(history["source_window"]["runs_every_token"])
+        self.assertEqual(history["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(history["source_window"]["gpu_used"])
         self.assertEqual(history["total_emission_review_count"], 1)
         self.assertEqual(history["unique_emission_count"], 1)
         self.assertEqual(history["unique_trajectory_count"], 1)
@@ -7095,6 +7159,77 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden_key, history)
 
+    def test_runtime_truth_emission_review_history_uses_bounded_status_source_window(
+        self,
+    ) -> None:
+        ledger_state = {
+            "emission_review_events": [
+                {
+                    "emission_review_hash": f"review-{index}",
+                    "emission_hash": f"emission-{index}",
+                    "trajectory_hash": f"trajectory-{index}",
+                    "persistent_transition_weights_hash": f"transition-{index}",
+                    "reviewed_at": "2026-06-02T00:00:00+00:00",
+                    "text": f"do not expose this bounded display text {index}",
+                    "labels": [f"label-{index}"],
+                }
+                for index in range(SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2)
+            ],
+            "total_emission_review_count": (
+                SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2
+            ),
+            "last_emission_reviewed_at": "2026-06-02T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        runtime_state.mark_clean()
+
+        history = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            history["emission_review_event_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            history["emission_review_event_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            history["source_window"]["emission_review_event_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            history["source_window"]["emission_review_event_window_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            history["source_window"]["emission_review_event_truncated_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(history["unique_count_scope"], "source_window")
+        self.assertEqual(history["latest_emission_review_hash"], "review-0")
+        self.assertEqual(history["latest_emission_hash"], "emission-0")
+        self.assertNotEqual(
+            history["latest_emission_review_hash"],
+            f"review-{SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2 - 1}",
+        )
+        self.assertFalse(history["global_candidate_scan"])
+        self.assertFalse(history["global_score_scan"])
+        self.assertFalse(history["source_window"]["global_candidate_scan"])
+        self.assertFalse(history["source_window"]["global_score_scan"])
+        self.assertFalse(history["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(history["source_window"]["language_reasoning"])
+        self.assertFalse(history["source_window"]["runs_live_tick"])
+        self.assertFalse(history["source_window"]["runs_every_token"])
+        self.assertEqual(history["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(history["source_window"]["gpu_used"])
+        self.assertNotIn("text", history)
+        self.assertNotIn("emission_review_events", history)
+
     def test_runtime_truth_emission_replay_design_path_reports_hash_only_candidates(
         self,
     ) -> None:
@@ -7142,6 +7277,28 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(runtime_state.dirty_state)
         self.assertEqual(path["emission_review_event_count"], 1)
         self.assertEqual(path["internal_readout_evidence_count"], 1)
+        self.assertEqual(path["emission_review_event_retention_count"], 1)
+        self.assertEqual(path["internal_readout_evidence_retention_count"], 1)
+        self.assertEqual(
+            path["source_window"]["surface"],
+            "bounded_snn_status_emission_replay_design_path_source_window.v1",
+        )
+        self.assertEqual(
+            path["source_window"]["emission_review_event_window_count"],
+            1,
+        )
+        self.assertEqual(
+            path["source_window"]["internal_readout_event_window_count"],
+            1,
+        )
+        self.assertFalse(path["source_window"]["global_candidate_scan"])
+        self.assertFalse(path["source_window"]["global_score_scan"])
+        self.assertFalse(path["source_window"]["runs_live_tick"])
+        self.assertFalse(path["source_window"]["runs_every_token"])
+        self.assertFalse(path["source_window"]["gpu_used"])
+        self.assertEqual(path["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(path["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(path["source_window"]["language_reasoning"])
         self.assertEqual(path["policy_candidate_count"], 1)
         self.assertEqual(path["design_seed_candidate_count"], 1)
         self.assertEqual(path["unmatched_emission_review_count"], 0)
@@ -7180,6 +7337,17 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(path["eligible_for_plasticity_application"])
         self.assertFalse(path["eligible_for_fact_promotion"])
         self.assertFalse(path["eligible_for_action"])
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"]["source_window_bounded"]
+        )
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"][
+                "archival_metadata_cpu_resident"
+            ]
+        )
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"]["language_reasoning_absent"]
+        )
         self.assertEqual(
             path["next_gate"],
             (
@@ -7208,6 +7376,191 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "events",
         ):
             self.assertNotIn(forbidden_key, path)
+
+    def test_runtime_truth_emission_replay_design_path_uses_bounded_status_source_window(
+        self,
+    ) -> None:
+        events: list[dict[str, Any]] = []
+        reviews: list[dict[str, Any]] = []
+        for index in range(SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2):
+            label = f"review-label-{index}"
+            events.append(
+                {
+                    "readout_evidence_hash": f"readout-hash-{index}",
+                    "prediction_hash": f"prediction-hash-{index}",
+                    "transition_memory_evaluation_hash": f"evaluation-hash-{index}",
+                    "persistent_transition_weights_hash": f"weights-hash-{index}",
+                    "labels": [label],
+                    "label_grounding": [True],
+                }
+            )
+            reviews.append(
+                {
+                    "emission_review_hash": f"review-hash-{index}",
+                    "emission_hash": f"emission-hash-{index}",
+                    "prediction_hash": f"prediction-hash-{index}",
+                    "transition_memory_evaluation_hash": f"evaluation-hash-{index}",
+                    "persistent_transition_weights_hash": f"weights-hash-{index}",
+                    "reviewed_at": "2026-06-03T00:00:00+00:00",
+                    "text": f"do not expose reviewed text {index}",
+                    "labels": [label],
+                }
+            )
+        ledger_state = {
+            "events": events,
+            "emission_review_events": reviews,
+            "total_recorded_count": len(events),
+            "total_emission_review_count": len(reviews),
+            "last_emission_reviewed_at": "2026-06-03T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        path = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            path["emission_review_event_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            path["internal_readout_evidence_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            path["emission_review_event_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["internal_readout_evidence_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["policy_candidate_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["design_seed_candidate_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(path["latest_prediction_hash"], "prediction-hash-0")
+        self.assertEqual(
+            path["source_window"]["emission_review_event_truncated_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["source_window"]["internal_readout_event_truncated_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertFalse(path["source_window"]["global_candidate_scan"])
+        self.assertFalse(path["source_window"]["global_score_scan"])
+        self.assertFalse(path["source_window"]["runs_live_tick"])
+        self.assertFalse(path["source_window"]["runs_every_token"])
+        self.assertFalse(path["source_window"]["language_reasoning"])
+        self.assertFalse(path["source_window"]["raw_text_payload_loaded"])
+        self.assertEqual(path["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(path["source_window"]["gpu_used"])
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"]["source_window_bounded"]
+        )
+        self.assertNotEqual(path["latest_prediction_hash"], "prediction-hash-31")
+        self.assertNotIn("events", path)
+        self.assertNotIn("emission_review_events", path)
+        self.assertNotIn("text", path)
+
+    def test_runtime_truth_rollout_consolidation_path_uses_bounded_status_source_window(
+        self,
+    ) -> None:
+        events: list[dict[str, Any]] = []
+        rollout_events: list[dict[str, Any]] = []
+        for index in range(SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2):
+            events.append(
+                {
+                    "readout_evidence_hash": f"readout-hash-{index}",
+                    "prediction_hash": f"prediction-hash-{index}",
+                }
+            )
+            rollout_events.append(
+                {
+                    "rollout_evidence_hash": f"evidence-hash-{index}",
+                    "rollout_hash": f"rollout-hash-{index}",
+                    "persistent_transition_weights_hash": f"transition-hash-{index}",
+                    "recorded_at": "2026-06-04T00:00:00+00:00",
+                }
+            )
+        ledger_state = {
+            "events": events,
+            "rollout_events": rollout_events,
+            "total_recorded_count": len(events),
+            "total_rollout_recorded_count": len(rollout_events),
+            "last_rollout_recorded_at": "2026-06-04T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        path = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_rollout_consolidation_path"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            path["event_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            path["rollout_event_retention_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(path["event_count"], SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT)
+        self.assertEqual(
+            path["rollout_event_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(path["total_recorded_count"], len(events))
+        self.assertEqual(path["total_rollout_recorded_count"], len(rollout_events))
+        self.assertEqual(
+            path["unique_rollout_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["unique_transition_memory_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(path["unique_count_scope"], "source_window")
+        self.assertEqual(path["latest_rollout_hash"], "rollout-hash-0")
+        self.assertEqual(
+            path["source_window"]["rollout_event_truncated_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            path["source_window"]["internal_readout_event_truncated_count"],
+            SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertFalse(path["source_window"]["global_candidate_scan"])
+        self.assertFalse(path["source_window"]["global_score_scan"])
+        self.assertFalse(path["source_window"]["runs_live_tick"])
+        self.assertFalse(path["source_window"]["runs_every_token"])
+        self.assertFalse(path["source_window"]["language_reasoning"])
+        self.assertFalse(path["source_window"]["raw_text_payload_loaded"])
+        self.assertEqual(path["source_window"]["archival_storage_device"], "cpu")
+        self.assertFalse(path["source_window"]["gpu_used"])
+        self.assertTrue(
+            path["promotion_gate"]["required_evidence"]["source_window_bounded"]
+        )
+        self.assertNotEqual(path["latest_rollout_hash"], "rollout-hash-31")
+        self.assertNotIn("events", path)
+        self.assertNotIn("rollout_events", path)
+        self.assertNotIn("text", path)
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):
