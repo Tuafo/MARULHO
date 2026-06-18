@@ -116,6 +116,13 @@ class MeaningGroundingTests(unittest.TestCase):
         self.assertFalse(admission_report["global_candidate_scan"])
         self.assertFalse(admission_report["language_reasoning"])
         self.assertEqual(admission_report["archival_storage_device"], "cpu")
+        self.assertEqual(
+            admission_report["assembly_policy"],
+            "bounded_offline_competition_winner_assembly",
+        )
+        self.assertTrue(admission_report["dense_source_admission_assembly_retired"])
+        self.assertIn("assembly_compute_device", admission_report)
+        self.assertGreaterEqual(admission_report["latency_ms"], 0.0)
         query_result = build_query_result(
             trainer=trainer,
             checkpoint=Path("test://meaning-grounding"),

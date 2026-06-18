@@ -4327,7 +4327,12 @@ class MarulhoTrainer:
             return max(blend, float(self.config.learned_chunk_query_blend_floor))
         return blend
 
-    def _offline_competition(self, pattern_vec: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _offline_competition(
+        self,
+        pattern_vec: torch.Tensor,
+        *,
+        return_routing_key: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x = pattern_vec.to(self.model.device)
         routing_key = self.model.routing_key_from_pattern(x)
         candidates = self._routing_candidates(routing_key)
@@ -4346,6 +4351,8 @@ class MarulhoTrainer:
             self.model.competitive.input_weight_blend = original_input_blend
         assembly = self.model.competitive.winner_assembly(routing_key, winners)
         assembly, _ = self._apply_binding(assembly, context_prediction, update_weights=False)
+        if return_routing_key:
+            return winners, assembly, routing_key
         return winners, assembly
 
     def prime_context(self, patterns: Iterable[torch.Tensor], update_weights: bool = False) -> None:

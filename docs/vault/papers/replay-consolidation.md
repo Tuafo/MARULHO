@@ -623,6 +623,23 @@ processed `524288` tokens at `6702.362 tokens/sec`, with
 cached transition rows, no observed contention, GPU memory `1808->1808 MiB`,
 and zero graph/native/sequence failures.
 
+The next source-admission iteration retires the dense assembly step that still
+sat after candidate selection. Admission now obtains the winner, assembly, and
+routing key from one bounded offline competition
+(`assembly_policy=bounded_offline_competition_winner_assembly`) rather than
+calling the dense `assembly_for_pattern(...)` helper from this path. The v2
+benchmark
+`reports/bounded_replay_window_20260618/source-episode-admission-bounded-v2.json`
+kept the simple-animals grounding gate at `0.25 -> 1.0`, admitted `5/5`
+selected source episodes, reported admission latency `2725.253 ms`, kept CPU
+archival storage, and used `cuda:0` only for active assembly computation. The
+explicit-feed delta fell to `46.234 ms`, mean query latency improved by
+`16.968 ms`, and the v2 hot-path check
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-episode-admission-v2.json`
+processed `524288` tokens at `6412.209 tokens/sec` with bounded `12/65536`
+route rows, `65526` cached rows, zero runtime failures, and GPU memory
+`1812->1866 MiB` while sampler telemetry observed GPU-side contention.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated

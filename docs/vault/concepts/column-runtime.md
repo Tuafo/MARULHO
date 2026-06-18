@@ -670,6 +670,22 @@ processed `524288` tokens at `6702.362 tokens/sec`, with
 `65526` cached transition rows, no observed contention, flat `1808 MiB` GPU
 memory, and zero graph/native/sequence failures.
 
+The v2 source-admission follow-up retires the dense post-selection assembly
+call from that slow path. `bounded_feed_source_episode_admission.v1` now reports
+`assembly_policy=bounded_offline_competition_winner_assembly` and
+`dense_source_admission_assembly_retired=true`: one bounded offline competition
+returns the source winner, assembly, and routing key, then archival payloads are
+stored back on CPU. The v2 quality report
+`reports/bounded_replay_window_20260618/source-episode-admission-bounded-v2.json`
+kept simple-animals pass rate at `0.25 -> 1.0`, admitted `5/5` selected
+episodes, measured `2725.253 ms` admission latency, and kept global
+candidate/score scans false. The paired protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-episode-admission-v2.json`
+processed `524288` tokens at `6412.209 tokens/sec`, with
+`train_compute=0.126270 ms/token`, bounded route scoring at `12/65536`,
+`65526` cached transition rows, zero runtime failures, and GPU memory
+`1812->1866 MiB` under observed GPU-side contention.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

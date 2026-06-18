@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
@@ -434,6 +435,7 @@ def admit_bounded_feed_source_episodes(
     importance: float = _FEED_SOURCE_EPISODE_IMPORTANCE,
     capture_tag: float = _FEED_SOURCE_EPISODE_CAPTURE_TAG,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
     store = trainer.model.memory_store
     memory_size_before = len(getattr(store, "slow_buffer", []))
     candidates, selection_report = _bounded_feed_source_episode_candidates(
@@ -453,6 +455,7 @@ def admit_bounded_feed_source_episodes(
             ),
             "source_text_chars_scanned": int(len(str(text or ""))),
             **selection_report,
+            "latency_ms": float((time.perf_counter() - started) * 1000.0),
         }
 
     admitted_indices: list[int] = []
@@ -460,7 +463,7 @@ def admit_bounded_feed_source_episodes(
     rejected_count = 0
     pattern_device: str | None = None
     routing_key_device: str | None = None
-    assembly_device: str | None = None
+    assembly_compute_device: str | None = None
 
     for rank, source_episode in enumerate(candidates):
         examples = list(
@@ -471,13 +474,15 @@ def admit_bounded_feed_source_episodes(
             continue
         raw_window, pattern = examples[-1]
         pattern_device = str(pattern.device)
-        routing_key = trainer.routing_key_for_pattern(pattern)
+        winners, assembly, routing_key = trainer._offline_competition(
+            pattern,
+            return_routing_key=True,
+        )
         routing_key_device = str(routing_key.device)
-        assembly = trainer.assembly_for_pattern(pattern)
-        assembly_device = str(assembly.device)
-        bucket_id = trainer.winner_for_pattern(pattern)
+        assembly_compute_device = str(assembly.device)
+        bucket_id = int(winners[0].item())
         memory_index = store.update(
-            assembly,
+            assembly.detach().cpu(),
             importance=max(1e-6, float(importance)),
             token_count=int(getattr(trainer, "token_count", 0)),
             bucket_id=int(bucket_id),
@@ -547,7 +552,7 @@ def admit_bounded_feed_source_episodes(
         "active_computation_device": str(trainer.model.device),
         "input_pattern_device": pattern_device,
         "routing_key_device": routing_key_device,
-        "assembly_device": assembly_device,
+        "assembly_compute_device": assembly_compute_device,
         "selection_budget": {
             "candidate_episode_budget_entries": int(max(0, int(max_source_episodes))),
             "source_episode_max_chars": int(max(1, int(max_chars_per_episode))),
@@ -556,6 +561,9 @@ def admit_bounded_feed_source_episodes(
                 * max(1, int(max_chars_per_episode))
             ),
         },
+        "latency_ms": float((time.perf_counter() - started) * 1000.0),
+        "assembly_policy": "bounded_offline_competition_winner_assembly",
+        "dense_source_admission_assembly_retired": True,
         "fallback_reason": None if admitted_count else "source_episode_update_rejected",
     }
 

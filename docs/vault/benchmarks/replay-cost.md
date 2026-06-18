@@ -886,6 +886,22 @@ processed `524288` tokens at `6702.362 tokens/sec`, with
 cached transition rows, no observed contention, flat `1808 MiB` GPU memory,
 and zero graph/native/sequence failures.
 
+The v2 rerun retires dense source-admission assembly after source candidates
+are selected. `bounded_feed_source_episode_admission.v1` now reports
+`assembly_policy=bounded_offline_competition_winner_assembly` and
+`dense_source_admission_assembly_retired=true`, with one bounded offline
+competition returning the winner, assembly, and routing key before CPU archival
+storage. `reports/bounded_replay_window_20260618/source-episode-admission-bounded-v2.json`
+kept the quality gate at `0.25 -> 1.0`, admitted `5/5` source episodes,
+reported `2725.253 ms` admission latency, kept all archival tensors on CPU,
+used `cuda:0` only for active assembly computation, and measured a
+`46.234 ms` feed-latency delta with mean query latency improving by
+`16.968 ms`. The paired v2 hot-path run processed `524288` tokens at
+`6412.209 tokens/sec`, bounded route scoring at `12/65536`, cached `65526`
+transition rows, and reported zero runtime failures; sampler telemetry observed
+GPU-side contention, so this is hot-path protection evidence rather than a
+speedup claim.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
 hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper

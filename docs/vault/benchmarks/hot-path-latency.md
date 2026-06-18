@@ -3167,6 +3167,22 @@ contention: CPU max `11%`, GPU utilization max `13%`, GPU memory utilization
 max `12%`, and GPU memory stayed flat at `1808 MiB` before and after
 measurement.
 
+The v2 rerun after retiring the dense source-admission assembly call was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-source-episode-admission-v2.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6412.209 tokens/sec`, with
+`tick_duration_ms.p95=19.973`, `train_compute=0.126270 ms/token`,
+`prepare_training=0.006236 ms/token`, `finalize_total=0.005747 ms/token`, and
+`concept_observation=0.000437 ms/token`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Runtime failure count was `0`, no
+route-vote fallback was reported, CPU max was `11%`, and GPU memory changed
+from `1812 MiB` to `1866 MiB`. The sampler reported GPU-side contention, so
+the run is accepted as hot-path protection evidence but not as a throughput
+improvement claim.
+
 ### Bounded Recent Replay Setup, 2026-06-17
 
 The recent tag/anchor setup slice changes slow-window replay setup only:
