@@ -242,6 +242,81 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertEqual(cat_matches[0]["matched_query_terms"], ["cat"])
         self.assertEqual(cat_report["surface"], "bounded_query_memory_match.v1")
 
+    def test_memory_episode_readout_reports_bounded_selected_matches(self) -> None:
+        matches = [
+            {
+                "memory_index": 3,
+                "text": "Cats purr when they feel safe. Cats rest in warm places.",
+                "raw_window": "cats purr when safe",
+                "similarity": 0.9,
+                "importance": 1.0,
+            },
+            {
+                "memory_index": 4,
+                "text": "Dogs bark when strangers arrive.",
+                "raw_window": "dogs bark strangers",
+                "similarity": 0.3,
+                "importance": 0.5,
+            },
+        ]
+
+        episodes, report = query_runner.build_memory_episodes_with_report(
+            matches,
+            top_k=2,
+            query_terms=["cat", "safe"],
+        )
+
+        self.assertTrue(episodes)
+        self.assertEqual(report["surface"], "bounded_query_memory_episode_readout.v1")
+        self.assertEqual(report["input_match_count"], 2)
+        self.assertEqual(report["source_text_match_count"], 2)
+        self.assertEqual(report["returned_count"], len(episodes))
+        self.assertEqual(report["raw_text_payload_source"], "preselected_bounded_memory_matches")
+        self.assertEqual(report["raw_text_payload_count"], 0)
+        self.assertFalse(report["raw_text_payload_loaded"])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertFalse(report["language_reasoning"])
+        self.assertFalse(hasattr(query_runner, "build_memory_episodes"))
+
+    def test_memory_episode_readout_stitches_selected_neighbor_windows(self) -> None:
+        store = _FakeMemoryStore(
+            [
+                "a",
+                ".\na cat pu",
+                "purrs when",
+                "en it feel",
+                "els safe.\n",
+                ".\ncats res",
+            ]
+        )
+        matches = [
+            {"memory_index": 4, "text": "els safe.\n", "raw_window": "els safe.\n", "similarity": 0.99},
+            {"memory_index": 3, "text": "en it feel", "raw_window": "en it feel", "similarity": 0.98},
+            {"memory_index": 2, "text": "purrs when", "raw_window": "purrs when", "similarity": 0.97},
+            {"memory_index": 1, "text": ".\na cat pu", "raw_window": ".\na cat pu", "similarity": 0.96},
+        ]
+
+        episodes, report = query_runner.build_memory_episodes_with_report(
+            matches,
+            top_k=2,
+            query_terms=["purrs", "feels", "safe"],
+            memory_store=store,
+            neighbor_radius=3,
+        )
+
+        self.assertIn("cat purrs when it feels safe", episodes[0]["text"].lower())
+        self.assertEqual(report["raw_text_payload_policy"], "selected_match_neighbor_windows_only")
+        self.assertLessEqual(report["raw_text_payload_count"], 6)
+        self.assertLessEqual(
+            report["raw_text_payload_count"],
+            report["selection_budget"]["neighbor_window_read_budget_entries"],
+        )
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["language_reasoning"])
+
     def test_context_memory_match_report_aggregates_per_context_cache_hits(self) -> None:
         trainer = _FakeTrainer([f"context memory episode {index}" for index in range(64)])
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)

@@ -10,7 +10,7 @@ from marulho.gap_planner import plan_query_gaps
 from marulho.interaction import EvidenceResponder
 from marulho.semantics import ConceptStore
 from marulho.training.meaning_grounding_runner import run_meaning_grounding_benchmark
-from marulho.training.query_runner import build_memory_episodes, build_query_result
+from marulho.training.query_runner import build_memory_episodes_with_report, build_query_result
 from marulho.training.runner_utils import set_seed
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -35,12 +35,12 @@ class MeaningGroundingTests(unittest.TestCase):
             },
         ]
 
-        baseline = build_memory_episodes(
+        baseline, baseline_report = build_memory_episodes_with_report(
             memory_matches,
             top_k=2,
             query_terms=["submarine", "depth"],
         )
-        focused = build_memory_episodes(
+        focused, focused_report = build_memory_episodes_with_report(
             memory_matches,
             top_k=2,
             query_terms=["submarine", "depth"],
@@ -48,6 +48,15 @@ class MeaningGroundingTests(unittest.TestCase):
             memory_priority={"0": 1.0},
         )
 
+        self.assertEqual(baseline_report["surface"], "bounded_query_memory_episode_readout.v1")
+        self.assertEqual(focused_report["surface"], "bounded_query_memory_episode_readout.v1")
+        self.assertEqual(focused_report["input_match_count"], 2)
+        self.assertEqual(focused_report["returned_count"], 2)
+        self.assertEqual(focused_report["raw_text_payload_source"], "preselected_bounded_memory_matches")
+        self.assertFalse(focused_report["raw_text_payload_loaded"])
+        self.assertFalse(focused_report["global_candidate_scan"])
+        self.assertFalse(focused_report["runs_live_tick"])
+        self.assertFalse(focused_report["language_reasoning"])
         self.assertEqual(
             baseline[0]["text"].lower(),
             "the submarine crew rotates watches during patrols.",
@@ -110,6 +119,17 @@ class MeaningGroundingTests(unittest.TestCase):
 
         query_summary = dict(query_result["query_summary"])
         self.assertTrue(query_summary["memory_episodes"])
+        self.assertEqual(
+            query_summary["memory_episode_report"]["surface"],
+            "bounded_query_memory_episode_readout.v1",
+        )
+        self.assertFalse(query_summary["memory_episode_report"]["runs_live_tick"])
+        self.assertFalse(query_summary["memory_episode_report"]["language_reasoning"])
+        self.assertTrue(query_summary["memory_episode_report"]["raw_text_payload_loaded"])
+        self.assertEqual(
+            query_summary["memory_episode_report"]["raw_text_payload_policy"],
+            "selected_match_neighbor_windows_only",
+        )
         top_episode = query_summary["memory_episodes"][0]
         self.assertIn("cat purrs when it feels safe", top_episode["text"].lower())
         self.assertGreater(len(top_episode["text"]), len(top_episode.get("raw_window") or ""))

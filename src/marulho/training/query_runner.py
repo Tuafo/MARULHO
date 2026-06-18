@@ -168,6 +168,80 @@ def episode_quality(text: str, raw_window: str | None = None) -> tuple[int, int]
             clipped_overlap = 1
     return complete_sentence, clipped_overlap
 
+
+def _merge_adjacent_text_windows(windows: Sequence[str], *, min_overlap: int = 2) -> str:
+    merged = ""
+    for raw_window in windows:
+        window = str(raw_window or "")
+        if not window:
+            continue
+        if not merged:
+            merged = window
+            continue
+        max_overlap = min(len(merged), len(window))
+        overlap = 0
+        for size in range(max_overlap, max(0, int(min_overlap) - 1), -1):
+            if merged[-size:].lower() == window[:size].lower():
+                overlap = size
+                break
+        if overlap > 0:
+            merged += window[overlap:]
+        else:
+            separator = "" if merged.endswith((" ", "\n", "\t")) or window.startswith((" ", "\n", "\t")) else " "
+            merged += separator + window
+    return merged
+
+
+def _memory_window_count(memory_store: Any | None) -> int:
+    if memory_store is None:
+        return 0
+    windows = getattr(memory_store, "slow_raw_windows", None)
+    try:
+        return len(windows)
+    except TypeError:
+        return 0
+
+
+def _bounded_episode_source_text(
+    match: Mapping[str, Any],
+    *,
+    memory_store: Any | None,
+    neighbor_radius: int,
+    window_cache: dict[int, str],
+    loaded_indices: set[int],
+) -> tuple[str, list[int]]:
+    fallback = str(match.get("text") or match.get("raw_window") or "").strip()
+    if memory_store is None or int(neighbor_radius) <= 0:
+        return fallback, []
+    try:
+        center = int(match.get("memory_index", -1))
+    except (TypeError, ValueError):
+        return fallback, []
+    window_count = _memory_window_count(memory_store)
+    if center < 0 or center >= window_count:
+        return fallback, []
+    radius = max(0, int(neighbor_radius))
+    start = max(0, center - radius)
+    stop = min(window_count - 1, center + radius)
+    windows = getattr(memory_store, "slow_raw_windows", None)
+    source_windows: list[str] = []
+    indices: list[int] = []
+    for index in range(start, stop + 1):
+        if index not in window_cache:
+            try:
+                value = windows[index]
+            except (TypeError, IndexError, KeyError):
+                value = None
+            window_cache[index] = "" if value is None else str(value)
+            loaded_indices.add(index)
+        text = window_cache[index]
+        if text:
+            source_windows.append(text)
+            indices.append(index)
+    stitched = _merge_adjacent_text_windows(source_windows).strip()
+    return (stitched or fallback), indices
+
+
 def feature_label(index: int, representation: str, feature_dim: int) -> str:
     if representation == "hashed_ngram" or feature_dim != 128:
         return f"hash_{index}"
@@ -399,6 +473,7 @@ def memory_matches_with_report(
         for index in candidate_report.get("match_indices", [])
         if 0 <= int(index) < len(store.slow_buffer)
     ]
+    initial_candidate_index_count = int(len(candidate_indices))
     replay_scores = store.replay_scores_for_indices(
         candidate_indices,
         trainer.token_count,
@@ -410,15 +485,39 @@ def memory_matches_with_report(
     candidate_rows: list[dict[str, Any]] = []
     raw_text_payload_count = 0
     raw_text_payload_cache_hits = 0
+    recent_fallback_report: dict[str, Any] | None = None
+    recent_fallback_indices: list[int] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
     def _finish(result_matches: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         report = dict(candidate_report)
+        candidate_window_policy = str(candidate_report.get("candidate_window_policy", ""))
+        candidate_scope = str(candidate_report.get("candidate_scope", ""))
+        if recent_fallback_indices:
+            candidate_window_policy = "bucket_indexed_then_recent_entry_text_support_fallback"
+            candidate_scope = "bucket_indexed_plus_recent_entry_candidate_window"
         report.update(
             {
                 "surface": "bounded_query_memory_match.v1",
                 "candidate_surface": candidate_report.get("surface"),
+                "status": "matched" if result_matches else "empty",
+                "candidate_window_policy": candidate_window_policy,
+                "candidate_scope": candidate_scope,
+                "initial_candidate_index_count": int(initial_candidate_index_count),
+                "candidate_index_count": int(len(candidate_indices)),
+                "match_indices": [int(index) for index in candidate_indices],
+                "recent_fallback_used": bool(recent_fallback_indices),
+                "recent_fallback_surface": (
+                    None if recent_fallback_report is None else recent_fallback_report.get("surface")
+                ),
+                "recent_fallback_scope": (
+                    None if recent_fallback_report is None else recent_fallback_report.get("scope")
+                ),
+                "recent_fallback_index_count": int(len(recent_fallback_indices)),
+                "recent_fallback_indices": recent_fallback_indices[:64],
+                "recent_fallback_index_sample_limit": 64,
+                "recent_fallback_index_truncated": bool(len(recent_fallback_indices) > 64),
                 "query_term_count": int(len(query_terms or [])),
                 "focus_term_count": int(len(ordered_focus_terms)),
                 "memory_priority_count": int(len(memory_priority or {})),
@@ -511,7 +610,7 @@ def memory_matches_with_report(
             "clipped_overlap": int(clipped_overlap),
         }
 
-    for idx in candidate_indices:
+    def _score_index(idx: int) -> None:
         ref_key = store.slow_routing_keys[idx]
         ref_input = store.slow_input_patterns[idx]
         if isinstance(ref_key, torch.Tensor):
@@ -541,6 +640,49 @@ def memory_matches_with_report(
                     "replay_priority": float(replay_priority),
                 }
             )
+
+    for idx in candidate_indices:
+        _score_index(idx)
+
+    supportless_text_window = bool(text_ranking_required and matches) and not any(
+        int(item.get("query_overlap", 0)) > 0
+        or int(item.get("focus_overlap", 0)) > 0
+        or float(item.get("memory_focus_priority", 0.0)) > 0.0
+        for item in matches
+    )
+    recent_collector = getattr(store, "collect_recent_entry_indices", None)
+    if supportless_text_window and callable(recent_collector):
+        recent_limit = min(candidate_limit, max(32, limit * 4))
+        window_tokens = max(1, min(int(getattr(trainer, "token_count", 0)) + 1, 4096))
+        recent_fallback_report = dict(
+            recent_collector(
+                current_token=int(getattr(trainer, "token_count", 0)),
+                window_tokens=window_tokens,
+                max_entries=recent_limit,
+                require_bucket=False,
+                scope="query_runner_memory_match_recent_text_support_fallback",
+            )
+        )
+        seen_candidates = set(candidate_indices)
+        for index in list(recent_fallback_report.get("candidate_indices") or []):
+            try:
+                idx = int(index)
+            except (TypeError, ValueError):
+                continue
+            if idx in seen_candidates or idx < 0 or idx >= len(store.slow_buffer):
+                continue
+            seen_candidates.add(idx)
+            candidate_indices.append(idx)
+            recent_fallback_indices.append(idx)
+        if recent_fallback_indices:
+            replay_scores.update(
+                store.replay_scores_for_indices(
+                    recent_fallback_indices,
+                    trainer.token_count,
+                )
+            )
+            for idx in recent_fallback_indices:
+                _score_index(idx)
 
     if not text_ranking_required:
         candidate_rows.sort(key=lambda item: float(item["similarity"]), reverse=True)
@@ -648,23 +790,38 @@ def memory_matches_with_report(
     return _finish(merged[:limit])
 
 
-def build_memory_episodes(
+def build_memory_episodes_with_report(
     memory_matches: list[dict[str, Any]],
     *,
     top_k: int,
     query_terms: Optional[list[str]] = None,
     focus_terms: Sequence[str] | None = None,
     memory_priority: Mapping[object, object] | None = None,
-) -> list[dict[str, Any]]:
+    memory_store: Any | None = None,
+    neighbor_radius: int = 0,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     ordered_focus_terms = _dedupe_terms(focus_terms)
     clause_terms = _dedupe_terms([*(query_terms or []), *ordered_focus_terms])
     term_match_cache = _SemanticTermMatchCache()
     grouped: dict[str, dict[str, Any]] = {}
     order: list[str] = []
+    source_text_match_count = 0
+    neighbor_window_cache: dict[int, str] = {}
+    loaded_neighbor_indices: set[int] = set()
+    selected_neighbor_indices: set[int] = set()
     for match in memory_matches:
-        source_text = str(match.get("text") or match.get("raw_window") or "").strip()
+        source_text, neighbor_indices = _bounded_episode_source_text(
+            match,
+            memory_store=memory_store,
+            neighbor_radius=max(0, int(neighbor_radius)),
+            window_cache=neighbor_window_cache,
+            loaded_indices=loaded_neighbor_indices,
+        )
+        source_text = source_text.strip()
         if not source_text:
             continue
+        selected_neighbor_indices.update(neighbor_indices)
+        source_text_match_count += 1
         clause_candidates = query_focused_clauses(source_text, clause_terms)
         for text in clause_candidates:
             if not text:
@@ -753,7 +910,74 @@ def build_memory_episodes(
         ),
         reverse=True,
     )
-    return episodes[: max(1, int(top_k))]
+    selected = episodes[: max(1, int(top_k))]
+    selected_memory_indices: list[int] = []
+    for episode in selected:
+        for index in list(episode.get("memory_indices") or []):
+            try:
+                idx = int(index)
+            except (TypeError, ValueError):
+                continue
+            if idx >= 0 and idx not in selected_memory_indices:
+                selected_memory_indices.append(idx)
+    report = {
+        "surface": "bounded_query_memory_episode_readout.v1",
+        "status": "selected" if selected else "empty",
+        "scope": "query_runner_memory_episode_readout",
+        "requested_count": int(max(1, int(top_k))),
+        "input_match_count": int(len(memory_matches)),
+        "source_text_match_count": int(source_text_match_count),
+        "candidate_episode_count": int(len(episodes)),
+        "returned_count": int(len(selected)),
+        "selected_memory_indices": selected_memory_indices,
+        "selected_memory_index_count": int(len(selected_memory_indices)),
+        "query_term_count": int(len(query_terms or [])),
+        "focus_term_count": int(len(ordered_focus_terms)),
+        "memory_priority_count": int(len(memory_priority or {})),
+        "clause_term_count": int(len(clause_terms)),
+        "neighbor_radius": int(max(0, int(neighbor_radius))),
+        "neighbor_window_policy": (
+            "selected_match_neighbor_windows_only"
+            if loaded_neighbor_indices
+            else "preselected_memory_match_text_only"
+        ),
+        "neighbor_window_index_count": int(len(selected_neighbor_indices)),
+        "neighbor_window_indices": sorted(selected_neighbor_indices)[:64],
+        "neighbor_window_index_sample_limit": 64,
+        "neighbor_window_index_truncated": bool(len(selected_neighbor_indices) > 64),
+        "raw_text_payload_loaded": bool(loaded_neighbor_indices),
+        "raw_text_payload_count": int(len(loaded_neighbor_indices)),
+        "raw_text_payload_source": (
+            "selected_match_neighbor_windows"
+            if loaded_neighbor_indices
+            else "preselected_bounded_memory_matches"
+        ),
+        "raw_text_payload_policy": (
+            "selected_match_neighbor_windows_only"
+            if loaded_neighbor_indices
+            else "selected_memory_matches_only_no_store_access"
+        ),
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "language_reasoning": False,
+        "hidden_language_reasoning": False,
+        "archival_storage_device": "cpu",
+        "quality_metric": "episode_clause_selection_over_bounded_matches",
+        "selection_budget": {
+            "input_match_budget_entries": int(len(memory_matches)),
+            "return_budget_entries": int(max(1, int(top_k))),
+            "neighbor_radius": int(max(0, int(neighbor_radius))),
+            "neighbor_window_read_budget_entries": int(
+                max(0, int(neighbor_radius)) * 2 + 1
+            )
+            * int(len(memory_matches)),
+        },
+    }
+    return selected, report
 
 
 def read_text_argument(text: Optional[str], file_path: Optional[Path]) -> Optional[str]:
@@ -1017,6 +1241,15 @@ def build_query_result(
             focus_terms=ordered_focus_terms,
             memory_priority=memory_priority,
         )
+        memory_episodes, memory_episode_report = build_memory_episodes_with_report(
+            decode_matches,
+            top_k=max(1, min(int(top_k_memories), 8)),
+            query_terms=query_terms,
+            focus_terms=ordered_focus_terms,
+            memory_priority=memory_priority,
+            memory_store=trainer.model.memory_store,
+            neighbor_radius=3,
+        )
         result["query_summary"] = {
             "query_text": query_text_resolved,
             "query_window": query_window,
@@ -1027,13 +1260,8 @@ def build_query_result(
             "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
             "memory_match_report": memory_match_report,
             "memory_matches": decode_matches[: max(1, int(top_k_memories))],
-            "memory_episodes": build_memory_episodes(
-                decode_matches,
-                top_k=max(1, min(int(top_k_memories), 8)),
-                query_terms=query_terms,
-                focus_terms=ordered_focus_terms,
-                memory_priority=memory_priority,
-            ),
+            "memory_episode_report": memory_episode_report,
+            "memory_episodes": memory_episodes,
             "native_decode": _NATIVE_DECODER.decode(
                 query_window=query_window,
                 winner_column=int(winner),

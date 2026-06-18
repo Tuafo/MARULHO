@@ -3118,6 +3118,28 @@ band. Earlier same-code current reruns at `5382.323`, `5639.785`, and
 `5462.307 tokens/sec` are kept as secondary noisy evidence and are not used for
 promotion.
 
+### Query Episode Readout, 2026-06-18
+
+The query episode readout slice changes explicit query slow-path output only.
+The hot path does not call `build_memory_episodes_with_report(...)`.
+`build_memory_episodes(...)` is removed so callers cannot build replay-text
+episodes while dropping the bounded readout report.
+
+The accepted 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-query-episode-readout.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6219.926 tokens/sec`, with
+`tick_duration_ms.p95=20.421`, `train_compute=0.130647 ms/token`,
+`prepare_training=0.006404 ms/token`, `finalize_total=0.006373 ms/token`, and
+`concept_observation=0.000467 ms/token`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native sequence, and native
+burst failures were all `0`. The velocity surface reported no observed
+contention: CPU max `26%`, GPU utilization max `10%`, GPU memory utilization
+max `10%`, and GPU memory changed from `1810 MiB` to `1811 MiB`.
+
 ### Bounded Recent Replay Setup, 2026-06-17
 
 The recent tag/anchor setup slice changes slow-window replay setup only:

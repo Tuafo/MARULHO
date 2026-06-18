@@ -851,6 +851,24 @@ processed `6127.490 tokens/sec`, with last-tick `train_compute=17.738 ms`
 `65526` cached transition rows, no observed contention, GPU memory
 `1840->1861 MiB`, and zero graph/native/sequence failures.
 
+The query episode readout benchmark
+`reports/bounded_replay_window_20260618/query-episode-readout-bounded.json`
+used a `65536`-entry synthetic archive, four returned fragment matches, and a
+selected-neighbor radius of `3`. Fragment-only readout missed the target top
+episode (`els safe.`); reported selected-neighbor readout recovered
+`a cat purrs when it feels safe.` while reading `10` direct neighbor windows
+under a `28`-entry budget. Mean latency increased from `0.490 ms` to
+`0.936 ms`, so this is a measured explicit-query readout cost rather than a
+hot-path optimization. The report keeps archival storage/readout on CPU, sets
+`global_candidate_scan=false`, `global_score_scan=false`,
+`runs_live_tick=false`, `runs_every_token=false`, and
+`language_reasoning=false`. The paired `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-query-episode-readout.json`
+processed `6219.926 tokens/sec`, with `train_compute=0.130647 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
+failures.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
 hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper

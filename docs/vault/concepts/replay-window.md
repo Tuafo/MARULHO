@@ -197,6 +197,19 @@ requested samples. Selected-window sample purity improved from
 `0.00439453125` for the retired full-buffer sampler to `1.0`, with mean
 latency `0.656 ms` versus `1.451 ms` (`2.210x`).
 
+Query memory episodes now have their own bounded readout report. The deleted
+`build_memory_episodes(...)` helper is replaced by
+`build_memory_episodes_with_report(...)`, which records
+`bounded_query_memory_episode_readout.v1`, selected match count, neighbor
+radius, direct neighbor-window payload count, CPU readout placement, no global
+candidate/score scan, no live tick, no every-token work, and no language
+reasoning. The benchmark
+`reports/bounded_replay_window_20260618/query-episode-readout-bounded.json`
+recovered `a cat purrs when it feels safe.` from four selected fragments while
+fragment-only readout returned `els safe.`; the bounded readout cost was
+`0.936 ms` mean versus `0.490 ms` for fragment-only readout, with `10` direct
+neighbor payloads under a `28`-entry budget.
+
 The capped replay-candidate window follow-up makes the bucket-index rule
 scalable for hot buckets. `DualMemoryStore` keeps bucket entry lists in recency
 order and collects candidates by recent round-robin across anchor buckets before

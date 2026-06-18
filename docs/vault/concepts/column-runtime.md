@@ -633,6 +633,24 @@ tick), bounded `12/65536` route rows, `65526` cached transition rows, no
 observed contention, GPU memory `1840->1861 MiB`, and zero
 graph/native/sequence failures.
 
+On 2026-06-18, explicit query memory episodes became a reported slow-path
+readout. `build_memory_episodes(...)` is removed; query result construction now
+uses `build_memory_episodes_with_report(...)` and returns
+`bounded_query_memory_episode_readout.v1`. The report keeps selected-neighbor
+text stitching bounded to already returned memory matches, records the neighbor
+radius and payload budget, uses CPU archival/readout placement, and states no
+global scans, no live tick, no every-token work, and no language reasoning. The
+episode benchmark
+`reports/bounded_replay_window_20260618/query-episode-readout-bounded.json`
+recovered the target top episode from four selected fragments over a
+`65536`-entry archive, at `0.936 ms` mean readout latency versus `0.490 ms` for
+fragment-only readout. The paired `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-query-episode-readout.json`
+stayed in band at `6219.926 tokens/sec`, with `train_compute=0.130647 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
+failures.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

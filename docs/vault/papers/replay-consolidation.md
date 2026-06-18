@@ -579,6 +579,28 @@ processed `6127.490 tokens/sec`, with last-tick `train_compute=17.738 ms`
 `65526` cached transition rows, no observed contention, GPU memory
 `1840->1861 MiB`, and zero graph/native/sequence failures.
 
+The query-memory episode readout cleanup makes returned text evidence explicit
+without turning it into hidden replay reasoning. The list-only
+`build_memory_episodes(...)` helper is removed; query result construction now
+uses `build_memory_episodes_with_report(...)` and exposes
+`bounded_query_memory_episode_readout.v1` beside `memory_episodes`. The report
+records the returned match budget, selected neighbor radius, direct indexed
+neighbor-window reads, CPU archival/readout placement, no global scans,
+`runs_live_tick=false`, `runs_every_token=false`, and
+`language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260618/query-episode-readout-bounded.json`
+used a `65536`-entry archive and four selected fragment matches: fragment-only
+readout missed the target top episode (`els safe.`), while bounded
+selected-neighbor readout recovered `a cat purrs when it feels safe.` with
+`10` direct neighbor payloads under a `28`-entry budget. Mean latency rose from
+`0.490 ms` to `0.936 ms`, which is accepted as explicit query readout cost. The
+paired `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-query-episode-readout.json`
+processed `6219.926 tokens/sec`, with `train_compute=0.130647 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
+failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -590,6 +612,7 @@ readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
+query-memory episode readout,
 awake-ripple tagging, and retired unscoped random replay defaults plus the
 full-buffer replay-score, score-tensor, list-only replay/SFA, and source-bank
 wrapper APIs implemented; future larger replay windows still require repeated
