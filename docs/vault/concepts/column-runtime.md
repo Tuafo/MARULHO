@@ -777,6 +777,23 @@ ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, GPU
 memory `1852->1858 MiB`, no observed contention, and zero graph/native/sequence
 failures.
 
+Rollout rehearsal promotion now keeps the same slow/control-plane boundary for
+trajectory evidence. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`
+scores only a `16`-event CPU source window with up to `32` replay targets per
+event, and emits `bounded_snn_readout_rollout_rehearsal_source_window.v1` with
+source/returned candidate counts, CPU archival/score placement, no raw text
+payload, no hidden language reasoning, `runs_live_tick=false`,
+`runs_every_token=false`, and `gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json`
+matched the diagnostic full-retained top rollout while scoring `16/2048`
+retained events, reducing mean priority latency from `309.922768 ms` to
+`2.090592 ms`. The paired 65536-column `524288`-token run stayed in band at
+`6339.682 tokens/sec`, with `train_compute=0.129022 ms/token`, bounded
+`12/65536` route rows, `65526` cached transition rows, GPU memory
+`1867->1865 MiB`, and zero graph/native/sequence failures; the environment did
+observe `22%` max GPU utilization, so this is throughput-protection evidence
+rather than contention-free evidence.
+
 The follow-on replay-artifact provenance path is indexed as well. Replay
 artifact review tickets, evaluated transition-memory replay artifacts,
 regeneration permits, sleep-plasticity review tickets, and scheduler-design

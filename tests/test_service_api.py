@@ -10901,6 +10901,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(rollout_rehearsal_policy["mutates_runtime_state"])
         self.assertFalse(rollout_rehearsal_policy["generates_text"])
         self.assertFalse(rollout_rehearsal_policy["applies_plasticity"])
+        self.assertEqual(
+            rollout_rehearsal_policy["source_window"]["surface"],
+            "bounded_snn_readout_rollout_rehearsal_source_window.v1",
+        )
+        self.assertFalse(
+            rollout_rehearsal_policy["source_window"]["global_candidate_scan"]
+        )
+        self.assertFalse(rollout_rehearsal_policy["source_window"]["runs_live_tick"])
+        self.assertFalse(rollout_rehearsal_policy["source_window"]["gpu_used"])
         self.assertEqual(rollout_rehearsal_policy["candidate_count"], 1)
         self.assertEqual(
             rollout_rehearsal_policy["candidates"][0]["device_evidence"]["tensor_device"],

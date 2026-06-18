@@ -11,6 +11,7 @@ from marulho.service.runtime_facade import RuntimeFacade
 from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 from marulho.service.snn_language_readout_ledger import (
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
+    SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
 )
 
@@ -227,6 +228,39 @@ def _ready_rollout_replay_evaluation() -> dict[str, object]:
             "eligible_for_replay_priority": False,
         },
     }
+
+
+def _ready_rollout_replay_evaluation_for(
+    index: int,
+    *,
+    label: str,
+    weights_hash: str,
+) -> dict[str, object]:
+    report = deepcopy(_ready_rollout_replay_evaluation())
+    provenance = report["provenance_evidence"]
+    assert isinstance(provenance, dict)
+    provenance["rollout_replay_evaluation_hash"] = f"rollout-eval-hash-{index}"
+    provenance["rollout_hash"] = f"rollout-hash-{index}"
+    provenance["rollout_id"] = f"snn-readout-rollout:rollout-hash-{index}"
+    provenance["prediction_hash"] = f"prediction-hash-{index}"
+    provenance["current_sparse_code_hash"] = f"current-sparse-code-hash-{index}"
+    provenance["transition_memory_evaluation_hash"] = f"evaluation-hash-{index}"
+    provenance["persistent_transition_weights_hash"] = weights_hash
+    provenance["server_transition_memory_hash"] = weights_hash
+    replay = report["replay_evaluation"]
+    assert isinstance(replay, dict)
+    targets = replay["replay_targets"]
+    assert isinstance(targets, list)
+    for target_index, target in enumerate(targets):
+        assert isinstance(target, dict)
+        sparse_indices = [
+            (index + target_index) % 64,
+            (index + target_index + 1) % 64,
+        ]
+        target["selected_label"] = label
+        target["predicted_sparse_indices"] = sparse_indices
+        target["active_indices_hash"] = _sha256_json(sparse_indices)
+    return report
 
 
 def _ready_emission() -> dict[str, object]:
@@ -10360,6 +10394,30 @@ def test_readout_ledger_rollout_rehearsal_promotion_policy_is_deterministic_read
     assert policy["generates_text"] is False
     assert policy["trains_runtime_model"] is False
     assert policy["applies_plasticity"] is False
+    assert policy["runs_live_tick"] is False
+    assert policy["runs_every_token"] is False
+    assert policy["raw_text_payload_loaded"] is False
+    assert policy["language_reasoning"] is False
+    assert policy["archival_storage_device"] == "cpu"
+    assert policy["score_device"] == "cpu"
+    assert policy["gpu_used"] is False
+    assert policy["global_candidate_scan"] is False
+    assert policy["global_score_scan"] is False
+    assert policy["source_window"]["surface"] == (
+        "bounded_snn_readout_rollout_rehearsal_source_window.v1"
+    )
+    assert policy["source_window"]["source_event_window_count"] == 1
+    assert policy["source_window"]["candidate_count_before_rank"] == 1
+    assert policy["source_window"]["candidate_count_returned"] == 1
+    assert policy["source_window"]["archival_storage_device"] == "cpu"
+    assert policy["source_window"]["score_device"] == "cpu"
+    assert policy["source_window"]["gpu_used"] is False
+    assert policy["source_window"]["global_candidate_scan"] is False
+    assert policy["source_window"]["global_score_scan"] is False
+    assert policy["source_window"]["runs_live_tick"] is False
+    assert policy["source_window"]["runs_every_token"] is False
+    assert policy["source_window"]["language_reasoning"] is False
+    assert policy["ledger_summary"]["unique_count_scope"] == "source_window"
     assert policy["candidate_count"] == 1
     assert policy["candidates"][0]["rank"] == 1
     assert policy["candidates"][0]["target_count"] == 2
@@ -10379,6 +10437,64 @@ def test_readout_ledger_rollout_rehearsal_promotion_policy_is_deterministic_read
     assert policy["promotion_gate"]["eligible_for_replay_priority"] is False
     assert policy["promotion_gate"]["eligible_for_live_replay"] is False
     assert policy["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert policy["promotion_gate"]["required_evidence"]["source_window_bounded"] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "archival_metadata_cpu_resident"
+    ] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "language_reasoning_absent"
+    ] is True
+
+
+def test_readout_ledger_rollout_rehearsal_policy_caps_source_events_before_rank() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT * 2,
+    )
+    for index in range(SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT * 2):
+        label = "outside-rollout-window" if index == 0 else f"rollout-window-{index}"
+        ledger.record_readout_rollout_replay_evaluation(
+            readout_rollout_replay_evaluation=_ready_rollout_replay_evaluation_for(
+                index,
+                label=label,
+                weights_hash=f"weights-hash-{index}",
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-test",
+            confirmation=True,
+        )
+
+    policy = ledger.rollout_rehearsal_promotion_policy(candidate_limit=8)
+    candidate_labels = {
+        str(target.get("selected_label") or "")
+        for candidate in policy["candidates"]
+        for target in list(candidate.get("replay_targets") or [])
+    }
+
+    assert policy["candidate_count"] == 8
+    assert policy["source_window"]["source_event_retention_count"] == (
+        SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT * 2
+    )
+    assert policy["source_window"]["source_event_window_count"] == (
+        SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["source_event_truncated_count"] == (
+        SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["candidate_count_before_rank"] == (
+        SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["candidate_count_returned"] == 8
+    assert policy["source_window"]["global_candidate_scan"] is False
+    assert policy["source_window"]["global_score_scan"] is False
+    assert policy["source_window"]["runs_live_tick"] is False
+    assert policy["source_window"]["gpu_used"] is False
+    assert "outside-rollout-window" not in candidate_labels
 
 
 def test_readout_ledger_rollout_rehearsal_promotion_policy_blocks_tampered_or_fallback_records() -> None:

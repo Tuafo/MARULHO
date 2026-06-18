@@ -324,6 +324,26 @@ observed contention, and zero graph/native/sequence failures. This treats
 attention-like readout recall as a bounded local replay-priority operator, not
 as a transformer-style text reasoning pass.
 
+The rollout rehearsal promotion policy now applies the same source-window rule
+to sparse trajectory evidence before rehearsal or consolidation review. The
+previous `snn_language_readout_rollout_rehearsal_promotion_policy.v1` capped
+returned candidates but verified and scored every retained rollout event. It
+now reads a CPU-resident `16`-event recent source window, normalizes at most
+`32` replay targets per event, and emits
+`bounded_snn_readout_rollout_rehearsal_source_window.v1` with no global
+candidate or score scan, no raw text payload, `language_reasoning=false`,
+`runs_live_tick=false`, `runs_every_token=false`, and `gpu_used=false`. The
+benchmark
+`reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json`
+matched the diagnostic full-retained top rollout while scoring `16` of `2048`
+retained events, averaging `2.090592 ms` versus `309.922768 ms`
+(`148.246414x`) with `0.066692 MiB` traced peak allocation and no CUDA
+allocation. The paired `524288`-token hot-path check stayed in band at
+`6339.682 tokens/sec`, `train_compute=0.129022 ms/token`, bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `1867->1865 MiB`, and
+zero graph/native/sequence failures; GPU contention reached `22%`, so the
+evidence supports protected throughput, not a contention-free environment.
+
 The replay-artifact provenance path now follows that same selected-source
 boundary after nomination. Artifact review tickets, evaluated transition-memory
 replay artifacts, regeneration permits, sleep review tickets, and scheduler

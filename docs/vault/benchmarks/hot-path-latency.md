@@ -3618,3 +3618,44 @@ velocity sampler reported no observed contention: CPU max `23%`, GPU max
 `1858 MiB`. This is accepted as same-band hot-path protection evidence; readout
 priority remains a slow/control-plane replay review surface, not live-tick or
 every-token replay work.
+
+## SNN Rollout Rehearsal Source Window
+
+`snn_language_readout_rollout_rehearsal_promotion_policy.v1` now bounds source
+scoring before ranking rollout rehearsal candidates. The previous policy capped
+returned candidates but first normalized and scored every retained rollout event
+and called the full ledger snapshot summary. The replacement reads a recent
+`16`-event CPU source window, caps replay targets to `32` per event, reports
+`bounded_snn_readout_rollout_rehearsal_source_window.v1`, and sets
+`global_candidate_scan=false`, `global_score_scan=false`,
+`raw_text_payload_loaded=false`, `language_reasoning=false`,
+`runs_live_tick=false`, `runs_every_token=false`, and `gpu_used=false`.
+
+Focused source benchmark:
+
+`python -m marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-rollout-rehearsal-source-window.json`
+
+It matched the diagnostic full-retained scorer's top high-signal rollout and
+selected `8` candidates. The bounded path scored `16` of `2048` retained events
+(`128x` less scoring work), averaged `2.090592 ms` versus `309.922768 ms` for
+the benchmark-local retired scorer (`148.246414x`), used `0.066692 MiB` traced
+peak Python allocation, kept archival/source/score placement on CPU, and
+allocated `0.0 MiB` CUDA memory on RTX 3060.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6339.682 tokens/sec`, with
+`train_compute=0.129022 ms/token`, `prepare_training=0.006321 ms/token`,
+`finalize_total=0.006030 ms/token`, and `tick_duration_ms.p95=20.305`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported CPU max `34%`, GPU max `22%`, GPU memory-util max
+`17%`, and RTX 3060 memory moved from `1867` to `1865 MiB`. Because the sampler
+reported `contention_observed`, this is accepted as same-band throughput
+protection evidence, not contention-free hardware evidence. The rollout
+rehearsal policy remains a slow/control-plane replay review surface, not
+live-tick or every-token replay work.

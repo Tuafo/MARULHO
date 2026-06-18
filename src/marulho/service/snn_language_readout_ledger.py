@@ -19,6 +19,10 @@ SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
     "recent_readout_event_source_window_v1"
 )
+SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT = 16
+SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_POLICY = (
+    "recent_rollout_rehearsal_event_source_window_v1"
+)
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
@@ -32841,11 +32845,40 @@ class SNNLanguageReadoutEvidenceLedger:
         """Rank recorded rollout evidence for isolated rehearsal review only."""
 
         with self._lock:
-            state = self._normalized_state()
-            events = [deepcopy(item) for item in list(state["rollout_events"])]
+            state = self._ledger_state()
+            raw_events_value = state.get("rollout_events") or []
+            if isinstance(raw_events_value, (str, bytes, Mapping)):
+                raw_events: Sequence[Any] = []
+                retained_event_count = 0
+            else:
+                try:
+                    retained_event_count = min(len(raw_events_value), self._limit)
+                    raw_events = raw_events_value
+                except TypeError:
+                    raw_events = list(raw_events_value)
+                    retained_event_count = min(len(raw_events), self._limit)
+            source_limit = min(
+                self._limit,
+                SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
+            )
+            source_events = [
+                deepcopy(dict(item))
+                for item in islice(raw_events, source_limit)
+                if isinstance(item, Mapping)
+            ]
+
+            def _retained_count(name: str) -> int:
+                value = state.get(name) or []
+                if isinstance(value, (str, bytes, Mapping)):
+                    return 0
+                try:
+                    return min(len(value), self._limit)
+                except TypeError:
+                    return min(len(list(value)), self._limit)
+
             rollout_counts: dict[str, int] = {}
             transition_counts: dict[str, int] = {}
-            for event in events:
+            for event in source_events:
                 rollout_key = str(event.get("rollout_hash") or "")
                 transition_key = str(event.get("persistent_transition_weights_hash") or "")
                 if rollout_key:
@@ -32853,8 +32886,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 if transition_key:
                     transition_counts[transition_key] = transition_counts.get(transition_key, 0) + 1
             candidates: list[dict[str, Any]] = []
-            total = max(1, len(events))
-            for index, event in enumerate(events):
+            total = max(1, len(source_events))
+            for index, event in enumerate(source_events):
                 targets = [
                     self._normalized_rollout_replay_target(item, index=target_index)
                     for target_index, item in enumerate(list(event.get("replay_targets") or []))
@@ -32971,6 +33004,13 @@ class SNNLanguageReadoutEvidenceLedger:
                         "eligible_for_fact_promotion": False,
                         "eligible_for_action": False,
                         "eligible_for_cognition_substrate": False,
+                        "source_window": {
+                            "surface": "bounded_snn_readout_rollout_rehearsal_source_window.v1",
+                            "source": "recent_rollout_event_window",
+                            "source_index": int(index),
+                            "source_window_limit": int(source_limit),
+                            "target_window_limit": 32,
+                        },
                     }
                 )
             candidates.sort(
@@ -32980,7 +33020,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     str(item.get("rollout_evidence_hash") or ""),
                 )
             )
-            count = max(0, min(int(candidate_limit), 32))
+            requested_count = max(0, min(int(candidate_limit), 32))
+            count = min(requested_count, len(source_events))
             selected = [
                 {**candidate, "rank": rank}
                 for rank, candidate in enumerate(candidates[:count], start=1)
@@ -32991,6 +33032,102 @@ class SNNLanguageReadoutEvidenceLedger:
                 and float(candidate["priority_components"]["trace_integrity"]) > 0.0
                 for candidate in selected
             )
+            truncated_source_count = max(0, retained_event_count - len(source_events))
+            source_rollout_hashes = {
+                str(item.get("rollout_hash") or "")
+                for item in source_events
+                if str(item.get("rollout_hash") or "")
+            }
+            source_transition_hashes = {
+                str(item.get("persistent_transition_weights_hash") or "")
+                for item in source_events
+                if str(item.get("persistent_transition_weights_hash") or "")
+            }
+            source_window = {
+                "surface": "bounded_snn_readout_rollout_rehearsal_source_window.v1",
+                "policy": SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_POLICY,
+                "window_policy": SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_POLICY,
+                "selection_criteria": [
+                    "recent_recorded_rollout_replay_evidence",
+                    "provenance_complete_within_source_window",
+                    "grounded_trace_integrity_within_source_window",
+                    "device_evidence_honored_within_source_window",
+                    "transition_memory_reuse_within_source_window",
+                ],
+                "source_limits": {
+                    "rollout_events": int(source_limit),
+                    "targets_per_event": 32,
+                    "returned_candidates": int(requested_count),
+                    "ledger_retention": int(self._limit),
+                },
+                "source_counts": {
+                    "retained_rollout_events": int(retained_event_count),
+                    "source_rollout_events": int(len(source_events)),
+                },
+                "window_counts": {
+                    "candidate_count_before_rank": int(len(candidates)),
+                    "candidate_count_returned": int(len(selected)),
+                },
+                "truncated_source_counts": {
+                    "rollout_events": int(truncated_source_count),
+                },
+                "selection_budget": {
+                    "source_event_window_limit": int(source_limit),
+                    "target_window_limit_per_event": 32,
+                    "requested_candidate_limit": int(requested_count),
+                    "returned_candidate_limit": int(count),
+                    "ledger_retention_limit": int(self._limit),
+                },
+                "source_event_retention_count": int(retained_event_count),
+                "source_event_window_limit": int(source_limit),
+                "source_event_window_count": int(len(source_events)),
+                "source_event_truncated_count": int(truncated_source_count),
+                "candidate_count_before_rank": int(len(candidates)),
+                "candidate_count_returned": int(len(selected)),
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "score_device": "cpu",
+                "device_placement": {
+                    "archival_storage": "cpu",
+                    "source_window_selection": "cpu",
+                    "score": "cpu",
+                },
+                "gpu_used": False,
+            }
+            ledger_summary = {
+                "event_count": int(_retained_count("events")),
+                "rollout_event_count": int(retained_event_count),
+                "emission_review_event_count": int(
+                    _retained_count("emission_review_events")
+                ),
+                "total_recorded_count": int(state.get("total_recorded_count", 0) or 0),
+                "total_rollout_recorded_count": int(
+                    state.get("total_rollout_recorded_count", 0) or 0
+                ),
+                "total_emission_review_count": int(
+                    state.get("total_emission_review_count", 0) or 0
+                ),
+                "unique_rollout_count": int(len(source_rollout_hashes)),
+                "unique_transition_memory_count": int(len(source_transition_hashes)),
+                "unique_count_scope": "source_window",
+                "last_recorded_at": state.get("last_recorded_at"),
+                "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
+                "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+                "source_window": {
+                    "surface": source_window["surface"],
+                    "policy": source_window["policy"],
+                    "source_event_window_limit": int(source_limit),
+                    "source_event_window_count": int(len(source_events)),
+                    "source_event_truncated_count": int(truncated_source_count),
+                },
+            }
             return {
                 "artifact_kind": "terminus_snn_language_readout_rollout_rehearsal_promotion_policy",
                 "surface": "snn_language_readout_rollout_rehearsal_promotion_policy.v1",
@@ -33004,9 +33141,25 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "advisory": True,
                 "executable": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "archival_storage_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
                 "candidate_count": len(selected),
-                "policy_rules_version": "readout-rollout-ledger-deterministic-v1",
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "limit": int(requested_count),
+                "count": len(selected),
+                "policy_rules_version": "readout-rollout-ledger-bounded-source-v2",
+                "source_window": source_window,
+                "source_window_policy": SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_POLICY,
+                "source_window_limit": int(source_limit),
+                "source_window_count": int(len(source_events)),
+                "source_event_retention_count": int(retained_event_count),
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "ledger_summary": ledger_summary,
                 "candidates": selected,
                 "promotion_gate": {
                     "status": "ready_for_operator_rollout_rehearsal_review"
@@ -33025,7 +33178,22 @@ class SNNLanguageReadoutEvidenceLedger:
                     if ready
                     else "record_review_ready_snn_language_rollout_evidence",
                     "required_evidence": {
-                        "recorded_rollout_evidence_available": bool(events),
+                        "recorded_rollout_evidence_available": bool(source_events),
+                        "source_window_bounded": (
+                            source_window["surface"]
+                            == "bounded_snn_readout_rollout_rehearsal_source_window.v1"
+                            and source_window["global_candidate_scan"] is False
+                            and source_window["global_score_scan"] is False
+                            and source_window["runs_live_tick"] is False
+                        ),
+                        "archival_metadata_cpu_resident": (
+                            source_window["archival_storage_device"] == "cpu"
+                            and source_window["gpu_used"] is False
+                        ),
+                        "language_reasoning_absent": (
+                            source_window["language_reasoning"] is False
+                            and source_window["raw_text_payload_loaded"] is False
+                        ),
                         "eligible_recorded_rollout_evidence_available": bool(candidates),
                         "selected_candidates_available": bool(selected),
                         "provenance_complete": bool(selected)
