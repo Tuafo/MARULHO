@@ -758,13 +758,15 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertEqual(report["selected_indices"], [1])
         self.assertEqual(report["score_count"], 2)
+        self.assertFalse(hasattr(store, "sample_replay_indices"))
+        bounded_report = store.select_replay_window(
+            n=1,
+            current_token=40,
+            strategy="maintenance",
+            candidate_bucket_ids=[1],
+        )
         self.assertEqual(
-            store.sample_replay_indices(
-                n=1,
-                current_token=40,
-                strategy="maintenance",
-                candidate_bucket_ids=[1],
-            ),
+            bounded_report["selected_indices"],
             [1],
         )
         self.assertEqual(
@@ -994,7 +996,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["fallback_reason"],
             "global_score_scan_requires_explicit_diagnostic_opt_in",
         )
-        self.assertEqual(store.sample_replay_indices(n=1, current_token=9), [])
+        self.assertFalse(hasattr(store, "sample_replay_indices"))
 
         diagnostic = store.select_replay_window(
             n=1,
@@ -1601,7 +1603,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             trainer.model.memory_store.slow_local_prp[idx] = 1.0
 
         captured: dict[str, list[int]] = {}
-        original_sample = trainer.model.memory_store.sample_for_sfa
+        original_sample = trainer.model.memory_store.sample_for_sfa_with_report
 
         def _sample_for_sfa(*args, **kwargs):
             captured["candidate_indices"] = [
@@ -1612,7 +1614,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
         with patch.object(
             trainer.model.memory_store,
-            "sample_for_sfa",
+            "sample_for_sfa_with_report",
             side_effect=_sample_for_sfa,
         ):
             updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
@@ -1635,6 +1637,17 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_sfa_sample_count"],
             report["sleep_replay_sfa_candidate_index_count"],
         )
+        sample_report = report["sleep_replay_sfa_sample_report"]
+        self.assertEqual(sample_report["surface"], "bounded_sfa_sample.v1")
+        self.assertEqual(sample_report["scope"], "deep_sleep_sfa_correction")
+        self.assertEqual(sample_report["candidate_scope"], "selected_replay_window")
+        self.assertEqual(
+            sample_report["candidate_index_count"],
+            report["sleep_replay_sfa_candidate_index_count"],
+        )
+        self.assertFalse(sample_report["global_candidate_scan"])
+        self.assertFalse(sample_report["runs_live_tick"])
+        self.assertFalse(sample_report["language_reasoning"])
 
     def test_deep_sleep_without_anchors_blocks_global_replay_mutation(self) -> None:
         set_seed(7)

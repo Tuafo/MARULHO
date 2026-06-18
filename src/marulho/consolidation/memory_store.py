@@ -107,6 +107,7 @@ class DualMemoryStore:
         self.last_awake_ripple_tag_report = self._empty_awake_ripple_tag_report()
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
+        self.last_sfa_sample_report = self._empty_sfa_sample_report()
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
@@ -171,6 +172,7 @@ class DualMemoryStore:
         self.last_awake_ripple_tag_report = self._empty_awake_ripple_tag_report()
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
+        self.last_sfa_sample_report = self._empty_sfa_sample_report()
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
@@ -359,6 +361,32 @@ class DualMemoryStore:
             "best_distance": None,
             "best_input_distance": None,
             "recalled_distance": None,
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_sfa_sample_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_sfa_sample.v1",
+            "status": "not_run",
+            "scope": "sfa_correction_slow_path",
+            "memory_size": 0,
+            "requested_count": 0,
+            "candidate_scope": "not_run",
+            "candidate_index_count": 0,
+            "candidate_indices": [],
+            "sample_indices": [],
+            "sample_count": 0,
+            "sample_device": "cpu",
+            "archival_storage_device": "cpu",
+            "global_candidate_scan": False,
+            "diagnostic_global_candidate_scan": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
             "fallback_reason": "not_run",
         }
 
@@ -820,6 +848,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_sfa_sample_report": dict(
+                self.last_sfa_sample_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -2881,60 +2912,105 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
-    def sample_replay_indices(
-        self,
-        *,
-        n: int,
-        current_token: int,
-        candidate_pool: Optional[int] = None,
-        strategy: str = "priority",
-        candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
-        allow_global_score_scan: bool = False,
-    ) -> list[int]:
-        report = self.select_replay_window(
-            n=n,
-            current_token=current_token,
-            candidate_pool=candidate_pool,
-            strategy=strategy,
-            candidate_bucket_ids=candidate_bucket_ids,
-            scope="sample_replay_indices_slow_path",
-            allow_global_score_scan=allow_global_score_scan,
-        )
-        return [int(idx) for idx in report.get("selected_indices", [])]
-
-    def sample_for_sfa(
+    def sample_for_sfa_with_report(
         self,
         n: int = 100,
         *,
         candidate_indices: Sequence[int] | None = None,
         allow_global_diagnostic: bool = False,
-    ) -> list[torch.Tensor]:
+        scope: str = "sfa_correction_slow_path",
+    ) -> tuple[list[torch.Tensor], dict[str, Any]]:
         """Sample assembly vectors for SFA correction from a bounded window."""
 
+        started = time.perf_counter()
         count = len(self.slow_buffer)
-        if count == 0 or n <= 0:
-            return []
-        if candidate_indices is None:
+        requested = max(0, int(n))
+        fallback_reason: str | None = None
+        candidate_scope = "selected_replay_window"
+        candidates: list[int] = []
+        invalid_candidate_count = 0
+        duplicate_candidate_count = 0
+        if count == 0 or requested <= 0:
+            fallback_reason = "empty_request_or_memory"
+        if fallback_reason is None and candidate_indices is None:
             if not allow_global_diagnostic:
-                return []
-            candidates = list(range(count))
-        else:
+                candidate_scope = "unscoped_global_sfa_sample_retired"
+                fallback_reason = "candidate_indices_required"
+            else:
+                candidate_scope = "diagnostic_global_full_memory_sample"
+                candidates = list(range(count))
+        elif fallback_reason is None:
             seen: set[int] = set()
-            candidates = []
             for raw_index in candidate_indices:
                 index = int(raw_index)
-                if index in seen or index < 0 or index >= count:
+                if index < 0 or index >= count:
+                    invalid_candidate_count += 1
+                    continue
+                if index in seen:
+                    duplicate_candidate_count += 1
                     continue
                 seen.add(index)
                 candidates.append(index)
         if not candidates:
-            return []
-        k = min(len(candidates), int(n))
-        perm = torch.randperm(len(candidates))[:k]
-        return [
-            self.slow_buffer[candidates[int(i)]].detach().clone()
-            for i in perm.tolist()
-        ]
+            fallback_reason = fallback_reason or "empty_candidate_window"
+        k = min(len(candidates), requested)
+        sample_indices: list[int] = []
+        samples: list[torch.Tensor] = []
+        if k > 0:
+            perm = torch.randperm(len(candidates))[:k]
+            sample_indices = [int(candidates[int(i)]) for i in perm.tolist()]
+            samples = [
+                self.slow_buffer[index].detach().clone()
+                for index in sample_indices
+            ]
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_sfa_sample.v1",
+            "status": "selected" if samples else "empty",
+            "scope": str(scope),
+            "memory_size": int(count),
+            "requested_count": int(requested),
+            "candidate_scope": candidate_scope,
+            "candidate_window_policy": (
+                "explicit_selected_replay_indices"
+                if candidate_indices is not None
+                else (
+                    "diagnostic_global_full_memory_sample"
+                    if allow_global_diagnostic
+                    else "unscoped_global_sfa_sample_retired"
+                )
+            ),
+            "candidate_index_count": int(len(candidates)),
+            "candidate_indices": [int(index) for index in candidates],
+            "invalid_candidate_index_count": int(invalid_candidate_count),
+            "duplicate_candidate_index_count": int(duplicate_candidate_count),
+            "sample_indices": [int(index) for index in sample_indices],
+            "sample_count": int(len(samples)),
+            "sample_device": "cpu",
+            "archival_storage_device": "cpu",
+            "global_candidate_scan": bool(
+                candidate_indices is None and allow_global_diagnostic
+            ),
+            "diagnostic_global_candidate_scan": bool(
+                candidate_indices is None and allow_global_diagnostic
+            ),
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(count),
+                "candidate_window_entries": int(len(candidates)),
+                "sample_budget_entries": int(requested),
+            },
+        }
+        self.last_sfa_sample_report = report
+        self._invalidate_summary_cache()
+        return samples, report
 
     def refresh_maintenance(
         self,
@@ -3142,6 +3218,9 @@ class DualMemoryStore:
                 "last_replay_recall_report": dict(
                     self.last_replay_recall_report
                 ),
+                "last_sfa_sample_report": dict(
+                    self.last_sfa_sample_report
+                ),
                 "last_replay_query_collection_report": dict(
                     self.last_replay_query_collection_report
                 ),
@@ -3240,6 +3319,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_sfa_sample_report": dict(
+                self.last_sfa_sample_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -3361,6 +3443,9 @@ class DualMemoryStore:
             ),
             "last_replay_recall_report": dict(
                 self.last_replay_recall_report
+            ),
+            "last_sfa_sample_report": dict(
+                self.last_sfa_sample_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -3568,6 +3653,12 @@ class DualMemoryStore:
             dict(raw_replay_recall)
             if isinstance(raw_replay_recall, Mapping)
             else self._empty_replay_recall_report()
+        )
+        raw_sfa_sample = snapshot.get("last_sfa_sample_report")
+        self.last_sfa_sample_report = (
+            dict(raw_sfa_sample)
+            if isinstance(raw_sfa_sample, Mapping)
+            else self._empty_sfa_sample_report()
         )
         raw_replay_query_collection = snapshot.get(
             "last_replay_query_collection_report"

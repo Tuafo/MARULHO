@@ -327,11 +327,10 @@ and `language_reasoning=false`, while the sleep replay report exposes
 Deep sleep with an abstraction layer also samples SFA correction from the
 processed replay indices instead of the whole slow buffer, with
 `sleep_replay_sfa_correction_scope=selected_replay_window` and
-`sleep_replay_sfa_full_memory_sample_retired=true`. The helper defaults enforce
-the same rule: `sample_replay_indices(...)` now returns no indices for unscoped
-calls unless the caller explicitly sets `allow_global_score_scan=true`, and
-`sample_for_sfa(...)` returns no samples without selected candidate indices
-unless `allow_global_diagnostic=true` marks the call as diagnostic. The
+`sleep_replay_sfa_full_memory_sample_retired=true`. The initial helper defaults
+blocked unscoped replay/SFA calls; the current code removes the list-only
+`sample_replay_indices(...)` and `sample_for_sfa(...)` helpers and uses
+reported selection/sampling APIs instead. The
 synthetic boundary report
 `reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json`
 kept bounded recall and prototype gates passing with `2` accepted post-B
@@ -556,6 +555,30 @@ processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The reported SFA sampling cleanup closes the remaining list-only replay/SFA
+helper family. `sample_replay_indices(...)` is removed; callers must use
+`select_replay_window(...)` and keep `bounded_replay_window_selection.v1`.
+`sample_for_sfa(...)` is removed; deep sleep now calls
+`sample_for_sfa_with_report(...)` and embeds the returned
+`bounded_sfa_sample.v1` under the sleep replay report. The sampler records
+selected candidate indices, sample indices, sample count, CPU archival/sample
+placement, no global candidate scan, `runs_live_tick=false`,
+`runs_every_token=false`, and `language_reasoning=false`; the report is also
+kept in memory-store summaries and checkpoints. The benchmark
+`reports/bounded_replay_window_20260618/sfa-sample-bounded-window.json` used a
+`65536`-entry archive, `192` selected replay-window candidates, and `64` SFA
+samples. Selected-window sample purity improved from `0.00439453125` for the
+retired full-buffer sampler to `1.0`, and mean latency improved from
+`1.451 ms` to `0.656 ms` (`2.210x`). The source-bank list wrapper
+`bank_memory_matches(...)` is also removed so source-bank recall cannot drop
+`bounded_source_bank_memory_match.v1`. The accepted `524288`-token protection
+run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-reported-sfa-sampler-noprofile-rerun2.json`
+processed `6127.490 tokens/sec`, with last-tick `train_compute=17.738 ms`
+(`0.138579 ms/token` over the 128-token tick), bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`1840->1861 MiB`, and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -566,10 +589,11 @@ candidate windows, capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
-bounded context-comparison memory recall, bounded awake-ripple tagging, and
-retired unscoped random replay defaults plus the full-buffer replay-score and
-score-tensor helper APIs implemented; future larger replay windows still
-require repeated long-run hot-path and grounding checks
+bounded context-comparison memory recall, reported SFA sampling, bounded
+awake-ripple tagging, and retired unscoped random replay defaults plus the
+full-buffer replay-score, score-tensor, list-only replay/SFA, and source-bank
+wrapper APIs implemented; future larger replay windows still require repeated
+long-run hot-path and grounding checks
 
 ## Links
 

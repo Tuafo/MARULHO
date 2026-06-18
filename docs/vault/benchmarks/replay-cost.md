@@ -380,14 +380,14 @@ and `bounded_replay_window_recall.v1` record `raw_text_payload_loaded=false` and
 `sleep_replay_language_reasoning=false`, and
 `sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`.
 Deep replay with abstraction also bounds SFA correction to the processed replay
-window by passing `candidate_indices=processed_indices` into
-`sample_for_sfa(...)`; Runtime Truth records
+window. The initial cleanup passed `candidate_indices=processed_indices` into
+`sample_for_sfa(...)`; the current reported path calls
+`sample_for_sfa_with_report(...)` and embeds `bounded_sfa_sample.v1`. Runtime
+Truth records
 `sleep_replay_sfa_correction_scope`, candidate/sample counts, and
-`sleep_replay_sfa_full_memory_sample_retired=true`. The helper defaults now
-enforce the selected-window contract: `sample_replay_indices(...)` returns no
-indices for unscoped calls unless `allow_global_score_scan=true` marks an
-explicit diagnostic, and `sample_for_sfa(...)` returns no samples without
-`candidate_indices` unless `allow_global_diagnostic=true` is supplied.
+`sleep_replay_sfa_full_memory_sample_retired=true`. The former list-only
+`sample_replay_indices(...)` and `sample_for_sfa(...)` helper APIs are now
+removed; callers use reported selection/sampling APIs instead.
 
 The helper-retirement verification passed the focused helper tests and the
 broader memory/SFA suite after the STC robustness test was made explicit about
@@ -830,6 +830,26 @@ processed `6065.987 tokens/sec`, with `train_compute=0.135179 ms/token`,
 `12/65536`, cached `65526` transition rows, reported
 `state_transition_runs_all_columns=false`, had zero graph/native/sequence
 failures, GPU memory `1839->1845 MiB`, and no observed contention.
+
+SFA correction sampling now has its own bounded cost report instead of hiding
+behind a list-returning helper. `sample_for_sfa_with_report(...)` samples only
+selected replay-window indices and records `bounded_sfa_sample.v1`; the
+unreported `sample_for_sfa(...)` helper and `sample_replay_indices(...)` are
+removed from active code. The benchmark
+`reports/bounded_replay_window_20260618/sfa-sample-bounded-window.json` used a
+`65536`-entry archive, a `192`-entry selected replay-window candidate set, and
+`64` requested samples over `32` iterations. The retired full-buffer sampler
+had selected-window sample purity `0.00439453125` and mean latency
+`1.451 ms`; the bounded sampler had purity `1.0`, mean latency `0.656 ms`,
+and `2.210x` speedup. The report keeps archival storage and samples on CPU,
+sets `global_candidate_scan=false`, `runs_live_tick=false`,
+`runs_every_token=false`, and `language_reasoning=false`. The accepted
+`524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-reported-sfa-sampler-noprofile-rerun2.json`
+processed `6127.490 tokens/sec`, with last-tick `train_compute=17.738 ms`
+(`0.138579 ms/token` over the 128-token tick), bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`1840->1861 MiB`, and zero graph/native/sequence failures.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

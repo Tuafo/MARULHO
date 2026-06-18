@@ -5,6 +5,7 @@ import unittest
 
 import torch
 
+import marulho.semantics.frontier as frontier
 from marulho.semantics.frontier import bank_gap_plan, bank_memory_matches_with_report
 
 
@@ -98,6 +99,10 @@ class _FakeTrainer:
 
 
 class SemanticFrontierTests(unittest.TestCase):
+    def test_source_bank_memory_matches_requires_reported_api(self) -> None:
+        self.assertFalse(hasattr(frontier, "bank_memory_matches"))
+        self.assertNotIn("bank_memory_matches", frontier.__all__)
+
     def test_bank_memory_matches_aggregates_bounded_probe_reports_and_payload_cache(self) -> None:
         trainer = _FakeTrainer([f"memory episode {index}" for index in range(64)])
         bank = SimpleNamespace(

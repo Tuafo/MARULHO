@@ -335,24 +335,6 @@ def bank_memory_matches_with_report(
     return returned, report
 
 
-def bank_memory_matches(
-    trainer: Any,
-    bank: Any,
-    *,
-    probe_samples: int = 4,
-    memories_per_probe: int = 3,
-    max_matches: int = 18,
-) -> list[dict[str, Any]]:
-    matches, _report = bank_memory_matches_with_report(
-        trainer,
-        bank,
-        probe_samples=probe_samples,
-        memories_per_probe=memories_per_probe,
-        max_matches=max_matches,
-    )
-    return matches
-
-
 def bank_gap_plan(
     trainer: Any,
     bank: Any,
@@ -450,7 +432,6 @@ def frontier_semantic_plan(trainer: Any, *, max_terms: int = 8, max_queries: int
 
 __all__ = [
     "bank_gap_plan",
-    "bank_memory_matches",
     "bank_memory_matches_with_report",
     "build_bank_query_text",
     "candidate_semantic_signature",

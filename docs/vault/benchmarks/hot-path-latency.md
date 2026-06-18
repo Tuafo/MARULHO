@@ -2760,12 +2760,13 @@ measurement.
 
 ### Unscoped Replay Helper Retirement, 2026-06-17
 
-The helper-retirement slice removes attractive full-buffer defaults from replay
-and SFA helpers. `DualMemoryStore.sample_replay_indices(...)` now requires
-bucket ids unless a caller explicitly opts into a diagnostic global scorer, and
-`sample_for_sfa(...)` returns no samples without selected candidate indices
-unless `allow_global_diagnostic=true` marks the call as diagnostic. This is a
-slow-window API cleanup, but it still received a long hot-path gate.
+The helper-retirement slice removed attractive full-buffer defaults from replay
+and SFA helpers. At that point `DualMemoryStore.sample_replay_indices(...)`
+required bucket ids unless a caller explicitly opted into a diagnostic global
+scorer, and `sample_for_sfa(...)` returned no samples without selected
+candidate indices unless `allow_global_diagnostic=true` marked the call as
+diagnostic. Those list-only helpers were later removed entirely in favor of
+`select_replay_window(...)` and `sample_for_sfa_with_report(...)`.
 
 The first 65536-column run was:
 
@@ -3082,6 +3083,40 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 burst failures were all `0`. The velocity surface reported no observed
 contention: CPU max `32%`, GPU utilization max `14%`, GPU memory utilization
 max `13%`, and GPU memory changed from `1844 MiB` to `1840 MiB`.
+
+### Reported SFA Sampler, 2026-06-18
+
+The reported SFA sampler changes only selected slow-window abstraction
+correction and report/checkpoint surfaces. The hot path does not call
+`sample_for_sfa_with_report(...)`, and the list-only
+`sample_replay_indices(...)`, `sample_for_sfa(...)`, and
+`bank_memory_matches(...)` wrappers are removed so callers cannot drop bounded
+reports.
+
+The accepted 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-reported-sfa-sampler-noprofile-rerun2.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6127.490 tokens/sec`, with
+`last_tick_duration_ms=20.317`. The no-profile report records last-tick stage
+timings: `train_compute=17.738 ms` (`0.138579 ms/token` over the 128-token
+tick), `prepare_training=1.225 ms`, `finalize_total=0.935 ms`, and
+`concept_observation=0.074 ms`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native sequence, and native
+burst failures were all `0`. The velocity surface reported no observed
+contention: CPU max `15%`, GPU utilization max `11%`, GPU memory utilization
+max `11%`, and GPU memory changed from `1840 MiB` to `1861 MiB`.
+
+A clean detached `HEAD` baseline immediately before the reported-SFA edits
+processed the same `524288` tokens at `6188.048 tokens/sec` with
+`last_tick_duration_ms=18.079` and last-tick `train_compute=16.287 ms`
+(`0.127241 ms/token` over the 128-token tick), so the accepted current run is
+`99.0%` of the clean baseline throughput and remains in the same sustained
+band. Earlier same-code current reruns at `5382.323`, `5639.785`, and
+`5462.307 tokens/sec` are kept as secondary noisy evidence and are not used for
+promotion.
 
 ### Bounded Recent Replay Setup, 2026-06-17
 

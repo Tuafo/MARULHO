@@ -112,10 +112,10 @@ signatures from already-selected evidence. Recent replay setup uses
   bucket fallback candidates; rejected commits are evidence, not silent success.
 - Archival metadata stays CPU-resident; active replay tensors move to the model
   device only when replay is actually applied.
-- Replay/SFA helper APIs must default to bounded inputs. `sample_replay_indices`
-  requires bucket ids unless explicitly marked as a global diagnostic, and
-  `sample_for_sfa` requires selected candidate indices unless explicitly marked
-  as a global diagnostic.
+- Replay/SFA helper APIs must not drop reports. `sample_replay_indices(...)`
+  and `sample_for_sfa(...)` are removed; callers use
+  `select_replay_window(...)` or `sample_for_sfa_with_report(...)` and keep the
+  returned bounded report.
 - Query/readout memory matching must also default to bounded inputs. It derives
   candidate bucket ids from routing, collects a capped bucket-indexed memory
   window, and scores only those entries; it must not compute similarity or
@@ -180,14 +180,22 @@ unchanged. The 262144-token hot-path check
 kept the live tick in band at `6332.439 tokens/sec`.
 
 The unscoped-helper retirement preserves the same rule at the helper API
-boundary. Unscoped `sample_replay_indices(...)` now returns no replay indices
-unless a caller explicitly marks a diagnostic global scorer; unscoped
-`sample_for_sfa(...)` returns no tensors unless a diagnostic flag is set. The
-clean 262144-token active-pressure hot-path rerun
+boundary. The list-only `sample_replay_indices(...)` and `sample_for_sfa(...)`
+helpers are now deleted, while `sample_for_sfa_with_report(...)` emits
+`bounded_sfa_sample.v1` with selected-window candidate/sample indices, CPU
+placement, no global candidate scan, and no live-tick or language reasoning
+claim. The clean 262144-token active-pressure hot-path rerun
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-unscoped-replay-helper-retired-rerun.json`
 processed `262144` tokens at `5668.688 tokens/sec`, kept route scoring bounded
 at `12/65536`, cached `65526` transition rows, reported no observed contention,
 and had zero graph/native/sequence failures.
+
+The reported SFA sample benchmark
+`reports/bounded_replay_window_20260618/sfa-sample-bounded-window.json` used a
+`65536`-entry archive, `192` selected replay-window candidates, and `64`
+requested samples. Selected-window sample purity improved from
+`0.00439453125` for the retired full-buffer sampler to `1.0`, with mean
+latency `0.656 ms` versus `1.451 ms` (`2.210x`).
 
 The capped replay-candidate window follow-up makes the bucket-index rule
 scalable for hot buckets. `DualMemoryStore` keeps bucket entry lists in recency

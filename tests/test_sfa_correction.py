@@ -98,19 +98,39 @@ class TestSampleForSFA(unittest.TestCase):
 
     def test_sample_from_empty_store(self) -> None:
         store = self._make_store()
-        result = store.sample_for_sfa(10)
+        result, report = store.sample_for_sfa_with_report(10)
         self.assertEqual(result, [])
+        self.assertEqual(report["surface"], "bounded_sfa_sample.v1")
+        self.assertEqual(report["status"], "empty")
+        self.assertEqual(report["fallback_reason"], "empty_request_or_memory")
+        self.assertFalse(report["global_candidate_scan"])
 
     def test_unscoped_sample_requires_diagnostic_opt_in(self) -> None:
         store = self._make_store()
         for i in range(20):
             store.slow_buffer.append(torch.randn(32))
 
-        result = store.sample_for_sfa(10)
+        self.assertFalse(hasattr(store, "sample_for_sfa"))
+        result, report = store.sample_for_sfa_with_report(10)
         self.assertEqual(result, [])
+        self.assertEqual(report["candidate_scope"], "unscoped_global_sfa_sample_retired")
+        self.assertEqual(report["candidate_index_count"], 0)
+        self.assertEqual(report["fallback_reason"], "candidate_indices_required")
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertFalse(report["language_reasoning"])
 
-        result = store.sample_for_sfa(10, allow_global_diagnostic=True)
+        result, diagnostic = store.sample_for_sfa_with_report(
+            10,
+            allow_global_diagnostic=True,
+        )
         self.assertEqual(len(result), 10)
+        self.assertEqual(
+            diagnostic["candidate_scope"],
+            "diagnostic_global_full_memory_sample",
+        )
+        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
         for t in result:
             self.assertIsInstance(t, torch.Tensor)
             self.assertEqual(t.shape, (32,))
@@ -120,20 +140,32 @@ class TestSampleForSFA(unittest.TestCase):
         for i in range(5):
             store.slow_buffer.append(torch.randn(32))
 
-        result = store.sample_for_sfa(100, allow_global_diagnostic=True)
+        result, report = store.sample_for_sfa_with_report(
+            100,
+            allow_global_diagnostic=True,
+        )
         self.assertEqual(len(result), 5)  # capped at buffer size
+        self.assertEqual(report["sample_count"], 5)
+        self.assertEqual(report["candidate_index_count"], 5)
 
     def test_sample_can_use_bounded_candidate_indices(self) -> None:
         store = self._make_store()
         for i in range(8):
             store.slow_buffer.append(torch.full((4,), float(i)))
 
-        result = store.sample_for_sfa(
+        result, report = store.sample_for_sfa_with_report(
             10,
             candidate_indices=[5, 2, 5, 99, -1],
         )
 
         self.assertEqual(len(result), 2)
+        self.assertEqual(report["candidate_scope"], "selected_replay_window")
+        self.assertEqual(report["candidate_index_count"], 2)
+        self.assertEqual(report["duplicate_candidate_index_count"], 1)
+        self.assertEqual(report["invalid_candidate_index_count"], 2)
+        self.assertEqual(report["sample_count"], 2)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["raw_text_payload_loaded"])
         values = {float(sample[0].item()) for sample in result}
         self.assertEqual(values, {2.0, 5.0})
 

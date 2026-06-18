@@ -155,6 +155,21 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             }
             trainer._last_sleep_replay_selection_report = dict(report)
             trainer.model.memory_store.last_replay_selection_report = dict(report)
+            sfa_sample_report = {
+                "surface": "bounded_sfa_sample.v1",
+                "status": "selected",
+                "scope": "deep_sleep_sfa_correction",
+                "candidate_scope": "selected_replay_window",
+                "candidate_index_count": 2,
+                "candidate_indices": [3, 5],
+                "sample_indices": [5],
+                "sample_count": 1,
+                "global_candidate_scan": False,
+                "runs_live_tick": False,
+                "language_reasoning": False,
+                "archival_storage_device": "cpu",
+            }
+            trainer.model.memory_store.last_sfa_sample_report = dict(sfa_sample_report)
             checkpoint = save_trainer_checkpoint(
                 Path(tmpdir) / "sleep-replay-selection.pt",
                 trainer,
@@ -198,6 +213,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                     "selected_indices"
                 ],
                 [3],
+            )
+            self.assertEqual(
+                restored.model.memory_store.last_sfa_sample_report["surface"],
+                "bounded_sfa_sample.v1",
+            )
+            self.assertEqual(
+                restored.model.memory_store.last_sfa_sample_report["sample_indices"],
+                [5],
+            )
+            self.assertFalse(
+                restored.model.memory_store.last_sfa_sample_report[
+                    "global_candidate_scan"
+                ]
             )
 
     def test_checkpoint_roundtrip_preserves_replay_window_recall_report(self) -> None:

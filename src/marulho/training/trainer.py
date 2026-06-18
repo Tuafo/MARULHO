@@ -3030,6 +3030,9 @@ class MarulhoTrainer:
             "sleep_replay_sfa_candidate_index_count": 0,
             "sleep_replay_sfa_sample_count": 0,
             "sleep_replay_sfa_applied": False,
+            "sleep_replay_sfa_sample_report": dict(
+                self.model.memory_store._empty_sfa_sample_report()
+            ),
         }
 
         # SFA correction during deep sleep (§4.8)
@@ -3047,10 +3050,14 @@ class MarulhoTrainer:
                 }
             )
         if mode == "deep" and applied > 0 and self.model.abstraction_layer is not None:
-            sfa_samples = self.model.memory_store.sample_for_sfa(
-                n=min(100, max(10, applied)),
-                candidate_indices=processed_indices,
+            sfa_samples, sfa_sample_report = (
+                self.model.memory_store.sample_for_sfa_with_report(
+                    n=min(100, max(10, applied)),
+                    candidate_indices=processed_indices,
+                    scope="deep_sleep_sfa_correction",
+                )
             )
+            sfa_report["sleep_replay_sfa_sample_report"] = dict(sfa_sample_report)
             sfa_report["sleep_replay_sfa_sample_count"] = int(len(sfa_samples))
             if len(sfa_samples) >= 2:
                 self.model.abstraction_layer.sfa_correction_step(
