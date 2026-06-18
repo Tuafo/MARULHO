@@ -10600,6 +10600,35 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             emission_replay_policy["candidates"][0]["emission_hash"],
             emission["emission_hash"],
         )
+        self.assertEqual(
+            emission_replay_policy["source_window"]["surface"],
+            "bounded_snn_emission_review_replay_policy_source_window.v1",
+        )
+        self.assertEqual(emission_replay_policy["source_window_limit"], 16)
+        self.assertEqual(
+            emission_replay_policy["source_window"]["emission_review_event_window_count"],
+            1,
+        )
+        self.assertEqual(
+            emission_replay_policy["source_window"]["internal_readout_event_window_count"],
+            1,
+        )
+        self.assertFalse(emission_replay_policy["source_window"]["global_candidate_scan"])
+        self.assertFalse(emission_replay_policy["source_window"]["global_score_scan"])
+        self.assertFalse(emission_replay_policy["source_window"]["runs_live_tick"])
+        self.assertFalse(emission_replay_policy["source_window"]["runs_every_token"])
+        self.assertFalse(emission_replay_policy["source_window"]["gpu_used"])
+        self.assertEqual(
+            emission_replay_policy["source_window"]["archival_storage_device"],
+            "cpu",
+        )
+        self.assertFalse(emission_replay_policy["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(emission_replay_policy["source_window"]["language_reasoning"])
+        self.assertTrue(
+            emission_replay_policy["promotion_gate"]["required_evidence"][
+                "source_window_bounded"
+            ]
+        )
         self.assertTrue(
             emission_replay_policy["candidates"][0][
                 "eligible_for_replay_evaluation_policy_review"
@@ -10640,6 +10669,36 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 "readout_evidence_hash"
             ],
             record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            emission_replay_design["source_window"]["surface"],
+            "bounded_snn_emission_review_replay_policy_source_window.v1",
+        )
+        self.assertEqual(emission_replay_design["source_window_limit"], 16)
+        self.assertEqual(
+            emission_replay_design["source_window"]["internal_readout_event_window_count"],
+            1,
+        )
+        self.assertFalse(emission_replay_design["source_window"]["global_candidate_scan"])
+        self.assertFalse(emission_replay_design["source_window"]["global_score_scan"])
+        self.assertFalse(emission_replay_design["source_window"]["runs_live_tick"])
+        self.assertFalse(emission_replay_design["source_window"]["runs_every_token"])
+        self.assertFalse(emission_replay_design["source_window"]["gpu_used"])
+        self.assertEqual(
+            emission_replay_design["source_window"]["archival_storage_device"],
+            "cpu",
+        )
+        self.assertFalse(emission_replay_design["source_window"]["raw_text_payload_loaded"])
+        self.assertFalse(emission_replay_design["source_window"]["language_reasoning"])
+        self.assertTrue(
+            emission_replay_design["promotion_gate"]["required_evidence"][
+                "policy_source_window_bounded"
+            ]
+        )
+        self.assertTrue(
+            emission_replay_design["promotion_gate"]["required_evidence"][
+                "design_source_window_bounded"
+            ]
         )
         self.assertTrue(
             emission_replay_design["selected_replay_context_seeds"][0][

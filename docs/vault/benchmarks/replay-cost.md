@@ -7,6 +7,7 @@ related_code:
   - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
   - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
@@ -58,6 +59,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json
   - reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-readout-replay-priority-source-window.json
+  - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -92,6 +95,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260618\synthetic-bucket-source-window.json`
 - SNN readout replay-priority source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_replay_priority_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-readout-replay-priority-source-window.json`
+- SNN emission-review replay-policy source window:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-emission-review-replay-policy-source-window.json`
 - SNN rollout rehearsal source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-rollout-rehearsal-source-window.json`
 - HF-backed replay recall with capped query collection:
@@ -108,6 +113,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for SNN readout replay-priority source window:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-readout-replay-priority-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+- Replacement promoted scheduler checkpoint after local report cleanup:
+  `PYTHONPATH=src python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --report reports\column_scheduler_20260618\active-pressure-scheduler-65536-checkpoint.json --n-columns 65536 --column-latent-dim 64 --k-routing 10 --seed 20260617 --device cuda --active-pressure-filter-count 2 --candidate-memory-pressure-filter-start-tokens 0`
+- Hot-path protection for SNN emission-review replay-policy source window:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for SNN rollout rehearsal source window:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for capped query collection:
@@ -220,6 +229,28 @@ scoring `32/2048` retained events, averaging `1.424948 ms` versus
 hot-path check stayed in band at `6284.379 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, GPU memory `1852->1858 MiB`, no
 observed contention, and zero graph/native/sequence failures.
+
+SNN emission-review replay policy is now bounded before reviewed emissions can
+become replay-context seeds. `snn_language_readout_emission_replay_evaluation_policy.v1`
+and its design verifier read `16` recent reviewed emissions plus `16` recent
+internal readout events and report
+`bounded_snn_emission_review_replay_policy_source_window.v1`; they do not scan
+all retained review/readout records, load raw reviewed text, run language
+reasoning, use GPU archival metadata, run live tick, or run every token. The
+source benchmark
+`reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json`
+matched the diagnostic full-retained policy/design top candidate while checking
+`32` source events instead of `4096` retained review/readout records, averaging
+`2.476164 ms` versus `166.924984 ms` (`67.412734x`) with no CUDA allocation. A
+replacement active-pressure checkpoint was generated at
+`reports/column_scheduler_20260618/checkpoints/active-pressure-scheduler-65536-seeded.pt`
+after the local report cleanup; restore verification kept
+`state_transition_runs_all_columns=false`. The clean profiled `524288`-token
+hot-path rerun stayed in band at `6376.714 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `2122->2123 MiB`, no
+observed contention, and zero graph/native/sequence failures. A same-code
+no-profile rerun reached `6392.672 tokens/sec`; an earlier profiled run is
+rejected as contended external-load evidence.
 
 SNN rollout rehearsal promotion is bounded before it can feed rehearsal,
 consolidation, or regeneration review surfaces. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`

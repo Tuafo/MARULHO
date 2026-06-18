@@ -10,6 +10,7 @@ from marulho.service.runtime_state import RuntimeState
 from marulho.service.runtime_facade import RuntimeFacade
 from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 from marulho.service.snn_language_readout_ledger import (
+    SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
@@ -9981,15 +9982,38 @@ def test_readout_ledger_emission_review_replay_policy_requires_internal_readout_
     assert policy["candidate_count"] == 0
     assert policy["unmatched_emission_review_count"] == 1
     assert policy["internal_readout_evidence_count"] == 0
+    assert policy["source_window"]["surface"] == (
+        "bounded_snn_emission_review_replay_policy_source_window.v1"
+    )
+    assert policy["source_window"]["emission_review_event_window_count"] == 1
+    assert policy["source_window"]["internal_readout_event_window_count"] == 0
+    assert policy["source_window"]["global_candidate_scan"] is False
+    assert policy["source_window"]["global_score_scan"] is False
+    assert policy["source_window"]["archival_storage_device"] == "cpu"
+    assert policy["source_window"]["score_device"] == "cpu"
+    assert policy["source_window"]["gpu_used"] is False
+    assert policy["source_window"]["raw_text_payload_loaded"] is False
+    assert policy["source_window"]["language_reasoning"] is False
     assert policy["promotion_gate"]["eligible_for_operator_replay_evaluation_policy_review"] is False
     assert policy["promotion_gate"]["required_evidence"]["reviewed_emission_available"] is True
     assert policy["promotion_gate"]["required_evidence"]["matching_internal_readout_evidence_available"] is False
+    assert policy["promotion_gate"]["required_evidence"]["source_window_bounded"] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "archival_metadata_cpu_resident"
+    ] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "language_reasoning_absent"
+    ] is True
     assert policy["promotion_gate"]["required_evidence"]["display_text_not_used_as_replay_source"] is True
     assert policy["generates_text"] is False
     assert policy["decodes_text"] is False
     assert policy["exposes_reviewed_bounded_text"] is False
     assert policy["records_ledger_event"] is False
     assert policy["runs_replay"] is False
+    assert policy["runs_live_tick"] is False
+    assert policy["runs_every_token"] is False
+    assert policy["raw_text_payload_loaded"] is False
+    assert policy["language_reasoning"] is False
     assert policy["applies_plasticity"] is False
     assert policy["mutates_runtime_state"] is False
     assert policy["eligible_for_replay_memory"] is False
@@ -10036,6 +10060,20 @@ def test_readout_ledger_emission_review_replay_policy_selects_matched_sparse_rea
     assert policy["ready_candidate_count"] == 1
     assert policy["unmatched_emission_review_count"] == 0
     assert policy["internal_readout_evidence_count"] == 1
+    assert policy["source_window"]["surface"] == (
+        "bounded_snn_emission_review_replay_policy_source_window.v1"
+    )
+    assert policy["source_window"]["emission_review_event_window_count"] == 1
+    assert policy["source_window"]["internal_readout_event_window_count"] == 1
+    assert policy["source_window"]["candidate_count_before_limit"] == 1
+    assert policy["source_window"]["candidate_count_returned"] == 1
+    assert policy["source_window"]["global_candidate_scan"] is False
+    assert policy["source_window"]["global_score_scan"] is False
+    assert policy["source_window"]["archival_storage_device"] == "cpu"
+    assert policy["source_window"]["score_device"] == "cpu"
+    assert policy["source_window"]["gpu_used"] is False
+    assert policy["source_window"]["raw_text_payload_loaded"] is False
+    assert policy["source_window"]["language_reasoning"] is False
     candidate = policy["candidates"][0]
     assert candidate["emission_hash"] == emission["emission_hash"]
     assert candidate["prediction_hash"] == binding["prediction_hash"]
@@ -10051,11 +10089,138 @@ def test_readout_ledger_emission_review_replay_policy_selects_matched_sparse_rea
     assert candidate["eligible_for_action"] is False
     assert "text" not in candidate
     assert "labels" not in candidate
+    assert candidate["text_hash_material"] == "hash_only_binding_no_raw_review_text"
+    assert candidate["source_window"]["surface"] == (
+        "bounded_snn_emission_review_replay_policy_source_window.v1"
+    )
     assert policy["promotion_gate"]["eligible_for_operator_replay_evaluation_policy_review"] is True
     assert policy["promotion_gate"]["eligible_for_replay_memory"] is False
     assert policy["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert policy["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert policy["promotion_gate"]["eligible_for_action"] is False
+    assert policy["promotion_gate"]["required_evidence"]["source_window_bounded"] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "archival_metadata_cpu_resident"
+    ] is True
+    assert policy["promotion_gate"]["required_evidence"][
+        "language_reasoning_absent"
+    ] is True
+
+
+def test_readout_ledger_emission_review_replay_policy_caps_review_and_readout_source_windows_before_match() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT * 2,
+    )
+    outside_prediction_hash = ""
+    for index in range(SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT * 2):
+        label = "outside-window" if index == 0 else f"review-window-{index}"
+        prediction_hash = _sha256_json({"prediction": index})
+        evaluation_hash = _sha256_json({"evaluation": index})
+        weights_hash = _sha256_json({"weights": index})
+        if index == 0:
+            outside_prediction_hash = prediction_hash
+        ledger.record_readout_draft(
+            readout_draft=_ready_draft_for(
+                prediction_hash,
+                evaluation_hash,
+                weights_hash,
+                [label],
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-readout",
+            confirmation=True,
+        )
+        emission = deepcopy(_ready_emission())
+        emission["emission_hash"] = _sha256_json({"emission": index})
+        emission["language_output"] = {
+            "text": f"review text {index}",
+            "labels": [label],
+            "term_count": 1,
+            "max_terms": 12,
+        }
+        emission["emission_binding"] = {
+            "trajectory_hash": _sha256_json({"trajectory": index}),
+            "prediction_hash": prediction_hash,
+            "transition_memory_evaluation_hash": evaluation_hash,
+            "persistent_transition_weights_hash": weights_hash,
+        }
+        ledger.record_readout_emission_review(
+            readout_emission=emission,
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-emission",
+            confirmation=True,
+        )
+    runtime_state.mark_clean()
+    before = runtime_state.snapshot()
+
+    policy = ledger.emission_review_replay_evaluation_policy(limit=8)
+    design = ledger.emission_review_replay_evaluation_design(
+        policy,
+        design_policy={"max_candidates": 8, "min_ready_candidates": 1},
+        device_evidence={"device": "cpu", "source": "test_emission_review_window"},
+    )
+    after = runtime_state.snapshot()
+    selected_prediction_hashes = {
+        str(candidate.get("prediction_hash") or "")
+        for candidate in policy["candidates"]
+    }
+    selected_seed_prediction_hashes = {
+        str(seed.get("prediction_hash") or "")
+        for seed in design["selected_replay_context_seeds"]
+    }
+
+    assert before == after
+    assert runtime_state.dirty_state is False
+    assert policy["candidate_count"] == 8
+    assert policy["source_window"]["emission_review_event_retention_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT * 2
+    )
+    assert policy["source_window"]["internal_readout_event_retention_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT * 2
+    )
+    assert policy["source_window"]["emission_review_event_window_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["internal_readout_event_window_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["candidate_count_before_limit"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT
+    )
+    assert policy["source_window"]["candidate_count_returned"] == 8
+    assert policy["source_window"]["global_candidate_scan"] is False
+    assert policy["source_window"]["global_score_scan"] is False
+    assert policy["source_window"]["runs_live_tick"] is False
+    assert policy["source_window"]["runs_every_token"] is False
+    assert policy["source_window"]["archival_storage_device"] == "cpu"
+    assert policy["source_window"]["gpu_used"] is False
+    assert policy["promotion_gate"]["required_evidence"]["source_window_bounded"] is True
+    assert outside_prediction_hash not in selected_prediction_hashes
+    assert design["source_window"]["internal_readout_event_retention_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT * 2
+    )
+    assert design["source_window"]["internal_readout_event_window_count"] == (
+        SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT
+    )
+    assert design["source_window"]["global_candidate_scan"] is False
+    assert design["source_window"]["global_score_scan"] is False
+    assert design["source_window"]["runs_live_tick"] is False
+    assert design["source_window"]["runs_every_token"] is False
+    assert design["source_window"]["archival_storage_device"] == "cpu"
+    assert design["source_window"]["gpu_used"] is False
+    assert design["promotion_gate"]["required_evidence"]["policy_source_window_bounded"] is True
+    assert design["promotion_gate"]["required_evidence"]["design_source_window_bounded"] is True
+    assert design["promotion_gate"]["required_evidence"]["language_reasoning_absent"] is True
+    assert design["promotion_gate"]["required_evidence"][
+        "archival_metadata_cpu_resident"
+    ] is True
+    assert outside_prediction_hash not in selected_seed_prediction_hashes
 
 
 def test_readout_ledger_emission_replay_design_requires_device_review_evidence() -> None:

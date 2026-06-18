@@ -8,6 +8,7 @@ related_code:
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -33,6 +34,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
+  - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
@@ -323,6 +326,27 @@ route rows, `65526` cached transition rows, GPU memory `1852->1858 MiB`, no
 observed contention, and zero graph/native/sequence failures. This treats
 attention-like readout recall as a bounded local replay-priority operator, not
 as a transformer-style text reasoning pass.
+
+Emission-review replay policy now follows the same selected-source rule before
+reviewed emissions can become replay-context seeds. The previous
+`snn_language_readout_emission_replay_evaluation_policy.v1` capped returned
+candidates but still matched reviewed emissions against all retained readout
+events, and the design step reopened all retained readouts for verification.
+Both paths now use
+`bounded_snn_emission_review_replay_policy_source_window.v1`: `16` recent
+reviewed emissions, `16` recent internal readout events, hash-only candidates,
+CPU archival/score placement, no global candidate/score scan, no raw reviewed
+text payload, `language_reasoning=false`, `runs_live_tick=false`,
+`runs_every_token=false`, and `gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json`
+matched the diagnostic full-retained policy/design top candidate while checking
+`32` source events instead of `4096` retained review/readout records, averaging
+`2.476164 ms` versus `166.924984 ms` (`67.412734x`) with `0.046277 MiB` traced
+peak allocation and no CUDA allocation. A clean profiled `524288`-token hot-path
+rerun, made after rejecting an externally contended run, stayed in band at
+`6376.714 tokens/sec`, `train_compute=0.128297 ms/token`, bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `2122->2123 MiB`, no
+observed contention, and zero graph/native/sequence failures.
 
 The rollout rehearsal promotion policy now applies the same source-window rule
 to sparse trajectory evidence before rehearsal or consolidation review. The

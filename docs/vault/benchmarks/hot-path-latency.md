@@ -9,6 +9,8 @@ related_code:
   - ../../../src/marulho/evaluation/hot_window_benchmark.py
   - ../../../src/marulho/evaluation/sequence_input_staging_benchmark.py
   - ../../../src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py
+  - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
 related_docs: []
 related_papers: []
@@ -22,6 +24,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -3618,6 +3622,53 @@ velocity sampler reported no observed contention: CPU max `23%`, GPU max
 `1858 MiB`. This is accepted as same-band hot-path protection evidence; readout
 priority remains a slow/control-plane replay review surface, not live-tick or
 every-token replay work.
+
+## SNN Emission-Review Replay-Policy Source Window
+
+`snn_language_readout_emission_replay_evaluation_policy.v1` now bounds source
+matching before reviewed emissions can become replay-context seeds. The previous
+policy capped returned candidates but matched reviewed emissions against every
+retained internal readout event, and the design step verified selected seeds by
+reopening every retained readout. The replacement reads a recent `16`-event CPU
+review source window and a recent `16`-event CPU readout source window, reports
+`bounded_snn_emission_review_replay_policy_source_window.v1`, and sets
+`global_candidate_scan=false`, `global_score_scan=false`,
+`raw_text_payload_loaded=false`, `language_reasoning=false`,
+`runs_live_tick=false`, `runs_every_token=false`, and `gpu_used=false`.
+
+Focused source benchmark:
+
+`python -m marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-emission-review-replay-policy-source-window.json`
+
+It matched the diagnostic full-retained policy/design top candidate and selected
+`8` hash-only seeds. The bounded path checked `32` source events instead of
+`4096` retained review/readout records (`128x` less match work), averaged
+`2.476164 ms` versus `166.924984 ms` for the benchmark-local retired policy and
+design scan (`67.412734x`), used `0.046277 MiB` traced peak Python allocation,
+kept archival/source/score placement on CPU, and allocated `0.0 MiB` CUDA memory
+on RTX 3060.
+
+The replacement checkpoint was regenerated after the local reports directory was
+deleted:
+
+`python -m marulho.evaluation.promoted_scheduler_checkpoint --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --report reports\column_scheduler_20260618\active-pressure-scheduler-65536-checkpoint.json --n-columns 65536 --column-latent-dim 64 --k-routing 10 --seed 20260617 --device cuda --active-pressure-filter-count 2 --candidate-memory-pressure-filter-start-tokens 0`
+
+The clean 65536-column profiled protection rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6376.714 tokens/sec`, with
+`train_compute=0.128297 ms/token`, `prepare_training=0.006487 ms/token`,
+`finalize_total=0.005965 ms/token`, and `tick_duration_ms.p95=20.0283`. Runtime
+Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported no observed contention: CPU max `12%`, GPU max `13%`,
+GPU memory-util max `18%`, and RTX 3060 memory moved from `2122` to `2123 MiB`.
+The no-profile rerun reached `6392.672 tokens/sec` with no observed contention.
+An earlier same-code profiled run at `5618.255 tokens/sec` is rejected because
+external GPU load was present during measurement.
 
 ## SNN Rollout Rehearsal Source Window
 

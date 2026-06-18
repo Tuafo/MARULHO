@@ -7,6 +7,8 @@ related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
+  - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
 related_docs:
@@ -776,6 +778,25 @@ stayed in band at `6284.379 tokens/sec`, with `train_compute=0.129905
 ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, GPU
 memory `1852->1858 MiB`, no observed contention, and zero graph/native/sequence
 failures.
+
+Emission-review replay policy now keeps reviewed display text out of replay
+selection and applies the same bounded source rule before replay-context design.
+`snn_language_readout_emission_replay_evaluation_policy.v1` and its design
+verifier use `bounded_snn_emission_review_replay_policy_source_window.v1`, capped
+to `16` recent reviewed emissions and `16` recent internal readout events. The
+policy emits only hash-bound candidates, verifies selected seeds against the same
+bounded readout window, and reports CPU archival/score placement, no raw reviewed
+text payload, no hidden language reasoning, `runs_live_tick=false`,
+`runs_every_token=false`, and `gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json`
+matched the diagnostic full-retained policy/design top candidate while checking
+`32` source events instead of `4096` retained review/readout records, reducing
+mean policy+design latency from `166.924984 ms` to `2.476164 ms`. After rejecting
+one contended hot-path profile, the clean 65536-column `524288`-token profiled
+rerun stayed in band at `6376.714 tokens/sec`, with
+`train_compute=0.128297 ms/token`, bounded `12/65536` route rows, `65526` cached
+transition rows, GPU memory `2122->2123 MiB`, no observed contention, and zero
+graph/native/sequence failures.
 
 Rollout rehearsal promotion now keeps the same slow/control-plane boundary for
 trajectory evidence. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`
