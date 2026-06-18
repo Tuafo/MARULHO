@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import torch
 
+from marulho.training import autonomy_runner
 from marulho.training.autonomy_acquisition_runner import (
     acquisition_gate_from_comparison,
     consume_previewed_chunk,
@@ -178,6 +179,9 @@ class _FrontierMemoryStore:
 
 
 class AutonomySelectionTests(unittest.TestCase):
+    def test_concept_frontier_metrics_report_dropping_wrapper_is_removed(self) -> None:
+        self.assertFalse(hasattr(autonomy_runner, "concept_frontier_metrics"))
+
     def test_concept_frontier_metrics_use_bounded_candidate_window(self) -> None:
         store = _FrontierMemoryStore()
         routing_index = _FrontierRoutingIndex([1, 3])

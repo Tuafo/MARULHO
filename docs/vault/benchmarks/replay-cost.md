@@ -412,6 +412,25 @@ reported `score_device=cuda`, `archival_storage_device=cpu`, `runs_live_tick=fal
 `sleep_replay_sfa_full_memory_sample_retired=true`. Zero-pressure and
 no-anchor/global-control arms still applied `0` updates.
 
+Repair replay now has its own bounded input-preparation report. The old repair
+branch called `assembly_from_input(...)` for every selected replay input even
+when the replay entry already had a stored routing key and bucket. The new path
+uses `prepare_input_for_candidate_routing(...)` for stored-key entries, clears
+stale dense caches when an input trace is absent, and reports
+`sleep_replay_unconditional_dense_input_assembly_retired=true` plus dense
+fallback counts. The 65536-column benchmark
+`reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
+selected and repaired `32/32` anchored replay entries, improved mean anchor
+distance from `0.508855` to `0.360171`, reduced selected input-prep latency from
+`61.351 ms` to `32.613 ms` (`1.881x`), made `0` dense assembly calls during
+repair, kept archival tensors on CPU, and used CUDA only for active repair
+computation. The focused replay/checkpoint suite passed `15` tests, including
+repair replay, selected-window SFA correction, and checkpoint roundtrip
+coverage. The paired hot-path run processed `524288` tokens at
+`6302.207 tokens/sec`, bounded route scoring at `12/65536`, cached `65526`
+transition rows, reported no observed contention, and kept GPU memory
+`1805->1806 MiB`.
+
 The matching final 65536-column hot-path run
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json`
 processed `262144` tokens at `6237.420 tokens/sec`, with

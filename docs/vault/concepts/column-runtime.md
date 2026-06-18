@@ -140,6 +140,21 @@ stayed in band at `6237.420 tokens/sec` with `12/65536` route rows, `65526`
 cached transition rows, zero graph/native/sequence failures, flat `1719 MiB`
 GPU memory, and no observed contention.
 
+Anchored repair replay no longer builds a dense input assembly after selected
+entries already provide stored routing keys. `bounded_repair_reanchor` prepares
+input state with `prepare_input_for_candidate_routing(...)`, clears stale dense
+caches when an input trace is absent, and reports
+`sleep_replay_unconditional_dense_input_assembly_retired=true`,
+`sleep_replay_dense_input_assembly_fallback_count`, and
+`sleep_replay_bounded_input_prepare_count`. The 65536-column benchmark
+`reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
+selected `32` anchored entries, repaired all `32`, improved mean anchor
+distance by `0.148684`, reduced selected input-prep latency from `61.351 ms` to
+`32.613 ms`, made `0` dense assembly calls during repair, and kept archival
+payloads on CPU. The paired long hot-path run stayed in band at
+`6302.207 tokens/sec` with bounded `12/65536` route rows and no observed
+contention.
+
 `PredictiveColumnState` owns `prediction_failure_streak` beside prediction error and confidence. Repeated raw failures increment the streak on the predictive tensor device; successful prediction resets it. The streak is saved in trainer checkpoints and restored with the model, so growth evidence survives rollback and does not live in `service`.
 
 When that gate is ready, the explicit binding-growth trial endpoint can ask core for a deterministic candidate-scoped hypercube outreach plan. The plan is bounded by an edge budget, hashes the exact baseline adjacency, and remains read-only. This narrows the path from surprise to structural experimentation without making the scheduler, Runtime Truth, or status polling a mutation authority.

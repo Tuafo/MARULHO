@@ -2889,6 +2889,11 @@ class MarulhoTrainer:
             "sleep_replay_language_reasoning": False,
             "sleep_replay_text_payload_policy": "sleep_replay_uses_tensor_payloads_only",
             "sleep_replay_local_trace_source": "stored_input_pattern_or_routing_key",
+            "sleep_replay_unconditional_dense_input_assembly_retired": True,
+            "sleep_replay_dense_input_assembly_fallback_count": 0,
+            "sleep_replay_bounded_input_prepare_count": 0,
+            "sleep_replay_stored_routing_key_count": 0,
+            "sleep_replay_missing_routing_key_count": 0,
         }
         if not replay_idx:
             self.model.memory_store.last_replay_selection_report = dict(
@@ -2924,9 +2929,17 @@ class MarulhoTrainer:
                 "sleep_replay_quality_scope": "anchored_replay_window_cpu_metadata",
             }
         elif mode == "repair":
+            dense_input_assembly_fallback_count = 0
+            bounded_input_prepare_count = 0
+            stored_routing_key_count = 0
+            missing_routing_key_count = 0
             commit_report = {
                 "sleep_replay_commit_strategy": "bounded_repair_reanchor",
                 "sleep_replay_winner_source": "stored_replay_bucket_with_anchor_scope",
+                "sleep_replay_local_trace_prepare_policy": (
+                    "stored_routing_key_candidate_prepare_before_dense_legacy_fallback"
+                ),
+                "sleep_replay_unconditional_dense_input_assembly_retired": True,
             }
 
             for idx in replay_idx:
@@ -2950,14 +2963,24 @@ class MarulhoTrainer:
 
                 if isinstance(input_pattern, torch.Tensor):
                     replay_input = input_pattern.to(self.model.device)
-                    self.model.competitive.assembly_from_input(replay_input)
                 else:
                     replay_input = None
                     self.model.competitive.last_input_pattern = None
+                    self.model.competitive._cached_proto_sim = None
+                    self.model.competitive._cached_raw_drive = None
 
                 if isinstance(stored_routing_key, torch.Tensor):
+                    stored_routing_key_count += 1
+                    if replay_input is not None:
+                        self.model.competitive.prepare_input_for_candidate_routing(
+                            replay_input
+                        )
+                        bounded_input_prepare_count += 1
                     routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
                 elif replay_input is not None:
+                    missing_routing_key_count += 1
+                    if not bool(self.config.enable_learned_chunking):
+                        dense_input_assembly_fallback_count += 1
                     routing_key = self.model.routing_key_from_pattern(replay_input)
                 else:
                     routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
@@ -2984,6 +3007,22 @@ class MarulhoTrainer:
                 updated_ids.append(int(winner.item()))
                 processed_indices.append(int(idx))
                 applied += 1
+            commit_report.update(
+                {
+                    "sleep_replay_dense_input_assembly_fallback_count": int(
+                        dense_input_assembly_fallback_count
+                    ),
+                    "sleep_replay_bounded_input_prepare_count": int(
+                        bounded_input_prepare_count
+                    ),
+                    "sleep_replay_stored_routing_key_count": int(
+                        stored_routing_key_count
+                    ),
+                    "sleep_replay_missing_routing_key_count": int(
+                        missing_routing_key_count
+                    ),
+                }
+            )
 
         if applied > 0:
             if mode == "deep":

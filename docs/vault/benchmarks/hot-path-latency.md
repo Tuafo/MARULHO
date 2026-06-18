@@ -3118,6 +3118,33 @@ band. Earlier same-code current reruns at `5382.323`, `5639.785`, and
 `5462.307 tokens/sec` are kept as secondary noisy evidence and are not used for
 promotion.
 
+### Bounded Sleep Repair Input Prep, 2026-06-18
+
+The sleep repair replay slice changes only selected slow-window repair replay.
+Normal replay entries already carry stored routing keys, so repair no longer
+builds dense input assemblies after the replay window has selected anchored
+entries. The focused benchmark
+`reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
+selected and repaired `32/32` anchored entries at `65536` columns, improved
+mean anchor distance from `0.508855` to `0.360171`, reduced selected input-prep
+latency from `61.351 ms` to `32.613 ms` (`1.881x`), and reported `0` dense
+assembly calls during repair.
+
+The accepted 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-sleep-repair-bounded-input-prepare.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6302.207 tokens/sec`, with
+`tick_duration_ms.p95=20.440`, `train_compute=0.129260 ms/token`,
+`prepare_training=0.006437 ms/token`, `finalize_total=0.006086 ms/token`, and
+`concept_observation=0.000463 ms/token`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Runtime failure count was `0`, no
+route-vote fallback was reported, and the velocity surface reported no observed
+contention: CPU max `30%`, GPU utilization max `10%`, GPU memory utilization
+max `10%`, and GPU memory changed from `1805 MiB` to `1806 MiB`.
+
 ### Query Episode Readout, 2026-06-18
 
 The query episode readout slice changes explicit query slow-path output only.

@@ -443,11 +443,6 @@ def concept_frontier_metrics_with_report(
     return novelty, uncertainty, support, report
 
 
-def concept_frontier_metrics(trainer: MarulhoTrainer, bank: SourceBank) -> tuple[float, float, float]:
-    novelty, uncertainty, support, _report = concept_frontier_metrics_with_report(trainer, bank)
-    return novelty, uncertainty, support
-
-
 def selection_metric(metrics: Mapping[str, object]) -> float:
     """Return the score used for active source selection.
 

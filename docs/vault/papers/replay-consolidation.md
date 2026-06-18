@@ -579,6 +579,25 @@ processed `6127.490 tokens/sec`, with last-tick `train_compute=17.738 ms`
 `65526` cached transition rows, no observed contention, GPU memory
 `1840->1861 MiB`, and zero graph/native/sequence failures.
 
+Repair replay now closes the adjacent dense-input preparation gap. After an
+anchored replay window has selected stored entries, normal repair entries carry
+stored routing keys, so the old unconditional `assembly_from_input(...)` call
+was scoring all columns only to refresh competitive input state. The repair path
+now calls `prepare_input_for_candidate_routing(...)` when a stored routing key
+exists, clears stale dense caches when no input trace exists, and reports
+`sleep_replay_unconditional_dense_input_assembly_retired=true` plus dense
+fallback counts for legacy entries. The benchmark
+`reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
+selected and repaired `32/32` anchored replay entries, improved mean anchor
+distance from `0.508855` to `0.360171`, reduced selected input-prep latency from
+`61.351 ms` to `32.613 ms` (`1.881x`), made `0` dense assembly calls during
+repair, and kept archival tensors on CPU while active repair computation used
+CUDA. The paired hot-path run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-sleep-repair-bounded-input-prepare.json`
+processed `524288` tokens at `6302.207 tokens/sec`, bounded route scoring at
+`12/65536`, cached `65526` transition rows, reported no observed contention,
+and kept GPU memory effectively flat at `1805->1806 MiB`.
+
 The query-memory episode readout cleanup makes returned text evidence explicit
 without turning it into hidden replay reasoning. The list-only
 `build_memory_episodes(...)` helper is removed; query result construction now
@@ -645,17 +664,18 @@ route rows, `65526` cached rows, zero runtime failures, and GPU memory
 bounded slow-path selection, stored-experience recall, reconstruction-gated
 candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
-sleep replay payloads, selected-window SFA correction, capped pre-score replay
-candidate windows, capped replay query collection, bounded query-memory
+sleep replay payloads, bounded repair-replay input preparation,
+selected-window SFA correction, capped pre-score replay candidate windows,
+capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 awake-ripple tagging, and retired unscoped random replay defaults plus the
-full-buffer replay-score, score-tensor, list-only replay/SFA, and source-bank
-wrapper APIs implemented; future larger replay windows still require repeated
-long-run hot-path and grounding checks
+full-buffer replay-score, score-tensor, list-only replay/SFA, concept-frontier
+report-dropping, and source-bank wrapper APIs implemented; future larger replay
+windows still require repeated long-run hot-path and grounding checks
 
 ## Links
 

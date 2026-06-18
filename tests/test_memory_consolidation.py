@@ -1880,7 +1880,14 @@ class MemoryConsolidationTests(unittest.TestCase):
         before_weights = trainer.model.competitive.input_weights.detach().clone()
         before_levels = list(trainer.model.memory_store.slow_consolidation_level)
 
-        updates = trainer._sleep_replay("repair")
+        with patch.object(
+            trainer.model.competitive,
+            "assembly_from_input",
+            side_effect=AssertionError(
+                "repair replay must not build dense input assemblies when stored routing keys exist"
+            ),
+        ):
+            updates = trainer._sleep_replay("repair")
         after_distance = float(torch.norm(trainer.model.competitive.prototypes[0] - routing_key.to(trainer.model.device)).item())
 
         self.assertGreater(anchored, 0)
@@ -1898,6 +1905,10 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_winner_source"],
             "stored_replay_bucket_with_anchor_scope",
         )
+        self.assertTrue(report["sleep_replay_unconditional_dense_input_assembly_retired"])
+        self.assertEqual(report["sleep_replay_dense_input_assembly_fallback_count"], 0)
+        self.assertEqual(report["sleep_replay_bounded_input_prepare_count"], 1)
+        self.assertEqual(report["sleep_replay_stored_routing_key_count"], 1)
 
     def test_repair_sleep_without_anchors_blocks_global_repair_mutation(self) -> None:
         set_seed(7)
