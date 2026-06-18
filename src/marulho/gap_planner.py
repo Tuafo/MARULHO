@@ -397,43 +397,12 @@ def _frontier_candidate_report(
         )
 
     windows = getattr(memory_store, "slow_raw_windows", None)
-    memory_size = _sequence_len(windows)
-    if memory_size <= 0:
-        return _empty_frontier_candidate_report(
-            memory_size=0,
-            current_token=current_token,
-            requested_count=requested_count,
-            fallback_reason="empty_memory",
-        )
-
-    bounded_count = min(memory_size, max(0, int(requested_count)))
-    indices = [int(index) for index in range(bounded_count)]
-    return {
-        "surface": "bounded_frontier_gap_candidates.v1",
-        "status": "collected" if indices else "empty",
-        "scope": "frontier_gap_planner_slow_path",
-        "memory_size": int(memory_size),
-        "current_token": int(current_token),
-        "requested_count": int(requested_count),
-        "candidate_window_limit": int(requested_count),
-        "candidate_window_policy": "bounded_prefix_fixture_window",
-        "candidate_scope": "bounded_prefix_fixture_window",
-        "candidate_bucket_ids": [],
-        "candidate_bucket_count": 0,
-        "candidate_index_available_count": int(memory_size),
-        "candidate_index_available_count_is_lower_bound": memory_size > bounded_count,
-        "candidate_index_count": int(len(indices)),
-        "candidate_indices": indices,
-        "global_score_scan": False,
-        "global_candidate_scan": False,
-        "runs_live_tick": False,
-        "raw_text_payload_loaded": False,
-        "language_reasoning": False,
-        "mutates_runtime_state": False,
-        "applies_plasticity": False,
-        "archival_storage_device": "cpu",
-        "fallback_reason": "memory_store_missing_bounded_frontier_collector",
-    }
+    return _empty_frontier_candidate_report(
+        memory_size=_sequence_len(windows),
+        current_token=current_token,
+        requested_count=requested_count,
+        fallback_reason="memory_store_missing_bounded_frontier_collector",
+    )
 
 
 def _frontier_scored_entries_with_report(
@@ -528,21 +497,6 @@ def _frontier_gap_terms_from_entries(
                 continue
             counter[term] += float(score) / (math.sqrt(float(rank + 1)) * float(pos + 1))
     return _top_term_payload(counter, limit)
-
-
-def frontier_gap_terms(
-    *,
-    memory_store: Any,
-    current_token: int,
-    limit: int = 8,
-    top_entries: int = 24,
-) -> list[dict[str, Any]]:
-    scored_entries, _report = _frontier_scored_entries_with_report(
-        memory_store=memory_store,
-        current_token=current_token,
-        top_entries=top_entries,
-    )
-    return _frontier_gap_terms_from_entries(scored_entries, limit=limit)
 
 
 def frontier_gap_plan(

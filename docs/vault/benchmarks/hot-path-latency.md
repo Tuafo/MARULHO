@@ -21,7 +21,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
-  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -3063,21 +3063,25 @@ global candidate/score scan, raw text loaded only for selected candidates, and
 `language_reasoning=false`. The paired quality benchmark
 `reports/bounded_replay_window_20260617/frontier-gap-bounded.json` preserved
 expected and diagnostic legacy terms with `quality.min=1.0` while reducing mean
-latency from `221.554 ms` to `9.589 ms` over a `65536`-entry archive.
+latency from `217.530 ms` to `9.073 ms` over a `65536`-entry archive. It also
+passes a missing-collector retirement gate: a store without
+`collect_frontier_gap_indices(...)` returns zero candidates, zero text
+payloads, and no global scans instead of using a compatibility prefix read.
 
 The 65536-column 524288-token protection run was:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 
-It processed `524288` tokens at `6184.133 tokens/sec`, with
-`train_compute=0.131501 ms/token`, `prepare_training=0.006672 ms/token`,
-`finalize_total=0.006458 ms/token`, and `tick_duration_ms.p95=20.970`.
+It processed `524288` tokens at `6233.085 tokens/sec`, with
+`train_compute=0.131067 ms/token`, `prepare_training=0.006384 ms/token`,
+`finalize_total=0.006244 ms/token`,
+`concept_observation=0.000470 ms/token`, and `tick_duration_ms.p95=20.524`.
 Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 `route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
 `state_transition_runs_all_columns=false`. Graph, native sequence, and native
 burst failures were all `0`. The velocity surface reported no observed
-contention: CPU max `36%`, GPU utilization max `17%`, GPU memory utilization
-max `15%`, and GPU memory stayed flat from `1884 MiB` to `1880 MiB`.
+contention: CPU max `32%`, GPU utilization max `14%`, GPU memory utilization
+max `13%`, and GPU memory changed from `1844 MiB` to `1840 MiB`.
 
 ### Bounded Recent Replay Setup, 2026-06-17
 

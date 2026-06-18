@@ -102,6 +102,15 @@ class _BenchmarkFrontierStore:
         }
 
 
+class _MissingCollectorFrontierStore:
+    def __init__(self, *, capacity: int) -> None:
+        self.capacity = int(capacity)
+        self.slow_raw_windows = _SyntheticSequence(
+            self.capacity,
+            lambda index: f"unbounded compatibility text {index}",
+        )
+
+
 def _diagnostic_legacy_frontier_terms(
     store: _BenchmarkFrontierStore,
     *,
@@ -141,6 +150,39 @@ def _diagnostic_legacy_frontier_terms(
         "archive_window_materialization_count": 1,
         "side_list_materialization_count": 3,
         "retired_inner_side_list_materialization_upper_bound": int(store.capacity * 3),
+    }
+
+
+def _missing_collector_gate(capacity: int) -> dict[str, Any]:
+    plan = frontier_gap_plan(
+        memory_store=_MissingCollectorFrontierStore(capacity=int(capacity)),
+        current_token=int(capacity),
+        max_terms=8,
+        max_queries=4,
+        max_questions=4,
+        top_entries=24,
+    )
+    report = dict(plan.get("frontier_selection_report") or {})
+    passed = bool(
+        report.get("surface") == "bounded_frontier_gap_selection.v1"
+        and report.get("fallback_reason")
+        == "memory_store_missing_bounded_frontier_collector"
+        and int(report.get("candidate_index_count", 0) or 0) == 0
+        and int(report.get("raw_text_payload_count", 0) or 0) == 0
+        and not bool(report.get("raw_text_payload_loaded"))
+        and not bool(report.get("global_candidate_scan"))
+        and not bool(report.get("global_score_scan"))
+        and not list(plan.get("gap_terms") or [])
+    )
+    return {
+        "passed": passed,
+        "fallback_reason": report.get("fallback_reason"),
+        "candidate_index_count": int(report.get("candidate_index_count", 0) or 0),
+        "raw_text_payload_count": int(report.get("raw_text_payload_count", 0) or 0),
+        "raw_text_payload_loaded": bool(report.get("raw_text_payload_loaded")),
+        "global_candidate_scan": bool(report.get("global_candidate_scan")),
+        "global_score_scan": bool(report.get("global_score_scan")),
+        "gap_term_count": int(len(list(plan.get("gap_terms") or []))),
     }
 
 
@@ -202,6 +244,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and not bool(selection_report.get("global_score_scan"))
         and int(selection_report.get("candidate_index_count", 0) or 0) <= candidate_window
     )
+    missing_collector = _missing_collector_gate(int(args.capacity))
+    passed = bool(passed and bool(missing_collector["passed"]))
     return {
         "surface": "frontier_gap_bounded_benchmark.v1",
         "passed": passed,
@@ -227,6 +271,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "legacy": legacy_report,
         "bounded_selection_report": selection_report,
+        "missing_collector_gate": missing_collector,
         "device": {
             "archival_storage_device": "cpu",
             "score_device": "cpu",

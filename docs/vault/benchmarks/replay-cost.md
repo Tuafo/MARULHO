@@ -44,7 +44,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
-  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -108,7 +108,7 @@ Replay selection, rehearsal, and artifact-review cost checks.
 - Bounded frontier-gap planner benchmark:
   `PYTHONPATH=src python -m marulho.evaluation.frontier_gap_bounded_benchmark --output reports\bounded_replay_window_20260617\frontier-gap-bounded.json --capacity 65536 --iterations 8 --top-entries 24 --max-terms 8`
 - Hot-path protection for bounded frontier-gap planner:
-  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Recent tag/anchor recency-index tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_memory_tagging_uses_capped_recency_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_anchor_capture_uses_capped_recency_index tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Synthetic recent replay tag/anchor setup:
@@ -640,12 +640,16 @@ recency or bucket candidate window, and records
 `reports/bounded_replay_window_20260617/frontier-gap-bounded.json` compared the
 retired global baseline against the bounded path over `65536` archival entries:
 bounded scoring touched `192` entries, preserved expected and diagnostic legacy
-terms with `quality.min=1.0`, and reduced mean latency from `221.554 ms` to
-`9.589 ms` (`23.105x`). The longer hot-path report
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
-processed `524288` tokens at `6184.133 tokens/sec`, with bounded `12/65536`
-route rows, `65526` cached transition rows, flat GPU memory (`1884->1880 MiB`),
-no observed contention, and zero graph/native/sequence failures.
+terms with `quality.min=1.0`, and reduced mean latency from `217.530 ms` to
+`9.073 ms` (`23.975x`). The same report now includes a missing-collector gate
+showing that stores without `collect_frontier_gap_indices(...)` produce zero
+candidates, zero text payloads, and no global scans instead of using the old
+compatibility prefix read. The longer hot-path report
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json`
+processed `524288` tokens at `6233.085 tokens/sec`, with
+`train_compute=0.131067 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, GPU memory `1844->1840 MiB`, no observed contention,
+and zero graph/native/sequence failures.
 
 The recent replay tag/anchor setup follow-up removes the last archive-linear
 setup shape from this replay window. `DualMemoryStore` now keeps a CPU

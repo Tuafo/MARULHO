@@ -44,7 +44,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
-  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -436,12 +436,16 @@ and emits `bounded_frontier_gap_selection.v1` with no global candidate/score
 scan and no hidden language reasoning. The benchmark
 `reports/bounded_replay_window_20260617/frontier-gap-bounded.json` scored
 `192/65536` entries, preserved expected and diagnostic legacy terms with
-`quality.min=1.0`, and reduced mean latency from `221.554 ms` to `9.589 ms`
-(`23.105x`). The longer 65536-column hot-path report
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
-processed `524288` tokens at `6184.133 tokens/sec`, with bounded `12/65536`
-route rows, `65526` cached transition rows, flat GPU memory (`1884->1880 MiB`),
-no observed contention, and zero graph/native/sequence failures.
+`quality.min=1.0`, reduced mean latency from `217.530 ms` to `9.073 ms`
+(`23.975x`), and passed a missing-collector gate with zero candidates, zero
+text payloads, and no global scans. The report-dropping
+`frontier_gap_terms(...)` helper is now deleted, so callers must use
+`frontier_gap_plan(...)` when they need terms plus bounded evidence. The longer
+65536-column hot-path report
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json`
+processed `524288` tokens at `6233.085 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, GPU memory `1844->1840 MiB`, no
+observed contention, and zero graph/native/sequence failures.
 
 The recent replay tag/anchor setup follow-up applies the same literature
 boundary to STC/PRP setup itself: tags and anchors are useful only when selected,

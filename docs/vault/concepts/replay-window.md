@@ -33,7 +33,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
-  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -313,11 +313,14 @@ candidate raw-window payloads. The benchmark
 `reports/bounded_replay_window_20260617/frontier-gap-bounded.json` used
 `65536` archival entries, scored `192` bounded candidates, preserved expected
 and diagnostic legacy top terms (`quality.min=1.0`), and reduced mean latency
-from `221.554 ms` to `9.589 ms` (`23.105x`). The longer hot-path report
-`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
-processed `524288` tokens at `6184.133 tokens/sec`, kept bounded `12/65536`
+from `217.530 ms` to `9.073 ms` (`23.975x`). The refreshed report also passes
+the missing-collector retirement gate: without
+`collect_frontier_gap_indices(...)`, planning returns zero candidates and zero
+text payloads with no global scans. The longer hot-path report
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json`
+processed `524288` tokens at `6233.085 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
-kept GPU memory flat (`1884->1880 MiB`), and had zero graph/native/sequence
+kept GPU memory at `1844->1840 MiB`, and had zero graph/native/sequence
 failures.
 
 Recent replay tag and anchor setup now use the same bounded-window discipline.
