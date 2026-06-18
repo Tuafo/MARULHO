@@ -25,6 +25,7 @@ from marulho.training.autonomy_runner import (
     SourceBank,
     _catalog_metadata_prefix_text,
     autonomy_gate_from_comparison,
+    concept_frontier_metrics_with_report,
     load_source_banks,
     probe_diagnostics,
     select_active_source,
@@ -101,7 +102,118 @@ def make_window_bank(name: str, windows: list[str]) -> SourceBank:
     )
 
 
+class _IndexOnlyKeys:
+    def __init__(self, values: list[torch.Tensor]) -> None:
+        self._values = values
+
+    def __getitem__(self, index: int) -> torch.Tensor:
+        return self._values[int(index)]
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __iter__(self):
+        raise AssertionError("frontier metrics must not scan all slow_routing_keys")
+
+
+class _FrontierRoutingIndex:
+    def __init__(self, candidate_ids: list[int]) -> None:
+        self.candidate_ids = candidate_ids
+        self.calls: list[dict[str, object]] = []
+
+    def search_tensors(self, query: torch.Tensor, *, k: int):
+        self.calls.append({"query_shape": tuple(query.shape), "k": int(k)})
+        return torch.tensor([self.candidate_ids[: int(k)]], dtype=torch.long), torch.zeros(1, min(int(k), len(self.candidate_ids)))
+
+
+class _FrontierMemoryStore:
+    def __init__(self) -> None:
+        self.slow_buffer = [torch.zeros(2) for _ in range(6)]
+        self.slow_routing_keys = _IndexOnlyKeys(
+            [
+                torch.tensor([1.0, 0.0]),
+                torch.tensor([0.99, 0.01]),
+                torch.tensor([0.0, 1.0]),
+                torch.tensor([0.98, 0.02]),
+                torch.tensor([-1.0, 0.0]),
+                torch.tensor([0.0, -1.0]),
+            ]
+        )
+        self.slow_consolidation_level = [0.9, 0.2, 0.8, 0.4, 0.1, 0.1]
+        self.collect_calls: list[dict[str, object]] = []
+
+    def collect_query_memory_match_indices(self, *, candidate_bucket_ids, max_candidates: int, scope: str):
+        self.collect_calls.append(
+            {
+                "candidate_bucket_ids": list(candidate_bucket_ids),
+                "max_candidates": int(max_candidates),
+                "scope": scope,
+            }
+        )
+        return {
+            "surface": "bounded_query_memory_match_candidates.v1",
+            "status": "collected",
+            "scope": scope,
+            "memory_size": len(self.slow_buffer),
+            "requested_count": int(max_candidates),
+            "candidate_window_limit": int(max_candidates),
+            "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
+            "candidate_scope": "bucket_indexed_candidate_window",
+            "candidate_bucket_ids": list(candidate_bucket_ids),
+            "candidate_bucket_count": len(list(candidate_bucket_ids)),
+            "candidate_index_available_count": 2,
+            "candidate_index_count": 2,
+            "match_indices": [1, 3],
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+        }
+
+    def _effective_capture_strength(self, index: int, current_token: int) -> float:
+        return {1: 0.8, 3: 0.6}.get(int(index), 0.0)
+
+
 class AutonomySelectionTests(unittest.TestCase):
+    def test_concept_frontier_metrics_use_bounded_candidate_window(self) -> None:
+        store = _FrontierMemoryStore()
+        routing_index = _FrontierRoutingIndex([1, 3])
+        trainer = SimpleNamespace(
+            token_count=40,
+            config=SimpleNamespace(k_routing=2),
+            model=SimpleNamespace(memory_store=store, routing_index=routing_index),
+            routing_key_for_pattern=lambda pattern: pattern,
+        )
+        bank = SourceBank(
+            name="frontier",
+            source="frontier",
+            source_type="test",
+            hf_config=None,
+            text_field="text",
+            probe_patterns=[torch.tensor([1.0, 0.0])],
+            probe_raw_windows=["frontier"],
+            train_patterns=[],
+            train_raw_windows=[],
+        )
+
+        novelty, uncertainty, support, report = concept_frontier_metrics_with_report(trainer, bank)
+
+        self.assertLess(novelty, 0.02)
+        self.assertGreater(uncertainty, 0.0)
+        self.assertGreater(support, 0.0)
+        self.assertEqual(report["surface"], "bounded_concept_frontier_memory_metrics.v1")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_index_count"], 2)
+        self.assertEqual(report["score_count"], 2)
+        self.assertEqual(report["selected_indices"], [1, 3])
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertEqual(report["selection_budget"]["candidate_window_entries"], 32)
+        self.assertEqual(store.collect_calls[0]["candidate_bucket_ids"], [1, 3])
+
     def test_autonomy_gate_scales_for_small_gap_regime(self) -> None:
         gate = autonomy_gate_from_comparison(
             {

@@ -18,6 +18,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -2858,6 +2859,30 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `14%`, GPU utilization max `10%`, GPU memory
 utilization max `10%`, and GPU memory stayed flat at `1848 MiB` before and
+after measurement.
+
+### Bounded Concept-Frontier Memory Metrics, 2026-06-17
+
+The concept-frontier metric slice retires the autonomy acquisition planner's
+full `slow_routing_keys` scan. Frontier novelty, uncertainty, and support now
+derive routing candidate buckets from the probe-bank signature, collect a
+capped bucket-indexed memory window, and score only those selected entries. It
+is slow-path planning work, but it received the same long live-tick protection
+gate because it changes source-acquisition recall reports.
+
+The 65536-column 262144-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6148.846 tokens/sec`, with
+`train_compute=0.131437 ms/token`, `prepare_training=0.006683 ms/token`,
+`finalize_total=0.006436 ms/token`, and `tick_duration_ms.p95=20.683`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `22%`, GPU utilization max `17%`, GPU memory
+utilization max `14%`, and GPU memory stayed flat at `1805 MiB` before and
 after measurement.
 
 ### Bounded Recent Replay Setup, 2026-06-17

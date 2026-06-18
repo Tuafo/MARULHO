@@ -36,6 +36,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -80,6 +82,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.training.query_runner --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --query-text "bounded replay memory" --top-k-candidates 5 --top-k-memories 5 --top-chars 4 --output-json reports\bounded_replay_window_20260617\query-memory-match-bounded-window.json`
 - Hot-path protection for bounded query-memory match:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-memory-match.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded concept-frontier memory metrics tests:
+  `PYTHONPATH=src python -m pytest tests\test_autonomy_runner.py::AutonomySelectionTests::test_concept_frontier_metrics_use_bounded_candidate_window -q`
+- Bounded concept-frontier memory metrics benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.concept_frontier_scope_benchmark --output reports\bounded_replay_window_20260617\concept-frontier-bounded-scope.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --iterations 64 --dim 16`
+- Hot-path protection for bounded concept-frontier memory metrics:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Recent tag/anchor recency-index tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_memory_tagging_uses_capped_recency_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_anchor_capture_uses_capped_recency_index tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Synthetic recent replay tag/anchor setup:
@@ -516,6 +524,27 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `14%`,
 GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
 stayed flat at `1848 MiB` before and after measurement.
+
+The concept-frontier metric follow-up applies the same selected-window rule to
+autonomy source-acquisition planning. `concept_frontier_metrics_with_report(...)`
+derives candidate buckets from the probe-bank routing signature, asks
+`DualMemoryStore.collect_query_memory_match_indices(...)` for a capped recent
+bucket-indexed candidate window, and emits
+`bounded_concept_frontier_memory_metrics.v1`. It scores novelty, uncertainty,
+and support only for those candidate entries; the old direct iteration over
+every `slow_routing_keys` entry is retired. The synthetic scope benchmark
+`reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json`
+compared the bounded path with a diagnostic full-memory baseline over `8192`
+entries and `64` iterations: bounded scoring touched `64` entries at
+`5.040 ms` mean versus `658.116 ms` for the `8192`-entry full scan, preserved
+the full-scan top-1, kept `novelty_delta=0.0`, `uncertainty_delta=0.0`, and
+`support_delta=0.015893`, and reported no global score/candidate scan. The
+matching 65536-column hot-path run
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
+processed `262144` tokens at `6148.846 tokens/sec`, with
+`train_compute=0.131437 ms/token`, bounded `12/65536` route rows, flat
+`1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence
+failures.
 
 The recent replay tag/anchor setup follow-up removes the last archive-linear
 setup shape from this replay window. `DualMemoryStore` now keeps a CPU

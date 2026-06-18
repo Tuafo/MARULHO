@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
-from typing import Any, Mapping, Optional, Sequence, TypedDict, cast
+import time
+from typing import Any, Mapping, NotRequired, Optional, Sequence, TypedDict, cast
 
 import numpy as np
 import torch
@@ -56,6 +57,7 @@ class ProbeGapMetrics(TypedDict):
     semantic_action_score: float
     semantic_gap_terms: list[dict[str, Any]]
     semantic_follow_up_questions: list[str]
+    concept_frontier_memory_report: NotRequired[dict[str, Any]]
 
 
 class SourceSelectionFeedback(TypedDict):
@@ -216,42 +218,232 @@ def _mean_signature(vectors: Sequence[torch.Tensor]) -> torch.Tensor | None:
     return torch.nn.functional.normalize(mean, dim=0)
 
 
-def concept_frontier_metrics(trainer: MarulhoTrainer, bank: SourceBank) -> tuple[float, float, float]:
-    bank_signature = _mean_signature([trainer.routing_key_for_pattern(pattern).detach().cpu() for pattern in bank.probe_patterns])
-    if bank_signature is None:
-        return 1.0, 1.0, 0.0
+def _frontier_candidate_bucket_ids(
+    trainer: MarulhoTrainer,
+    bank_signature: torch.Tensor,
+    *,
+    max_buckets: int,
+) -> list[int]:
+    routing_index = getattr(getattr(trainer, "model", None), "routing_index", None)
+    if routing_index is None or not hasattr(routing_index, "search_tensors"):
+        return []
+    try:
+        candidate_ids, _ = routing_index.search_tensors(
+            bank_signature.detach().float().unsqueeze(0),
+            k=max(1, int(max_buckets)),
+        )
+    except Exception:
+        return []
+    if not isinstance(candidate_ids, torch.Tensor) or int(candidate_ids.numel()) <= 0:
+        return []
+    return [int(value) for value in candidate_ids[0].detach().cpu().flatten().tolist()]
 
+
+def _empty_concept_frontier_memory_report(
+    *,
+    bank_name: str,
+    memory_size: int,
+    requested_count: int,
+    fallback_reason: str,
+    latency_ms: float,
+    candidate_bucket_ids: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    buckets = [int(bucket) for bucket in (candidate_bucket_ids or [])]
+    return {
+        "surface": "bounded_concept_frontier_memory_metrics.v1",
+        "status": "empty",
+        "scope": "autonomy_concept_frontier_slow_path",
+        "bank_name": str(bank_name),
+        "memory_size": int(memory_size),
+        "requested_count": int(requested_count),
+        "candidate_window_limit": int(requested_count),
+        "candidate_window_policy": "frontier_bucket_indexed_candidate_window",
+        "candidate_scope": "frontier_bucket_indexed_candidate_window",
+        "candidate_bucket_ids": buckets,
+        "candidate_bucket_count": int(len(buckets)),
+        "candidate_index_available_count": 0,
+        "candidate_index_count": 0,
+        "score_count": 0,
+        "selected_indices": [],
+        "selected_count": 0,
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "quality_metric": "frontier_novelty_uncertainty_support",
+        "novelty": 1.0,
+        "uncertainty": 1.0,
+        "support": 0.0,
+        "latency_ms": float(latency_ms),
+        "fallback_reason": str(fallback_reason),
+        "selection_budget": {
+            "memory_budget_entries": int(memory_size),
+            "candidate_window_entries": int(requested_count),
+        },
+    }
+
+
+def concept_frontier_metrics_with_report(
+    trainer: MarulhoTrainer,
+    bank: SourceBank,
+) -> tuple[float, float, float, dict[str, Any]]:
+    started_time = time.perf_counter()
     store = trainer.model.memory_store
-    memory_keys = [
-        key.detach().cpu().float().reshape(-1)
-        for key in getattr(store, "slow_routing_keys", [])
-        if isinstance(key, torch.Tensor) and int(key.numel()) > 0 and float(key.norm().item()) > 1e-8
+    memory_size = int(len(getattr(store, "slow_buffer", [])))
+    top_k_limit = 8
+    max_buckets = max(1, int(getattr(trainer.config, "k_routing", top_k_limit)))
+    candidate_limit = max(32, top_k_limit, max_buckets * 8)
+    bank_signature = _mean_signature(
+        [
+            trainer.routing_key_for_pattern(pattern).detach().cpu()
+            for pattern in bank.probe_patterns
+        ]
+    )
+    if bank_signature is None:
+        report = _empty_concept_frontier_memory_report(
+            bank_name=bank.name,
+            memory_size=memory_size,
+            requested_count=candidate_limit,
+            fallback_reason="empty_frontier_probe_signature",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        return 1.0, 1.0, 0.0, report
+
+    candidate_bucket_ids = _frontier_candidate_bucket_ids(
+        trainer,
+        bank_signature,
+        max_buckets=max_buckets,
+    )
+    if not candidate_bucket_ids:
+        report = _empty_concept_frontier_memory_report(
+            bank_name=bank.name,
+            memory_size=memory_size,
+            requested_count=candidate_limit,
+            fallback_reason="empty_frontier_candidate_bucket_scope",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        return 1.0, 1.0, 0.0, report
+
+    collector = getattr(store, "collect_query_memory_match_indices", None)
+    if not callable(collector):
+        report = _empty_concept_frontier_memory_report(
+            bank_name=bank.name,
+            memory_size=memory_size,
+            requested_count=candidate_limit,
+            candidate_bucket_ids=candidate_bucket_ids,
+            fallback_reason="memory_store_missing_bounded_frontier_collector",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        return 1.0, 1.0, 0.0, report
+
+    candidate_report = collector(
+        candidate_bucket_ids=candidate_bucket_ids,
+        max_candidates=candidate_limit,
+        scope="autonomy_concept_frontier_slow_path",
+    )
+    candidate_indices = [
+        int(index)
+        for index in candidate_report.get("match_indices", [])
+        if 0 <= int(index) < len(store.slow_buffer)
     ]
+    memory_keys: list[tuple[int, torch.Tensor]] = []
+    for index in candidate_indices:
+        key = store.slow_routing_keys[index]
+        if not isinstance(key, torch.Tensor):
+            continue
+        vector = key.detach().cpu().float().reshape(-1)
+        if int(vector.numel()) <= 0 or float(vector.norm().item()) <= 1e-8:
+            continue
+        memory_keys.append((int(index), torch.nn.functional.normalize(vector, dim=0)))
+
     if not memory_keys:
-        return 1.0, 1.0, 0.0
+        report = _empty_concept_frontier_memory_report(
+            bank_name=bank.name,
+            memory_size=memory_size,
+            requested_count=candidate_limit,
+            candidate_bucket_ids=candidate_bucket_ids,
+            fallback_reason="empty_frontier_candidate_memory_keys",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        report.update(
+            {
+                "candidate_surface": candidate_report.get("surface"),
+                "candidate_index_available_count": int(
+                    candidate_report.get("candidate_index_available_count", 0) or 0
+                ),
+                "candidate_index_count": int(len(candidate_indices)),
+            }
+        )
+        return 1.0, 1.0, 0.0, report
 
-    normalized_keys = [torch.nn.functional.normalize(key, dim=0) for key in memory_keys]
-    similarities = torch.tensor([float(torch.dot(bank_signature, key).item()) for key in normalized_keys], dtype=torch.float32)
-    if int(similarities.numel()) <= 0:
-        return 1.0, 1.0, 0.0
-
-    top_k = min(8, int(similarities.numel()))
-    top_values, top_indices = torch.topk(similarities, k=top_k)
+    similarities = torch.tensor(
+        [
+            float(torch.dot(bank_signature, key).item())
+            for _, key in memory_keys
+        ],
+        dtype=torch.float32,
+    )
+    top_k = min(top_k_limit, int(similarities.numel()))
+    top_values, top_local_indices = torch.topk(similarities, k=top_k)
+    selected_indices = [int(memory_keys[int(local_idx.item())][0]) for local_idx in top_local_indices]
     shifted = torch.clamp(top_values + 1.0, min=1e-6)
     weights = shifted / (shifted.sum() + 1e-8)
-
     effective_captures = torch.tensor(
-        [store._effective_capture_strength(int(idx.item()), trainer.token_count) for idx in top_indices],
+        [
+            store._effective_capture_strength(index, trainer.token_count)
+            for index in selected_indices
+        ],
         dtype=torch.float32,
     )
     consolidations = torch.tensor(
-        [float(store.slow_consolidation_level[int(idx.item())]) for idx in top_indices],
+        [float(store.slow_consolidation_level[index]) for index in selected_indices],
         dtype=torch.float32,
     )
     novelty = clamp01(1.0 - max(0.0, float(top_values.max().item())))
-    uncertainty_pressure = torch.clamp(effective_captures - consolidations, min=0.0) + 0.5 * torch.clamp(1.0 - consolidations, min=0.0)
+    uncertainty_pressure = torch.clamp(effective_captures - consolidations, min=0.0) + 0.5 * torch.clamp(
+        1.0 - consolidations,
+        min=0.0,
+    )
     uncertainty = clamp01(float(torch.dot(weights, uncertainty_pressure).item()))
     support = clamp01(float(torch.dot(weights, consolidations).item()))
+    latency_ms = (time.perf_counter() - started_time) * 1000.0
+    report = dict(candidate_report)
+    report.update(
+        {
+            "surface": "bounded_concept_frontier_memory_metrics.v1",
+            "candidate_surface": candidate_report.get("surface"),
+            "status": "measured",
+            "scope": "autonomy_concept_frontier_slow_path",
+            "bank_name": str(bank.name),
+            "score_count": int(len(memory_keys)),
+            "selected_indices": selected_indices,
+            "selected_count": int(len(selected_indices)),
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "quality_metric": "frontier_novelty_uncertainty_support",
+            "novelty": float(novelty),
+            "uncertainty": float(uncertainty),
+            "support": float(support),
+            "latency_ms": float(latency_ms),
+            "fallback_reason": None,
+            "selection_budget": {
+                "memory_budget_entries": int(memory_size),
+                "candidate_window_entries": int(candidate_limit),
+                "score_budget_entries": int(len(memory_keys)),
+            },
+        }
+    )
+    return novelty, uncertainty, support, report
+
+
+def concept_frontier_metrics(trainer: MarulhoTrainer, bank: SourceBank) -> tuple[float, float, float]:
+    novelty, uncertainty, support, _report = concept_frontier_metrics_with_report(trainer, bank)
     return novelty, uncertainty, support
 
 
@@ -335,7 +527,12 @@ def probe_gap(
     mean_top1_margin = float(diagnostics["mean_top1_margin"])
     ambiguity = clamp01(1.0 - (mean_top1_margin / max(1e-6, gap_margin_reference)))
     bonus = float(exploration_bonus / np.sqrt(1.0 + bank.visits))
-    concept_novelty, concept_uncertainty, concept_support = concept_frontier_metrics(trainer, bank)
+    (
+        concept_novelty,
+        concept_uncertainty,
+        concept_support,
+        concept_frontier_report,
+    ) = concept_frontier_metrics_with_report(trainer, bank)
     semantic_plan = bank_gap_plan(trainer, bank)
     grounding_gap = float(semantic_plan["grounding_gap"])
     unsupported_ratio = float(semantic_plan["unsupported_ratio"])
@@ -380,6 +577,7 @@ def probe_gap(
         "semantic_action_score": semantic_action_score,
         "semantic_gap_terms": list(semantic_plan["gap_plan"].get("gap_terms") or []),
         "semantic_follow_up_questions": list(semantic_plan["gap_plan"].get("follow_up_questions") or []),
+        "concept_frontier_memory_report": concept_frontier_report,
     }
 
 

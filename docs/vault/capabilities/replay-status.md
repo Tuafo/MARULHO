@@ -17,6 +17,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -53,6 +55,10 @@ Current bounded selection evidence:
   query/readout recall. It derives candidate buckets from routing, collects a
   capped bucket-indexed memory window, and computes similarity/replay-priority
   scores only for those candidate entries.
+- `bounded_concept_frontier_memory_metrics.v1` is emitted from autonomy source
+  acquisition planning. It derives candidate buckets from the probe-bank
+  signature, collects a capped bucket-indexed memory window, and computes
+  novelty/uncertainty/support only over those selected entries.
 - `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
   `bounded_recent_anchor_capture.v1` are emitted from the recent replay setup
   path. They collect from a CPU recency index, cap by `max_recent_entries`,
@@ -105,6 +111,14 @@ Current bounded selection evidence:
   keeps the live tick protected at `6137.185 tokens/sec`, bounded
   `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
   failures.
+- `reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json`
+  keeps concept-frontier acquisition metrics bounded at `64/8192` scored
+  entries, preserves the diagnostic full-scan top-1, and reduces metric latency
+  from `658.116 ms` to `5.040 ms` with no global score/candidate scan.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
+  keeps the live tick protected at `6148.846 tokens/sec`, bounded
+  `12/65536` route rows, flat `1805 MiB` GPU memory, no observed contention,
+  and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
   keeps replay recall/prototype gates passing while recent tag and anchor setup
   use `candidate_window_limit=256`, `candidate_index_count=14`, no global

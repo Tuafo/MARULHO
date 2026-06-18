@@ -37,6 +37,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -342,6 +344,24 @@ processed `262144` tokens at `6137.185 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1848 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The concept-frontier follow-up applies the same selected-memory rule to source
+acquisition planning. `concept_frontier_metrics_with_report(...)` derives
+candidate buckets from the probe-bank routing signature and uses
+`DualMemoryStore.collect_query_memory_match_indices(...)` before scoring
+novelty, uncertainty, and support. This retires direct iteration over every
+`slow_routing_keys` entry without changing the paper boundary: modern
+Hopfield-style matching can be a local associative metric, not an archive-wide
+mind. The benchmark
+`reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json`
+scored `64/8192` entries, preserved the diagnostic full-scan top-1, kept
+`novelty_delta=0.0`, `uncertainty_delta=0.0`, and
+`support_delta=0.015893`, and reduced mean latency from `658.116 ms` to
+`5.040 ms`. The matching 65536-column hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
+processed `262144` tokens at `6148.846 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
+observed contention, and zero graph/native/sequence failures.
+
 The recent replay tag/anchor setup follow-up applies the same literature
 boundary to STC/PRP setup itself: tags and anchors are useful only when selected,
 bounded, and cadenced. `DualMemoryStore.collect_recent_entry_indices(...)`
@@ -416,7 +436,8 @@ candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
-readout, bounded recent tag/anchor setup, bounded awake-ripple tagging, and
+readout, bounded concept-frontier metrics, bounded recent tag/anchor setup,
+bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

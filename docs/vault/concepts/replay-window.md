@@ -25,6 +25,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -46,7 +48,8 @@ replay before any consolidation or plasticity authority.
 Current runtime surfaces: `bounded_replay_window_selection.v1`,
 `bounded_replay_window_recall.v1`, and
 `bounded_replay_query_collection.v1`. Explicit query/readout recall also uses
-`bounded_query_memory_match.v1`. Recent replay setup uses
+`bounded_query_memory_match.v1`, and autonomy source-acquisition planning uses
+`bounded_concept_frontier_memory_metrics.v1`. Recent replay setup uses
 `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
 `bounded_recent_anchor_capture.v1`. Awake replay-priority tagging uses
 `bounded_awake_ripple_tag.v1`.
@@ -102,6 +105,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   candidate bucket ids from routing, collects a capped bucket-indexed memory
   window, and scores only those entries; it must not compute similarity or
   replay priority over the whole slow buffer.
+- Concept-frontier source acquisition metrics must follow the same candidate
+  window. They can compare probe-bank signatures against selected memory
+  routing keys for novelty/uncertainty/support, but they must not iterate every
+  `slow_routing_keys` entry.
 - Recent replay setup must also default to bounded inputs. Tagging and anchor
   capture collect from the CPU recency index, cap by `max_recent_entries`, and
   report candidate availability, selected indices, CPU archival placement,
@@ -211,6 +218,22 @@ similarity `0.9932903051`. The matching hot-path report
 processed `262144` tokens at `6137.185 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
+
+Concept-frontier source acquisition now uses that selected-window contract too.
+`concept_frontier_metrics_with_report(...)` emits
+`bounded_concept_frontier_memory_metrics.v1`: routing supplies candidate bucket
+ids from the probe-bank signature, the memory store returns a capped
+bucket-indexed candidate window, and the frontier metric scores novelty,
+uncertainty, and support only for those entries. The report
+`reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json`
+scored `64/8192` entries, preserved the diagnostic full-scan top-1, kept
+frontier metric deltas within gate (`novelty_delta=0.0`,
+`uncertainty_delta=0.0`, `support_delta=0.015893`), and reduced mean metric
+latency from `658.116 ms` to `5.040 ms`. The matching hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
+processed `262144` tokens at `6148.846 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `1805 MiB`, and had zero graph/native/sequence failures.
 
 Recent replay tag and anchor setup now use the same bounded-window discipline.
 `DualMemoryStore.collect_recent_entry_indices(...)` emits
