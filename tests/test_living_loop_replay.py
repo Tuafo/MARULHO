@@ -15,15 +15,21 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import Sequence as SequenceABC
 import unittest
 from typing import Any, Mapping
 
+from marulho.service.runtime_evidence import RuntimeEvidenceReporter
 from marulho.service.living_loop_replay import (
     REPLAY_PLAN_DEFAULT_LIMIT,
+    REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+    REPLAY_PLAN_FEEDBACK_WINDOW_LIMIT,
     REPLAY_PLAN_MAX_LIMIT,
     REPLAY_PLAN_PRIORITY_RULES_VERSION,
     REPLAY_PLAN_PRIORITY_WEIGHTS,
     REPLAY_PLAN_SCHEMA_VERSION,
+    REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+    REPLAY_PLAN_SOURCE_WINDOW_POLICY,
     REPLAY_REASON_PRECEDENCE,
     REPLAY_SAMPLE_SAFETY_BOUNDARIES,
     ReplayCandidate,
@@ -38,6 +44,23 @@ from marulho.service.living_loop_replay import (
     _replay_reason_precedence,
     _replay_unique_reasons,
 )
+
+
+class _ReplayWindowProbeSequence(SequenceABC[Mapping[str, Any]]):
+    def __init__(self, items: list[Mapping[str, Any]]) -> None:
+        self._items = list(items)
+        self.slice_calls = 0
+        self.integer_getitem_calls = 0
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __getitem__(self, index: int | slice) -> Mapping[str, Any] | list[Mapping[str, Any]]:
+        if isinstance(index, slice):
+            self.slice_calls += 1
+            return self._items[index]
+        self.integer_getitem_calls += 1
+        return self._items[index]
 
 
 class TestReplayCandidateRoundTrip(unittest.TestCase):
@@ -455,6 +478,176 @@ class TestBuildReplayPlan(unittest.TestCase):
             created_at="2026-01-01T00:00:00+00:00",
         )
         self.assertLessEqual(len(plan.candidates), 3 + 2)  # +2 for potential memory/policy candidates
+
+    def test_source_window_bounds_large_history_without_full_scan(self) -> None:
+        episodes = _ReplayWindowProbeSequence(
+            [
+                {
+                    "episode_id": f"ep-{i}",
+                    "operation": "query",
+                    "status": "succeeded",
+                    "created_at": f"2026-01-01T00:{(i // 60) % 60:02d}:{i % 60:02d}+00:00",
+                    "verification": {"status": "unverified", "confidence": 0.5},
+                    "prediction": {"status": "pending", "confidence": 0.5},
+                }
+                for i in range(500)
+            ]
+        )
+
+        plan = build_replay_plan(
+            {
+                "runtime_episode_count": 500,
+                "runtime_episodes": episodes,
+                "world_model_lite": {"uncertainty": 0.3},
+                "memory_health": {"status": "available", "fill_ratio": 0.2},
+                "policy_decision": {"action": "continue_current_policy"},
+            },
+            limit=5,
+            created_at="2026-01-01T00:00:00+00:00",
+        ).to_payload()
+
+        source_window = plan["source_window"]
+        self.assertEqual(source_window["surface"], "bounded_replay_plan_source_window.v1")
+        self.assertEqual(source_window["window_policy"], REPLAY_PLAN_SOURCE_WINDOW_POLICY)
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertEqual(source_window["source_limits"]["runtime_episodes"], REPLAY_PLAN_SOURCE_WINDOW_LIMIT)
+        self.assertEqual(source_window["source_counts"]["runtime_episodes"], 500)
+        self.assertEqual(source_window["window_counts"]["runtime_episodes"], REPLAY_PLAN_SOURCE_WINDOW_LIMIT)
+        self.assertTrue(source_window["truncated_source_counts"]["runtime_episodes"])
+        self.assertEqual(episodes.slice_calls, 1)
+        self.assertLessEqual(episodes.integer_getitem_calls, 2)
+
+    def test_source_window_uses_newest_first_head_when_timestamps_descend(self) -> None:
+        episodes = _ReplayWindowProbeSequence(
+            [
+                {
+                    "episode_id": f"ep-{i}",
+                    "operation": "query",
+                    "status": "succeeded",
+                    "created_at": f"2026-01-02T00:{((500 - i) // 60) % 60:02d}:{(500 - i) % 60:02d}+00:00",
+                    "verification": {"status": "unverified", "confidence": 0.5},
+                    "prediction": {"status": "pending", "confidence": 0.5},
+                }
+                for i in range(500)
+            ]
+        )
+
+        plan = build_replay_plan(
+            {
+                "runtime_episode_count": 500,
+                "runtime_episodes": episodes,
+                "world_model_lite": {"uncertainty": 0.3},
+                "memory_health": {"status": "available", "fill_ratio": 0.2},
+                "policy_decision": {"action": "continue_current_policy"},
+            },
+            limit=10,
+            created_at="2026-01-02T00:00:00+00:00",
+        ).to_payload()
+
+        candidate_ids = {candidate["target_id"] for candidate in plan["candidates"]}
+        self.assertIn("ep-0", candidate_ids)
+        self.assertNotIn("ep-499", candidate_ids)
+        self.assertEqual(episodes.slice_calls, 1)
+        self.assertLessEqual(episodes.integer_getitem_calls, 2)
+
+    def test_feedback_target_stub_preserves_old_high_signal_recall(self) -> None:
+        plan = build_replay_plan(
+            {
+                "runtime_episode_count": 120,
+                "runtime_episodes": [
+                    {
+                        "episode_id": f"ep-{i}",
+                        "operation": "query",
+                        "status": "succeeded",
+                        "created_at": f"2026-01-01T00:{(i // 60) % 60:02d}:{i % 60:02d}+00:00",
+                        "verification": {"status": "verified", "confidence": 0.9},
+                        "prediction": {"status": "complete", "confidence": 0.9},
+                    }
+                    for i in range(120)
+                ],
+                "feedback_summary": {
+                    "feedback_count": 41,
+                    "contradicted_count": 1,
+                    "recent_feedback": [
+                        {
+                            "feedback_id": "fb-old-ep",
+                            "target_type": "runtime_episode",
+                            "target_id": "ep-3",
+                            "created_at": "2026-01-02T00:00:00+00:00",
+                            "verdict": "contradicted",
+                            "applied_status": "contradicted",
+                            "confidence": 0.95,
+                            "summary": "Old episode was contradicted by review.",
+                            "has_corrected_output": True,
+                        }
+                    ]
+                    + [
+                        {
+                            "feedback_id": f"fb-newer-low-signal-{i}",
+                            "target_type": "runtime_episode",
+                            "target_id": f"ep-{10 + i}",
+                            "created_at": f"2026-01-02T00:{(i // 60) % 60:02d}:{(i + 1) % 60:02d}+00:00",
+                            "verdict": "unverified",
+                            "applied_status": "unverified",
+                            "confidence": 0.2,
+                            "summary": "Newer low-signal feedback.",
+                        }
+                        for i in range(40)
+                    ],
+                },
+                "world_model_lite": {"uncertainty": 0.3},
+                "memory_health": {"status": "available", "fill_ratio": 0.2},
+                "policy_decision": {"action": "continue_current_policy"},
+            },
+            limit=5,
+            created_at="2026-01-02T00:00:01+00:00",
+        ).to_payload()
+
+        source_window = plan["source_window"]
+        self.assertEqual(source_window["source_limits"]["recent_feedback"], REPLAY_PLAN_FEEDBACK_WINDOW_LIMIT)
+        self.assertEqual(
+            source_window["source_limits"]["feedback_target_stubs"],
+            REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+        )
+        self.assertTrue(source_window["truncated_source_counts"]["runtime_episodes"])
+        self.assertEqual(
+            source_window["window_counts"]["feedback_runtime_episode_stubs"],
+            REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+        )
+        self.assertEqual(plan["candidates"][0]["target_id"], "ep-3")
+        self.assertEqual(plan["candidates"][0]["operation"], "feedback_target_replay")
+        self.assertIn("contradicted_feedback", plan["candidates"][0]["reason_codes"])
+        self.assertIn("corrected_output_available", plan["candidates"][0]["reason_codes"])
+
+    def test_runtime_evidence_summary_preserves_source_window(self) -> None:
+        plan = build_replay_plan(
+            {
+                "runtime_episodes": [
+                    {
+                        "episode_id": "ep-1",
+                        "operation": "query",
+                        "status": "succeeded",
+                        "verification": {"status": "unverified", "confidence": 0.4},
+                        "prediction": {"status": "pending", "confidence": 0.4},
+                    }
+                ],
+                "world_model_lite": {"uncertainty": 0.3},
+                "memory_health": {"status": "available", "fill_ratio": 0.2},
+                "policy_decision": {"action": "continue_current_policy"},
+            },
+            limit=5,
+            created_at="2026-01-01T00:00:00+00:00",
+        ).to_payload()
+
+        summary = RuntimeEvidenceReporter()._replay_plan_summary(plan)
+        source_window = summary["source_window"]
+        self.assertEqual(source_window["surface"], "bounded_replay_plan_source_window.v1")
+        self.assertEqual(source_window["window_policy"], REPLAY_PLAN_SOURCE_WINDOW_POLICY)
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertEqual(
+            source_window["device_placement"]["active_replay_computation"],
+            "cpu_service_ranking_only",
+        )
 
 
 class TestReplayConstants(unittest.TestCase):

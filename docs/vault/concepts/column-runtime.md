@@ -701,6 +701,27 @@ processed `524288` tokens at `6412.209 tokens/sec`, with
 `65526` cached transition rows, zero runtime failures, and GPU memory
 `1812->1866 MiB` under observed GPU-side contention.
 
+On 2026-06-18, service replay planning became input-bounded instead of only
+output-bounded. `build_replay_plan(...)` now emits
+`bounded_replay_plan_source_window.v1` with source limits, source counts,
+window counts, truncation flags, feedback-index counts, candidate counts,
+`runs_live_tick=false`, and CPU-only device placement. The planner takes a
+timestamp-oriented `64`-row window from each runtime-history stream, indexes up
+to `128` recent feedback rows, and creates at most `32` feedback-target stubs
+so a high-signal contradicted old target can still be selected without scanning
+all runtime history. `RuntimeEvidenceReporter._replay_plan_summary(...)` preserves
+that source-window report for status/export surfaces. The benchmark
+`reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json`
+kept the old contradicted target `ep-42` as the top candidate over synthetic
+`20000`-row episode/action/prediction histories, reduced mean planner latency
+from `6860.919 ms` to `14.684 ms`, used `0.519 MiB` traced peak Python
+allocation, and used no CUDA/VRAM. The paired long protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json`
+processed `524288` tokens at `6344.404 tokens/sec`, kept
+`train_compute=0.128679 ms/token`, bounded route scoring at `12/65536`, cached
+`65526` transition rows, reported no observed contention, kept GPU memory flat
+at `1799 MiB`, and had zero graph/native/sequence failures.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

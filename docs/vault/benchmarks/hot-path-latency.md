@@ -3210,6 +3210,47 @@ from `1812 MiB` to `1866 MiB`. The sampler reported GPU-side contention, so
 the run is accepted as hot-path protection evidence but not as a throughput
 improvement claim.
 
+### Bounded Replay-Plan Source Window, 2026-06-18
+
+The service replay-plan slice changes replay planning and sample revalidation,
+not neural training. `build_replay_plan(...)` no longer materializes every
+runtime episode, action, prediction, uncertain domain, or recent-feedback list
+before returning a capped plan. It now reports
+`bounded_replay_plan_source_window.v1`, selects `64` recent items per source
+stream by timestamp orientation, indexes `128` recent feedback entries, and adds up to `32`
+feedback-target stubs ranked by contradiction/correction signal before recency.
+Archival/status metadata and active ranking stay on CPU; the report states
+`runs_live_tick=false` and `gpu_used=false`.
+
+The planner benchmark was:
+
+`python -m marulho.evaluation.replay_plan_source_window_benchmark --output reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json --source-size 20000 --feedback-size 128 --domain-size 2000 --limit 10 --runs 7 --baseline-unbounded-mean-ms 6860.919`
+
+It used `20000` episodes, `20000` actions, `20000` predictions, `2000`
+uncertain domains, and `128` recent feedback rows. The bounded planner returned
+`ep-42` as the top contradicted feedback target while considering only `96`
+episode rows including stubs, `64` actions, `64` predictions, `64` domains, and
+`128` feedback rows. Mean latency was `14.684 ms` versus a pre-change
+unbounded mean of `6860.919 ms` (`467.225x`), with traced Python peak allocation
+`0.519 MiB`. CUDA was available on the RTX 3060 but unused, with `0.0 MiB`
+allocated/reserved VRAM.
+
+The paired 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6344.404 tokens/sec`, with
+`tick_duration_ms.p95=20.160`, `train_compute=0.128679 ms/token`,
+`prepare_training=0.006359 ms/token`, `finalize_total=0.006097 ms/token`, and
+`concept_observation=0.000463 ms/token`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native sequence, and native
+burst failures were all `0`. The velocity surface reported no observed
+contention: CPU max `24%`, GPU utilization max `10%`, GPU memory utilization
+max `10%`, and GPU memory stayed flat at `1799 MiB` before and after
+measurement.
+
 ### Bounded Recent Replay Setup, 2026-06-17
 
 The recent tag/anchor setup slice changes slow-window replay setup only:

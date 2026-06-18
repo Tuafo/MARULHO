@@ -779,6 +779,33 @@ class RuntimeEvidenceReporter:
             if top_candidate
             else None,
         }
+        source_window = data.get("source_window")
+        if isinstance(source_window, Mapping):
+            summary["source_window"] = {
+                "surface": source_window.get("surface"),
+                "window_policy": source_window.get("window_policy"),
+                "runs_live_tick": bool(source_window.get("runs_live_tick", False)),
+                "selection_criteria": list(source_window.get("selection_criteria") or [])[:8],
+                "source_limits": dict(source_window.get("source_limits") or {})
+                if isinstance(source_window.get("source_limits"), Mapping)
+                else {},
+                "source_counts": dict(source_window.get("source_counts") or {})
+                if isinstance(source_window.get("source_counts"), Mapping)
+                else {},
+                "window_counts": dict(source_window.get("window_counts") or {})
+                if isinstance(source_window.get("window_counts"), Mapping)
+                else {},
+                "truncated_source_counts": dict(source_window.get("truncated_source_counts") or {})
+                if isinstance(source_window.get("truncated_source_counts"), Mapping)
+                else {},
+                "feedback_index_entry_count": source_window.get("feedback_index_entry_count"),
+                "feedback_index_target_count": source_window.get("feedback_index_target_count"),
+                "candidate_count_before_rank": source_window.get("candidate_count_before_rank"),
+                "candidate_count_returned": source_window.get("candidate_count_returned"),
+                "device_placement": dict(source_window.get("device_placement") or {})
+                if isinstance(source_window.get("device_placement"), Mapping)
+                else {},
+            }
         return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
 
     def _runtime_trace_export_policy_decision_summary(self, policy_decision: Any) -> dict[str, Any]:

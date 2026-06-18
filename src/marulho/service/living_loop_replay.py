@@ -12,9 +12,10 @@ the Self-Model module.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any, Mapping, Sequence
 
 from marulho.service.living_loop_helpers import (
@@ -42,6 +43,10 @@ REPLAY_PLAN_SCHEMA_VERSION = 1
 REPLAY_PLAN_PRIORITY_RULES_VERSION = "deterministic-v1"
 REPLAY_PLAN_DEFAULT_LIMIT = 20
 REPLAY_PLAN_MAX_LIMIT = 50
+REPLAY_PLAN_SOURCE_WINDOW_LIMIT = 64
+REPLAY_PLAN_FEEDBACK_WINDOW_LIMIT = 128
+REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT = 32
+REPLAY_PLAN_SOURCE_WINDOW_POLICY = "bounded_recent_feedback_target_window_v1"
 
 REPLAY_SAMPLE_SAFETY_BOUNDARIES: tuple[str, ...] = (
     "no_training",
@@ -252,6 +257,7 @@ class ReplayPlan:
     priority_weights: dict[str, float]
     plan_reason_codes: tuple[str, ...]
     candidates: tuple[ReplayCandidate, ...]
+    source_window: dict[str, Any] | None = None
     schema_version: int = REPLAY_PLAN_SCHEMA_VERSION
     advisory: bool = True
     executable: bool = False
@@ -273,6 +279,7 @@ class ReplayPlan:
             "priority_rules_version": self.priority_rules_version,
             "priority_weights": dict(self.priority_weights),
             "plan_reason_codes": list(self.plan_reason_codes),
+            "source_window": dict(self.source_window or {}),
             "candidates": [candidate.to_payload() for candidate in self.candidates],
         }
 
@@ -287,7 +294,103 @@ def _replay_sequence(value: Any) -> list[Any]:
     return []
 
 
-def _replay_recent_feedback_for_target(feedback: Mapping[str, Any], target_type: str, target_id: str) -> list[dict[str, Any]]:
+def _replay_item_timestamp(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    for key in (
+        "created_at",
+        "recorded_at",
+        "completed_at",
+        "updated_at",
+        "timestamp",
+    ):
+        text = _clean_text(value.get(key))
+        if text:
+            return text
+    return ""
+
+
+def _replay_sequence_is_newest_first(value: Sequence[Any]) -> bool:
+    if len(value) < 2:
+        return False
+    try:
+        first = value[0]
+        last = value[len(value) - 1]
+    except (IndexError, TypeError):
+        return False
+    first_at = _replay_item_timestamp(first)
+    last_at = _replay_item_timestamp(last)
+    return bool(first_at and last_at and first_at >= last_at)
+
+
+def _replay_bounded_mappings(value: Any, *, max_items: int) -> tuple[list[dict[str, Any]], int, bool]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return [], 0, False
+    total = len(value)
+    requested = max(0, int(max_items))
+    if requested <= 0:
+        return [], total, total > 0
+    if total <= requested:
+        raw_items: Sequence[Any] | list[Any] = value
+    elif _replay_sequence_is_newest_first(value):
+        try:
+            raw_items = value[0:requested]
+        except TypeError:
+            raw_items = [value[index] for index in range(0, requested)]
+    elif isinstance(value, deque):
+        raw_items = list(reversed(list(islice(reversed(value), requested))))
+    else:
+        start = max(0, total - requested)
+        try:
+            raw_items = value[start:total]
+        except TypeError:
+            raw_items = [value[index] for index in range(start, total)]
+    items = [dict(item) for item in raw_items if isinstance(item, Mapping)]
+    return items, total, total > requested
+
+
+def _bounded_feedback_summary_for_replay(
+    feedback_summary: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    source = dict(feedback_summary or {})
+    recent, total_recent, truncated = _replay_bounded_mappings(
+        source.get("recent_feedback"),
+        max_items=REPLAY_PLAN_FEEDBACK_WINDOW_LIMIT,
+    )
+    source["recent_feedback"] = recent
+    summary = _coerce_feedback_telemetry(source)
+    return summary, {
+        "recent_feedback_total": int(total_recent),
+        "recent_feedback_window_count": int(len(recent)),
+        "recent_feedback_truncated": bool(truncated),
+    }
+
+
+def _replay_feedback_index(feedback: Mapping[str, Any]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    index: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in _replay_sequence(feedback.get("recent_feedback")):
+        if not isinstance(item, Mapping):
+            continue
+        target_type = _clean_text(item.get("target_type")).lower()
+        target_id = _clean_text(item.get("target_id"))
+        if not target_type or not target_id:
+            continue
+        index.setdefault((target_type, target_id), []).append(dict(item))
+    return index
+
+
+def _replay_recent_feedback_for_target(
+    feedback: Mapping[str, Any],
+    target_type: str,
+    target_id: str,
+    feedback_index: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    if feedback_index is not None:
+        return [
+            dict(item)
+            for item in feedback_index.get((target_type, target_id), ())
+            if isinstance(item, Mapping)
+        ]
     recent = _replay_sequence(feedback.get("recent_feedback"))
     return [
         dict(item)
@@ -298,9 +401,15 @@ def _replay_recent_feedback_for_target(feedback: Mapping[str, Any], target_type:
     ]
 
 
-def _replay_feedback_entries(target: Mapping[str, Any], feedback: Mapping[str, Any], target_type: str, target_id: str) -> list[dict[str, Any]]:
+def _replay_feedback_entries(
+    target: Mapping[str, Any],
+    feedback: Mapping[str, Any],
+    target_type: str,
+    target_id: str,
+    feedback_index: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     entries = [dict(item) for item in _replay_sequence(target.get("feedback")) if isinstance(item, Mapping)]
-    entries.extend(_replay_recent_feedback_for_target(feedback, target_type, target_id))
+    entries.extend(_replay_recent_feedback_for_target(feedback, target_type, target_id, feedback_index))
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
     for entry in entries:
@@ -312,6 +421,89 @@ def _replay_feedback_entries(target: Mapping[str, Any], feedback: Mapping[str, A
         seen.add(key)
         deduped.append(entry)
     return deduped
+
+
+def _feedback_verification_status(summary: Mapping[str, Any]) -> str:
+    if int(summary.get("contradicted_count", 0) or 0) > 0:
+        return "contradicted"
+    if int(summary.get("unverified_count", 0) or 0) > 0:
+        return "unverified"
+    if int(summary.get("verified_count", 0) or 0) > 0:
+        return "verified"
+    return "unknown"
+
+
+def _replay_feedback_target_stubs(
+    feedback_index: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
+    *,
+    target_type: str,
+    existing_ids: set[str],
+    max_items: int,
+) -> list[dict[str, Any]]:
+    stubs: list[tuple[float, str, dict[str, Any]]] = []
+    for (kind, target_id), entries in feedback_index.items():
+        if kind != target_type or not target_id or target_id in existing_ids:
+            continue
+        materialized = [dict(entry) for entry in entries if isinstance(entry, Mapping)]
+        if not materialized:
+            continue
+        summary = _replay_feedback_summary(materialized)
+        status = _feedback_verification_status(summary)
+        signal_score = (
+            3.0 * float(int(summary.get("contradicted_count", 0) or 0) > 0)
+            + 2.0 * float(bool(summary.get("has_corrected_output")))
+            + 1.0 * float(int(summary.get("unverified_count", 0) or 0) > 0)
+        )
+        latest_at = _clean_text(summary.get("latest_feedback_at")) or _clean_text(
+            materialized[-1].get("created_at")
+        )
+        confidence = _clamp01(summary.get("mean_confidence", 0.0))
+        if target_type == "runtime_episode":
+            stubs.append(
+                (
+                    signal_score,
+                    latest_at,
+                    {
+                        "episode_id": target_id,
+                        "operation": "feedback_target_replay",
+                        "status": "unknown",
+                        "created_at": latest_at,
+                        "verification": {
+                            "status": status,
+                            "confidence": confidence,
+                            "contradiction": status == "contradicted",
+                        },
+                        "prediction": {
+                            "status": "contradicted" if status == "contradicted" else "pending",
+                            "confidence": confidence,
+                        },
+                        "provenance": "bounded_recent_feedback_target_stub",
+                    },
+                )
+            )
+        elif target_type == "action":
+            stubs.append(
+                (
+                    signal_score,
+                    latest_at,
+                    {
+                        "action_id": target_id,
+                        "action_type": "feedback_target_replay",
+                        "recorded_at": latest_at,
+                        "created_at": latest_at,
+                        "verification": {
+                            "status": status,
+                            "confidence": confidence,
+                            "contradiction": status == "contradicted",
+                        },
+                        "provenance": "bounded_recent_feedback_target_stub",
+                    },
+                )
+            )
+    stubs.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = [payload for _, _, payload in stubs[: max(0, int(max_items))]]
+    selected.reverse()
+    return selected
 
 
 def _replay_feedback_summary(entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -625,9 +817,10 @@ def build_replay_plan(
     loop = dict(living_loop or {})
     count = min(REPLAY_PLAN_MAX_LIMIT, max(1, int(limit)))
     generated_at = created_at or datetime.now(timezone.utc).isoformat()
-    feedback_summary = _coerce_feedback_telemetry(
+    feedback_summary, feedback_window = _bounded_feedback_summary_for_replay(
         loop.get("feedback_summary") if isinstance(loop.get("feedback_summary"), Mapping) else {}
     )
+    feedback_index = _replay_feedback_index(feedback_summary)
     benchmark = _policy_mapping(loop.get("benchmark_telemetry"))
     memory_health = _policy_mapping(loop.get("memory_health"))
     subcortex_sleep_pressure = _policy_mapping(loop.get("subcortex_sleep_pressure"))
@@ -643,10 +836,46 @@ def build_replay_plan(
         memory_reason_codes.append("fatigue_sleep_pressure")
 
     candidates: list[ReplayCandidate] = []
-    episodes = [dict(item) for item in _replay_sequence(loop.get("runtime_episodes")) if isinstance(item, Mapping)]
-    actions = [dict(item) for item in _replay_sequence(loop.get("actions")) if isinstance(item, Mapping)]
-    predictions = [dict(item) for item in _replay_sequence(loop.get("predictions")) if isinstance(item, Mapping)]
-    uncertain_domains = [dict(item) for item in _replay_sequence(loop.get("uncertain_domains")) if isinstance(item, Mapping)]
+    episodes, episode_total, episodes_truncated = _replay_bounded_mappings(
+        loop.get("runtime_episodes"),
+        max_items=REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+    )
+    actions, action_total, actions_truncated = _replay_bounded_mappings(
+        loop.get("actions"),
+        max_items=REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+    )
+    predictions, prediction_total, predictions_truncated = _replay_bounded_mappings(
+        loop.get("predictions"),
+        max_items=REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+    )
+    uncertain_domains, domain_total, domains_truncated = _replay_bounded_mappings(
+        loop.get("uncertain_domains"),
+        max_items=REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+    )
+    existing_episode_ids = {
+        _clean_text(item.get("episode_id"))
+        for item in episodes
+        if _clean_text(item.get("episode_id"))
+    }
+    existing_action_ids = {
+        _clean_text(item.get("action_id"))
+        for item in actions
+        if _clean_text(item.get("action_id"))
+    }
+    episode_feedback_stubs = _replay_feedback_target_stubs(
+        feedback_index,
+        target_type="runtime_episode",
+        existing_ids=existing_episode_ids,
+        max_items=REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+    )
+    action_feedback_stubs = _replay_feedback_target_stubs(
+        feedback_index,
+        target_type="action",
+        existing_ids=existing_action_ids,
+        max_items=REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+    )
+    episodes = [*episode_feedback_stubs, *episodes]
+    actions = [*action_feedback_stubs, *actions]
 
     total_targets = max(1, len(episodes) + len(actions) + len(predictions) + len(uncertain_domains))
     recency_by_id: dict[str, float] = {}
@@ -662,7 +891,13 @@ def build_replay_plan(
         verification = _policy_mapping(episode.get("verification"))
         prediction = _policy_mapping(episode.get("prediction"))
         operation = _clean_text(episode.get("operation")).lower() or "runtime_episode"
-        feedback_entries = _replay_feedback_entries(episode, feedback_summary, "runtime_episode", target_id)
+        feedback_entries = _replay_feedback_entries(
+            episode,
+            feedback_summary,
+            "runtime_episode",
+            target_id,
+            feedback_index,
+        )
         target_feedback = _replay_feedback_summary(feedback_entries)
         latency_pressure, latency_context = _replay_latency_pressure(episode.get("latency_ms"), benchmark, operation)
         reasons: list[str] = []
@@ -729,7 +964,13 @@ def build_replay_plan(
             continue
         verification = _policy_mapping(action.get("verification"))
         operation = _clean_text(action.get("action_type")).lower() or "action"
-        feedback_entries = _replay_feedback_entries(action, feedback_summary, "action", target_id)
+        feedback_entries = _replay_feedback_entries(
+            action,
+            feedback_summary,
+            "action",
+            target_id,
+            feedback_index,
+        )
         target_feedback = _replay_feedback_summary(feedback_entries)
         reasons: list[str] = []
         verification_status = _clean_text(verification.get("status")).lower()
@@ -941,8 +1182,63 @@ def build_replay_plan(
             )
         )
 
+    candidate_count_before_rank = len(candidates)
     ranked = _replay_rank_candidates(candidates, limit=count)
     plan_reasons = _replay_unique_reasons([code for candidate in ranked for code in candidate.reason_codes])
+    source_window = {
+        "surface": "bounded_replay_plan_source_window.v1",
+        "window_policy": REPLAY_PLAN_SOURCE_WINDOW_POLICY,
+        "runs_live_tick": False,
+        "device_placement": {
+            "archival_metadata": "cpu_python_objects",
+            "active_replay_computation": "cpu_service_ranking_only",
+            "gpu_used": False,
+        },
+        "selection_criteria": [
+            "timestamp_oriented_runtime_episode_window",
+            "timestamp_oriented_action_window",
+            "timestamp_oriented_prediction_window",
+            "timestamp_oriented_uncertain_domain_window",
+            "recent_feedback_target_stubs",
+            "priority_ranked_with_safety_feedback_uncertainty_memory_latency_policy",
+        ],
+        "source_limits": {
+            "runtime_episodes": REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+            "actions": REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+            "predictions": REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+            "uncertain_domains": REPLAY_PLAN_SOURCE_WINDOW_LIMIT,
+            "recent_feedback": REPLAY_PLAN_FEEDBACK_WINDOW_LIMIT,
+            "feedback_target_stubs": REPLAY_PLAN_FEEDBACK_TARGET_STUB_LIMIT,
+            "returned_candidates": count,
+        },
+        "source_counts": {
+            "runtime_episodes": int(loop.get("runtime_episode_count", episode_total) or 0),
+            "actions": int(loop.get("action_count", action_total) or 0),
+            "predictions": int(loop.get("prediction_count", prediction_total) or 0),
+            "uncertain_domains": int(domain_total),
+            "recent_feedback": int(feedback_window["recent_feedback_total"]),
+        },
+        "window_counts": {
+            "runtime_episodes": int(len(episodes)),
+            "actions": int(len(actions)),
+            "predictions": int(len(predictions)),
+            "uncertain_domains": int(len(uncertain_domains)),
+            "recent_feedback": int(feedback_window["recent_feedback_window_count"]),
+            "feedback_runtime_episode_stubs": int(len(episode_feedback_stubs)),
+            "feedback_action_stubs": int(len(action_feedback_stubs)),
+        },
+        "truncated_source_counts": {
+            "runtime_episodes": bool(episodes_truncated),
+            "actions": bool(actions_truncated),
+            "predictions": bool(predictions_truncated),
+            "uncertain_domains": bool(domains_truncated),
+            "recent_feedback": bool(feedback_window["recent_feedback_truncated"]),
+        },
+        "feedback_index_entry_count": int(sum(len(entries) for entries in feedback_index.values())),
+        "feedback_index_target_count": int(len(feedback_index)),
+        "candidate_count_before_rank": int(candidate_count_before_rank),
+        "candidate_count_returned": int(len(ranked)),
+    }
     return ReplayPlan(
         generated_at=generated_at,
         limit=count,
@@ -958,4 +1254,5 @@ def build_replay_plan(
         priority_weights=dict(REPLAY_PLAN_PRIORITY_WEIGHTS),
         plan_reason_codes=plan_reasons,
         candidates=ranked,
+        source_window=source_window,
     )

@@ -4,7 +4,9 @@ status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/training/trainer.py
+  - ../../../src/marulho/service/living_loop_replay.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -54,6 +56,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json
   - reports/bounded_replay_window_20260617/synthetic-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
+  - reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json
 ---
 
 # Replay/consolidation
@@ -659,6 +663,31 @@ processed `524288` tokens at `6412.209 tokens/sec` with bounded `12/65536`
 route rows, `65526` cached rows, zero runtime failures, and GPU memory
 `1812->1866 MiB` while sampler telemetry observed GPU-side contention.
 
+Service replay planning now follows the same selected-window rule. The old
+planner output was capped, but candidate construction still materialized all
+runtime episodes, actions, predictions, uncertain domains, and recent feedback
+before ranking. `build_replay_plan(...)` now records
+`bounded_replay_plan_source_window.v1`: source windows are capped to `64` rows
+per stream, recent feedback is capped and indexed at `128`, and up to `32`
+feedback-target stubs preserve high-signal contradiction/correction evidence
+outside the recent source tail. The ranking remains advisory, CPU-only, and
+non-mutating with `runs_live_tick=false`, `gpu_used=false`, and no hidden
+language reasoning. The benchmark
+`reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json`
+used `20000` episodes, actions, and predictions plus `2000` domains and `128`
+feedback rows, still returned the old contradicted target `ep-42` as the top
+candidate, and reduced mean plan latency from the pre-change unbounded
+`6860.919 ms` to `14.684 ms` (`467.225x`) with traced peak allocation
+`0.519 MiB` and zero CUDA/VRAM use. The paired 65536-column `524288`-token
+protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json`
+stayed in band at `6344.404 tokens/sec`, with
+`train_compute=0.128679 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, flat `1799 MiB` GPU memory, and
+zero graph/native/sequence failures. This retires the input-unbounded service
+replay-plan shape while keeping replay selection inspectable and local to an
+operator-reviewed slow/service window.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -672,10 +701,12 @@ bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
-awake-ripple tagging, and retired unscoped random replay defaults plus the
-full-buffer replay-score, score-tensor, list-only replay/SFA, concept-frontier
-report-dropping, and source-bank wrapper APIs implemented; future larger replay
-windows still require repeated long-run hot-path and grounding checks
+bounded replay-plan source windows, awake-ripple tagging, and retired unscoped
+random replay defaults plus the full-buffer replay-score, score-tensor,
+list-only replay/SFA, concept-frontier report-dropping, input-unbounded
+replay-plan construction, and source-bank wrapper APIs implemented; future
+larger replay windows still require repeated long-run hot-path and grounding
+checks
 
 ## Links
 
