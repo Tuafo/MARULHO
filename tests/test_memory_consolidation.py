@@ -78,6 +78,39 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(replay_entry["raw_window"], "purrs safe.")
         self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
 
+    def test_frontier_gap_collection_uses_bounded_recent_index(self) -> None:
+        store = DualMemoryStore(capacity=64)
+        assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        for token in range(40):
+            store.update(
+                assembly,
+                importance=1.0,
+                token_count=token,
+                bucket_id=token % 4,
+                raw_window=f"frontier memory {token}",
+                capture_tag=0.2,
+            )
+
+        report = store.collect_frontier_gap_indices(current_token=40, max_candidates=8)
+
+        self.assertEqual(report["surface"], "bounded_frontier_gap_candidates.v1")
+        self.assertEqual(report["status"], "collected")
+        self.assertEqual(report["candidate_window_policy"], "recent_entry_index_candidate_window")
+        self.assertEqual(report["candidate_index_count"], 8)
+        self.assertEqual(report["candidate_indices"][0], 39)
+        self.assertEqual(report["candidate_indices"][-1], 32)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["raw_text_payload_loaded"])
+        self.assertFalse(report["language_reasoning"])
+
+        restored = DualMemoryStore(capacity=64)
+        restored.restore(store.snapshot())
+        self.assertEqual(
+            restored.last_frontier_gap_collection_report["candidate_index_count"],
+            8,
+        )
+
     def test_replay_entry_can_exclude_text_payload_for_sleep_replay(self) -> None:
         store = DualMemoryStore(capacity=8)
         assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)

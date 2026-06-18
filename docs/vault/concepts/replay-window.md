@@ -27,6 +27,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -53,7 +55,8 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
 uses `bounded_concept_memory_signature_lookup.v1` when it resolves memory
 signatures from already-selected evidence. Recent replay setup uses
 `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
-`bounded_recent_anchor_capture.v1`. Awake replay-priority tagging uses
+`bounded_recent_anchor_capture.v1`. Semantic frontier planning uses
+`bounded_frontier_gap_selection.v1`. Awake replay-priority tagging uses
 `bounded_awake_ripple_tag.v1`.
 
 ## Rules
@@ -115,6 +118,10 @@ signatures from already-selected evidence. Recent replay setup uses
   window. They can compare probe-bank signatures against selected memory
   routing keys for novelty/uncertainty/support, but they must not iterate every
   `slow_routing_keys` entry.
+- Semantic frontier-gap planning must also follow a selected candidate window.
+  It may load raw text only for bounded candidates returned by
+  `collect_frontier_gap_indices(...)`; it must not materialize
+  `slow_raw_windows` or score all archival windows.
 - Recent replay setup must also default to bounded inputs. Tagging and anchor
   capture collect from the CPU recency index, cap by `max_recent_entries`, and
   report candidate availability, selected indices, CPU archival placement,
@@ -256,6 +263,23 @@ to `1.454 ms`. The clean hot-path report
 processed `262144` tokens at `6143.768 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1746 MiB`, and had zero graph/native/sequence
+failures.
+
+Semantic frontier-gap planning now follows the selected-window rule too.
+`frontier_gap_plan(...)` no longer materializes `slow_raw_windows` or rebuilds
+archive-side lists while ranking gap terms. It calls
+`DualMemoryStore.collect_frontier_gap_indices(...)`, which emits
+`bounded_frontier_gap_candidates.v1` from a capped CPU recency/bucket index, and
+then returns `bounded_frontier_gap_selection.v1` after scoring only those
+candidate raw-window payloads. The benchmark
+`reports/bounded_replay_window_20260617/frontier-gap-bounded.json` used
+`65536` archival entries, scored `192` bounded candidates, preserved expected
+and diagnostic legacy top terms (`quality.min=1.0`), and reduced mean latency
+from `221.554 ms` to `9.589 ms` (`23.105x`). The longer hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
+processed `524288` tokens at `6184.133 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat (`1884->1880 MiB`), and had zero graph/native/sequence
 failures.
 
 Recent replay tag and anchor setup now use the same bounded-window discipline.

@@ -13,6 +13,10 @@ from marulho.semantics.grounding_text import stream_unit_profile
 from marulho.semantics.grounding_text import term_match_score
 from marulho.semantics.grounding_text import tokenize
 
+_FRONTIER_CANDIDATE_MIN = 32
+_FRONTIER_CANDIDATE_MULTIPLIER = 8
+
+
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
@@ -317,39 +321,213 @@ def plan_query_gaps(
     }
 
 
-def _frontier_scored_entries(
+def _sequence_len(value: Any) -> int:
+    try:
+        return max(0, int(len(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sequence_value(value: Any, index: int, default: Any = None) -> Any:
+    try:
+        if int(index) < 0 or int(index) >= len(value):
+            return default
+        return value[int(index)]
+    except (TypeError, ValueError, IndexError, KeyError):
+        return default
+
+
+def _empty_frontier_candidate_report(
+    *,
+    memory_size: int,
+    current_token: int,
+    requested_count: int,
+    fallback_reason: str,
+) -> dict[str, Any]:
+    return {
+        "surface": "bounded_frontier_gap_candidates.v1",
+        "status": "empty",
+        "scope": "frontier_gap_planner_slow_path",
+        "memory_size": int(memory_size),
+        "current_token": int(current_token),
+        "requested_count": int(requested_count),
+        "candidate_window_limit": int(requested_count),
+        "candidate_window_policy": "frontier_candidate_window_unavailable",
+        "candidate_scope": "frontier_candidate_window_unavailable",
+        "candidate_bucket_ids": [],
+        "candidate_bucket_count": 0,
+        "candidate_index_available_count": 0,
+        "candidate_index_available_count_is_lower_bound": False,
+        "candidate_index_count": 0,
+        "candidate_indices": [],
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "fallback_reason": str(fallback_reason),
+    }
+
+
+def _frontier_candidate_report(
+    *,
+    memory_store: Any,
+    current_token: int,
+    requested_count: int,
+) -> dict[str, Any]:
+    if memory_store is None:
+        return _empty_frontier_candidate_report(
+            memory_size=0,
+            current_token=current_token,
+            requested_count=requested_count,
+            fallback_reason="missing_memory_store",
+        )
+
+    collector = getattr(memory_store, "collect_frontier_gap_indices", None)
+    if callable(collector):
+        return dict(
+            collector(
+                current_token=int(current_token),
+                max_candidates=max(0, int(requested_count)),
+                scope="frontier_gap_planner_slow_path",
+            )
+        )
+
+    windows = getattr(memory_store, "slow_raw_windows", None)
+    memory_size = _sequence_len(windows)
+    if memory_size <= 0:
+        return _empty_frontier_candidate_report(
+            memory_size=0,
+            current_token=current_token,
+            requested_count=requested_count,
+            fallback_reason="empty_memory",
+        )
+
+    bounded_count = min(memory_size, max(0, int(requested_count)))
+    indices = [int(index) for index in range(bounded_count)]
+    return {
+        "surface": "bounded_frontier_gap_candidates.v1",
+        "status": "collected" if indices else "empty",
+        "scope": "frontier_gap_planner_slow_path",
+        "memory_size": int(memory_size),
+        "current_token": int(current_token),
+        "requested_count": int(requested_count),
+        "candidate_window_limit": int(requested_count),
+        "candidate_window_policy": "bounded_prefix_fixture_window",
+        "candidate_scope": "bounded_prefix_fixture_window",
+        "candidate_bucket_ids": [],
+        "candidate_bucket_count": 0,
+        "candidate_index_available_count": int(memory_size),
+        "candidate_index_available_count_is_lower_bound": memory_size > bounded_count,
+        "candidate_index_count": int(len(indices)),
+        "candidate_indices": indices,
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "fallback_reason": "memory_store_missing_bounded_frontier_collector",
+    }
+
+
+def _frontier_scored_entries_with_report(
     *,
     memory_store: Any,
     current_token: int,
     top_entries: int,
-) -> list[tuple[float, str]]:
-    if memory_store is None:
-        return []
+) -> tuple[list[tuple[float, str, int]], dict[str, Any]]:
+    requested = max(
+        max(1, int(top_entries)),
+        max(_FRONTIER_CANDIDATE_MIN, int(top_entries) * _FRONTIER_CANDIDATE_MULTIPLIER),
+    )
+    candidate_report = _frontier_candidate_report(
+        memory_store=memory_store,
+        current_token=current_token,
+        requested_count=requested,
+    )
+    candidate_indices = [
+        int(index)
+        for index in list(candidate_report.get("candidate_indices") or [])
+        if int(index) >= 0
+    ]
+    windows = getattr(memory_store, "slow_raw_windows", None) if memory_store is not None else None
+    importance_values = getattr(memory_store, "slow_importance", None) if memory_store is not None else None
+    capture_values = getattr(memory_store, "slow_capture_tag", None) if memory_store is not None else None
+    consolidation_values = (
+        getattr(memory_store, "slow_consolidation_level", None)
+        if memory_store is not None
+        else None
+    )
 
-    windows = list(getattr(memory_store, "slow_raw_windows", []) or [])
-    if not windows:
-        return []
-
-    scored_entries: list[tuple[float, str]] = []
-    for idx, raw_window in enumerate(windows):
+    scored_entries: list[tuple[float, str, int]] = []
+    text_payload_count = 0
+    for idx in candidate_indices:
+        raw_window = _sequence_value(windows, idx)
         text = _normalize_text(raw_window)
         if not text:
             continue
-        importance_values = list(getattr(memory_store, "slow_importance", []) or [])
-        capture_values = list(getattr(memory_store, "slow_capture_tag", []) or [])
-        consolidation_values = list(getattr(memory_store, "slow_consolidation_level", []) or [])
-        importance = float(importance_values[idx]) if idx < len(importance_values) else 0.0
+        text_payload_count += 1
+        importance = float(_sequence_value(importance_values, idx, 0.0) or 0.0)
         if hasattr(memory_store, "_effective_capture_strength"):
             capture = float(memory_store._effective_capture_strength(idx, current_token))
         else:
-            capture = float(capture_values[idx]) if idx < len(capture_values) else 0.0
-        consolidation = float(consolidation_values[idx]) if idx < len(consolidation_values) else 0.0
+            capture = float(_sequence_value(capture_values, idx, 0.0) or 0.0)
+        consolidation = float(_sequence_value(consolidation_values, idx, 0.0) or 0.0)
         frontier_pressure = max(0.0, capture - consolidation) + 0.5 * max(0.0, 1.0 - consolidation)
         score = max(1e-6, importance) * (1.0 + frontier_pressure)
-        scored_entries.append((score, text))
+        scored_entries.append((score, text, int(idx)))
 
     scored_entries.sort(key=lambda item: item[0], reverse=True)
-    return scored_entries[: max(1, int(top_entries))]
+    selected_entries = scored_entries[: max(1, int(top_entries))]
+    selected_indices = [int(index) for _score, _text, index in selected_entries]
+    fallback_reason = candidate_report.get("fallback_reason")
+    if candidate_indices and not selected_entries:
+        fallback_reason = "frontier_candidates_missing_text_payloads"
+    selection_report = {
+        **candidate_report,
+        "surface": "bounded_frontier_gap_selection.v1",
+        "status": "selected" if selected_entries else "empty",
+        "score_count": int(len(scored_entries)),
+        "selected_indices": selected_indices,
+        "selected_count": int(len(selected_indices)),
+        "frontier_window_count": int(len(selected_entries)),
+        "raw_text_payload_loaded": bool(text_payload_count > 0),
+        "raw_text_payload_count": int(text_payload_count),
+        "raw_text_payload_policy": "selected_frontier_candidate_indices_only",
+        "language_reasoning": False,
+        "quality_metric": "frontier_pressure_score_over_bounded_candidates",
+        "fallback_reason": fallback_reason,
+    }
+    return selected_entries, selection_report
+
+
+def _frontier_gap_terms_from_entries(
+    scored_entries: Sequence[tuple[float, str, int]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not scored_entries:
+        return []
+
+    frontier_phrases = _merge_frontier_windows([text for _, text, _ in scored_entries])
+    allowed_terms = {
+        term
+        for text in frontier_phrases
+        for term in _frontier_terms(text)
+    }
+    counter: Counter[str] = Counter()
+    for rank, (score, text, _index) in enumerate(scored_entries):
+        for pos, term in enumerate(_frontier_terms(text)[:8]):
+            if allowed_terms and term not in allowed_terms:
+                continue
+            counter[term] += float(score) / (math.sqrt(float(rank + 1)) * float(pos + 1))
+    return _top_term_payload(counter, limit)
 
 
 def frontier_gap_terms(
@@ -359,27 +537,12 @@ def frontier_gap_terms(
     limit: int = 8,
     top_entries: int = 24,
 ) -> list[dict[str, Any]]:
-    scored_entries = _frontier_scored_entries(
+    scored_entries, _report = _frontier_scored_entries_with_report(
         memory_store=memory_store,
         current_token=current_token,
         top_entries=top_entries,
     )
-    if not scored_entries:
-        return []
-
-    frontier_phrases = _merge_frontier_windows([text for _, text in scored_entries])
-    allowed_terms = {
-        term
-        for text in frontier_phrases
-        for term in _frontier_terms(text)
-    }
-    counter: Counter[str] = Counter()
-    for rank, (score, text) in enumerate(scored_entries):
-        for pos, term in enumerate(_frontier_terms(text)[:8]):
-            if allowed_terms and term not in allowed_terms:
-                continue
-            counter[term] += float(score) / (math.sqrt(float(rank + 1)) * float(pos + 1))
-    return _top_term_payload(counter, limit)
+    return _frontier_gap_terms_from_entries(scored_entries, limit=limit)
 
 
 def frontier_gap_plan(
@@ -391,17 +554,12 @@ def frontier_gap_plan(
     max_questions: int = 4,
     top_entries: int = 24,
 ) -> dict[str, Any]:
-    scored_entries = _frontier_scored_entries(
+    scored_entries, frontier_selection_report = _frontier_scored_entries_with_report(
         memory_store=memory_store,
         current_token=current_token,
         top_entries=top_entries,
     )
-    gap_terms = frontier_gap_terms(
-        memory_store=memory_store,
-        current_token=current_token,
-        limit=max_terms,
-        top_entries=top_entries,
-    )
+    gap_terms = _frontier_gap_terms_from_entries(scored_entries, limit=max_terms)
     if not scored_entries:
         return {
             "planner_mode": "frontier_gap_planner",
@@ -411,9 +569,10 @@ def frontier_gap_plan(
             "follow_up_questions": [],
             "frontier_windows": [],
             "frontier_phrases": [],
+            "frontier_selection_report": frontier_selection_report,
         }
 
-    frontier_windows = [text for _, text in scored_entries[: max(1, int(max_questions) * 2)]]
+    frontier_windows = [text for _, text, _index in scored_entries[: max(1, int(max_questions) * 2)]]
     frontier_phrases = _merge_frontier_windows(frontier_windows)
     retrieval_queries = _dedupe_keep_order(
         [
@@ -458,8 +617,9 @@ def frontier_gap_plan(
         "unsupported_terms": [str(item["term"]) for item in gap_terms[: max(1, int(max_questions))]],
         "retrieval_queries": retrieval_queries,
         "follow_up_questions": _dedupe_keep_order(follow_up_questions)[: max(1, int(max_questions))],
-        "frontier_windows": [text for _, text in scored_entries[: max(1, int(max_questions))]],
+        "frontier_windows": [text for _, text, _index in scored_entries[: max(1, int(max_questions))]],
         "frontier_phrases": frontier_phrases[: max(1, int(max_questions))],
+        "frontier_selection_report": frontier_selection_report,
     }
 
 

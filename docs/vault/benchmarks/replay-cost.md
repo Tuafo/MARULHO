@@ -38,6 +38,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -88,6 +90,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.concept_frontier_scope_benchmark --output reports\bounded_replay_window_20260617\concept-frontier-bounded-scope.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --iterations 64 --dim 16`
 - Hot-path protection for bounded concept-frontier memory metrics:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded frontier-gap planner tests:
+  `PYTHONPATH=src python -m pytest tests\test_gap_planner.py tests\test_memory_consolidation.py::MemoryConsolidationTests::test_frontier_gap_collection_uses_bounded_recent_index -q`
+- Bounded frontier-gap planner benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.frontier_gap_bounded_benchmark --output reports\bounded_replay_window_20260617\frontier-gap-bounded.json --capacity 65536 --iterations 8 --top-entries 24 --max-terms 8`
+- Hot-path protection for bounded frontier-gap planner:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Recent tag/anchor recency-index tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_memory_tagging_uses_capped_recency_index tests\test_memory_consolidation.py::MemoryConsolidationTests::test_recent_anchor_capture_uses_capped_recency_index tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Synthetic recent replay tag/anchor setup:
@@ -568,6 +576,24 @@ contention, held GPU memory flat at `1746 MiB`, and had zero
 graph/native/sequence failures. Two longer `524288`-token same-code runs were
 fast (`6183.670` and `6196.447 tokens/sec`) but kept secondary because the
 benchmark condition report saw pre-measurement GPU contention after prewarm.
+
+The semantic frontier-gap planner follow-up removes the remaining archive-wide
+raw-window planning scan. `frontier_gap_plan(...)` now calls
+`DualMemoryStore.collect_frontier_gap_indices(...)`, scores only a capped CPU
+recency or bucket candidate window, and records
+`bounded_frontier_gap_selection.v1` with
+`raw_text_payload_policy=selected_frontier_candidate_indices_only`,
+`global_candidate_scan=false`, `global_score_scan=false`, and
+`language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260617/frontier-gap-bounded.json` compared the
+retired global baseline against the bounded path over `65536` archival entries:
+bounded scoring touched `192` entries, preserved expected and diagnostic legacy
+terms with `quality.min=1.0`, and reduced mean latency from `221.554 ms` to
+`9.589 ms` (`23.105x`). The longer hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
+processed `524288` tokens at `6184.133 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat GPU memory (`1884->1880 MiB`),
+no observed contention, and zero graph/native/sequence failures.
 
 The recent replay tag/anchor setup follow-up removes the last archive-linear
 setup shape from this replay window. `DualMemoryStore` now keeps a CPU

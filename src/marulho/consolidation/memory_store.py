@@ -111,6 +111,9 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_frontier_gap_collection_report = (
+            self._empty_frontier_gap_collection_report()
+        )
         self.last_recent_memory_window_report = (
             self._empty_recent_memory_window_report()
         )
@@ -168,6 +171,9 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_frontier_gap_collection_report = (
+            self._empty_frontier_gap_collection_report()
+        )
         self.last_recent_memory_window_report = (
             self._empty_recent_memory_window_report()
         )
@@ -395,6 +401,35 @@ class DualMemoryStore:
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_frontier_gap_collection_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_frontier_gap_candidates.v1",
+            "status": "not_run",
+            "scope": "frontier_gap_planner_slow_path",
+            "memory_size": 0,
+            "current_token": 0,
+            "requested_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": 0,
+            "candidate_index_available_count_is_lower_bound": False,
+            "candidate_index_count": 0,
+            "candidate_indices": [],
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "archival_storage_device": "cpu",
@@ -682,6 +717,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_frontier_gap_collection_report": dict(
+                self.last_frontier_gap_collection_report
             ),
             "last_recent_memory_window_report": dict(
                 self.last_recent_memory_window_report
@@ -2443,6 +2481,106 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
+    def collect_frontier_gap_indices(
+        self,
+        *,
+        current_token: int,
+        max_candidates: int,
+        candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
+        scope: str = "frontier_gap_planner_slow_path",
+    ) -> dict[str, Any]:
+        """Collect a bounded frontier-planning candidate window.
+
+        Unprompted frontier planning uses the recency index. Bucket-scoped
+        callers may pass explicit buckets. Neither path scans the archive.
+        """
+
+        started = time.perf_counter()
+        requested = max(0, int(max_candidates))
+        token_marker = int(current_token)
+        normalized_buckets: list[int] | None = None
+        candidate_indices: list[int] = []
+        available_count = 0
+        available_is_lower_bound = False
+        floor_token = 0
+        fallback_reason: str | None = None
+
+        if requested <= 0:
+            fallback_reason = "empty_frontier_candidate_request"
+        elif candidate_bucket_ids is not None:
+            normalized_buckets, candidate_indices, available_count = (
+                self._candidate_indices_for_bucket_ids(
+                    candidate_bucket_ids,
+                    max_candidates=requested,
+                )
+            )
+            if normalized_buckets is not None and not normalized_buckets:
+                fallback_reason = "empty_frontier_candidate_bucket_scope"
+            elif not candidate_indices:
+                fallback_reason = "empty_frontier_bucket_candidate_window"
+        else:
+            window_tokens = max(1, token_marker + 1)
+            (
+                candidate_indices,
+                available_count,
+                available_is_lower_bound,
+                floor_token,
+            ) = self._recent_indices_for_window(
+                current_token=token_marker,
+                window_tokens=window_tokens,
+                max_entries=requested,
+                require_bucket=False,
+            )
+            if not candidate_indices:
+                fallback_reason = "empty_frontier_recent_candidate_window"
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_frontier_gap_candidates.v1",
+            "status": "collected" if candidate_indices else "empty",
+            "scope": str(scope),
+            "memory_size": int(len(self.slow_buffer)),
+            "current_token": token_marker,
+            "floor_token": int(floor_token),
+            "requested_count": int(requested),
+            "candidate_window_limit": int(requested),
+            "candidate_window_policy": (
+                "recent_bucket_round_robin_candidate_pool"
+                if normalized_buckets is not None
+                else "recent_entry_index_candidate_window"
+            ),
+            "candidate_scope": (
+                "bucket_indexed_candidate_window"
+                if normalized_buckets is not None
+                else "recent_entry_index_candidate_window"
+            ),
+            "candidate_bucket_ids": list(normalized_buckets or []),
+            "candidate_bucket_count": int(len(normalized_buckets or [])),
+            "candidate_index_available_count": int(available_count),
+            "candidate_index_available_count_is_lower_bound": bool(
+                available_is_lower_bound
+            ),
+            "candidate_index_count": int(len(candidate_indices)),
+            "candidate_indices": [int(index) for index in candidate_indices],
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(requested),
+            },
+        }
+        self.last_frontier_gap_collection_report = report
+        self._invalidate_summary_cache()
+        return report
+
     def sample_replay_indices(
         self,
         *,
@@ -2710,6 +2848,9 @@ class DualMemoryStore:
                 "last_query_memory_match_report": dict(
                     self.last_query_memory_match_report
                 ),
+                "last_frontier_gap_collection_report": dict(
+                    self.last_frontier_gap_collection_report
+                ),
                 "last_awake_ripple_tag_report": dict(
                     self.last_awake_ripple_tag_report
                 ),
@@ -2799,6 +2940,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_frontier_gap_collection_report": dict(
+                self.last_frontier_gap_collection_report
             ),
             "last_awake_ripple_tag_report": dict(
                 self.last_awake_ripple_tag_report
@@ -2911,6 +3055,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_frontier_gap_collection_report": dict(
+                self.last_frontier_gap_collection_report
             ),
             "last_awake_ripple_tag_report": dict(
                 self.last_awake_ripple_tag_report
@@ -3117,6 +3264,12 @@ class DualMemoryStore:
             dict(raw_query_memory_match)
             if isinstance(raw_query_memory_match, Mapping)
             else self._empty_query_memory_match_report()
+        )
+        raw_frontier_gap = snapshot.get("last_frontier_gap_collection_report")
+        self.last_frontier_gap_collection_report = (
+            dict(raw_frontier_gap)
+            if isinstance(raw_frontier_gap, Mapping)
+            else self._empty_frontier_gap_collection_report()
         )
         raw_awake_ripple_tag = snapshot.get("last_awake_ripple_tag_report")
         self.last_awake_ripple_tag_report = (

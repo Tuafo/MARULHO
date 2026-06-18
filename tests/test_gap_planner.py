@@ -62,6 +62,89 @@ class _PrefixMemoryStore:
         return float(self.slow_capture_tag[idx])
 
 
+class _IndexOnlySequence:
+    def __init__(self, size: int, values: dict[int, object], default: object) -> None:
+        self.size = int(size)
+        self.values = dict(values)
+        self.default = default
+
+    def __len__(self) -> int:
+        return self.size
+
+    def __getitem__(self, index: int) -> object:
+        if int(index) < 0 or int(index) >= self.size:
+            raise IndexError(index)
+        return self.values.get(int(index), self.default)
+
+    def __iter__(self):
+        raise AssertionError("frontier planning must not iterate the full archive")
+
+
+class _BoundedFrontierMemoryStore:
+    def __init__(self) -> None:
+        self.size = 65_536
+        self.selected_indices = [65_520, 12, 65_534]
+        self.collect_calls = 0
+        self.slow_raw_windows = _IndexOnlySequence(
+            self.size,
+            {
+                65_520: "credit loan deposit account",
+                12: "river bank current water",
+                65_534: "shore reeds current mud",
+            },
+            "",
+        )
+        self.slow_importance = _IndexOnlySequence(
+            self.size,
+            {65_520: 1.0, 12: 0.4, 65_534: 0.3},
+            0.0,
+        )
+        self.slow_capture_tag = _IndexOnlySequence(
+            self.size,
+            {65_520: 0.9, 12: 0.2, 65_534: 0.1},
+            0.0,
+        )
+        self.slow_consolidation_level = _IndexOnlySequence(
+            self.size,
+            {65_520: 0.1, 12: 0.8, 65_534: 0.9},
+            0.0,
+        )
+
+    def collect_frontier_gap_indices(self, *, current_token: int, max_candidates: int, scope: str) -> dict[str, object]:
+        self.collect_calls += 1
+        self.requested_count = int(max_candidates)
+        return {
+            "surface": "bounded_frontier_gap_candidates.v1",
+            "status": "collected",
+            "scope": str(scope),
+            "memory_size": self.size,
+            "current_token": int(current_token),
+            "requested_count": int(max_candidates),
+            "candidate_window_limit": int(max_candidates),
+            "candidate_window_policy": "test_bounded_collector",
+            "candidate_scope": "test_bounded_collector",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": len(self.selected_indices),
+            "candidate_index_available_count_is_lower_bound": False,
+            "candidate_index_count": len(self.selected_indices),
+            "candidate_indices": list(self.selected_indices),
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "fallback_reason": None,
+        }
+
+    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
+        _ = current_token
+        return float(self.slow_capture_tag[idx])
+
+
 class GapPlannerTests(unittest.TestCase):
     def test_plan_query_gaps_surfaces_unsupported_terms_and_follow_ups(self) -> None:
         plan = plan_query_gaps(
@@ -170,6 +253,31 @@ class GapPlannerTests(unittest.TestCase):
         self.assertEqual(plan["planner_mode"], "frontier_gap_planner")
         self.assertTrue(plan["retrieval_queries"])
         self.assertTrue(plan["follow_up_questions"])
+
+    def test_frontier_gap_plan_uses_bounded_collector_without_archive_materialization(self) -> None:
+        store = _BoundedFrontierMemoryStore()
+
+        plan = frontier_gap_plan(
+            memory_store=store,
+            current_token=65_536,
+            max_terms=4,
+            max_queries=3,
+            max_questions=3,
+            top_entries=4,
+        )
+
+        ranked_terms = [item["term"] for item in plan["gap_terms"]]
+        report = plan["frontier_selection_report"]
+        self.assertEqual(store.collect_calls, 1)
+        self.assertLessEqual(store.requested_count, 32)
+        self.assertIn("credit", ranked_terms[:2])
+        self.assertIn("loan", ranked_terms[:3])
+        self.assertEqual(report["candidate_index_count"], len(store.selected_indices))
+        self.assertEqual(report["selected_indices"][0], 65_520)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertTrue(report["raw_text_payload_loaded"])
+        self.assertFalse(report["language_reasoning"])
 
     def test_frontier_gap_plan_reconstructs_phrase_queries_from_fragment_windows(self) -> None:
         plan = frontier_gap_plan(

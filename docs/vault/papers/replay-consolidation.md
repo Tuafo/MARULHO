@@ -39,6 +39,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -129,6 +131,17 @@ removing `4096` archive list materializations and reducing mean lookup latency
 from `12.490 ms` to `1.454 ms` over `65536` entries. This keeps semantic
 observation tied to selected evidence rather than turning it into hidden global
 memory recall.
+
+Semantic frontier-gap planning follows the same rule. A modern Hopfield-style
+match can rank a local candidate window, but complementary learning systems,
+continual replay, synaptic tagging/capture, and sparse replay all argue against
+letting planning read the whole archive as a background language loop.
+`frontier_gap_plan(...)` therefore asks
+`DualMemoryStore.collect_frontier_gap_indices(...)` for a capped CPU candidate
+window and loads raw text only for those selected candidates. The report
+surface `bounded_frontier_gap_selection.v1` records the candidate budget,
+global scan flags, archival CPU placement, `runs_live_tick=false`, and
+`language_reasoning=false`.
 
 Awake-ripple replay tagging is treated as selected synaptic tagging/capture
 metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
@@ -377,6 +390,21 @@ processed `262144` tokens at `6148.846 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The semantic frontier-gap planner follow-up applies that local-memory boundary
+to gap-term planning. The old planner materialized the whole `slow_raw_windows`
+archive and rebuilt side lists while ranking terms; the new path collects a
+capped CPU recency or bucket candidate window, scores only selected entries,
+and emits `bounded_frontier_gap_selection.v1` with no global candidate/score
+scan and no hidden language reasoning. The benchmark
+`reports/bounded_replay_window_20260617/frontier-gap-bounded.json` scored
+`192/65536` entries, preserved expected and diagnostic legacy terms with
+`quality.min=1.0`, and reduced mean latency from `221.554 ms` to `9.589 ms`
+(`23.105x`). The longer 65536-column hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
+processed `524288` tokens at `6184.133 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, flat GPU memory (`1884->1880 MiB`),
+no observed contention, and zero graph/native/sequence failures.
+
 The recent replay tag/anchor setup follow-up applies the same literature
 boundary to STC/PRP setup itself: tags and anchors are useful only when selected,
 bounded, and cadenced. `DualMemoryStore.collect_recent_entry_indices(...)`
@@ -451,8 +479,8 @@ candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
-readout, bounded concept-frontier metrics, bounded recent tag/anchor setup,
-bounded awake-ripple tagging, and
+readout, bounded concept-frontier metrics, bounded semantic frontier-gap
+planning, bounded recent tag/anchor setup, bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

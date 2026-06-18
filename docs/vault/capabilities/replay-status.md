@@ -21,6 +21,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json
+  - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -66,6 +68,11 @@ Current bounded selection evidence:
   already-selected evidence indices, caps each source at `8` unique indices,
   direct-indexes CPU archival arrays, and reports no archive list
   materialization or global candidate/score scan.
+- `bounded_frontier_gap_selection.v1` is emitted from semantic frontier
+  planning. It asks `DualMemoryStore.collect_frontier_gap_indices(...)` for a
+  capped CPU recency or bucket candidate window, scores only selected raw-window
+  payloads for explicit gap terms, and reports no global candidate/score scan
+  or hidden language reasoning.
 - `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
   `bounded_recent_anchor_capture.v1` are emitted from the recent replay setup
   path. They collect from a CPU recency index, cap by `max_recent_entries`,
@@ -135,6 +142,15 @@ Current bounded selection evidence:
   keeps the live tick protected at `6143.768 tokens/sec`, bounded
   `12/65536` route rows, flat `1746 MiB` GPU memory, no observed contention,
   and zero graph/native failures.
+- `reports/bounded_replay_window_20260617/frontier-gap-bounded.json` retires
+  semantic frontier planning's archive-wide raw-window scan. It scored
+  `192/65536` entries, preserved expected and diagnostic legacy frontier terms
+  (`quality.min=1.0`), reduced mean latency from `221.554 ms` to `9.589 ms`
+  (`23.105x`), and reported CPU archival/scoring with no global scans.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json`
+  keeps the longer live tick protected at `6184.133 tokens/sec`, bounded
+  `12/65536` route rows, flat GPU memory (`1884->1880 MiB`), no observed
+  contention, and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
   keeps replay recall/prototype gates passing while recent tag and anchor setup
   use `candidate_window_limit=256`, `candidate_index_count=14`, no global
