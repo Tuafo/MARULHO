@@ -9,7 +9,11 @@ from typing import Mapping
 import unittest
 from unittest.mock import patch
 
-from marulho.service.replay_runtime import ReplayController, ReplayControllerDependencies
+from marulho.service.replay_runtime import (
+    SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+    ReplayController,
+    ReplayControllerDependencies,
+)
 
 
 @dataclass
@@ -84,6 +88,11 @@ class _FakeReplayManager:
     @staticmethod
     def _runtime_feedback_summary_locked() -> dict[str, int]:
         return {"feedback_count": 0}
+
+
+class _IterationBlockedContexts:
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        raise AssertionError("verified context lookup must use the controller index")
 
 
 def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
@@ -368,6 +377,19 @@ class ReplayControllerTests(unittest.TestCase):
         ] = "tampered"
         self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
 
+    def test_snn_replay_evaluation_context_verification_uses_id_index(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        context_id = str(context["replay_evaluation_context_id"])
+        controller._snn_replay_evaluation_contexts = _IterationBlockedContexts()  # type: ignore[assignment]
+
+        verified = controller.verified_snn_replay_evaluation_context(context_id)
+
+        self.assertIsNotNone(verified)
+        assert verified is not None
+        self.assertEqual(verified["replay_evaluation_context_id"], context_id)
+
     def test_evaluated_replay_artifact_rejects_stale_context(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -435,6 +457,62 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertFalse(priority["candidates"][0]["eligible_for_live_replay"])
         self.assertFalse(priority["candidates"][0]["eligible_for_artifact_recording"])
         self.assertGreater(priority["candidates"][0]["priority_score"], 0.0)
+
+    def test_snn_replay_consolidation_priority_queue_uses_bounded_source_window(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        old_context = self._record_replay_evaluation_context(
+            controller,
+            source_metadata={"source": "old-readout-target"},
+        )
+        for index in range(SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT + 2):
+            self._record_replay_evaluation_context(
+                controller,
+                source_metadata={"source": f"recent-context-{index}"},
+            )
+        old_context_id = str(old_context["replay_evaluation_context_id"])
+
+        priority = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 99.0,
+                        "all_labels_grounded": True,
+                        "replay_evaluation_context_id": old_context_id,
+                    }
+                ],
+            },
+            limit=4,
+        )
+
+        source_window = priority["source_window"]
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_snn_replay_priority_source_window.v1",
+        )
+        self.assertEqual(
+            source_window["recent_context_window_count"],
+            SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+        )
+        self.assertEqual(source_window["readout_target_context_count"], 1)
+        self.assertTrue(source_window["source_context_count_is_lower_bound"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["gpu_used"])
+        candidate_by_id = {
+            str(item["replay_evaluation_context_id"]): item
+            for item in priority["candidates"]
+        }
+        self.assertIn(old_context_id, candidate_by_id)
+        self.assertEqual(
+            candidate_by_id[old_context_id]["source_window"]["source"],
+            "readout_priority_target_context_id",
+        )
+        self.assertIn(
+            "readout_target_context_id",
+            candidate_by_id[old_context_id]["reason_codes"],
+        )
 
     def test_snn_replay_artifact_recording_policy_proposal_is_advisory(self) -> None:
         manager = _FakeReplayManager()

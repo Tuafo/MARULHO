@@ -879,6 +879,11 @@ class StatusReadModel:
             if isinstance(replay_selection_proposal.get("selection"), Mapping)
             else {}
         )
+        replay_source_window = (
+            replay_selection_proposal.get("source_window")
+            if isinstance(replay_selection_proposal.get("source_window"), Mapping)
+            else {}
+        )
         snn_due_cycle_bounded_replay_selection_gate = {
             "surface": replay_selection_proposal.get("surface"),
             "ready": bool(replay_selection_proposal.get("ready")),
@@ -893,6 +898,19 @@ class StatusReadModel:
                 "scheduler_installation_id"
             ),
             "candidate_count": int(replay_selection.get("candidate_count", 0) or 0),
+            "queue_source_window_policy": replay_selection.get(
+                "queue_source_window_policy"
+            ),
+            "queue_source_context_count": int(
+                replay_selection.get("queue_source_context_count", 0) or 0
+            ),
+            "queue_verified_context_count": int(
+                replay_selection.get("queue_verified_context_count", 0) or 0
+            ),
+            "queue_global_candidate_scan": bool(
+                replay_selection.get("queue_global_candidate_scan")
+            ),
+            "queue_source_window": dict(replay_source_window),
             "promotion_status": replay_selection_gate.get("status"),
             "next_gate": replay_selection_gate.get("next_gate"),
             "eligible_for_operator_sleep_replay_selection_inspection": bool(

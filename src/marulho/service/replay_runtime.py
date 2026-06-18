@@ -4,9 +4,11 @@ from collections import Counter, deque
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import islice
 import hashlib
 import json
 import random
+import time
 from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
 
@@ -24,6 +26,9 @@ DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS = 16
 DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
+SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT = 16
+SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT = 16
+SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = "bounded_recent_context_readout_target_window_v1"
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
@@ -88,6 +93,7 @@ class ReplayController:
         self._snn_replay_evaluation_contexts: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS
         )
+        self._snn_replay_evaluation_context_index: dict[str, dict[str, Any]] = {}
         self._snn_replay_artifact_recording_review_tickets: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS
         )
@@ -173,6 +179,57 @@ class ReplayController:
             if metadata.get(key) not in (None, "")
         }
 
+    @staticmethod
+    def _snn_replay_context_id(context: Mapping[str, Any] | None) -> str:
+        if not isinstance(context, Mapping):
+            return ""
+        return str(context.get("replay_evaluation_context_id") or "").strip()
+
+    def _rebuild_snn_replay_evaluation_context_index_locked(self) -> None:
+        self._snn_replay_evaluation_context_index.clear()
+        for context in self._snn_replay_evaluation_contexts:
+            context_id = self._snn_replay_context_id(context)
+            if context_id and context_id not in self._snn_replay_evaluation_context_index:
+                self._snn_replay_evaluation_context_index[context_id] = context
+
+    def _verified_snn_replay_evaluation_context_payload_locked(
+        self,
+        context: Mapping[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(context, Mapping):
+            return None
+        metadata = (
+            context.get("source_metadata")
+            if isinstance(context.get("source_metadata"), Mapping)
+            else {}
+        )
+        material = {
+            "recorded_state_revision": int(context.get("recorded_state_revision", -1)),
+            "mismatch_hash": context.get("mismatch_hash"),
+            "pressure_hash": context.get("pressure_hash"),
+            "source_metadata_hash": context.get("source_metadata_hash"),
+        }
+        return (
+            deepcopy(dict(context))
+            if (
+                context.get("ready")
+                and context.get("owned_by_marulho")
+                and int(context.get("recorded_state_revision", -1))
+                == int(self._runtime_state.state_revision)
+                and str(context.get("evidence_hash") or "") == self._sha256_json(material)
+                and str(context.get("mismatch_hash") or "")
+                == self._sha256_json(dict(context.get("mismatch_report") or {}))
+                and str(context.get("pressure_hash") or "")
+                == self._sha256_json(dict(context.get("pressure_report") or {}))
+                and (
+                    context.get("source_metadata_hash") is None
+                    or str(context.get("source_metadata_hash") or "")
+                    == self._sha256_json(dict(metadata))
+                )
+            )
+            else None
+        )
+
     @property
     def history(self) -> deque[dict[str, Any]]:
         return self._replay_sample_history
@@ -217,6 +274,7 @@ class ReplayController:
         self._snn_replay_evaluation_contexts.extend(
             normalized[:DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS]
         )
+        self._rebuild_snn_replay_evaluation_context_index_locked()
 
     @property
     def snn_replay_artifact_recording_review_tickets(self) -> deque[dict[str, Any]]:
@@ -361,47 +419,14 @@ class ReplayController:
                 "pressure_report": pressure,
             }
             self._snn_replay_evaluation_contexts.appendleft(deepcopy(context))
+            self._rebuild_snn_replay_evaluation_context_index_locked()
             self._runtime_state.mark_dirty_without_revision()
             return deepcopy(context)
 
     def verified_snn_replay_evaluation_context(self, context_id: str) -> dict[str, Any] | None:
         with self._lock:
-            context = next(
-                (
-                    dict(item)
-                    for item in self._snn_replay_evaluation_contexts
-                    if str(item.get("replay_evaluation_context_id") or "") == str(context_id)
-                ),
-                None,
-            )
-            if context is None:
-                return None
-            material = {
-                "recorded_state_revision": int(context.get("recorded_state_revision", -1)),
-                "mismatch_hash": context.get("mismatch_hash"),
-                "pressure_hash": context.get("pressure_hash"),
-                "source_metadata_hash": context.get("source_metadata_hash"),
-            }
-            return (
-                deepcopy(context)
-                if (
-                    context.get("ready")
-                    and context.get("owned_by_marulho")
-                    and int(context.get("recorded_state_revision", -1)) == int(self._runtime_state.state_revision)
-                    and str(context.get("evidence_hash") or "") == self._sha256_json(material)
-                    and str(context.get("mismatch_hash") or "")
-                    == self._sha256_json(dict(context.get("mismatch_report") or {}))
-                    and str(context.get("pressure_hash") or "")
-                    == self._sha256_json(dict(context.get("pressure_report") or {}))
-                    and (
-                        context.get("source_metadata_hash") is None
-                        or str(context.get("source_metadata_hash") or "")
-                        == self._sha256_json(
-                            dict(context.get("source_metadata") or {})
-                        )
-                    )
-                )
-                else None
+            return self._verified_snn_replay_evaluation_context_payload_locked(
+                self._snn_replay_evaluation_context_index.get(str(context_id).strip())
             )
 
     def snn_replay_consolidation_priority_queue(
@@ -412,6 +437,7 @@ class ReplayController:
     ) -> dict[str, Any]:
         """Rank verified SNN replay contexts for operator consolidation review."""
 
+        started = time.perf_counter()
         report = dict(readout_replay_priority_report or {})
         readout_candidates = [
             dict(item)
@@ -431,22 +457,75 @@ class ReplayController:
             if readout_candidates
             else 0.0
         )
+        readout_context_scores: dict[str, float] = {}
+        readout_target_ids: list[str] = []
+        for item, score in zip(readout_candidates, readout_scores):
+            context_id = str(item.get("replay_evaluation_context_id") or "").strip()
+            if not context_id:
+                continue
+            readout_context_scores[context_id] = max(
+                float(score),
+                float(readout_context_scores.get(context_id, 0.0)),
+            )
+            if (
+                context_id not in readout_target_ids
+                and len(readout_target_ids) < SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT
+            ):
+                readout_target_ids.append(context_id)
         requested = max(0, min(int(limit), 32))
         with self._lock:
-            contexts = [
-                context
-                for context in (
-                    self.verified_snn_replay_evaluation_context(
-                        str(item.get("replay_evaluation_context_id") or "")
-                    )
-                    for item in list(self._snn_replay_evaluation_contexts)
-                    if isinstance(item, Mapping)
+            context_retention_count = int(len(self._snn_replay_evaluation_contexts))
+            recent_source_contexts = [
+                item
+                for item in islice(
+                    self._snn_replay_evaluation_contexts,
+                    SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
                 )
-                if context is not None
+                if isinstance(item, Mapping)
             ]
-            total = max(1, len(contexts))
+            source_slots: list[dict[str, Any]] = []
+            seen_context_ids: set[str] = set()
+            for source_rank, item in enumerate(recent_source_contexts):
+                context_id = self._snn_replay_context_id(item)
+                if not context_id or context_id in seen_context_ids:
+                    continue
+                seen_context_ids.add(context_id)
+                source_slots.append(
+                    {
+                        "replay_evaluation_context_id": context_id,
+                        "source": "recent_context_window",
+                        "source_rank": int(source_rank),
+                    }
+                )
+            readout_target_context_count = 0
+            for context_id in readout_target_ids:
+                if context_id in seen_context_ids:
+                    continue
+                if context_id not in self._snn_replay_evaluation_context_index:
+                    continue
+                seen_context_ids.add(context_id)
+                readout_target_context_count += 1
+                source_slots.append(
+                    {
+                        "replay_evaluation_context_id": context_id,
+                        "source": "readout_priority_target_context_id",
+                        "source_rank": SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT
+                        + readout_target_context_count
+                        - 1,
+                    }
+                )
+            verified_contexts: list[tuple[dict[str, Any], dict[str, Any]]] = []
+            for slot in source_slots:
+                context = self._verified_snn_replay_evaluation_context_payload_locked(
+                    self._snn_replay_evaluation_context_index.get(
+                        str(slot.get("replay_evaluation_context_id") or "")
+                    )
+                )
+                if context is not None:
+                    verified_contexts.append((slot, context))
+            recent_denominator = max(1, min(context_retention_count, SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT) - 1)
             candidates: list[dict[str, Any]] = []
-            for index, context in enumerate(contexts):
+            for slot, context in verified_contexts:
                 mismatch = (
                     context.get("mismatch_report")
                     if isinstance(context.get("mismatch_report"), Mapping)
@@ -478,11 +557,27 @@ class ReplayController:
                     0.0,
                     min(1.0, float(pressure_payload.get("pressure_score", mismatch_score) or 0.0)),
                 )
-                recency = 1.0 - min(1.0, index / max(1, total - 1)) if total > 1 else 1.0
+                source_kind = str(slot.get("source") or "")
+                source_rank = int(slot.get("source_rank", 0) or 0)
+                recency = (
+                    1.0 - min(1.0, source_rank / recent_denominator)
+                    if source_kind == "recent_context_window"
+                    else 0.0
+                )
+                context_id = str(context.get("replay_evaluation_context_id") or "")
+                context_readout_support = min(
+                    1.0,
+                    float(readout_context_scores.get(context_id, 0.0)) / 100.0,
+                )
+                effective_readout_support = (
+                    context_readout_support
+                    if readout_context_scores
+                    else readout_support
+                )
                 score = 100.0 * (
                     0.35 * mismatch_score
                     + 0.25 * pressure_score
-                    + 0.20 * readout_support
+                    + 0.20 * effective_readout_support
                     + 0.20 * recency
                 )
                 candidates.append(
@@ -503,15 +598,27 @@ class ReplayController:
                         "priority_components": {
                             "prediction_error": float(mismatch_score),
                             "plasticity_pressure": float(pressure_score),
-                            "readout_support": float(readout_support),
+                            "readout_support": float(effective_readout_support),
                             "recency": float(recency),
+                        },
+                        "source_window": {
+                            "source": source_kind,
+                            "source_rank": source_rank,
+                            "policy": SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
                         },
                         "reason_codes": [
                             code
                             for code, active in (
                                 ("high_prediction_error", mismatch_score >= 0.66),
                                 ("high_plasticity_pressure", pressure_score >= 0.66),
-                                ("grounded_readout_candidates_available", grounded_support > 0.0),
+                                (
+                                    "grounded_readout_candidates_available",
+                                    grounded_support > 0.0,
+                                ),
+                                (
+                                    "readout_target_context_id",
+                                    context_readout_support > 0.0,
+                                ),
                                 ("recent_context", recency >= 0.5),
                             )
                             if active
@@ -544,6 +651,49 @@ class ReplayController:
                 for rank, candidate in enumerate(candidates[:requested], start=1)
             ] if requested > 0 else []
             ready = bool(selected) and grounded_support > 0.0
+            latency_ms = (time.perf_counter() - started) * 1000.0
+            source_window = {
+                "surface": "bounded_snn_replay_priority_source_window.v1",
+                "policy": SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "status": "collected" if source_slots else "empty",
+                "context_retention_count": context_retention_count,
+                "context_retention_limit": DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS,
+                "recent_context_window_limit": SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+                "recent_context_window_count": int(len(recent_source_contexts)),
+                "readout_target_window_limit": SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT,
+                "readout_target_request_count": int(len(readout_target_ids)),
+                "readout_target_context_count": int(readout_target_context_count),
+                "source_context_count": int(len(source_slots)),
+                "verified_context_count": int(len(verified_contexts)),
+                "source_context_count_is_lower_bound": bool(
+                    context_retention_count > len(recent_source_contexts)
+                ),
+                "truncated_context_count": int(
+                    max(0, context_retention_count - len(recent_source_contexts))
+                ),
+                "candidate_window_policy": SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "candidate_scope": "recent_context_index_plus_readout_target_ids",
+                "context_lookup": "replay_evaluation_context_id_index",
+                "score_device": "cpu",
+                "archival_storage_device": "cpu",
+                "gpu_used": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "runs_live_replay": False,
+                "records_replay_artifact": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "latency_ms": float(latency_ms),
+                "selection_budget": {
+                    "context_retention_entries": DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS,
+                    "recent_context_window_entries": SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+                    "readout_target_window_entries": SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT,
+                    "selected_budget_entries": int(requested),
+                },
+            }
             return {
                 "artifact_kind": "terminus_snn_replay_consolidation_priority_queue",
                 "surface": "snn_replay_consolidation_priority_queue.v1",
@@ -566,6 +716,21 @@ class ReplayController:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_structural_write": False,
                 "candidate_count": len(selected),
+                "source_window": source_window,
+                "context_source_window_policy": SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY,
+                "context_source_window_limit": SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+                "context_source_window_count": int(len(source_slots)),
+                "verified_context_count": int(len(verified_contexts)),
+                "context_retention_count": context_retention_count,
+                "context_retention_limit": DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "runs_live_replay": False,
+                "score_device": "cpu",
+                "archival_storage_device": "cpu",
+                "gpu_used": False,
+                "latency_ms": float(latency_ms),
                 "priority_rules_version": "snn-replay-consolidation-deterministic-v1",
                 "priority_weights": {
                     "prediction_error": 0.35,
@@ -598,9 +763,14 @@ class ReplayController:
                     ),
                     "required_evidence": {
                         "server_held_replay_context_available": bool(selected),
-                        "current_revision_contexts_verified": len(selected) == len(contexts)
-                        if contexts
-                        else False,
+                        "current_revision_contexts_verified": (
+                            len(verified_contexts) == len(source_slots)
+                            if source_slots
+                            else False
+                        ),
+                        "bounded_source_window": True,
+                        "global_candidate_scan_absent": True,
+                        "raw_text_reasoning_absent": True,
                         "grounded_readout_candidates_available": grounded_support > 0.0,
                         "runtime_mutation_absent": True,
                         "artifact_recording_absent": True,
@@ -3176,6 +3346,11 @@ class ReplayController:
             if isinstance(queue.get("promotion_gate"), Mapping)
             else {}
         )
+        queue_source_window = (
+            queue.get("source_window")
+            if isinstance(queue.get("source_window"), Mapping)
+            else {}
+        )
         requested = max(1, min(int(max_candidates), 8))
         queue_candidates = [
             dict(item)
@@ -3261,6 +3436,12 @@ class ReplayController:
                 "eligible_for_structural_write"
             )
             is False,
+            "priority_queue_source_window_bounded": (
+                queue_source_window.get("surface")
+                == "bounded_snn_replay_priority_source_window.v1"
+                and bool(queue_source_window.get("global_candidate_scan")) is False
+                and bool(queue_source_window.get("runs_live_tick")) is False
+            ),
             "current_revision_candidate_available": bool(selected),
         }
         ready = all(required.values())
@@ -3279,6 +3460,16 @@ class ReplayController:
             "review_due": bool(cycle_candidate.get("review_due")),
             "max_candidates": requested,
             "candidate_count": len(nominated),
+            "queue_source_window_policy": queue_source_window.get("policy"),
+            "queue_source_context_count": int(
+                queue_source_window.get("source_context_count", 0) or 0
+            ),
+            "queue_verified_context_count": int(
+                queue_source_window.get("verified_context_count", 0) or 0
+            ),
+            "queue_global_candidate_scan": bool(
+                queue_source_window.get("global_candidate_scan")
+            ),
             "candidates": nominated,
         }
         proposal_hash = self._sha256_json(
@@ -3338,6 +3529,7 @@ class ReplayController:
                 "reason": "control_plane_due_cycle_bounded_replay_selection_proposal",
             },
             "selection": selection,
+            "source_window": dict(queue_source_window),
             "promotion_gate": {
                 "status": (
                     "ready_for_operator_sleep_replay_selection_inspection"
@@ -3357,7 +3549,12 @@ class ReplayController:
                     else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
                     "review-scheduler/cycle-autonomy-proposal"
                 ),
-                "required_evidence": required,
+                "required_evidence": {
+                    **required,
+                    "priority_queue_source_window_bounded": bool(
+                        required["priority_queue_source_window_bounded"]
+                    ),
+                },
             },
         }
 

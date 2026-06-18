@@ -288,6 +288,24 @@ cached transition rows, zero graph/native/sequence failures, and no observed
 contention. This retires repeated dead replay attempts inside a slow window; it
 does not make replay continuous or live-tick work.
 
+The SNN replay-priority queue now follows the same bounded-source rule before a
+due-cycle review can nominate a context. `snn_replay_consolidation_priority_queue.v1`
+no longer verifies every retained Replay Controller context before applying its
+output limit. It uses a controller-owned replay-evaluation-context ID index, a
+`16`-entry recent context source window, and up to `16` explicit readout-target
+context IDs. The resulting `bounded_snn_replay_priority_source_window.v1`
+reports source counts, verified counts, CPU archival/score placement, no global
+candidate or score scan, no raw text payload, `language_reasoning=false`,
+`runs_live_tick=false`, and `gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-replay-priority-source-window.json`
+kept an old readout-targeted high-signal context selectable outside the recent
+window while verifying `17` contexts instead of all `64` retained contexts,
+averaging `1.825268 ms` with `0.050346 MiB` traced peak allocation and no CUDA
+allocation. The matching 65536-column `524288`-token hot-path check stayed in
+band at `6298.310 tokens/sec`, `train_compute=0.129349 ms/token`, bounded
+`12/65536` route rows, `65526` cached transition rows, `1799->1800 MiB` GPU
+memory, no observed contention, and zero graph/native/sequence failures.
+
 The target-aware replay-strength slice keeps replay under the same guard but
 lets the slow window test a bounded schedule from one snapshot before commit.
 `reconstruction_guarded_replay_consolidation.v1` now records the
