@@ -49,7 +49,9 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
 `bounded_replay_window_recall.v1`, and
 `bounded_replay_query_collection.v1`. Explicit query/readout recall also uses
 `bounded_query_memory_match.v1`, and autonomy source-acquisition planning uses
-`bounded_concept_frontier_memory_metrics.v1`. Recent replay setup uses
+`bounded_concept_frontier_memory_metrics.v1`. ConceptStore semantic observation
+uses `bounded_concept_memory_signature_lookup.v1` when it resolves memory
+signatures from already-selected evidence. Recent replay setup uses
 `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
 `bounded_recent_anchor_capture.v1`. Awake replay-priority tagging uses
 `bounded_awake_ripple_tag.v1`.
@@ -87,6 +89,10 @@ Current runtime surfaces: `bounded_replay_window_selection.v1`,
   must not walk `slow_bucket_ids` linearly to find anchors, must report
   available versus collected query indices, and must keep `score_count=0`
   because it is collection, not another scorer.
+- ConceptStore signature lookup may read only evidence-provided memory indices
+  from bounded query/source/concept observations. It must cap each source,
+  direct-index CPU archival arrays, report `archive_list_materialization_count=0`,
+  and never turn semantic observation into a global memory scan.
 - Awake-ripple tagging must use awake bucket scope from the scheduler, cap its
   candidate window before mutation, and report `runs_every_token=false`.
   Unscoped production calls must return an empty retired report; the old global
@@ -234,6 +240,23 @@ latency from `658.116 ms` to `5.040 ms`. The matching hot-path report
 processed `262144` tokens at `6148.846 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1805 MiB`, and had zero graph/native/sequence failures.
+
+ConceptStore memory-signature lookup now follows the same evidence-window rule.
+`ConceptStore.observe(...)` emits `bounded_concept_memory_signature_lookup.v1`
+inside its concept summary. It accepts the memory indices already selected by
+query/readout/source evidence, caps each source at `8` unique indices with a
+`32`-reference scan budget, direct-indexes `slow_routing_keys`,
+`slow_input_patterns`, and `slow_buffer`, and reports no archive list
+materialization or global candidate/score scan. The benchmark
+`reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
+used `65536` archival entries, preserved legacy signatures
+(`min cosine=0.9999998212`), and reduced mean lookup latency from `12.490 ms`
+to `1.454 ms`. The clean hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json`
+processed `262144` tokens at `6143.768 tokens/sec`, kept bounded `12/65536`
+route rows, cached `65526` transition rows, reported no observed contention,
+kept GPU memory flat at `1746 MiB`, and had zero graph/native/sequence
+failures.
 
 Recent replay tag and anchor setup now use the same bounded-window discipline.
 `DualMemoryStore.collect_recent_entry_indices(...)` emits

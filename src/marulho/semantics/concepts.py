@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import Counter
 from typing import Any, Sequence
 
@@ -10,6 +11,10 @@ import torch.nn.functional as F
 from .grounding_text import normalize_text as _normalize_text
 from .grounding_text import query_focused_text as _query_focused_text
 from .grounding_text import tokenize as _tokenize
+
+_CONCEPT_SIGNATURE_INDEX_LIMIT = 8
+_CONCEPT_SIGNATURE_REFERENCE_SCAN_LIMIT = 32
+_CONCEPT_SIGNATURE_ATTRS = ("slow_routing_keys", "slow_input_patterns", "slow_buffer")
 
 
 def _clamp01(value: float) -> float:
@@ -443,38 +448,143 @@ class ConceptStore:
             store.load_state_dict(payload)
         return store
 
-    def _memory_signature(self, memory_store: Any, memory_index: Any) -> torch.Tensor | None:
+    @staticmethod
+    def _empty_memory_signature_lookup_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_concept_memory_signature_lookup.v1",
+            "scope": "concept_store_observe",
+            "candidate_scope": "evidence_provided_memory_indices",
+            "selection_policy": "first_unique_evidence_indices",
+            "max_indices_per_source": int(_CONCEPT_SIGNATURE_INDEX_LIMIT),
+            "reference_scan_limit_per_source": int(_CONCEPT_SIGNATURE_REFERENCE_SCAN_LIMIT),
+            "source_reference_count": 0,
+            "inspected_reference_count": 0,
+            "selected_index_count": 0,
+            "unique_index_count": 0,
+            "invalid_index_count": 0,
+            "truncated_reference_count": 0,
+            "signature_count": 0,
+            "attr_probe_count": 0,
+            "archive_list_materialization_count": 0,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_every_token": False,
+            "mutates_concept_store": True,
+            "mutates_archival_memory": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "latency_ms": 0.0,
+        }
+
+    def _memory_signature_indices(self, memory_index: Any, report: dict[str, Any] | None) -> list[int]:
+        if report is not None:
+            report["source_reference_count"] = int(report.get("source_reference_count", 0)) + 1
+
+        truncated = False
+        inspected_count = 0
+        indices: list[int] = []
+        seen: set[int] = set()
+
+        if isinstance(memory_index, Sequence) and not isinstance(memory_index, (str, bytes)):
+            for raw_value in memory_index:
+                if inspected_count >= _CONCEPT_SIGNATURE_REFERENCE_SCAN_LIMIT:
+                    truncated = True
+                    break
+                inspected_count += 1
+                try:
+                    index = int(raw_value)
+                except (TypeError, ValueError):
+                    if report is not None:
+                        report["invalid_index_count"] = int(report.get("invalid_index_count", 0)) + 1
+                    continue
+                if index < 0 or index in seen:
+                    if report is not None and index < 0:
+                        report["invalid_index_count"] = int(report.get("invalid_index_count", 0)) + 1
+                    continue
+                seen.add(index)
+                indices.append(index)
+                if len(indices) >= _CONCEPT_SIGNATURE_INDEX_LIMIT:
+                    truncated = inspected_count < len(memory_index)
+                    break
+        else:
+            inspected_count = 1
+            try:
+                index = int(memory_index)
+            except (TypeError, ValueError):
+                if report is not None:
+                    report["invalid_index_count"] = int(report.get("invalid_index_count", 0)) + 1
+            else:
+                if index >= 0:
+                    indices.append(index)
+                elif report is not None:
+                    report["invalid_index_count"] = int(report.get("invalid_index_count", 0)) + 1
+
+        if report is not None:
+            report["inspected_reference_count"] = int(report.get("inspected_reference_count", 0)) + inspected_count
+            if truncated:
+                report["truncated_reference_count"] = int(report.get("truncated_reference_count", 0)) + 1
+            report["selected_index_count"] = int(report.get("selected_index_count", 0)) + len(indices)
+            report["unique_index_count"] = int(report.get("unique_index_count", 0)) + len(indices)
+        return indices
+
+    def _memory_signature_for_index(
+        self,
+        memory_store: Any,
+        index: int,
+        report: dict[str, Any] | None,
+    ) -> torch.Tensor | None:
+        for attr in _CONCEPT_SIGNATURE_ATTRS:
+            values = getattr(memory_store, attr, None)
+            if values is None:
+                continue
+            try:
+                available = len(values)
+            except TypeError:
+                continue
+            if report is not None:
+                report["attr_probe_count"] = int(report.get("attr_probe_count", 0)) + 1
+            if index < 0 or index >= available:
+                continue
+            try:
+                value = values[index]
+            except (IndexError, TypeError, KeyError):
+                continue
+            signature = _normalize_signature(value)
+            if signature is not None:
+                if report is not None:
+                    report["signature_count"] = int(report.get("signature_count", 0)) + 1
+                return signature
+        if report is not None:
+            report["invalid_index_count"] = int(report.get("invalid_index_count", 0)) + 1
+        return None
+
+    def _memory_signature(
+        self,
+        memory_store: Any,
+        memory_index: Any,
+        report: dict[str, Any] | None = None,
+    ) -> torch.Tensor | None:
         if memory_store is None:
             return None
-        if isinstance(memory_index, Sequence) and not isinstance(memory_index, (str, bytes)):
-            signatures = [self._memory_signature(memory_store, value) for value in memory_index]
-            valid_signatures = [signature for signature in signatures if signature is not None]
-            if not valid_signatures:
-                return None
-            if len(valid_signatures) == 1:
-                return valid_signatures[0]
-            target_dim = max(int(signature.numel()) for signature in valid_signatures)
-            aligned = [
-                resized
-                for signature in valid_signatures
-                if (resized := _resize_signature(signature, target_dim=target_dim)) is not None
-            ]
-            if not aligned:
-                return None
-            return _normalize_signature(torch.stack(aligned, dim=0).mean(dim=0))
-        try:
-            index = int(memory_index)
-        except (TypeError, ValueError):
-            return None
 
-        for attr in ("slow_routing_keys", "slow_input_patterns", "slow_buffer"):
-            values = list(getattr(memory_store, attr, []) or [])
-            if index < 0 or index >= len(values):
-                continue
-            signature = _normalize_signature(values[index])
-            if signature is not None:
-                return signature
-        return None
+        signatures = [
+            signature
+            for index in self._memory_signature_indices(memory_index, report)
+            if (signature := self._memory_signature_for_index(memory_store, index, report)) is not None
+        ]
+        if not signatures:
+            return None
+        if len(signatures) == 1:
+            return signatures[0]
+        target_dim = max(int(signature.numel()) for signature in signatures)
+        aligned = [
+            resized
+            for signature in signatures
+            if (resized := _resize_signature(signature, target_dim=target_dim)) is not None
+        ]
+        if not aligned:
+            return None
+        return _normalize_signature(torch.stack(aligned, dim=0).mean(dim=0))
 
     def _new_entry(
         self,
@@ -1006,6 +1116,7 @@ class ConceptStore:
     ) -> dict[str, Any]:
         query_terms = set(_tokenize(query_text))
         grouped: dict[str, dict[str, Any]] = {}
+        memory_signature_lookup = self._empty_memory_signature_lookup_report()
         self._observations += 1
         self._episode_index += 1
 
@@ -1078,7 +1189,15 @@ class ConceptStore:
             if not isinstance(signature_reference, Sequence) or isinstance(signature_reference, (str, bytes)):
                 signature_reference = normalized_index
 
-            raw_signature = self._memory_signature(memory_store, signature_reference)
+            signature_started = time.perf_counter()
+            raw_signature = self._memory_signature(
+                memory_store,
+                signature_reference,
+                report=memory_signature_lookup,
+            )
+            memory_signature_lookup["latency_ms"] = float(memory_signature_lookup["latency_ms"]) + (
+                time.perf_counter() - signature_started
+            ) * 1000.0
             slow_signature, temporal_change = self._slow_features.project(raw_signature, update=raw_signature is not None)
             concept_id = self._assign_concept(
                 tokens=tokens,
@@ -1152,6 +1271,7 @@ class ConceptStore:
             "concept_count": int(len(concepts)),
             "source_memory_count": int(len(evidence_sources)),
             "abstraction": self._slow_features.summary(),
+            "memory_signature_lookup": memory_signature_lookup,
             "growth": structural_growth,
             "focus_plan": self.focus_plan(
                 query_text=query_text,

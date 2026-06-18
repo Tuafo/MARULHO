@@ -115,6 +115,21 @@ bucket-indexed memory window, and the query runner computes similarity plus
 replay-priority scores only for those entries. This keeps readout recall from
 becoming an archive-wide hidden reasoning pass.
 
+ConceptStore signature lookup is now treated as an evidence-window lookup, not
+as general archive traversal. CLS and continual-replay work argue for separating
+fast online traces from slower selected consolidation, and modern
+Hopfield-style recall remains useful here only after a local candidate set
+exists. `ConceptStore.observe(...)` therefore resolves memory signatures only
+from already-selected query/source/concept evidence, caps each source at `8`
+unique indices with a `32`-reference scan budget, direct-indexes CPU archival
+arrays, and reports `bounded_concept_memory_signature_lookup.v1`. The
+benchmark `reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
+kept diagnostic legacy signature quality (`min cosine=0.9999998212`) while
+removing `4096` archive list materializations and reducing mean lookup latency
+from `12.490 ms` to `1.454 ms` over `65536` entries. This keeps semantic
+observation tied to selected evidence rather than turning it into hidden global
+memory recall.
+
 Awake-ripple replay tagging is treated as selected synaptic tagging/capture
 metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
 requires awake bucket scope for production tagging, caps candidates through the

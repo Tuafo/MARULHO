@@ -546,6 +546,29 @@ processed `262144` tokens at `6148.846 tokens/sec`, with
 `1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence
 failures.
 
+The ConceptStore signature lookup follow-up removes the remaining
+archive-materializing access shape from semantic observation. Concept evidence
+still comes from bounded query/readout/source observations, but
+`ConceptStore._memory_signature(...)` now uses only evidence-provided memory
+indices, caps each source at `8` unique indices with a `32`-reference scan
+budget, direct-indexes the CPU archival arrays, and records
+`bounded_concept_memory_signature_lookup.v1`. The diagnostic benchmark
+`reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
+compared the retired list-materializing shape with the bounded direct-index
+shape over `65536` archival entries, `512` iterations, and `8` memory indices
+per evidence source. Bounded lookup preserved signatures against the diagnostic
+baseline (`min cosine=0.9999998212`), removed `4096` archive list
+materializations, kept `archive_list_materialization_count=0`, and reduced
+mean lookup latency from `12.490 ms` to `1.454 ms` (`8.591x`). The clean
+hot-path gate
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json`
+processed `262144` tokens at `6143.768 tokens/sec`, kept bounded `12/65536`
+route rows and `65526` cached transition rows, reported no observed
+contention, held GPU memory flat at `1746 MiB`, and had zero
+graph/native/sequence failures. Two longer `524288`-token same-code runs were
+fast (`6183.670` and `6196.447 tokens/sec`) but kept secondary because the
+benchmark condition report saw pre-measurement GPU contention after prewarm.
+
 The recent replay tag/anchor setup follow-up removes the last archive-linear
 setup shape from this replay window. `DualMemoryStore` now keeps a CPU
 recency index over slow-memory entries and emits `bounded_recent_memory_window.v1`.

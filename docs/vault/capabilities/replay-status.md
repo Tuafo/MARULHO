@@ -19,6 +19,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
@@ -59,6 +61,11 @@ Current bounded selection evidence:
   acquisition planning. It derives candidate buckets from the probe-bank
   signature, collects a capped bucket-indexed memory window, and computes
   novelty/uncertainty/support only over those selected entries.
+- `bounded_concept_memory_signature_lookup.v1` is emitted from ConceptStore
+  semantic observation. It resolves memory signatures only from
+  already-selected evidence indices, caps each source at `8` unique indices,
+  direct-indexes CPU archival arrays, and reports no archive list
+  materialization or global candidate/score scan.
 - `bounded_recent_memory_window.v1`, `bounded_recent_memory_tag.v1`, and
   `bounded_recent_anchor_capture.v1` are emitted from the recent replay setup
   path. They collect from a CPU recency index, cap by `max_recent_entries`,
@@ -118,6 +125,15 @@ Current bounded selection evidence:
 - `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
   keeps the live tick protected at `6148.846 tokens/sec`, bounded
   `12/65536` route rows, flat `1805 MiB` GPU memory, no observed contention,
+  and zero graph/native failures.
+- `reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
+  keeps ConceptStore signature lookup bounded to evidence-provided indices over
+  `65536` archival entries, preserves diagnostic legacy signature quality
+  (`min cosine=0.9999998212`), removes archive list materialization, and cuts
+  mean lookup latency from `12.490 ms` to `1.454 ms`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json`
+  keeps the live tick protected at `6143.768 tokens/sec`, bounded
+  `12/65536` route rows, flat `1746 MiB` GPU memory, no observed contention,
   and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json`
   keeps replay recall/prototype gates passing while recent tag and anchor setup

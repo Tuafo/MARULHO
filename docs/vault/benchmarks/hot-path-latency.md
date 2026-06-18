@@ -22,6 +22,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json
 ---
 
 # Hot Path Latency
@@ -2884,6 +2885,36 @@ and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `22%`, GPU utilization max `17%`, GPU memory
 utilization max `14%`, and GPU memory stayed flat at `1805 MiB` before and
 after measurement.
+
+### Bounded ConceptStore Signature Lookup, 2026-06-18
+
+The ConceptStore signature lookup slice retires an old archive-shaped helper
+inside semantic observation. `ConceptStore._memory_signature(...)` used to
+materialize `slow_routing_keys`, `slow_input_patterns`, or `slow_buffer` with
+`list(...)` before reading one evidence-provided memory index. The replacement
+uses direct indexing only, caps each evidence source at `8` unique memory
+indices with a `32`-reference scan budget, and reports
+`bounded_concept_memory_signature_lookup.v1` in the concept summary. This is
+cadenced semantic-observation work, not replay mutation; archival storage stays
+CPU-resident and no hidden text reasoning or global memory scan is introduced.
+
+The clean 65536-column 262144-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `262144` tokens at `6143.768 tokens/sec`, with
+`train_compute=0.131822 ms/token`, `prepare_training=0.006630 ms/token`,
+`finalize_total=0.006432 ms/token`, and `tick_duration_ms.p95=20.691`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `35%`, GPU utilization max `18%`, GPU memory
+utilization max `12%`, and GPU memory stayed flat at `1746 MiB` before and
+after measurement. The longer 524288-token same-code runs reached `6183.670`
+and `6196.447 tokens/sec`, but both are secondary evidence because the
+benchmark condition report observed pre-measurement GPU contention after
+prewarm.
 
 ### Bounded Recent Replay Setup, 2026-06-17
 

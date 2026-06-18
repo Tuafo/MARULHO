@@ -23,7 +23,100 @@ class _FlatMemoryStore:
         self.slow_routing_keys = [torch.tensor([1.0, 0.0, 0.0]) for _ in range(4)]
 
 
+class _IndexOnlyTensorSequence:
+    def __init__(self, values: list[torch.Tensor]) -> None:
+        self._values = values
+        self.iteration_attempts = 0
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: int) -> torch.Tensor:
+        return self._values[index]
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        self.iteration_attempts += 1
+        raise AssertionError("archive list materialization is not allowed")
+
+
+class _IndexOnlyMemoryStore:
+    def __init__(self, count: int = 16) -> None:
+        self.slow_routing_keys = _IndexOnlyTensorSequence(
+            [
+                torch.tensor([float(index + 1), 1.0, 0.0])
+                for index in range(count)
+            ]
+        )
+        self.slow_input_patterns = _IndexOnlyTensorSequence(
+            [
+                torch.tensor([float(index + 1), 0.0, 1.0])
+                for index in range(count)
+            ]
+        )
+        self.slow_buffer = _IndexOnlyTensorSequence(
+            [
+                torch.tensor([float(index + 1), 0.5, 0.5])
+                for index in range(count)
+            ]
+        )
+
+
 class ConceptStoreTests(unittest.TestCase):
+    def test_observe_reads_memory_signature_by_index_without_archive_materialization(self) -> None:
+        store = ConceptStore()
+        memory_store = _IndexOnlyMemoryStore()
+        matches = [
+            {
+                "memory_index": 3,
+                "raw_window": "bounded concept signature lookup",
+                "similarity": 0.90,
+                "importance": 1.0,
+            }
+        ]
+
+        summary = store.observe(
+            query_text="bounded concept signature",
+            memory_matches=matches,
+            memory_store=memory_store,
+        )
+        lookup = summary["memory_signature_lookup"]
+
+        self.assertEqual(lookup["surface"], "bounded_concept_memory_signature_lookup.v1")
+        self.assertEqual(lookup["candidate_scope"], "evidence_provided_memory_indices")
+        self.assertEqual(lookup["archive_list_materialization_count"], 0)
+        self.assertFalse(lookup["global_candidate_scan"])
+        self.assertFalse(lookup["global_score_scan"])
+        self.assertEqual(lookup["selected_index_count"], 1)
+        self.assertEqual(lookup["signature_count"], 1)
+        self.assertEqual(memory_store.slow_routing_keys.iteration_attempts, 0)
+
+    def test_observe_caps_episode_memory_signature_indices(self) -> None:
+        store = ConceptStore()
+        memory_store = _IndexOnlyMemoryStore(count=24)
+        matches = [
+            {
+                "memory_indices": list(range(20)),
+                "text": "bounded multi memory evidence remains local",
+                "raw_window": "bounded multi memory evidence remains local",
+                "similarity": 0.95,
+                "importance": 1.0,
+            }
+        ]
+
+        summary = store.observe(
+            query_text="bounded multi memory evidence",
+            memory_matches=[],
+            memory_episodes=matches,
+            memory_store=memory_store,
+        )
+        lookup = summary["memory_signature_lookup"]
+
+        self.assertEqual(lookup["max_indices_per_source"], 8)
+        self.assertEqual(lookup["selected_index_count"], 8)
+        self.assertEqual(lookup["signature_count"], 8)
+        self.assertEqual(lookup["truncated_reference_count"], 1)
+        self.assertEqual(memory_store.slow_routing_keys.iteration_attempts, 0)
+
     def test_observe_can_defer_structural_maintenance_until_batch_boundary(self) -> None:
         store = ConceptStore()
         memory_store = _FakeMemoryStore()
