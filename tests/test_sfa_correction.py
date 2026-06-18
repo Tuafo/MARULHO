@@ -105,7 +105,7 @@ class TestSampleForSFA(unittest.TestCase):
         self.assertEqual(report["fallback_reason"], "empty_request_or_memory")
         self.assertFalse(report["global_candidate_scan"])
 
-    def test_unscoped_sample_requires_diagnostic_opt_in(self) -> None:
+    def test_unscoped_sample_requires_candidate_indices(self) -> None:
         store = self._make_store()
         for i in range(20):
             store.slow_buffer.append(torch.randn(32))
@@ -113,27 +113,17 @@ class TestSampleForSFA(unittest.TestCase):
         self.assertFalse(hasattr(store, "sample_for_sfa"))
         result, report = store.sample_for_sfa_with_report(10)
         self.assertEqual(result, [])
-        self.assertEqual(report["candidate_scope"], "unscoped_global_sfa_sample_retired")
+        self.assertEqual(report["candidate_scope"], "selected_replay_window_required")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "selected_replay_window_required_no_global_fallback",
+        )
         self.assertEqual(report["candidate_index_count"], 0)
         self.assertEqual(report["fallback_reason"], "candidate_indices_required")
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["runs_live_tick"])
         self.assertFalse(report["runs_every_token"])
         self.assertFalse(report["language_reasoning"])
-
-        result, diagnostic = store.sample_for_sfa_with_report(
-            10,
-            allow_global_diagnostic=True,
-        )
-        self.assertEqual(len(result), 10)
-        self.assertEqual(
-            diagnostic["candidate_scope"],
-            "diagnostic_global_full_memory_sample",
-        )
-        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
-        for t in result:
-            self.assertIsInstance(t, torch.Tensor)
-            self.assertEqual(t.shape, (32,))
 
     def test_sample_respects_n(self) -> None:
         store = self._make_store()
@@ -142,7 +132,7 @@ class TestSampleForSFA(unittest.TestCase):
 
         result, report = store.sample_for_sfa_with_report(
             100,
-            allow_global_diagnostic=True,
+            candidate_indices=list(range(5)),
         )
         self.assertEqual(len(result), 5)  # capped at buffer size
         self.assertEqual(report["sample_count"], 5)

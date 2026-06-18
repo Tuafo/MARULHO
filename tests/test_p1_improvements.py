@@ -195,7 +195,7 @@ class TestAwakeRippleTagging:
         )
         assert store.ripple_tagged_count == 5  # All within window
 
-    def test_vectorized_ripple_tag_matches_retained_scalar_formula(self):
+    def test_bucket_scoped_ripple_tag_matches_retained_scalar_formula(self):
         store = DualMemoryStore(capacity=32)
         for i in range(12):
             store.update(
@@ -253,7 +253,7 @@ class TestAwakeRippleTagging:
             window_tokens=window_tokens,
             da_level=da_level,
             da_threshold=da_threshold,
-            allow_global_diagnostic=True,
+            awake_bucket_ids=list(range(12)),
         )
 
         assert tagged == retained_tagged

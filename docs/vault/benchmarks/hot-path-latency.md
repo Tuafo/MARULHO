@@ -2613,9 +2613,10 @@ memory storage to GPU.
 The follow-up retires the production unscoped awake-ripple scan instead of
 leaving it as a fallback. `ripple_tag_awake(...)` now returns an empty
 `bounded_awake_ripple_tag.v1` report when awake bucket scope is absent, and the
-old scalar/vector global scan runs only under `allow_global_diagnostic=true`.
-When scope exists, the store collects a recent round-robin candidate window from
-awake buckets before mutating ripple/capture tags.
+old scalar/vector global scan has since been moved out of `DualMemoryStore`
+into benchmark-local retired baseline code. When scope exists, the store
+collects a recent round-robin candidate window from awake buckets before
+mutating ripple/capture tags.
 
 The isolated benchmark command was:
 
@@ -2764,9 +2765,11 @@ The helper-retirement slice removed attractive full-buffer defaults from replay
 and SFA helpers. At that point `DualMemoryStore.sample_replay_indices(...)`
 required bucket ids unless a caller explicitly opted into a diagnostic global
 scorer, and `sample_for_sfa(...)` returned no samples without selected
-candidate indices unless `allow_global_diagnostic=true` marked the call as
+candidate indices unless an explicit diagnostic flag marked the call as
 diagnostic. Those list-only helpers were later removed entirely in favor of
-`select_replay_window(...)` and `sample_for_sfa_with_report(...)`.
+`select_replay_window(...)` and `sample_for_sfa_with_report(...)`, and the
+2026-06-18 runtime hook cleanup removed the remaining full-scan diagnostic
+flags from the runtime store.
 
 The first 65536-column run was:
 
@@ -3300,9 +3303,9 @@ after measurement.
 
 The score tensor helper cleanup removes the remaining public full-buffer
 slow-memory score tensor family after the priority helper retirement. Production
-bounded replay selection still scores only selected candidate indices; explicit
-global scoring is confined to the diagnostic branch of
-`select_replay_window(..., allow_global_score_scan=true)`.
+bounded replay selection still scores only selected candidate indices; the
+2026-06-18 runtime hook cleanup removes the remaining diagnostic global scoring
+branch from `select_replay_window(...)`.
 
 The accepted 65536-column 262144-token protection run was:
 
@@ -3389,3 +3392,40 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `20%`, GPU utilization max `10%`, GPU memory
 utilization max `10%`, and GPU memory moved from `1817 MiB` to `1799 MiB`.
+
+### Runtime Global Scan Hook Retirement, 2026-06-18
+
+This slice removes the remaining runtime full-scan hooks from `DualMemoryStore`.
+Awake ripple now requires awake bucket ids, replay-window selection requires
+bucket ids, and SFA sampling requires selected replay indices. Missing scope
+returns a bounded empty report; retired full-buffer comparisons are isolated in
+benchmark modules and cannot be requested through the runtime store.
+
+The direct evidence reports were:
+
+`python -m marulho.evaluation.awake_ripple_scope_benchmark --output reports\bounded_replay_window_20260618\awake-ripple-runtime-global-hooks-retired.json --capacity 8192 --bucket-count 8192 --awake-bucket-count 10 --iterations 256`
+
+`python -m marulho.evaluation.sfa_sample_scope_benchmark --output reports\bounded_replay_window_20260618\sfa-runtime-global-hooks-retired.json --capacity 65536 --candidate-count 192 --sample-count 64 --iterations 32`
+
+The awake-ripple benchmark measured the benchmark-local retired full scan at
+`1.285064 ms` mean and the wake-bucket scoped path at `1.082768 ms`
+(`1.186832x`). The scoped path used `10` candidates, zero runtime global
+scans, and passed the bounded-candidate gate. The SFA benchmark passed with
+selected-window purity `1.0` versus retired full-buffer purity `0.00439453125`;
+mean latency improved from `1.740475 ms` to `0.622956 ms` (`2.793896x`) with
+CPU archival/sample placement.
+
+The 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-runtime-global-scan-hooks-retired.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6342.218 tokens/sec`, with
+`train_compute=0.128534 ms/token`, `prepare_training=0.006349 ms/token`,
+`finalize_total=0.006160 ms/token`, and `tick_duration_ms.p95=20.119`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. GPU memory moved from `1801 MiB` to
+`1802 MiB`; the velocity surface observed brief GPU-side contention
+(`23%` max utilization), so this is accepted as sustained-throughput protection
+evidence rather than a contention-free hardware run.

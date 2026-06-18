@@ -1443,7 +1443,6 @@ class DualMemoryStore:
         da_threshold: float = 0.7,
         awake_bucket_ids: Sequence[int] | torch.Tensor | None = None,
         max_candidate_entries: int = 256,
-        allow_global_diagnostic: bool = False,
     ) -> int:
         """Awake ripple tagging (Yang & Buzsaki 2024, Science).
 
@@ -1574,193 +1573,45 @@ class DualMemoryStore:
             self._invalidate_summary_cache()
             return int(tagged)
 
-        if not allow_global_diagnostic:
-            self.last_ripple_scan_mode = "unscoped_global_ripple_scan_retired"
-            self.last_ripple_awake_bucket_count = 0
-            self.last_ripple_awake_candidate_count = 0
-            self.last_awake_ripple_tag_report = {
-                "surface": "bounded_awake_ripple_tag.v1",
-                "status": "empty",
-                "scope": "awake_ripple_tagging_cadenced_path",
-                "memory_size": int(len(self.slow_buffer)),
-                "current_token": int(current_token),
-                "window_tokens": int(window_tokens),
-                "floor_token": int(floor_token),
-                "da_level": float(da_level),
-                "da_threshold": float(da_threshold),
-                "candidate_window_limit": int(candidate_limit),
-                "candidate_window_policy": "unscoped_global_ripple_scan_retired",
-                "candidate_scope": "unscoped_awake_bucket_scope_required",
-                "candidate_bucket_ids": [],
-                "candidate_bucket_count": 0,
-                "candidate_index_available_count": 0,
-                "candidate_index_count": 0,
-                "candidate_indices": [],
-                "tagged_count": 0,
-                "scan_mode": str(self.last_ripple_scan_mode),
-                "global_candidate_scan": False,
-                "diagnostic_global_candidate_scan": False,
-                "runs_live_tick": True,
-                "runs_every_token": False,
-                "mutates_runtime_state": False,
-                "applies_plasticity": False,
-                "archival_storage_device": "cpu",
-                "latency_ms": float((time.perf_counter() - started) * 1000.0),
-                "fallback_reason": "awake_bucket_scope_required_for_ripple_tagging",
-                "selection_budget": {
-                    "memory_budget_entries": int(len(self.slow_buffer)),
-                    "candidate_window_entries": int(candidate_limit),
-                },
-            }
-            self._invalidate_summary_cache()
-            return 0
-
-        if size < 512:
-            self.last_ripple_scan_mode = "scalar_small_memory"
-            self.ripple_scalar_scan_count += 1
-            tagged = self._ripple_tag_indices(
-                range(size),
-                floor_token=floor_token,
-                window_span=window_span,
-                da_scale=da_scale,
-                size=size,
-            )
-            self.last_awake_ripple_tag_report = {
-                "surface": "diagnostic_awake_ripple_global_tag.v1",
-                "status": "tagged" if tagged else "empty",
-                "scope": "awake_ripple_diagnostic_global_recent_scan",
-                "memory_size": int(len(self.slow_buffer)),
-                "current_token": int(current_token),
-                "window_tokens": int(window_tokens),
-                "floor_token": int(floor_token),
-                "da_level": float(da_level),
-                "da_threshold": float(da_threshold),
-                "candidate_window_limit": int(size),
-                "candidate_window_policy": "diagnostic_global_recent_memory_scan",
-                "candidate_scope": "diagnostic_global_recent_memory_scan",
-                "candidate_bucket_ids": [],
-                "candidate_bucket_count": 0,
-                "candidate_index_available_count": int(size),
-                "candidate_index_count": int(size),
-                "candidate_indices": list(range(size)),
-                "tagged_count": int(tagged),
-                "scan_mode": str(self.last_ripple_scan_mode),
-                "global_candidate_scan": True,
-                "diagnostic_global_candidate_scan": True,
-                "runs_live_tick": True,
-                "runs_every_token": False,
-                "mutates_runtime_state": bool(tagged),
-                "applies_plasticity": bool(tagged),
-                "archival_storage_device": "cpu",
-                "latency_ms": float((time.perf_counter() - started) * 1000.0),
-                "fallback_reason": None if tagged else "no_recent_entries_tagged",
-            }
-            self._invalidate_summary_cache()
-            return int(tagged)
-
-        self.last_ripple_scan_mode = "vector_large_memory"
-        self.ripple_vector_scan_count += 1
-        self._invalidate_summary_cache()
-        timestamps = np.frombuffer(
-            self.slow_entry_timestamps,
-            dtype=np.int64,
-            count=size,
-        )
-        ripple = np.frombuffer(
-            self.slow_ripple_strength,
-            dtype=np.float64,
-            count=size,
-        )
-        capture = np.frombuffer(
-            self.slow_capture_tag,
-            dtype=np.float64,
-            count=size,
-        )
-        recent = timestamps >= floor_token
-        if not bool(np.any(recent)):
-            self.last_awake_ripple_tag_report = {
-                "surface": "diagnostic_awake_ripple_global_tag.v1",
-                "status": "empty",
-                "scope": "awake_ripple_diagnostic_global_recent_scan",
-                "memory_size": int(len(self.slow_buffer)),
-                "current_token": int(current_token),
-                "window_tokens": int(window_tokens),
-                "floor_token": int(floor_token),
-                "da_level": float(da_level),
-                "da_threshold": float(da_threshold),
-                "candidate_window_limit": int(size),
-                "candidate_window_policy": "diagnostic_global_recent_memory_scan",
-                "candidate_scope": "diagnostic_global_recent_memory_scan",
-                "candidate_bucket_ids": [],
-                "candidate_bucket_count": 0,
-                "candidate_index_available_count": int(size),
-                "candidate_index_count": 0,
-                "candidate_indices": [],
-                "tagged_count": 0,
-                "scan_mode": str(self.last_ripple_scan_mode),
-                "global_candidate_scan": True,
-                "diagnostic_global_candidate_scan": True,
-                "runs_live_tick": True,
-                "runs_every_token": False,
-                "mutates_runtime_state": False,
-                "applies_plasticity": False,
-                "archival_storage_device": "cpu",
-                "latency_ms": float((time.perf_counter() - started) * 1000.0),
-                "fallback_reason": "no_recent_entries_in_window",
-            }
-            self._invalidate_summary_cache()
-            return 0
-
-        previous = ripple[recent].copy()
-        recency_scale = np.clip(
-            (timestamps[recent].astype(np.float64) - float(floor_token))
-            / window_span,
-            0.0,
-            1.0,
-        )
-        next_ripple = np.clip(
-            0.5 + 0.30 * da_scale + 0.20 * recency_scale,
-            0.0,
-            1.0,
-        )
-        ripple[recent] = np.maximum(previous, next_ripple)
-        capture[recent] = np.minimum(
-            1.0,
-            capture[recent] + 0.10 + 0.25 * next_ripple,
-        )
-        self._invalidate_summary_cache()
-        tagged = int(np.count_nonzero(previous <= 0.0))
+        self.last_ripple_scan_mode = "awake_bucket_scope_required"
+        self.last_ripple_awake_bucket_count = 0
+        self.last_ripple_awake_candidate_count = 0
         self.last_awake_ripple_tag_report = {
-            "surface": "diagnostic_awake_ripple_global_tag.v1",
-            "status": "tagged" if tagged else "empty",
-            "scope": "awake_ripple_diagnostic_global_recent_scan",
+            "surface": "bounded_awake_ripple_tag.v1",
+            "status": "empty",
+            "scope": "awake_ripple_tagging_cadenced_path",
             "memory_size": int(len(self.slow_buffer)),
             "current_token": int(current_token),
             "window_tokens": int(window_tokens),
             "floor_token": int(floor_token),
             "da_level": float(da_level),
             "da_threshold": float(da_threshold),
-            "candidate_window_limit": int(size),
-            "candidate_window_policy": "diagnostic_global_recent_memory_scan",
-            "candidate_scope": "diagnostic_global_recent_memory_scan",
+            "candidate_window_limit": int(candidate_limit),
+            "candidate_window_policy": "awake_bucket_scope_required_no_global_fallback",
+            "candidate_scope": "awake_bucket_scope_required",
             "candidate_bucket_ids": [],
             "candidate_bucket_count": 0,
-            "candidate_index_available_count": int(size),
-            "candidate_index_count": int(np.count_nonzero(recent)),
+            "candidate_index_available_count": 0,
+            "candidate_index_count": 0,
             "candidate_indices": [],
-            "tagged_count": int(tagged),
+            "tagged_count": 0,
             "scan_mode": str(self.last_ripple_scan_mode),
-            "global_candidate_scan": True,
-            "diagnostic_global_candidate_scan": True,
+            "global_candidate_scan": False,
+            "diagnostic_global_candidate_scan": False,
             "runs_live_tick": True,
             "runs_every_token": False,
-            "mutates_runtime_state": bool(tagged),
-            "applies_plasticity": bool(tagged),
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
             "archival_storage_device": "cpu",
             "latency_ms": float((time.perf_counter() - started) * 1000.0),
-            "fallback_reason": None if tagged else "no_recent_entries_tagged",
+            "fallback_reason": "awake_bucket_scope_required_for_ripple_tagging",
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(candidate_limit),
+            },
         }
-        return tagged
+        self._invalidate_summary_cache()
+        return 0
 
     @property
     def ripple_tagged_count(self) -> int:
@@ -2080,13 +1931,12 @@ class DualMemoryStore:
         strategy: str = "priority",
         candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
         scope: str = "sleep_slow_path",
-        allow_global_score_scan: bool = False,
     ) -> dict[str, Any]:
         """Select a bounded replay window and record the selection evidence.
 
         Candidate bucket ids make selection score only indexed memory entries
-        attached to those buckets. Unscoped full-memory scoring is diagnostic
-        only and must be requested explicitly.
+        attached to those buckets. Unscoped full-memory scoring is retired from
+        the runtime API; legacy comparisons live in evaluation harnesses only.
         """
 
         started = time.perf_counter()
@@ -2150,72 +2000,10 @@ class DualMemoryStore:
                 selected_scores = [float(score) for _, score in selected_pairs]
                 if not selected:
                     fallback_reason = "empty_bucket_candidate_pool"
-        elif not allow_global_score_scan:
+        else:
             candidate_count = 0
             score_count = 0
-            fallback_reason = "global_score_scan_requires_explicit_diagnostic_opt_in"
-        else:
-            if strategy == "random":
-                score_count = 0
-                pool_limit = min(count, requested)
-                perm = torch.randperm(count)
-                selected = [int(idx) for idx in perm[:pool_limit].tolist()]
-            else:
-                if strategy not in {"maintenance", "priority", "consolidation", "repair"}:
-                    raise ValueError(f"Unknown replay sampling strategy: {strategy}")
-                self._advance_state(token_marker)
-                scored = [
-                    (
-                        idx,
-                        self._score_replay_index(
-                            idx,
-                            current_token=token_marker,
-                            strategy=strategy,
-                        ),
-                    )
-                    for idx in range(count)
-                ]
-                score_count = int(len(scored))
-                positive_scored = [
-                    (idx, float(score))
-                    for idx, score in scored
-                    if float(score) > 0.0
-                ]
-                if score_count <= 0:
-                    fallback_reason = "empty_score_tensor"
-                elif not positive_scored:
-                    fallback_reason = "no_positive_global_scores"
-                else:
-                    pool_limit = min(count, candidate_window_limit)
-                    window = sorted(
-                        positive_scored,
-                        key=lambda item: (-item[1], item[0]),
-                    )[:pool_limit]
-                    if pool_limit <= requested:
-                        selected_pairs = window
-                    else:
-                        weights = torch.tensor(
-                            [float(score) for _, score in window],
-                            dtype=torch.float32,
-                        )
-                        weights = torch.clamp(weights, min=1e-8)
-                        weights = weights / (weights.sum() + 1e-8)
-                        draw = torch.multinomial(
-                            weights,
-                            num_samples=min(requested, len(window)),
-                            replacement=False,
-                        )
-                        selected_pairs = [
-                            window[int(local_idx)]
-                            for local_idx in draw.tolist()
-                        ]
-                        selected_pairs.sort(
-                            key=lambda item: (-item[1], item[0])
-                        )
-                    selected = [int(idx) for idx, _ in selected_pairs]
-                    selected_scores = [float(score) for _, score in selected_pairs]
-            if not selected:
-                fallback_reason = "no_positive_global_scores"
+            fallback_reason = "candidate_bucket_scope_required_for_replay_window"
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         report = {
@@ -2234,31 +2022,19 @@ class DualMemoryStore:
             "candidate_window_policy": (
                 "recent_bucket_round_robin_candidate_pool"
                 if bucket_scoped
-                else (
-                    "diagnostic_global_full_memory_window"
-                    if allow_global_score_scan
-                    else "unscoped_global_window_retired"
-                )
+                else "bucket_scope_required_no_global_fallback"
             ),
             "candidate_scope": (
                 "bucket_indexed_candidate_window"
                 if bucket_scoped
-                else (
-                    (
-                        "global_slow_path_candidate_scan"
-                        if strategy == "random"
-                        else "global_slow_path_score_scan"
-                    )
-                    if allow_global_score_scan
-                    else "unscoped_global_score_scan_retired"
-                )
+                else "bucket_index_scope_required"
             ),
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
             "candidate_index_available_count": int(
                 bucket_available_count
                 if bucket_scoped
-                else (count if allow_global_score_scan else 0)
+                else 0
             ),
             "candidate_index_count": int(candidate_count),
             "score_count": int(score_count),
@@ -2267,22 +2043,10 @@ class DualMemoryStore:
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "bounded_by_bucket_index": bool(bucket_scoped),
-            "global_score_scan": bool(
-                not bucket_scoped
-                and bool(allow_global_score_scan)
-                and strategy != "random"
-            ),
-            "global_candidate_scan": bool(
-                not bucket_scoped and bool(allow_global_score_scan)
-            ),
-            "diagnostic_global_score_scan": bool(
-                not bucket_scoped
-                and bool(allow_global_score_scan)
-                and strategy != "random"
-            ),
-            "diagnostic_global_candidate_scan": bool(
-                not bucket_scoped and bool(allow_global_score_scan)
-            ),
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "diagnostic_global_score_scan": False,
+            "diagnostic_global_candidate_scan": False,
             "runs_live_tick": False,
             "records_replay_artifact": False,
             "raw_text_payload_loaded": False,
@@ -2917,7 +2681,6 @@ class DualMemoryStore:
         n: int = 100,
         *,
         candidate_indices: Sequence[int] | None = None,
-        allow_global_diagnostic: bool = False,
         scope: str = "sfa_correction_slow_path",
     ) -> tuple[list[torch.Tensor], dict[str, Any]]:
         """Sample assembly vectors for SFA correction from a bounded window."""
@@ -2933,12 +2696,8 @@ class DualMemoryStore:
         if count == 0 or requested <= 0:
             fallback_reason = "empty_request_or_memory"
         if fallback_reason is None and candidate_indices is None:
-            if not allow_global_diagnostic:
-                candidate_scope = "unscoped_global_sfa_sample_retired"
-                fallback_reason = "candidate_indices_required"
-            else:
-                candidate_scope = "diagnostic_global_full_memory_sample"
-                candidates = list(range(count))
+            candidate_scope = "selected_replay_window_required"
+            fallback_reason = "candidate_indices_required"
         elif fallback_reason is None:
             seen: set[int] = set()
             for raw_index in candidate_indices:
@@ -2974,11 +2733,7 @@ class DualMemoryStore:
             "candidate_window_policy": (
                 "explicit_selected_replay_indices"
                 if candidate_indices is not None
-                else (
-                    "diagnostic_global_full_memory_sample"
-                    if allow_global_diagnostic
-                    else "unscoped_global_sfa_sample_retired"
-                )
+                else "selected_replay_window_required_no_global_fallback"
             ),
             "candidate_index_count": int(len(candidates)),
             "candidate_indices": [int(index) for index in candidates],
@@ -2988,12 +2743,8 @@ class DualMemoryStore:
             "sample_count": int(len(samples)),
             "sample_device": "cpu",
             "archival_storage_device": "cpu",
-            "global_candidate_scan": bool(
-                candidate_indices is None and allow_global_diagnostic
-            ),
-            "diagnostic_global_candidate_scan": bool(
-                candidate_indices is None and allow_global_diagnostic
-            ),
+            "global_candidate_scan": False,
+            "diagnostic_global_candidate_scan": False,
             "runs_live_tick": False,
             "runs_every_token": False,
             "raw_text_payload_loaded": False,

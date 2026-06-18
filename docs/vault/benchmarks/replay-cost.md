@@ -475,9 +475,8 @@ selector itself. The new focused test proves a hot two-bucket window with `10`
 available entries and an old high-importance trace scores only the recent
 round-robin `candidate_window_limit=4` entries before ranking; the old trace is
 not selected because it never enters the capped candidate window. Unscoped
-`strategy=random` now also returns an empty retired report unless
-`allow_global_score_scan=true` marks the call as a diagnostic global candidate
-scan.
+`strategy=random` now returns an empty `bucket_index_scope_required` report with
+no diagnostic global candidate scan.
 
 The broader memory/SFA suite returned `49 passed`, and the replay checkpoint
 roundtrip checks returned `2 passed`. The synthetic report
@@ -739,10 +738,9 @@ full-buffer scoring helpers: `maintenance_scores(...)`,
 `consolidation_scores(...)`, `repair_scores(...)`, `fragility_scores(...)`, and
 unused capture/tag/PRP tensor builders. Production replay selection now reaches
 the priority formula only through `_score_replay_index(...)` for selected
-candidate indices. The explicit global diagnostic branch still exists behind
-`allow_global_score_scan=true`, but it scores privately inside
-`select_replay_window(...)`, samples only positive scores, and reports the
-diagnostic scan.
+candidate indices. The later runtime hook cleanup removes the remaining
+private global diagnostic branch from `select_replay_window(...)`; retired
+full-scan comparisons are benchmark-local only.
 
 The synthetic report
 `reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
@@ -764,8 +762,8 @@ Bounded awake-ripple tagging now retires the production unscoped global
 recent-memory scan. Production callers must pass awake bucket scope; otherwise
 `ripple_tag_awake(...)` returns an empty `bounded_awake_ripple_tag.v1` report
 with `fallback_reason=awake_bucket_scope_required_for_ripple_tagging` and no
-scalar/vector scan. The old global scan is diagnostic-only through
-`allow_global_diagnostic=true`. The scoped path collects a recent round-robin
+scalar/vector scan. The old global scan has no runtime hook; benchmark-local
+retired baselines carry the comparison. The scoped path collects a recent round-robin
 candidate window from awake buckets, reports available versus touched entries,
 keeps archival storage on CPU, and records `runs_every_token=false`.
 

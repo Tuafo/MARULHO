@@ -388,7 +388,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertGreater(float(store.slow_ripple_strength[9]), 0.0)
         self.assertEqual(float(store.slow_ripple_strength[0]), old_strength)
 
-    def test_awake_ripple_unscoped_requires_diagnostic_opt_in(self) -> None:
+    def test_awake_ripple_unscoped_requires_awake_bucket_scope(self) -> None:
         store = DualMemoryStore(capacity=16)
         for token in range(1, 5):
             store.update(
@@ -406,29 +406,19 @@ class MemoryConsolidationTests(unittest.TestCase):
         report = store.last_awake_ripple_tag_report
 
         self.assertEqual(tagged, 0)
-        self.assertEqual(store.last_ripple_scan_mode, "unscoped_global_ripple_scan_retired")
+        self.assertEqual(store.last_ripple_scan_mode, "awake_bucket_scope_required")
         self.assertEqual(store.ripple_scalar_scan_count, 0)
         self.assertEqual(store.ripple_vector_scan_count, 0)
-        self.assertEqual(report["candidate_scope"], "unscoped_awake_bucket_scope_required")
+        self.assertEqual(report["candidate_scope"], "awake_bucket_scope_required")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "awake_bucket_scope_required_no_global_fallback",
+        )
         self.assertEqual(
             report["fallback_reason"],
             "awake_bucket_scope_required_for_ripple_tagging",
         )
         self.assertFalse(report["global_candidate_scan"])
-
-        diagnostic_tagged = store.ripple_tag_awake(
-            current_token=5,
-            window_tokens=5,
-            da_level=0.95,
-            allow_global_diagnostic=True,
-        )
-        diagnostic = store.last_awake_ripple_tag_report
-
-        self.assertEqual(diagnostic_tagged, 4)
-        self.assertEqual(diagnostic["surface"], "diagnostic_awake_ripple_global_tag.v1")
-        self.assertTrue(diagnostic["global_candidate_scan"])
-        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
-        self.assertEqual(store.ripple_scalar_scan_count, 1)
 
     def test_memory_store_rejected_reservoir_sample_skips_optional_payload_copies(self) -> None:
         store = DualMemoryStore(capacity=1)
@@ -963,7 +953,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             [9, 8, 7, 6],
         )
 
-    def test_unscoped_replay_selection_requires_diagnostic_opt_in(self) -> None:
+    def test_unscoped_replay_selection_requires_bucket_scope(self) -> None:
         store = DualMemoryStore(
             capacity=4,
             ema_alpha=0.1,
@@ -986,7 +976,11 @@ class MemoryConsolidationTests(unittest.TestCase):
             strategy="consolidation",
         )
 
-        self.assertEqual(report["candidate_scope"], "unscoped_global_score_scan_retired")
+        self.assertEqual(report["candidate_scope"], "bucket_index_scope_required")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "bucket_scope_required_no_global_fallback",
+        )
         self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["runs_live_tick"])
         self.assertEqual(report["selected_count"], 0)
@@ -994,25 +988,11 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["candidate_index_available_count"], 0)
         self.assertEqual(
             report["fallback_reason"],
-            "global_score_scan_requires_explicit_diagnostic_opt_in",
+            "candidate_bucket_scope_required_for_replay_window",
         )
         self.assertFalse(hasattr(store, "sample_replay_indices"))
 
-        diagnostic = store.select_replay_window(
-            n=1,
-            current_token=8,
-            candidate_pool=2,
-            strategy="consolidation",
-            allow_global_score_scan=True,
-        )
-
-        self.assertEqual(diagnostic["candidate_scope"], "global_slow_path_score_scan")
-        self.assertEqual(diagnostic["candidate_index_available_count"], 1)
-        self.assertTrue(diagnostic["global_score_scan"])
-        self.assertTrue(diagnostic["diagnostic_global_score_scan"])
-        self.assertEqual(diagnostic["fallback_reason"], "no_positive_global_scores")
-
-    def test_unscoped_random_replay_selection_requires_diagnostic_opt_in(self) -> None:
+    def test_unscoped_random_replay_selection_requires_bucket_scope(self) -> None:
         store = DualMemoryStore(
             capacity=4,
             ema_alpha=0.1,
@@ -1035,30 +1015,19 @@ class MemoryConsolidationTests(unittest.TestCase):
             strategy="random",
         )
 
-        self.assertEqual(report["candidate_scope"], "unscoped_global_score_scan_retired")
-        self.assertEqual(report["candidate_window_policy"], "unscoped_global_window_retired")
+        self.assertEqual(report["candidate_scope"], "bucket_index_scope_required")
+        self.assertEqual(
+            report["candidate_window_policy"],
+            "bucket_scope_required_no_global_fallback",
+        )
         self.assertEqual(report["selected_indices"], [])
         self.assertEqual(report["candidate_index_available_count"], 0)
         self.assertEqual(report["candidate_index_count"], 0)
         self.assertFalse(report["global_candidate_scan"])
-
-        diagnostic = store.select_replay_window(
-            n=1,
-            current_token=8,
-            candidate_pool=2,
-            strategy="random",
-            allow_global_score_scan=True,
+        self.assertEqual(
+            report["fallback_reason"],
+            "candidate_bucket_scope_required_for_replay_window",
         )
-
-        self.assertEqual(diagnostic["candidate_scope"], "global_slow_path_candidate_scan")
-        self.assertEqual(diagnostic["candidate_window_policy"], "diagnostic_global_full_memory_window")
-        self.assertEqual(diagnostic["candidate_index_available_count"], 3)
-        self.assertEqual(diagnostic["selected_count"], 1)
-        self.assertEqual(diagnostic["score_count"], 0)
-        self.assertTrue(diagnostic["global_candidate_scan"])
-        self.assertFalse(diagnostic["global_score_scan"])
-        self.assertFalse(diagnostic["diagnostic_global_score_scan"])
-        self.assertTrue(diagnostic["diagnostic_global_candidate_scan"])
 
     def test_bounded_replay_window_recall_uses_bucket_routing_keys(self) -> None:
         store = DualMemoryStore(

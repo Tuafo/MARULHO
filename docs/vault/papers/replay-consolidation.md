@@ -95,13 +95,10 @@ before scoring. The active policy reports
 `candidate_window_limit=max(requested_count,candidate_pool)`,
 `candidate_index_available_count`, and the scored `candidate_index_count`, so a
 hot local bucket remains bounded. If no bucket scope is available, selection now
-returns empty by default with
-`fallback_reason=global_score_scan_requires_explicit_diagnostic_opt_in`.
-The full slow-memory scorer is available only when a caller explicitly sets
-`allow_global_score_scan=true`, and that diagnostic report must say
-`global_slow_path_score_scan`. Unscoped random candidate scans are also retired
-by default and can run only as explicit diagnostics that report
-`global_slow_path_candidate_scan`.
+returns empty with `candidate_scope=bucket_index_scope_required` and
+`fallback_reason=candidate_bucket_scope_required_for_replay_window`. The full
+slow-memory scorer is no longer callable through the runtime store; retired
+full-scan comparisons live in benchmark-local harnesses only.
 
 `DualMemoryStore.recall_replay_window(...)` records
 `bounded_replay_window_recall.v1`. It is a non-mutating slow-path local memory
@@ -180,9 +177,8 @@ requires awake bucket scope for production tagging, caps candidates through the
 CPU bucket/recency index, and records `bounded_awake_ripple_tag.v1` with
 candidate budget, scan flags, device placement, and `runs_every_token=false`.
 If awake bucket scope is absent, it returns an empty retired report instead of
-scanning all memory. The retained scalar/vector recent-memory scan can run only
-as an explicit diagnostic baseline through `allow_global_diagnostic=true`, where
-it records `diagnostic_awake_ripple_global_tag.v1`.
+scanning all memory. The retained scalar/vector recent-memory scan has no
+runtime hook; benchmark-local retired baselines carry any full-scan comparison.
 
 Zero-pressure replay is now retired: if the global scorer finds no positive
 consolidation/repair/maintenance pressure, it returns an empty selection with
@@ -588,10 +584,9 @@ The score tensor helper cleanup removes the remaining public archive-wide score
 tensor family. `maintenance_scores(...)`, `consolidation_scores(...)`,
 `repair_scores(...)`, `fragility_scores(...)`, and unused capture/tag/PRP tensor
 builders are gone, so selected replay/query windows no longer sit beside
-production-looking full-buffer helper APIs. The explicit global diagnostic
-branch is still available only through `select_replay_window(...,
-allow_global_score_scan=true)` and scores privately before reporting a
-diagnostic scan. The synthetic report
+production-looking full-buffer helper APIs. The later runtime hook cleanup also
+removes the private global-score escape hatch from `select_replay_window(...)`;
+retired full-scan comparisons are benchmark-local baselines only. The synthetic report
 `reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
 kept recall/prototype gates passing with `2` bounded updates and `0` global
 fallback cycles. The accepted 65536-column hot-path rerun
@@ -599,6 +594,23 @@ fallback cycles. The accepted 65536-column hot-path rerun
 processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
+
+The runtime global-scan hook cleanup removes the final callable full-archive
+branches from the replay/consolidation store. Awake ripple tagging now blocks
+without awake-bucket scope, replay-window selection blocks without bucket scope,
+and SFA sampling blocks without selected replay indices. All three reports keep
+CPU archival placement, no raw text payload, no hidden language reasoning, and
+no mutation when scope is missing. Benchmark-local retired baselines still
+measure the old cost: `awake-ripple-runtime-global-hooks-retired.json` measured
+`1.285064 ms` for the retired full scan versus `1.082768 ms` for the scoped
+10-bucket path, and `sfa-runtime-global-hooks-retired.json` improved
+selected-window sample purity from `0.00439453125` to `1.0` while reducing mean
+latency from `1.740475 ms` to `0.622956 ms` (`2.793896x`). The paired
+`524288`-token protection run processed `6342.218 tokens/sec` with
+`train_compute=0.128534 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, GPU memory `1801->1802 MiB`, and zero graph/native
+sequence failures; GPU-side contention was observed at `23%` max utilization,
+so this evidence supports throughput protection, not a contention-free claim.
 
 The reported SFA sampling cleanup closes the remaining list-only replay/SFA
 helper family. `sample_replay_indices(...)` is removed; callers must use

@@ -76,12 +76,9 @@ signatures from already-selected evidence. Recent replay setup uses
   `candidate_window_limit=max(requested_count,candidate_pool)`, and reports both
   `candidate_index_available_count` and the actually scored
   `candidate_index_count`.
-- A global slow-path scorer must require explicit diagnostic opt-in and report
-  `global_slow_path_score_scan`; it must not hide a full-memory scorer.
-  Unscoped selection defaults to `unscoped_global_score_scan_retired`.
-  Unscoped random candidate scans are also retired by default and require
-  explicit diagnostic opt-in. Production deep replay cannot mutate from those
-  unscoped paths.
+- A missing bucket scope must return `bucket_index_scope_required` with no
+  mutation and no global scan. Retired full-memory scorer comparisons are
+  benchmark-local only and cannot be requested through the runtime store.
 - Emergency repair replay follows the same anchor-bucket rule. Without anchor
   buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
   no mutation.
@@ -367,8 +364,8 @@ discipline. Production calls to `ripple_tag_awake(...)` require awake bucket
 ids, collect recent bucket candidates up to `max_candidate_entries`, and emit
 `bounded_awake_ripple_tag.v1`; no-scope calls return an empty retired report
 with `awake_bucket_scope_required_for_ripple_tagging`. The diagnostic-only
-global scan remains available only with `allow_global_diagnostic=true`. The
-direct benchmark
+global scan has no runtime hook; benchmark-local retired baselines carry the
+comparison. The direct benchmark
 `reports/bounded_replay_window_20260617/awake-ripple-bounded-scope-8192-i256.json`
 averaged `1.091997 ms` on the wake-bucket path versus `1.433332 ms` on the
 diagnostic global vector path, with scoped `0` scalar/vector scans, `256`
@@ -398,10 +395,9 @@ The score tensor helper follow-up removes the remaining public archive-wide
 score tensors (`maintenance_scores(...)`, `consolidation_scores(...)`,
 `repair_scores(...)`, `fragility_scores(...)`, and unused capture/tag/PRP tensor
 builders). Production replay now scores only selected candidate indices through
-`_score_replay_index(...)`. Explicit global diagnostics still require
-`allow_global_score_scan=true` and score privately inside
-`select_replay_window(...)`, so there is no reusable production helper for
-full-buffer replay tensors. The synthetic report
+`_score_replay_index(...)`. The later runtime hook cleanup removes the remaining
+private global scoring branch from `select_replay_window(...)`, so there is no
+reusable production helper or runtime flag for full-buffer replay tensors. The synthetic report
 `reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json`
 kept recall/prototype gates passing, and the accepted 65536-column hot-path
 rerun

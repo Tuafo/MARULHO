@@ -281,7 +281,8 @@ def run_trial(
     global_fallback_cycle_count = sum(
         1
         for report in cycle_selection_reports
-        if report.get("candidate_scope") == "global_slow_path_score_scan"
+        if bool(report.get("global_score_scan"))
+        or bool(report.get("global_candidate_scan"))
     )
     replay_commit_summary = _replay_commit_summary(cycle_selection_reports)
     return {

@@ -109,8 +109,9 @@ Current bounded selection evidence:
 - Deep sleep blocks unanchored global replay mutation with
   `unscoped_global_fallback_retired=true`, so no-anchor and zero-pressure bucket
   cases apply `0` replay updates.
-- Unscoped random replay is retired by default; explicit diagnostics must report
-  `global_slow_path_candidate_scan`.
+- Unscoped random replay is retired by default and now reports
+  `bucket_index_scope_required`; retired full-scan comparisons are
+  benchmark-local only.
 - `reports/bounded_replay_window_20260617/synthetic-selection.json` passes the
   bounded stored input-pattern recall gate for positive-pressure windows
   (`5.960464477539063e-08` mean distance against threshold `0.01`), but does
