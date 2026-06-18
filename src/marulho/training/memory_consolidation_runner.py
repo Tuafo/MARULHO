@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import time
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 import torch
 
@@ -21,6 +21,10 @@ from marulho.training.checkpointing import (
 from marulho.training.runner_utils import set_seed
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
+
+
+REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT = 16
+REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_POLICY = "recent_anchor_capture_recency_window_v1"
 
 
 def mean_reconstruction_error(trainer: MarulhoTrainer, patterns: List[torch.Tensor]) -> float:
@@ -52,27 +56,213 @@ def mean_assembly_overlap(
     return float(sum(overlaps) / len(overlaps))
 
 
+def _anchor_metadata_int(anchor: Mapping[str, Any], key: str) -> int | None:
+    value = anchor.get(key)
+    if isinstance(value, torch.Tensor):
+        if int(value.numel()) != 1:
+            return None
+        value = value.detach().cpu().item()
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _anchor_bucket_source_window(
+    trainer: MarulhoTrainer,
+    *,
+    max_buckets: int = REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+    scope: str = "hf_task_a_anchor_query_collection",
+) -> tuple[list[int], dict[str, Any]]:
+    anchors = getattr(trainer, "column_anchors", {}) or {}
+    if not isinstance(anchors, Mapping):
+        anchors = {}
+    limit = max(0, int(max_buckets))
+    total_count = int(len(anchors))
+    selected_bucket_ids: list[int] = []
+    selected_metadata: list[dict[str, Any]] = []
+
+    if limit > 0:
+        try:
+            reverse_keys = reversed(anchors)
+        except TypeError:
+            reverse_keys = reversed(list(anchors))
+        for raw_bucket_id in reverse_keys:
+            try:
+                bucket_id = int(raw_bucket_id)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            anchor = anchors.get(raw_bucket_id, {})
+            anchor_mapping = anchor if isinstance(anchor, Mapping) else {}
+            selected_bucket_ids.append(bucket_id)
+            selected_metadata.append(
+                {
+                    "bucket_id": bucket_id,
+                    "captured_at_token": _anchor_metadata_int(
+                        anchor_mapping,
+                        "captured_at_token",
+                    ),
+                    "captured_source_index": _anchor_metadata_int(
+                        anchor_mapping,
+                        "captured_source_index",
+                    ),
+                    "capture_sequence": _anchor_metadata_int(
+                        anchor_mapping,
+                        "capture_sequence",
+                    ),
+                }
+            )
+            if len(selected_bucket_ids) >= limit:
+                break
+
+    status = "selected" if selected_bucket_ids else "empty"
+    fallback_reason = None if selected_bucket_ids else "empty_anchor_bucket_source"
+    report = {
+        "surface": "bounded_replay_query_anchor_bucket_source_window.v1",
+        "status": status,
+        "scope": str(scope),
+        "window_policy": REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_POLICY,
+        "selection_criteria": [
+            "column_anchor_reverse_recency_order",
+            "bounded_anchor_bucket_count",
+            "bucket_indexed_replay_query_collection",
+        ],
+        "anchor_bucket_source_total_count": total_count,
+        "anchor_bucket_source_count_is_exact": True,
+        "anchor_bucket_window_limit": limit,
+        "anchor_bucket_window_count": int(len(selected_bucket_ids)),
+        "anchor_bucket_ids": selected_bucket_ids,
+        "selected_anchor_metadata": selected_metadata,
+        "truncated_source_count": bool(total_count > len(selected_bucket_ids)),
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "anchor_source_full_scan": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "active_replay_compute_device": "cpu",
+        "fallback_reason": fallback_reason,
+        "selection_budget": {
+            "anchor_bucket_source_entries": total_count,
+            "anchor_bucket_window_entries": int(len(selected_bucket_ids)),
+            "anchor_bucket_window_limit": limit,
+        },
+    }
+    return selected_bucket_ids, report
+
+
+def _annotate_replay_query_collection_report(
+    report: dict[str, Any],
+    *,
+    source_window: Mapping[str, Any],
+) -> dict[str, Any]:
+    annotated = dict(report)
+    source = dict(source_window)
+    selection_budget = dict(annotated.get("selection_budget") or {})
+    selection_budget.update(
+        {
+            "anchor_bucket_source_entries": int(
+                source.get("anchor_bucket_source_total_count", 0) or 0
+            ),
+            "anchor_bucket_window_entries": int(
+                source.get("anchor_bucket_window_count", 0) or 0
+            ),
+            "anchor_bucket_window_limit": int(
+                source.get("anchor_bucket_window_limit", 0) or 0
+            ),
+        }
+    )
+    annotated.update(
+        {
+            "source_window": source,
+            "anchor_bucket_source_window": source,
+            "anchor_bucket_source_total_count": int(
+                source.get("anchor_bucket_source_total_count", 0) or 0
+            ),
+            "anchor_bucket_window_limit": int(
+                source.get("anchor_bucket_window_limit", 0) or 0
+            ),
+            "anchor_bucket_window_count": int(
+                source.get("anchor_bucket_window_count", 0) or 0
+            ),
+            "anchor_bucket_window_policy": source.get("window_policy"),
+            "anchor_source_full_scan": bool(
+                source.get("anchor_source_full_scan", False)
+            ),
+            "selection_budget": selection_budget,
+        }
+    )
+    return annotated
+
+
+def _replay_query_candidate_bucket_ids(
+    trainer: MarulhoTrainer,
+    query_collection_report: Mapping[str, Any] | None,
+) -> tuple[list[int], dict[str, Any]]:
+    if isinstance(query_collection_report, Mapping):
+        raw_bucket_ids = query_collection_report.get("candidate_bucket_ids")
+        if raw_bucket_ids is not None:
+            bucket_ids: list[int] = []
+            seen: set[int] = set()
+            for raw_bucket_id in raw_bucket_ids:
+                try:
+                    bucket_id = int(raw_bucket_id)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if bucket_id < 0 or bucket_id in seen:
+                    continue
+                seen.add(bucket_id)
+                bucket_ids.append(bucket_id)
+            source_window = query_collection_report.get("source_window")
+            if not isinstance(source_window, Mapping):
+                source_window = query_collection_report.get(
+                    "anchor_bucket_source_window"
+                )
+            return bucket_ids, dict(source_window or {})
+    return _anchor_bucket_source_window(trainer)
+
+
 def _collect_anchor_replay_queries(
     trainer: MarulhoTrainer,
     *,
     max_queries: int = 16,
 ) -> tuple[list[tuple[int, torch.Tensor]], dict[str, Any]]:
-    candidate_bucket_ids = {int(bucket_id) for bucket_id in trainer.column_anchors}
+    store = trainer.model.memory_store
+    candidate_bucket_ids, source_window = _anchor_bucket_source_window(
+        trainer,
+        max_buckets=REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        scope="hf_task_a_anchor_query_collection",
+    )
     if not candidate_bucket_ids:
-        report = trainer.model.memory_store.collect_replay_query_indices(
+        report = store.collect_replay_query_indices(
             candidate_bucket_ids=[],
             max_queries=max_queries,
             scope="hf_task_a_anchor_query_collection",
         )
+        report = _annotate_replay_query_collection_report(
+            report,
+            source_window=source_window,
+        )
+        store.last_replay_query_collection_report = dict(report)
+        store._invalidate_summary_cache()
         return [], report
 
     queries: list[tuple[int, torch.Tensor]] = []
-    store = trainer.model.memory_store
     report = store.collect_replay_query_indices(
-        candidate_bucket_ids=sorted(candidate_bucket_ids),
+        candidate_bucket_ids=candidate_bucket_ids,
         max_queries=max_queries,
         scope="hf_task_a_anchor_query_collection",
     )
+    report = _annotate_replay_query_collection_report(
+        report,
+        source_window=source_window,
+    )
+    store.last_replay_query_collection_report = dict(report)
+    store._invalidate_summary_cache()
     for index in report.get("query_indices", []):
         index = int(index)
         if index >= len(store.slow_input_patterns):
@@ -92,7 +282,10 @@ def _bounded_replay_recall_evaluation(
     scope: str,
     query_collection_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    candidate_bucket_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
+    candidate_bucket_ids, source_window = _replay_query_candidate_bucket_ids(
+        trainer,
+        query_collection_report,
+    )
     if not queries:
         return {
             "surface": "bounded_replay_window_hf_recall.v1",
@@ -101,12 +294,16 @@ def _bounded_replay_recall_evaluation(
             "candidate_bucket_ids": candidate_bucket_ids,
             "candidate_bucket_count": int(len(candidate_bucket_ids)),
             "candidate_scope": "bucket_indexed_candidate_window",
+            "source_window": source_window,
+            "anchor_bucket_source_window": source_window,
             "query_count": 0,
             "query_collection": dict(query_collection_report or {}),
             "max_candidates": int(max_candidates),
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "runs_live_tick": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "gate": {
@@ -166,6 +363,21 @@ def _bounded_replay_recall_evaluation(
             if all_bucket_scoped
             else str(reports[0].get("candidate_scope") or "unknown")
         ),
+        "source_window": source_window,
+        "anchor_bucket_source_window": source_window,
+        "anchor_bucket_source_total_count": int(
+            source_window.get("anchor_bucket_source_total_count", 0) or 0
+        ),
+        "anchor_bucket_window_limit": int(
+            source_window.get("anchor_bucket_window_limit", 0) or 0
+        ),
+        "anchor_bucket_window_count": int(
+            source_window.get("anchor_bucket_window_count", 0) or 0
+        ),
+        "anchor_bucket_window_policy": source_window.get("window_policy"),
+        "anchor_source_full_scan": bool(
+            source_window.get("anchor_source_full_scan", False)
+        ),
         "query_source_indices": [int(index) for index, _pattern in queries],
         "query_count": int(len(queries)),
         "query_collection": dict(query_collection_report or {}),
@@ -176,6 +388,8 @@ def _bounded_replay_recall_evaluation(
         "score_device": "cpu",
         "archival_storage_device": "cpu",
         "runs_live_tick": bool(any_live_tick),
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
         "mutates_runtime_state": bool(any_mutation),
         "applies_plasticity": False,
         "gate": {
@@ -187,6 +401,13 @@ def _bounded_replay_recall_evaluation(
                 and mean_input_distance <= 0.01
             ),
             "bounded_bucket_scoped": bool(all_bucket_scoped),
+            "anchor_bucket_source_window_bounded": bool(
+                source_window.get("surface")
+                == "bounded_replay_query_anchor_bucket_source_window.v1"
+                and not bool(source_window.get("anchor_source_full_scan", True))
+                and int(source_window.get("anchor_bucket_window_count", 0) or 0)
+                <= int(source_window.get("anchor_bucket_window_limit", 0) or 0)
+            ),
             "has_input_recall": bool(has_input_recall),
             "runs_live_tick": bool(any_live_tick),
             "mutates_runtime_state": bool(any_mutation),

@@ -781,6 +781,26 @@ failures after one slower same-code run was rejected. This keeps replay-backed
 structural consent a bounded slow/control-plane path rather than a
 retained-history scan.
 
+HF replay query collection now bounds retained column-anchor source selection
+before the store collector runs. `capture_recent_memory_anchors(...)` records
+recency metadata and refreshes anchor dict recency on recapture; checkpoints
+preserve those fields for restored trainers. `_collect_anchor_replay_queries(...)`
+then emits `bounded_replay_query_anchor_bucket_source_window.v1`, takes at most
+`16` reverse-recency anchor buckets, and passes only that bucket window into
+`collect_replay_query_indices(...)` and the follow-up HF recall evaluator. The
+surface is slow-path replay/query work: it reports CPU archival placement, no
+live tick, no every-token work, no global score/candidate scan, no raw replay
+text, no hidden language reasoning, and `anchor_source_full_scan=false`. The
+8192-anchor benchmark
+`reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json`
+reduced source-selection latency from `16.414 ms` to `0.346 ms`, selected
+newest-anchor queries with hit rate `1.0`, kept exact input recall, and used no
+CUDA allocation. The paired `524288`-token protection run stayed in the same
+sustained band at `6376.873 tokens/sec` with bounded `12/65536` route rows,
+`65526` cached transition rows, flat `1787 MiB` GPU memory, and zero runtime
+failures; the environment sampler did mark borderline GPU contention, so the
+claim is live-tick protection rather than a clean speed ceiling.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

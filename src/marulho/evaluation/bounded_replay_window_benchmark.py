@@ -11,6 +11,7 @@ import torch
 from marulho.config.model_config import MarulhoConfig
 from marulho.reporting.io import write_json_file
 from marulho.training.memory_consolidation_runner import (
+    _anchor_bucket_source_window,
     _parse_repair_strength_schedule,
     _run_reconstruction_guarded_sleep_maintenance,
     build_memory_consolidation_gate,
@@ -47,7 +48,10 @@ def _bounded_replay_recall_summary(
     *,
     max_candidates: int,
 ) -> dict[str, Any]:
-    candidate_bucket_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
+    candidate_bucket_ids, source_window = _anchor_bucket_source_window(
+        trainer,
+        scope="synthetic_replay_recall_benchmark",
+    )
     reports: list[dict[str, Any]] = []
     routing_distances: list[float] = []
     input_distances: list[float] = []
@@ -91,6 +95,8 @@ def _bounded_replay_recall_summary(
         "surface": "bounded_replay_window_recall_benchmark.v1",
         "candidate_bucket_ids": candidate_bucket_ids,
         "candidate_bucket_count": int(len(candidate_bucket_ids)),
+        "source_window": source_window,
+        "anchor_bucket_source_window": source_window,
         "mean_routing_key_distance": mean_routing_distance,
         "mean_input_pattern_distance": mean_input_distance,
         "reports": reports,

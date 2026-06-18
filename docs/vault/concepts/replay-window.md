@@ -442,6 +442,20 @@ reconstruction recovery gate still failed on this small HF run, so this is
 bounded stored-experience recall evidence, not a consolidation-quality
 promotion.
 
+The HF replay-query source path is now bounded before query collection. Anchor
+capture records recency metadata and refreshes anchor dict recency; checkpoints
+preserve that ordering evidence. `_collect_anchor_replay_queries(...)` emits
+`bounded_replay_query_anchor_bucket_source_window.v1`, takes at most `16`
+reverse-recency anchor buckets, and passes that same bucket window into the
+store collector and HF recall evaluator. The 8192-anchor benchmark
+`reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json`
+reduced mean source latency from `16.414 ms` to `0.346 ms`, selected newest
+anchor queries with hit rate `1.0`, kept exact input recall, and used CPU-only
+replay-query placement with no CUDA allocation. The paired 524288-token
+hot-path run stayed in band at `6376.873 tokens/sec` with bounded route rows,
+flat `1787 MiB` GPU memory, and zero runtime failures, while noting borderline
+sampled GPU contention.
+
 ## Relationships
 
 - [Subcortex](subcortex.md)

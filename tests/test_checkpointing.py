@@ -109,6 +109,49 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 )
             )
 
+    def test_checkpoint_roundtrip_preserves_column_anchor_recency_metadata(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
+            )
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            trainer.column_anchors[3] = {
+                "prototype": trainer.model.competitive.prototypes[3]
+                .detach()
+                .clone(),
+                "input_weights": trainer.model.competitive.input_weights[3]
+                .detach()
+                .clone(),
+                "strength": 2.5,
+                "captured_at_token": 123,
+                "captured_source_index": 7,
+                "capture_sequence": 4,
+            }
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "anchor-recency.pt",
+                trainer,
+            )
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                restored, _metadata = load_trainer_checkpoint(checkpoint)
+
+            self.assertIn(3, restored.column_anchors)
+            anchor = restored.column_anchors[3]
+            self.assertEqual(anchor["captured_at_token"], 123)
+            self.assertEqual(anchor["captured_source_index"], 7)
+            self.assertEqual(anchor["capture_sequence"], 4)
+            self.assertEqual(anchor["strength"], 2.5)
+            self.assertEqual(str(anchor["prototype"].device), str(restored.model.device))
+
     def test_checkpoint_roundtrip_preserves_sleep_replay_selection_report(self) -> None:
         from tempfile import TemporaryDirectory
 

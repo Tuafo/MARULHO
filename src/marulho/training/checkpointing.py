@@ -5,7 +5,7 @@ from dataclasses import asdict
 import os
 from pathlib import Path
 from uuid import uuid4
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import torch
@@ -44,6 +44,80 @@ _RETIRED_PREDICTIVE_ROUTE_VOTE_MODES = {"tensor", "fused_triton_text"}
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
     return value.detach().clone().cpu() if isinstance(value, torch.Tensor) else None
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, torch.Tensor):
+        if int(value.numel()) != 1:
+            return None
+        value = value.detach().cpu().item()
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _column_anchors_checkpoint_snapshot(
+    trainer: MarulhoTrainer,
+) -> dict[int, dict[str, Any]]:
+    snapshot: dict[int, dict[str, Any]] = {}
+    for key, value in trainer.column_anchors.items():
+        if not isinstance(value, Mapping):
+            continue
+        prototype = value.get("prototype")
+        input_weights = value.get("input_weights")
+        if not isinstance(prototype, torch.Tensor) or not isinstance(
+            input_weights,
+            torch.Tensor,
+        ):
+            continue
+        payload: dict[str, Any] = {
+            "prototype": prototype.detach().clone().cpu(),
+            "input_weights": input_weights.detach().clone().cpu(),
+            "strength": float(value.get("strength", 0.0)),
+        }
+        for metadata_key in (
+            "captured_at_token",
+            "captured_source_index",
+            "capture_sequence",
+        ):
+            metadata_value = _optional_int(value.get(metadata_key))
+            if metadata_value is not None:
+                payload[metadata_key] = metadata_value
+        snapshot[int(key)] = payload
+    return snapshot
+
+
+def _restore_column_anchors(
+    trainer: MarulhoTrainer,
+    raw_column_anchors: Any,
+) -> dict[int, dict[str, Any]]:
+    restored: dict[int, dict[str, Any]] = {}
+    for key, value in dict(raw_column_anchors or {}).items():
+        if not isinstance(value, Mapping):
+            continue
+        prototype = value.get("prototype")
+        input_weights = value.get("input_weights")
+        if not isinstance(prototype, torch.Tensor) or not isinstance(
+            input_weights,
+            torch.Tensor,
+        ):
+            continue
+        payload: dict[str, Any] = {
+            "prototype": prototype.detach().clone().to(trainer.model.device),
+            "input_weights": input_weights.detach().clone().to(trainer.model.device),
+            "strength": float(value.get("strength", 0.0)),
+        }
+        for metadata_key in (
+            "captured_at_token",
+            "captured_source_index",
+            "capture_sequence",
+        ):
+            metadata_value = _optional_int(value.get(metadata_key))
+            if metadata_value is not None:
+                payload[metadata_key] = metadata_value
+        restored[int(key)] = payload
+    return restored
 
 
 def _surprise_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
@@ -193,15 +267,7 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
             "stage2_bootstrap_budget": int(trainer._stage2_bootstrap_budget),
             "stage2_bootstrap_used_visual": int(trainer._stage2_bootstrap_used_visual),
             "stage2_bootstrap_used_audio": int(trainer._stage2_bootstrap_used_audio),
-            "column_anchors": {
-                int(key): {
-                    "prototype": value["prototype"].detach().clone().cpu(),
-                    "input_weights": value["input_weights"].detach().clone().cpu(),
-                    "strength": float(value["strength"]),
-                }
-                for key, value in trainer.column_anchors.items()
-                if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
-            },
+            "column_anchors": _column_anchors_checkpoint_snapshot(trainer),
             "route_candidate_bank": _route_candidate_bank_checkpoint_snapshot(trainer),
         },
         "metadata": metadata_snapshot,
@@ -500,15 +566,10 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str,
     trainer._stage2_bootstrap_budget = int(trainer_snapshot.get("stage2_bootstrap_budget", 50))
     trainer._stage2_bootstrap_used_visual = int(trainer_snapshot.get("stage2_bootstrap_used_visual", 0))
     trainer._stage2_bootstrap_used_audio = int(trainer_snapshot.get("stage2_bootstrap_used_audio", 0))
-    trainer.column_anchors = {
-        int(key): {
-            "prototype": value["prototype"].detach().clone().to(trainer.model.device),
-            "input_weights": value["input_weights"].detach().clone().to(trainer.model.device),
-            "strength": float(value["strength"]),
-        }
-        for key, value in dict(trainer_snapshot.get("column_anchors", {})).items()
-        if isinstance(value.get("prototype"), torch.Tensor) and isinstance(value.get("input_weights"), torch.Tensor)
-    }
+    trainer.column_anchors = _restore_column_anchors(
+        trainer,
+        trainer_snapshot.get("column_anchors", {}),
+    )
     route_bank_snapshot = trainer_snapshot.get("route_candidate_bank")
     if isinstance(route_bank_snapshot, dict):
         trainer._restored_route_candidate_bank_snapshot = dict(route_bank_snapshot)

@@ -775,6 +775,44 @@ zero graph/native/sequence failures. This retires the input-unbounded service
 replay-plan shape while keeping replay selection inspectable and local to an
 operator-reviewed slow/service window.
 
+HF replay query collection now applies the same bounded-source rule to retained
+column anchors. The old runner capped returned query indices but still passed
+every retained `column_anchors` bucket into the store collector, so
+`_candidate_indices_for_bucket_ids(...)` built an all-anchor source pass before
+the bounded query window. Anchor capture now records durable recency metadata,
+refreshes dict recency when a bucket is recaptured, and checkpoints the recency
+fields. `_collect_anchor_replay_queries(...)` emits
+`bounded_replay_query_anchor_bucket_source_window.v1` before calling
+`collect_replay_query_indices(...)`, passing at most `16` reverse-recency anchor
+buckets and carrying that same candidate bucket window into
+`_bounded_replay_recall_evaluation(...)`. The report states CPU archival and
+active replay-query placement, no live tick, no every-token work, no raw replay
+text, no hidden language reasoning, no global score/candidate scan, and
+`anchor_source_full_scan=false`.
+
+The benchmark
+`reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json`
+used `8192` retained anchors, `16` query budget, `32` recall candidates, and
+`64` iterations. The retired all-anchor source pass averaged `16.414 ms`; the
+bounded source path averaged `0.346 ms` (`47.373x`), used `16/8192` anchor
+buckets, selected the newest anchor query indices with hit rate `1.0` versus
+`0.0` for the retired pass, and passed exact input recall with
+`mean_input_pattern_distance=0.0`. The benchmark pinned the trainer to CPU for
+replay-query evidence and reported `0.0 MiB` CUDA allocation.
+
+The long hot-path protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json`
+processed `524288` tokens at `6376.873 tokens/sec`, with
+`train_compute=0.128288 ms/token`, `prepare_training=0.006247 ms/token`,
+`finalize_total=0.005964 ms/token`, and `tick_duration_ms.p95=20.160`. Runtime
+Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph, selection, native burst, and
+native sequence failures were all `0`. GPU memory stayed flat at `1787 MiB`.
+The velocity sampler observed borderline GPU contention at `20%`, so this is
+accepted as hot-path protection and same-band throughput evidence, not a clean
+hardware ceiling.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -788,12 +826,14 @@ bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
-bounded replay-plan source windows, awake-ripple tagging, and retired unscoped
+bounded replay-plan source windows, bounded replay-query anchor-source windows,
+awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
-source-bank wrapper APIs implemented; future larger replay windows still
-require repeated long-run hot-path and grounding checks
+source-bank wrapper APIs, plus the all-anchor HF replay-query source pass;
+future larger replay windows still require repeated long-run hot-path and
+grounding checks
 
 ## Links
 

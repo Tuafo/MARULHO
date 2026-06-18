@@ -12,6 +12,8 @@ from marulho.core.columns import CompetitiveColumnLayer
 from marulho.consolidation.memory_store import DualMemoryStore
 from marulho.training.runner_utils import set_seed
 from marulho.training.memory_consolidation_runner import (
+    REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+    REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_POLICY,
     _bounded_replay_recall_evaluation,
     _collect_anchor_replay_queries,
     _run_reconstruction_guarded_sleep_maintenance,
@@ -1143,9 +1145,32 @@ class MemoryConsolidationTests(unittest.TestCase):
             query_collection["candidate_scope"],
             "bucket_indexed_candidate_window",
         )
+        self.assertEqual(query_collection["anchor_bucket_source_total_count"], 1)
+        self.assertEqual(
+            query_collection["anchor_bucket_window_limit"],
+            REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        )
+        self.assertEqual(query_collection["anchor_bucket_window_count"], 1)
+        self.assertEqual(
+            query_collection["anchor_bucket_window_policy"],
+            REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_POLICY,
+        )
+        self.assertFalse(query_collection["anchor_source_full_scan"])
+        self.assertEqual(
+            query_collection["source_window"]["surface"],
+            "bounded_replay_query_anchor_bucket_source_window.v1",
+        )
         self.assertEqual(query_collection["candidate_window_limit"], 4)
         self.assertEqual(query_collection["query_count"], 1)
         self.assertEqual(report["surface"], "bounded_replay_window_hf_recall.v1")
+        self.assertEqual(
+            report["candidate_bucket_ids"],
+            query_collection["candidate_bucket_ids"],
+        )
+        self.assertEqual(
+            report["anchor_bucket_source_window"]["surface"],
+            "bounded_replay_query_anchor_bucket_source_window.v1",
+        )
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(report["query_count"], 1)
         self.assertEqual(
@@ -1161,6 +1186,81 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["reports"][0]["candidate_scope"],
             "bucket_indexed_candidate_window",
         )
+
+    def test_hf_replay_query_collection_caps_anchor_bucket_source_window(self) -> None:
+        set_seed(9)
+        cfg = MarulhoConfig(
+            n_columns=32,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=64,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 100
+
+        for bucket in range(24):
+            pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+            pattern[bucket % cfg.input_dim] = 1.0
+            routing_key = trainer.model.routing_key_from_pattern(pattern)
+            assembly = trainer.model.competitive.assembly_from_input(
+                pattern.to(trainer.model.device)
+            ).detach().cpu()
+            trainer.model.memory_store.update(
+                assembly,
+                importance=1.0,
+                token_count=bucket + 1,
+                bucket_id=bucket,
+                input_pattern=pattern,
+                routing_key=routing_key.detach().cpu(),
+                capture_tag=1.0,
+            )
+            trainer.column_anchors[bucket] = {
+                "prototype": trainer.model.competitive.prototypes[bucket]
+                .detach()
+                .clone(),
+                "input_weights": trainer.model.competitive.input_weights[bucket]
+                .detach()
+                .clone(),
+                "strength": 2.0,
+                "captured_at_token": bucket + 1,
+                "captured_source_index": bucket,
+                "capture_sequence": bucket,
+            }
+
+        queries, query_collection = _collect_anchor_replay_queries(
+            trainer,
+            max_queries=4,
+        )
+        source_window = query_collection["source_window"]
+
+        expected_anchor_buckets = list(range(23, 7, -1))
+        self.assertEqual(len(queries), 4)
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_replay_query_anchor_bucket_source_window.v1",
+        )
+        self.assertEqual(source_window["anchor_bucket_source_total_count"], 24)
+        self.assertEqual(
+            source_window["anchor_bucket_window_limit"],
+            REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        )
+        self.assertEqual(source_window["anchor_bucket_window_count"], 16)
+        self.assertEqual(source_window["anchor_bucket_ids"], expected_anchor_buckets)
+        self.assertTrue(source_window["truncated_source_count"])
+        self.assertFalse(source_window["anchor_source_full_scan"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertEqual(query_collection["candidate_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(query_collection["candidate_bucket_count"], 16)
+        self.assertEqual(query_collection["candidate_index_available_count"], 16)
+        self.assertEqual(query_collection["candidate_window_limit"], 4)
+        self.assertEqual(query_collection["candidate_index_count"], 4)
+        self.assertEqual(query_collection["query_indices"], [23, 22, 21, 20])
+        self.assertEqual(query_collection["query_count"], 4)
+        self.assertFalse(query_collection["global_candidate_scan"])
+        self.assertFalse(query_collection["runs_live_tick"])
 
     def test_reconstruction_guard_rolls_back_harmful_replay_cycle(self) -> None:
         set_seed(7)

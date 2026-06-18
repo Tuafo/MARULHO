@@ -66,7 +66,7 @@ class MarulhoTrainer:
         self.pending_emergency_deep_sleep = False
         self._cached_drift: float | None = None
         self._dead_column_census: dict[str, int | float] = {}
-        self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
+        self.column_anchors: dict[int, dict[str, torch.Tensor | float | int]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
         self.encoder: BaseEncoder = build_encoder(self.config, device=self.model.device)
         self._recent_stream_text = ""
@@ -4499,10 +4499,14 @@ class MarulhoTrainer:
                 continue
             bucket = int(bucket_id)
             candidate_buckets.add(bucket)
+            self.column_anchors.pop(bucket, None)
             self.column_anchors[bucket] = {
                 "prototype": self.model.competitive.prototypes[bucket].detach().clone(),
                 "input_weights": self.model.competitive.input_weights[bucket].detach().clone(),
                 "strength": float(max(0.0, strength)),
+                "captured_at_token": int(self.token_count),
+                "captured_source_index": int(idx),
+                "capture_sequence": int(captured),
             }
             captured += 1
         anchor_count = len(self.column_anchors) if captured > 0 else 0

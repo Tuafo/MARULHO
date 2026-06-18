@@ -4,6 +4,7 @@ status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
+  - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -47,6 +48,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
+  - reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
@@ -115,6 +118,12 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-recent-anchor-window.json`
 - Hot-path protection for recent replay tag/anchor setup:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded replay-query anchor source window tests:
+  `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_hf_recall_evaluation_reports_bounded_anchor_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_hf_replay_query_collection_caps_anchor_bucket_source_window tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_column_anchor_recency_metadata -q`
+- Bounded replay-query anchor source window benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.replay_query_anchor_source_window_benchmark --output reports\bounded_replay_window_20260618\replay-query-anchor-source-window-bounded.json --anchor-count 8192 --column-latent-dim 32 --max-queries 16 --max-candidates 32 --iterations 64`
+- Hot-path protection for bounded replay-query anchor source window:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Full-buffer replay-score helper retirement tests:
   `PYTHONPATH=src python -m pytest tests\test_p1_improvements.py::TestAwakeRippleTagging::test_ripple_tagged_entries_get_higher_replay_scores tests\test_memory_consolidation.py::MemoryConsolidationTests::test_capture_tags_recruit_prp_and_raise_replay_priority tests\test_query_runner.py -q`
 - Synthetic replay-score helper retirement:
@@ -946,6 +955,39 @@ used `cuda:0` only for active assembly computation, and measured a
 transition rows, and reported zero runtime failures; sampler telemetry observed
 GPU-side contention, so this is hot-path protection evidence rather than a
 speedup claim.
+
+HF replay query collection now bounds the retained column-anchor source window
+before asking the memory store for replay-query indices. The focused benchmark
+was:
+
+`python -m marulho.evaluation.replay_query_anchor_source_window_benchmark --output reports\bounded_replay_window_20260618\replay-query-anchor-source-window-bounded.json --anchor-count 8192 --column-latent-dim 32 --max-queries 16 --max-candidates 32 --iterations 64`
+
+It compared the retired all-anchor source pass against
+`bounded_replay_query_anchor_bucket_source_window.v1`. The old source pass
+handed `8192` anchor buckets to `collect_replay_query_indices(...)` and
+averaged `16.414 ms`; the bounded path handed `16` reverse-recency buckets,
+averaged `0.346 ms`, and improved mean latency by `47.373x`. Quality improved
+for the intended Task-A anchor query source: newest-anchor query hit rate was
+`1.0` for the bounded path versus `0.0` for the all-anchor bucket order, while
+HF replay recall stayed exact with `mean_input_pattern_distance=0.0`. The
+benchmark pinned the trainer to CPU for replay-query evidence and reported
+`archival_storage_device=cpu`, `active_replay_compute_device=cpu`, and
+`cuda_memory_delta_mib=0.0`.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6376.873 tokens/sec`, with
+`train_compute=0.128288 ms/token`, `prepare_training=0.006247 ms/token`,
+`finalize_total=0.005964 ms/token`, and `tick_duration_ms.p95=20.160`. Runtime
+Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph, selection, native burst, and
+native sequence failures were all `0`. GPU memory stayed flat at `1787 MiB`.
+The velocity sampler observed borderline GPU contention at `20%`, so this is
+accepted as hot-path protection and same-band throughput evidence, not a clean
+contention-free ceiling.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
