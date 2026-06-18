@@ -651,6 +651,25 @@ bounded `12/65536` route rows, `65526` cached transition rows, no observed
 contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
 failures.
 
+On 2026-06-18, explicit feed gained bounded source-episode admission. This
+does not run inside the column live tick. `feed_text(...)` runs the normal
+training stream, then a slow-path source admission step records
+`bounded_feed_source_episode_admission.v1` with a `32`-episode and `240`-char
+payload budget, CPU archival storage, no global memory scan, no every-token
+slow-memory admission, and no language reasoning. Query readout now respects
+the source-admission boundary: complete admitted source episodes are returned
+as whole evidence, zero-support episodes are filtered when supported evidence
+exists, and cadence-fragment neighbor stitching requires direct character
+overlap and cannot cross into source-episode entries. The quality benchmark
+`reports/bounded_replay_window_20260618/source-episode-admission-bounded.json`
+raised simple-animals grounded query pass rate from `0.25` to `1.0` while
+keeping all archival tensors on CPU. The paired hot-path run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-episode-admission.json`
+processed `524288` tokens at `6702.362 tokens/sec`, with
+`train_compute=0.121727 ms/token`, bounded route scoring at `12/65536`,
+`65526` cached transition rows, no observed contention, flat `1808 MiB` GPU
+memory, and zero graph/native/sequence failures.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

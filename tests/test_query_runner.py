@@ -16,6 +16,7 @@ class _FakeMemoryStore:
         self.slow_input_patterns = [item.clone() for item in self.slow_buffer]
         self.slow_routing_keys = [None for _ in texts]
         self.slow_raw_windows = list(texts)
+        self.slow_metadata = [{} for _ in texts]
         self.slow_bucket_ids = [index % 8 for index, _text in enumerate(texts)]
         self.slow_importance = [1.0 for _ in texts]
         self.slow_entry_timestamps = [0 for _ in texts]
@@ -313,6 +314,68 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             report["raw_text_payload_count"],
             report["selection_budget"]["neighbor_window_read_budget_entries"],
         )
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["language_reasoning"])
+
+    def test_memory_episode_readout_preserves_admitted_source_episode_text(self) -> None:
+        store = _FakeMemoryStore(["old fragment", "t indoors.", "later fragment"])
+        store.slow_metadata[1] = {
+            "source_type": "explicit_feed_source_episode",
+            "source_name": "query_runner_explicit_feed",
+            "provider": "query_runner",
+        }
+        matches = [
+            {
+                "memory_index": 1,
+                "text": "cats rest indoors.",
+                "raw_window": "t indoors.",
+                "similarity": 0.99,
+                "metadata": dict(store.slow_metadata[1]),
+                "source_type": "explicit_feed_source_episode",
+            }
+        ]
+
+        episodes, report = query_runner.build_memory_episodes_with_report(
+            matches,
+            top_k=1,
+            query_terms=["cats", "rest"],
+            memory_store=store,
+            neighbor_radius=2,
+        )
+
+        self.assertEqual(episodes[0]["text"], "cats rest indoors.")
+        self.assertEqual(report["raw_text_payload_count"], 0)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["language_reasoning"])
+
+    def test_memory_episode_readout_does_not_stitch_across_source_admission_boundary(self) -> None:
+        store = _FakeMemoryStore(["cats res", "eels safe.", "t indoors."])
+        store.slow_metadata[2] = {
+            "source_type": "explicit_feed_source_episode",
+            "source_name": "query_runner_explicit_feed",
+            "provider": "query_runner",
+        }
+        matches = [
+            {
+                "memory_index": 1,
+                "text": "eels safe.",
+                "raw_window": "eels safe.",
+                "similarity": 0.97,
+            }
+        ]
+
+        episodes, report = query_runner.build_memory_episodes_with_report(
+            matches,
+            top_k=1,
+            query_terms=["cats", "safe"],
+            memory_store=store,
+            neighbor_radius=2,
+        )
+
+        self.assertNotIn("indoors", episodes[0]["text"].lower())
+        self.assertLessEqual(report["raw_text_payload_count"], 2)
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["runs_live_tick"])
         self.assertFalse(report["language_reasoning"])

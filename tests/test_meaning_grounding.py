@@ -88,7 +88,7 @@ class MeaningGroundingTests(unittest.TestCase):
                 "a dog guards the house and barks at strangers.",
             ]
         )
-        build_query_result(
+        feed_result = build_query_result(
             trainer=trainer,
             checkpoint=Path("test://meaning-grounding"),
             metadata={},
@@ -102,6 +102,20 @@ class MeaningGroundingTests(unittest.TestCase):
             compare_context_a=None,
             compare_context_b=None,
         )
+        feed_summary = dict(feed_result["feed_summary"])
+        admission_report = dict(feed_summary["source_memory_admission_report"])
+        self.assertEqual(
+            admission_report["surface"],
+            "bounded_feed_source_episode_admission.v1",
+        )
+        self.assertEqual(admission_report["candidate_window_limit"], 32)
+        self.assertEqual(admission_report["candidate_episode_count"], 4)
+        self.assertEqual(admission_report["admitted_count"], 4)
+        self.assertFalse(admission_report["runs_live_tick"])
+        self.assertFalse(admission_report["runs_every_token"])
+        self.assertFalse(admission_report["global_candidate_scan"])
+        self.assertFalse(admission_report["language_reasoning"])
+        self.assertEqual(admission_report["archival_storage_device"], "cpu")
         query_result = build_query_result(
             trainer=trainer,
             checkpoint=Path("test://meaning-grounding"),

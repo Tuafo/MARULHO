@@ -601,6 +601,28 @@ bounded `12/65536` route rows, `65526` cached transition rows, no observed
 contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
 failures.
 
+The source-episode admission follow-up closes the gap where explicit feed
+training preserved only cadence fragments in slow memory. `feed_text(...)` now
+records `bounded_feed_source_episode_admission.v1` after explicit query-runner
+feed, deduplicating source sentences under a `32`-episode, `240`-char payload
+budget. This is a slow-path admission operator, not live runtime replay:
+reports state no live tick, no every-token work, no global memory scan, CPU
+archival storage, and no language reasoning. The readout side also retires the
+mixed-provenance stitching assumption: complete admitted source episodes remain
+whole, zero-support episodes are filtered when query-supported evidence exists,
+and raw neighbor stitching requires character overlap so cadence fragments
+cannot be concatenated across source-admission boundaries. The benchmark
+`reports/bounded_replay_window_20260618/source-episode-admission-bounded.json`
+improved the simple-animals grounding gate from `0.25` to `1.0`, admitted `5`
+source episodes, kept slow buffers/input patterns/routing keys on CPU, and
+accepted the explicit-feed cost increase (`+17293.226 ms`) because the hot path
+does not call the admission operator. The long protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-episode-admission.json`
+processed `524288` tokens at `6702.362 tokens/sec`, with
+`train_compute=0.121727 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, GPU memory `1808->1808 MiB`,
+and zero graph/native/sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -612,7 +634,7 @@ readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
-query-memory episode readout,
+query-memory episode readout, bounded source-episode admission,
 awake-ripple tagging, and retired unscoped random replay defaults plus the
 full-buffer replay-score, score-tensor, list-only replay/SFA, and source-bank
 wrapper APIs implemented; future larger replay windows still require repeated

@@ -869,6 +869,23 @@ bounded `12/65536` route rows, `65526` cached transition rows, no observed
 contention, GPU memory `1810->1811 MiB`, and zero graph/native/sequence
 failures.
 
+The source-episode admission benchmark
+`reports/bounded_replay_window_20260618/source-episode-admission-bounded.json`
+compares explicit feed with source admission disabled against bounded source
+admission. The disabled arm passed `1/4` simple-animals grounded queries
+(`0.25` pass rate); bounded admission passed `4/4` (`1.0` pass rate) by
+admitting `5` deduplicated source episodes under the `32`-episode,
+`240`-char budget. Admission reports no live tick, no every-token work, no
+global candidate/score scan, no language reasoning, and CPU archival storage
+for slow buffers, input patterns, and routing keys. Explicit feed latency rose
+from `102843.415 ms` to `120136.642 ms`; mean query readout latency improved
+from `723.239 ms` to `678.412 ms`. The paired long protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-episode-admission.json`
+processed `524288` tokens at `6702.362 tokens/sec`, with
+`train_compute=0.121727 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, flat `1808 MiB` GPU memory,
+and zero graph/native/sequence failures.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
 hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper

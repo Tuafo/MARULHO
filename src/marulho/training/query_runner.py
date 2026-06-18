@@ -15,6 +15,7 @@ from marulho.semantics.grounding_text import TOKEN_RE
 from marulho.semantics.grounding_text import query_focused_clauses
 from marulho.semantics.grounding_text import salient_query_terms
 from marulho.semantics.grounding_text import semantic_unit_similarity
+from marulho.semantics.grounding_text import split_sentences
 from marulho.semantics.grounding_text import stream_matching_units
 from marulho.semantics.grounding_text import token_forms
 from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
@@ -26,6 +27,10 @@ _TERM_MATCH_THRESHOLD = 0.70
 _MAX_EVIDENCE_CACHE_ENTRIES = 8192
 _MAX_FORM_CACHE_ENTRIES = 65536
 _MAX_TERM_PAIR_CACHE_ENTRIES = 65536
+_FEED_SOURCE_EPISODE_LIMIT = 32
+_FEED_SOURCE_EPISODE_MAX_CHARS = 240
+_FEED_SOURCE_EPISODE_IMPORTANCE = 0.20
+_FEED_SOURCE_EPISODE_CAPTURE_TAG = 0.20
 
 
 def _compact_match_unit(value: str) -> str:
@@ -169,6 +174,16 @@ def episode_quality(text: str, raw_window: str | None = None) -> tuple[int, int]
     return complete_sentence, clipped_overlap
 
 
+def _text_window_overlap(left: str, right: str, *, min_overlap: int = 2) -> int:
+    left_text = str(left or "")
+    right_text = str(right or "")
+    max_overlap = min(len(left_text), len(right_text))
+    for size in range(max_overlap, max(0, int(min_overlap) - 1), -1):
+        if left_text[-size:].lower() == right_text[:size].lower():
+            return int(size)
+    return 0
+
+
 def _merge_adjacent_text_windows(windows: Sequence[str], *, min_overlap: int = 2) -> str:
     merged = ""
     for raw_window in windows:
@@ -178,17 +193,9 @@ def _merge_adjacent_text_windows(windows: Sequence[str], *, min_overlap: int = 2
         if not merged:
             merged = window
             continue
-        max_overlap = min(len(merged), len(window))
-        overlap = 0
-        for size in range(max_overlap, max(0, int(min_overlap) - 1), -1):
-            if merged[-size:].lower() == window[:size].lower():
-                overlap = size
-                break
+        overlap = _text_window_overlap(merged, window, min_overlap=min_overlap)
         if overlap > 0:
             merged += window[overlap:]
-        else:
-            separator = "" if merged.endswith((" ", "\n", "\t")) or window.startswith((" ", "\n", "\t")) else " "
-            merged += separator + window
     return merged
 
 
@@ -211,6 +218,16 @@ def _bounded_episode_source_text(
     loaded_indices: set[int],
 ) -> tuple[str, list[int]]:
     fallback = str(match.get("text") or match.get("raw_window") or "").strip()
+    raw_window = str(match.get("raw_window") or "").strip()
+    metadata = match.get("metadata") if isinstance(match.get("metadata"), Mapping) else {}
+    complete_sentence, _clipped_overlap = episode_quality(fallback, raw_window)
+    full_source_episode = (
+        bool(complete_sentence)
+        and str(metadata.get("source_type", "")).strip()
+        == "explicit_feed_source_episode"
+    )
+    if full_source_episode:
+        return fallback, []
     if memory_store is None or int(neighbor_radius) <= 0:
         return fallback, []
     try:
@@ -224,9 +241,20 @@ def _bounded_episode_source_text(
     start = max(0, center - radius)
     stop = min(window_count - 1, center + radius)
     windows = getattr(memory_store, "slow_raw_windows", None)
+    metadata_rows = getattr(memory_store, "slow_metadata", None)
     source_windows: list[str] = []
     indices: list[int] = []
     for index in range(start, stop + 1):
+        try:
+            metadata = metadata_rows[index] if metadata_rows is not None else None
+        except (TypeError, IndexError, KeyError):
+            metadata = None
+        if (
+            isinstance(metadata, Mapping)
+            and str(metadata.get("source_type", "")).strip()
+            == "explicit_feed_source_episode"
+        ):
+            continue
         if index not in window_cache:
             try:
                 value = windows[index]
@@ -238,8 +266,25 @@ def _bounded_episode_source_text(
         if text:
             source_windows.append(text)
             indices.append(index)
-    stitched = _merge_adjacent_text_windows(source_windows).strip()
-    return (stitched or fallback), indices
+    if center in indices:
+        center_position = indices.index(center)
+        anchored_windows = [source_windows[center_position]]
+        anchored_indices = [indices[center_position]]
+        for position in range(center_position - 1, -1, -1):
+            if _text_window_overlap(source_windows[position], anchored_windows[0]) <= 0:
+                break
+            anchored_windows.insert(0, source_windows[position])
+            anchored_indices.insert(0, indices[position])
+        for position in range(center_position + 1, len(source_windows)):
+            if _text_window_overlap(anchored_windows[-1], source_windows[position]) <= 0:
+                break
+            anchored_windows.append(source_windows[position])
+            anchored_indices.append(indices[position])
+    else:
+        anchored_windows = source_windows
+        anchored_indices = indices
+    stitched = _merge_adjacent_text_windows(anchored_windows).strip()
+    return (stitched or fallback), anchored_indices
 
 
 def feature_label(index: int, representation: str, feature_dim: int) -> str:
@@ -261,6 +306,258 @@ def feature_label(index: int, representation: str, feature_dim: int) -> str:
 
 def text_pattern_stream(text: str, encoder: RTFEncoder, window_size: int) -> Iterator[tuple[str, torch.Tensor]]:
     yield from encoder.iter_char_patterns(text, window_size, learn=False)
+
+
+def _normalized_source_episode_key(text: str) -> str:
+    return " ".join(TOKEN_RE.findall(str(text or "").lower()))
+
+
+def _clip_source_episode(text: str, max_chars: int) -> str:
+    value = " ".join(str(text or "").split()).strip()
+    limit = max(1, int(max_chars))
+    if len(value) <= limit:
+        return value
+    clipped = value[:limit].strip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0].strip()
+    return clipped or value[:limit].strip()
+
+
+def _bounded_feed_source_episode_candidates(
+    text: str,
+    *,
+    max_source_episodes: int,
+    max_chars_per_episode: int,
+) -> tuple[list[str], dict[str, Any]]:
+    source_units = split_sentences(text)
+    limit = max(0, int(max_source_episodes))
+    candidates: list[str] = []
+    seen: set[str] = set()
+    considered = 0
+    duplicate_count = 0
+    low_signal_count = 0
+
+    if limit <= 0:
+        return [], {
+            "source_unit_available_count": int(len(source_units)),
+            "source_unit_considered_count": 0,
+            "source_duplicate_count": 0,
+            "source_low_signal_count": 0,
+            "candidate_truncated": bool(source_units),
+        }
+
+    for source_unit in source_units:
+        considered += 1
+        candidate = _clip_source_episode(source_unit, max_chars_per_episode)
+        tokens = TOKEN_RE.findall(candidate.lower())
+        if len(tokens) < 2:
+            low_signal_count += 1
+            continue
+        key = " ".join(tokens)
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
+        candidates.append(candidate)
+        if len(candidates) >= limit:
+            break
+
+    return candidates, {
+        "source_unit_available_count": int(len(source_units)),
+        "source_unit_considered_count": int(considered),
+        "source_duplicate_count": int(duplicate_count),
+        "source_low_signal_count": int(low_signal_count),
+        "candidate_truncated": bool(considered < len(source_units)),
+    }
+
+
+def _empty_feed_source_episode_admission_report(
+    *,
+    status: str,
+    fallback_reason: str | None,
+    memory_size: int = 0,
+    token_count: int = 0,
+    max_source_episodes: int = _FEED_SOURCE_EPISODE_LIMIT,
+    max_chars_per_episode: int = _FEED_SOURCE_EPISODE_MAX_CHARS,
+) -> dict[str, Any]:
+    return {
+        "surface": "bounded_feed_source_episode_admission.v1",
+        "status": str(status),
+        "scope": "query_runner_explicit_feed_slow_path",
+        "memory_size_before": int(memory_size),
+        "memory_size_after": int(memory_size),
+        "token_count": int(token_count),
+        "source_text_chars_scanned": 0,
+        "source_unit_available_count": 0,
+        "source_unit_considered_count": 0,
+        "source_duplicate_count": 0,
+        "source_low_signal_count": 0,
+        "candidate_window_limit": int(max(0, int(max_source_episodes))),
+        "candidate_window_policy": "explicit_feed_sentence_units_deduped",
+        "candidate_scope": "explicit_feed_source_episode_window",
+        "candidate_episode_count": 0,
+        "candidate_truncated": False,
+        "attempted_count": 0,
+        "admitted_count": 0,
+        "rejected_count": 0,
+        "admitted_indices": [],
+        "admitted_bucket_ids": [],
+        "source_episode_max_chars": int(max(1, int(max_chars_per_episode))),
+        "importance": float(_FEED_SOURCE_EPISODE_IMPORTANCE),
+        "capture_tag": float(_FEED_SOURCE_EPISODE_CAPTURE_TAG),
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "plasticity_scope": "none",
+        "language_reasoning": False,
+        "hidden_language_reasoning": False,
+        "archival_storage_device": "cpu",
+        "active_computation_device": None,
+        "selection_budget": {
+            "candidate_episode_budget_entries": int(max(0, int(max_source_episodes))),
+            "source_episode_max_chars": int(max(1, int(max_chars_per_episode))),
+        },
+        "fallback_reason": fallback_reason,
+    }
+
+
+def admit_bounded_feed_source_episodes(
+    trainer: MarulhoTrainer,
+    encoder: RTFEncoder,
+    text: str,
+    *,
+    max_source_episodes: int = _FEED_SOURCE_EPISODE_LIMIT,
+    max_chars_per_episode: int = _FEED_SOURCE_EPISODE_MAX_CHARS,
+    importance: float = _FEED_SOURCE_EPISODE_IMPORTANCE,
+    capture_tag: float = _FEED_SOURCE_EPISODE_CAPTURE_TAG,
+) -> dict[str, Any]:
+    store = trainer.model.memory_store
+    memory_size_before = len(getattr(store, "slow_buffer", []))
+    candidates, selection_report = _bounded_feed_source_episode_candidates(
+        text,
+        max_source_episodes=max_source_episodes,
+        max_chars_per_episode=max_chars_per_episode,
+    )
+    if not candidates:
+        return {
+            **_empty_feed_source_episode_admission_report(
+                status="empty",
+                fallback_reason="no_source_episode_candidates",
+                memory_size=memory_size_before,
+                token_count=int(getattr(trainer, "token_count", 0)),
+                max_source_episodes=max_source_episodes,
+                max_chars_per_episode=max_chars_per_episode,
+            ),
+            "source_text_chars_scanned": int(len(str(text or ""))),
+            **selection_report,
+        }
+
+    admitted_indices: list[int] = []
+    admitted_bucket_ids: list[int] = []
+    rejected_count = 0
+    pattern_device: str | None = None
+    routing_key_device: str | None = None
+    assembly_device: str | None = None
+
+    for rank, source_episode in enumerate(candidates):
+        examples = list(
+            text_pattern_stream(source_episode, encoder, trainer.config.window_size)
+        )
+        if not examples:
+            rejected_count += 1
+            continue
+        raw_window, pattern = examples[-1]
+        pattern_device = str(pattern.device)
+        routing_key = trainer.routing_key_for_pattern(pattern)
+        routing_key_device = str(routing_key.device)
+        assembly = trainer.assembly_for_pattern(pattern)
+        assembly_device = str(assembly.device)
+        bucket_id = trainer.winner_for_pattern(pattern)
+        memory_index = store.update(
+            assembly,
+            importance=max(1e-6, float(importance)),
+            token_count=int(getattr(trainer, "token_count", 0)),
+            bucket_id=int(bucket_id),
+            input_pattern=pattern,
+            routing_key=routing_key,
+            raw_window=raw_window,
+            text=source_episode,
+            metadata={
+                "source_type": "explicit_feed_source_episode",
+                "source_name": "query_runner_explicit_feed",
+                "provider": "query_runner",
+                "admission_surface": "bounded_feed_source_episode_admission.v1",
+                "source_episode_rank": int(rank),
+                "source_episode_key": _normalized_source_episode_key(source_episode),
+                "source_episode_chars": int(len(source_episode)),
+                "source_episode_pattern_window": raw_window,
+            },
+            capture_tag=max(0.0, float(capture_tag)),
+        )
+        if memory_index is None:
+            rejected_count += 1
+            continue
+        admitted_indices.append(int(memory_index))
+        admitted_bucket_ids.append(int(bucket_id))
+
+    memory_size_after = len(getattr(store, "slow_buffer", []))
+    admitted_count = len(admitted_indices)
+    return {
+        "surface": "bounded_feed_source_episode_admission.v1",
+        "status": "admitted" if admitted_count else "empty",
+        "scope": "query_runner_explicit_feed_slow_path",
+        "memory_size_before": int(memory_size_before),
+        "memory_size_after": int(memory_size_after),
+        "token_count": int(getattr(trainer, "token_count", 0)),
+        "source_text_chars_scanned": int(len(str(text or ""))),
+        **selection_report,
+        "candidate_window_limit": int(max(0, int(max_source_episodes))),
+        "candidate_window_policy": "explicit_feed_sentence_units_deduped",
+        "candidate_scope": "explicit_feed_source_episode_window",
+        "candidate_episode_count": int(len(candidates)),
+        "attempted_count": int(len(candidates)),
+        "admitted_count": int(admitted_count),
+        "rejected_count": int(rejected_count),
+        "admitted_indices": admitted_indices[:64],
+        "admitted_index_sample_limit": 64,
+        "admitted_index_truncated": bool(len(admitted_indices) > 64),
+        "admitted_bucket_ids": admitted_bucket_ids[:64],
+        "admitted_bucket_id_sample_limit": 64,
+        "admitted_bucket_id_truncated": bool(len(admitted_bucket_ids) > 64),
+        "source_episode_max_chars": int(max(1, int(max_chars_per_episode))),
+        "importance": float(importance),
+        "capture_tag": float(capture_tag),
+        "global_score_scan": False,
+        "global_candidate_scan": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": bool(admitted_count),
+        "applies_plasticity": bool(admitted_count),
+        "plasticity_scope": (
+            "slow_memory_admission_tag_only_no_column_weight_update"
+            if admitted_count
+            else "none"
+        ),
+        "language_reasoning": False,
+        "hidden_language_reasoning": False,
+        "archival_storage_device": "cpu",
+        "active_computation_device": str(trainer.model.device),
+        "input_pattern_device": pattern_device,
+        "routing_key_device": routing_key_device,
+        "assembly_device": assembly_device,
+        "selection_budget": {
+            "candidate_episode_budget_entries": int(max(0, int(max_source_episodes))),
+            "source_episode_max_chars": int(max(1, int(max_chars_per_episode))),
+            "source_payload_char_budget": int(
+                max(0, int(max_source_episodes))
+                * max(1, int(max_chars_per_episode))
+            ),
+        },
+        "fallback_reason": None if admitted_count else "source_episode_update_rejected",
+    }
 
 
 def top_feature_details(pattern: torch.Tensor, top_n: int, representation: str) -> list[dict[str, Any]]:
@@ -295,6 +592,9 @@ def feed_text(
     text: str,
     *,
     on_step: Callable[[str, dict[str, Any]], None] | None = None,
+    admit_source_episodes: bool = True,
+    source_episode_budget: int = _FEED_SOURCE_EPISODE_LIMIT,
+    source_episode_max_chars: int = _FEED_SOURCE_EPISODE_MAX_CHARS,
 ) -> dict[str, Any]:
     trainer.encoder = encoder
     last_metrics: dict[str, Any] | None = None
@@ -305,12 +605,33 @@ def feed_text(
             on_step(raw_window, last_metrics)
         tokens += 1
 
+    if admit_source_episodes:
+        source_admission_report = admit_bounded_feed_source_episodes(
+            trainer,
+            encoder,
+            text,
+            max_source_episodes=source_episode_budget,
+            max_chars_per_episode=source_episode_max_chars,
+        )
+    else:
+        source_admission_report = _empty_feed_source_episode_admission_report(
+            status="disabled",
+            fallback_reason="source_episode_admission_disabled",
+            memory_size=len(trainer.model.memory_store.slow_buffer),
+            token_count=int(trainer.token_count),
+            max_source_episodes=source_episode_budget,
+            max_chars_per_episode=source_episode_max_chars,
+        )
+
     return {
         "tokens_processed": int(tokens),
         "token_count": int(trainer.token_count),
         "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
         "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
         "memory_buffer_size": int(len(trainer.model.memory_store.slow_buffer)),
+        "source_memory_admission_report": source_admission_report,
+        "source_memory_admission_count": int(source_admission_report.get("admitted_count", 0)),
+        "source_memory_candidate_count": int(source_admission_report.get("candidate_episode_count", 0)),
     }
 
 
@@ -487,6 +808,8 @@ def memory_matches_with_report(
     raw_text_payload_cache_hits = 0
     recent_fallback_report: dict[str, Any] | None = None
     recent_fallback_indices: list[int] = []
+    recent_fallback_reason: str | None = None
+    recent_fallback_missing_query_terms: list[str] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
@@ -508,6 +831,7 @@ def memory_matches_with_report(
                 "candidate_index_count": int(len(candidate_indices)),
                 "match_indices": [int(index) for index in candidate_indices],
                 "recent_fallback_used": bool(recent_fallback_indices),
+                "recent_fallback_reason": recent_fallback_reason,
                 "recent_fallback_surface": (
                     None if recent_fallback_report is None else recent_fallback_report.get("surface")
                 ),
@@ -518,6 +842,10 @@ def memory_matches_with_report(
                 "recent_fallback_indices": recent_fallback_indices[:64],
                 "recent_fallback_index_sample_limit": 64,
                 "recent_fallback_index_truncated": bool(len(recent_fallback_indices) > 64),
+                "recent_fallback_missing_query_terms": recent_fallback_missing_query_terms[:32],
+                "recent_fallback_missing_query_term_count": int(
+                    len(recent_fallback_missing_query_terms)
+                ),
                 "query_term_count": int(len(query_terms or [])),
                 "focus_term_count": int(len(ordered_focus_terms)),
                 "memory_priority_count": int(len(memory_priority or {})),
@@ -644,6 +972,16 @@ def memory_matches_with_report(
     for idx in candidate_indices:
         _score_index(idx)
 
+    if query_terms and matches:
+        covered_query_terms = {
+            str(value)
+            for item in matches
+            for value in list(item.get("matched_query_terms", []) or [])
+        }
+        recent_fallback_missing_query_terms = [
+            str(term) for term in query_terms if str(term) not in covered_query_terms
+        ]
+    empty_text_window = bool(text_ranking_required) and not matches
     supportless_text_window = bool(text_ranking_required and matches) and not any(
         int(item.get("query_overlap", 0)) > 0
         or int(item.get("focus_overlap", 0)) > 0
@@ -651,7 +989,20 @@ def memory_matches_with_report(
         for item in matches
     )
     recent_collector = getattr(store, "collect_recent_entry_indices", None)
-    if supportless_text_window and callable(recent_collector):
+    missing_query_support_window = bool(recent_fallback_missing_query_terms)
+    if (
+        (empty_text_window or supportless_text_window or missing_query_support_window)
+        and callable(recent_collector)
+    ):
+        recent_fallback_reason = (
+            "empty_routed_candidate_window"
+            if empty_text_window
+            else (
+                "supportless_text_window"
+                if supportless_text_window
+                else "missing_query_terms_in_routed_candidate_window"
+            )
+        )
         recent_limit = min(candidate_limit, max(32, limit * 4))
         window_tokens = max(1, min(int(getattr(trainer, "token_count", 0)) + 1, 4096))
         recent_fallback_report = dict(
@@ -822,7 +1173,19 @@ def build_memory_episodes_with_report(
             continue
         selected_neighbor_indices.update(neighbor_indices)
         source_text_match_count += 1
-        clause_candidates = query_focused_clauses(source_text, clause_terms)
+        match_metadata = (
+            match.get("metadata") if isinstance(match.get("metadata"), Mapping) else {}
+        )
+        source_is_admitted_episode = (
+            str(match_metadata.get("source_type", "")).strip()
+            == "explicit_feed_source_episode"
+            and bool(episode_quality(source_text, match.get("raw_window"))[0])
+        )
+        clause_candidates = (
+            [source_text]
+            if source_is_admitted_episode
+            else query_focused_clauses(source_text, clause_terms)
+        )
         for text in clause_candidates:
             if not text:
                 continue
@@ -910,7 +1273,19 @@ def build_memory_episodes_with_report(
         ),
         reverse=True,
     )
-    selected = episodes[: max(1, int(top_k))]
+    support_filtered_episodes = [
+        episode
+        for episode in episodes
+        if int(episode.get("query_overlap", 0)) > 0
+        or int(episode.get("focus_overlap", 0)) > 0
+        or float(episode.get("memory_focus_priority", 0.0)) > 0.0
+    ]
+    support_filter_applied = bool(
+        (query_terms or ordered_focus_terms or memory_priority)
+        and support_filtered_episodes
+    )
+    selected_source = support_filtered_episodes if support_filter_applied else episodes
+    selected = selected_source[: max(1, int(top_k))]
     selected_memory_indices: list[int] = []
     for episode in selected:
         for index in list(episode.get("memory_indices") or []):
@@ -928,6 +1303,11 @@ def build_memory_episodes_with_report(
         "input_match_count": int(len(memory_matches)),
         "source_text_match_count": int(source_text_match_count),
         "candidate_episode_count": int(len(episodes)),
+        "support_episode_count": int(len(support_filtered_episodes)),
+        "support_filter_applied": bool(support_filter_applied),
+        "support_filtered_out_count": int(
+            max(0, len(episodes) - len(selected_source))
+        ),
         "returned_count": int(len(selected)),
         "selected_memory_indices": selected_memory_indices,
         "selected_memory_index_count": int(len(selected_memory_indices)),
