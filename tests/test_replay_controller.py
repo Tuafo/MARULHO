@@ -390,6 +390,34 @@ class ReplayControllerTests(unittest.TestCase):
         assert verified is not None
         self.assertEqual(verified["replay_evaluation_context_id"], context_id)
 
+    def test_snn_replay_artifact_review_ticket_verification_uses_id_indexes(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        self._record_replay_evaluation_context(controller)
+        ticket = self._record_review_ticket(controller)
+        ticket_id = str(ticket["review_ticket_id"])
+        source_window = dict(ticket["source_window"])
+
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_snn_replay_artifact_provenance_source_window.v1",
+        )
+        self.assertEqual(source_window["policy"], "indexed_context_ticket_artifact_permit_window_v1")
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["gpu_used"])
+        controller._snn_replay_evaluation_contexts = _IterationBlockedContexts()  # type: ignore[assignment]
+        controller._snn_replay_artifact_recording_review_tickets = _IterationBlockedContexts()  # type: ignore[assignment]
+
+        verified = controller.verified_snn_replay_artifact_recording_review_ticket(
+            ticket_id,
+            operator_id="operator-1",
+        )
+
+        self.assertIsNotNone(verified)
+        assert verified is not None
+        self.assertEqual(verified["review_ticket_id"], ticket_id)
+
     def test_evaluated_replay_artifact_rejects_stale_context(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -2028,6 +2056,49 @@ class ReplayControllerTests(unittest.TestCase):
         controller.snn_transition_memory_replay_artifacts[0]["readout_evidence_hashes"] = []
 
         self.assertFalse(
+            controller.verify_regeneration_permit(
+                {"replay_evidence": permit, "regeneration_design": design}
+            )
+        )
+
+    def test_regeneration_permit_verification_uses_indexed_provenance_window(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
+        design = {
+            "locality_radius": 2,
+            "initial_weight": 0.02,
+            "max_new_synapses": 8,
+            "mismatch_score": 0.9,
+            "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+        }
+        permit = controller.issue_regeneration_permit(
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design=design,
+            operator_id="operator-1",
+            confirmation=True,
+        )
+
+        artifact_window = dict(artifact["source_window"])
+        permit_window = dict(permit["source_window"])
+        self.assertEqual(
+            artifact_window["surface"],
+            "bounded_snn_replay_artifact_provenance_source_window.v1",
+        )
+        self.assertEqual(artifact_window["source_record_count"], 2)
+        self.assertEqual(artifact_window["index_lookup_count"], 2)
+        self.assertFalse(artifact_window["global_candidate_scan"])
+        self.assertFalse(artifact_window["language_reasoning"])
+        self.assertEqual(permit_window["source_record_count"], 3)
+        self.assertEqual(permit_window["archival_storage_device"], "cpu")
+        self.assertFalse(permit_window["gpu_used"])
+
+        controller._regeneration_permits = _IterationBlockedContexts()  # type: ignore[assignment]
+        controller._snn_transition_memory_replay_artifacts = _IterationBlockedContexts()  # type: ignore[assignment]
+        controller._snn_replay_artifact_recording_review_tickets = _IterationBlockedContexts()  # type: ignore[assignment]
+        controller._snn_replay_evaluation_contexts = _IterationBlockedContexts()  # type: ignore[assignment]
+
+        self.assertTrue(
             controller.verify_regeneration_permit(
                 {"replay_evidence": permit, "regeneration_design": design}
             )

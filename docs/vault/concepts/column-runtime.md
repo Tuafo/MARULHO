@@ -746,6 +746,26 @@ The promoted default route is now `cuda_graph_text`. It captures production inpu
 
 The replay-priority review surface now preserves the same live-tick boundary as the column scheduler. `snn_replay_consolidation_priority_queue.v1` verifies a bounded source window (`16` recent Replay Controller contexts plus up to `16` readout-target context IDs) through a controller-owned ID index and emits `bounded_snn_replay_priority_source_window.v1`. Due-cycle Runtime Truth carries `queue_source_window_policy`, source/verified context counts, and `queue_global_candidate_scan=false`; the queue itself reports CPU archival/score placement, no raw replay text, no hidden language reasoning, `runs_live_tick=false`, and `gpu_used=false`. The benchmark `reports/bounded_replay_window_20260618/snn-replay-priority-source-window.json` selected an old readout-targeted context outside the recent window while verifying `17/64` retained contexts, and the paired 65536-column `524288`-token run stayed in band at `6298.310 tokens/sec` with `train_compute=0.129349 ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, and zero graph/native/sequence failures.
 
+The follow-on replay-artifact provenance path is indexed as well. Replay
+artifact review tickets, evaluated transition-memory replay artifacts,
+regeneration permits, sleep-plasticity review tickets, and scheduler-design
+review tickets now use controller-owned ID indexes for verification instead of
+linear retained-deque scans. Evaluated artifacts and permits bind
+`bounded_snn_replay_artifact_provenance_source_window.v1`, capped to context,
+ticket, artifact, and permit IDs, and report CPU archival placement, no global
+candidate/score scan, no raw replay text, no language reasoning,
+`runs_live_tick=false`, and `gpu_used=false`. The benchmark
+`reports/bounded_replay_window_20260618/snn-replay-artifact-provenance-source-window.json`
+kept the oldest retained chain verifiable at the retention tail with `4`
+indexed lookups instead of `256` worst-case retained-record checks, averaging
+`0.348376 ms` with no CUDA allocation. The accepted 65536-column `524288`-token
+hot-path rerun stayed in band at `6286.248 tokens/sec` with
+`train_compute=0.129585 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, and zero graph/native/sequence
+failures after one slower same-code run was rejected. This keeps replay-backed
+structural consent a bounded slow/control-plane path rather than a
+retained-history scan.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

@@ -3352,3 +3352,40 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `31%`, GPU utilization max `11%`, GPU memory
 utilization max `11%`, and GPU memory moved only from `1799 MiB` to `1800 MiB`.
+
+### SNN Replay Artifact Provenance Source Window, 2026-06-18
+
+The replay-artifact provenance cleanup changes service/control-plane lookup
+boundaries, not neural live-tick execution. The old shape verified replay
+artifact review tickets, transition-memory replay artifacts, regeneration
+permits, and related sleep/scheduler tickets by walking retained deques. The
+replacement keeps controller-owned ID indexes and emits
+`bounded_snn_replay_artifact_provenance_source_window.v1` for evaluated
+artifacts and permits, capped to context/ticket/artifact/permit IDs with CPU
+archival placement, no global scan, no raw replay text, no hidden language
+reasoning, `runs_live_tick=false`, and `gpu_used=false`.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 64 --runs 25 --output reports\bounded_replay_window_20260618\snn-replay-artifact-provenance-source-window.json`
+
+It kept the oldest retained context/ticket/artifact/permit chain verifiable at
+the retention tail, used `4` indexed lookups instead of `256` worst-case
+retained-record checks (`64x` less lookup work), averaged `0.348376 ms`, used
+`0.012636 MiB` traced peak Python allocation, and allocated `0.0 MiB` CUDA/VRAM.
+
+The first matching long protection run completed but was rejected as throughput
+evidence because it reached only `5849.047 tokens/sec`, below the maintained
+6k-ish band, despite no observed contention. The accepted rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-snn-replay-artifact-provenance-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+
+It processed `524288` tokens at `6286.248 tokens/sec`, with
+`train_compute=0.129585 ms/token`, `prepare_training=0.006458 ms/token`,
+`finalize_total=0.006156 ms/token`, and `tick_duration_ms.p95=20.417`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, selection, native sequence,
+and native burst failures were all `0`. The velocity surface reported no
+observed contention: CPU max `20%`, GPU utilization max `10%`, GPU memory
+utilization max `10%`, and GPU memory moved from `1817 MiB` to `1799 MiB`.

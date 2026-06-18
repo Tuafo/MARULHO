@@ -29,6 +29,8 @@ DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
 SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT = 16
 SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT = 16
 SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = "bounded_recent_context_readout_target_window_v1"
+SNN_REPLAY_PROVENANCE_SOURCE_RECORD_LIMIT = 4
+SNN_REPLAY_PROVENANCE_SOURCE_WINDOW_POLICY = "indexed_context_ticket_artifact_permit_window_v1"
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
@@ -53,6 +55,93 @@ SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
         "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal",
     ),
 }
+
+
+class _IndexedDeque(deque):
+    """Deque with a side index for current retained control-plane records."""
+
+    def __init__(
+        self,
+        *,
+        maxlen: int,
+        index: dict[str, dict[str, Any]],
+        key: Callable[[Mapping[str, Any]], str],
+    ) -> None:
+        super().__init__(maxlen=maxlen)
+        self._index = index
+        self._key = key
+
+    def _item_key(self, item: Any) -> str:
+        if not isinstance(item, Mapping):
+            return ""
+        return str(self._key(item) or "").strip()
+
+    def _drop_item(self, item: Any) -> None:
+        key = self._item_key(item)
+        if key and self._index.get(key) is item:
+            self._index.pop(key, None)
+
+    def _index_item(self, item: Any, *, overwrite: bool) -> None:
+        key = self._item_key(item)
+        if not key or not isinstance(item, dict):
+            return
+        if overwrite or key not in self._index:
+            self._index[key] = item
+
+    def rebuild_index(self) -> None:
+        self._index.clear()
+        for item in self:
+            self._index_item(item, overwrite=False)
+
+    def appendleft(self, item: Any) -> None:  # type: ignore[override]
+        if self.maxlen is not None and len(self) == self.maxlen and len(self) > 0:
+            self._drop_item(self[-1])
+        super().appendleft(item)
+        self._index_item(self[0], overwrite=True)
+
+    def append(self, item: Any) -> None:  # type: ignore[override]
+        if self.maxlen is not None and len(self) == self.maxlen and len(self) > 0:
+            self._drop_item(self[0])
+        super().append(item)
+        self._index_item(self[-1], overwrite=False)
+
+    def extend(self, items: Any) -> None:  # type: ignore[override]
+        for item in items:
+            self.append(item)
+
+    def extendleft(self, items: Any) -> None:  # type: ignore[override]
+        for item in items:
+            self.appendleft(item)
+
+    def clear(self) -> None:  # type: ignore[override]
+        super().clear()
+        self._index.clear()
+
+    def pop(self) -> Any:  # type: ignore[override]
+        item = super().pop()
+        self._drop_item(item)
+        return item
+
+    def popleft(self) -> Any:  # type: ignore[override]
+        item = super().popleft()
+        self._drop_item(item)
+        return item
+
+    def __setitem__(self, index: Any, item: Any) -> None:
+        super().__setitem__(index, item)
+        self.rebuild_index()
+
+    def __delitem__(self, index: Any) -> None:
+        super().__delitem__(index)
+        self.rebuild_index()
+
+    def insert(self, index: int, item: Any) -> None:  # type: ignore[override]
+        super().insert(index, item)
+        self.rebuild_index()
+
+    def remove(self, value: Any) -> None:  # type: ignore[override]
+        super().remove(value)
+        self.rebuild_index()
 
 
 @dataclass(frozen=True)
@@ -89,25 +178,42 @@ class ReplayController:
         self._dependencies = dependencies
         self._history_maxlen = max(1, int(history_maxlen))
         self._replay_sample_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
-        self._regeneration_permits: deque[dict[str, Any]] = deque(maxlen=DEFAULT_REPLAY_REGENERATION_PERMITS)
+        self._regeneration_permit_index: dict[str, dict[str, Any]] = {}
+        self._regeneration_permits: deque[dict[str, Any]] = _IndexedDeque(
+            maxlen=DEFAULT_REPLAY_REGENERATION_PERMITS,
+            index=self._regeneration_permit_index,
+            key=self._regeneration_permit_id,
+        )
         self._snn_replay_evaluation_contexts: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS
         )
         self._snn_replay_evaluation_context_index: dict[str, dict[str, Any]] = {}
-        self._snn_replay_artifact_recording_review_tickets: deque[dict[str, Any]] = deque(
-            maxlen=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS
+        self._snn_replay_artifact_recording_review_ticket_index: dict[str, dict[str, Any]] = {}
+        self._snn_replay_artifact_recording_review_tickets: deque[dict[str, Any]] = _IndexedDeque(
+            maxlen=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS,
+            index=self._snn_replay_artifact_recording_review_ticket_index,
+            key=self._snn_replay_artifact_recording_review_ticket_id,
         )
-        self._snn_sleep_plasticity_review_tickets: deque[dict[str, Any]] = deque(
-            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS
+        self._snn_sleep_plasticity_review_ticket_index: dict[str, dict[str, Any]] = {}
+        self._snn_sleep_plasticity_review_tickets: deque[dict[str, Any]] = _IndexedDeque(
+            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS,
+            index=self._snn_sleep_plasticity_review_ticket_index,
+            key=self._snn_sleep_plasticity_review_ticket_id,
         )
-        self._snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, Any]] = deque(
-            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS
+        self._snn_sleep_plasticity_scheduler_design_review_ticket_index: dict[str, dict[str, Any]] = {}
+        self._snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, Any]] = _IndexedDeque(
+            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS,
+            index=self._snn_sleep_plasticity_scheduler_design_review_ticket_index,
+            key=self._snn_sleep_plasticity_scheduler_design_review_ticket_id,
         )
         self._snn_sleep_plasticity_review_scheduler_installations: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS
         )
-        self._snn_transition_memory_replay_artifacts: deque[dict[str, Any]] = deque(
-            maxlen=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS
+        self._snn_transition_memory_replay_artifact_index: dict[str, dict[str, Any]] = {}
+        self._snn_transition_memory_replay_artifacts: deque[dict[str, Any]] = _IndexedDeque(
+            maxlen=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS,
+            index=self._snn_transition_memory_replay_artifact_index,
+            key=self._snn_transition_memory_replay_artifact_id,
         )
         self.load_replay_sample_history(replay_sample_history or [])
         self.load_regeneration_permits(regeneration_permits or [])
@@ -185,12 +291,130 @@ class ReplayController:
             return ""
         return str(context.get("replay_evaluation_context_id") or "").strip()
 
+    @staticmethod
+    def _regeneration_permit_id(permit: Mapping[str, Any] | None) -> str:
+        if not isinstance(permit, Mapping):
+            return ""
+        return str(permit.get("permit_id") or "").strip()
+
+    @staticmethod
+    def _snn_replay_artifact_recording_review_ticket_id(ticket: Mapping[str, Any] | None) -> str:
+        if not isinstance(ticket, Mapping):
+            return ""
+        return str(ticket.get("review_ticket_id") or "").strip()
+
+    @staticmethod
+    def _snn_sleep_plasticity_review_ticket_id(ticket: Mapping[str, Any] | None) -> str:
+        if not isinstance(ticket, Mapping):
+            return ""
+        return str(ticket.get("review_ticket_id") or "").strip()
+
+    @staticmethod
+    def _snn_sleep_plasticity_scheduler_design_review_ticket_id(
+        ticket: Mapping[str, Any] | None,
+    ) -> str:
+        if not isinstance(ticket, Mapping):
+            return ""
+        return str(ticket.get("scheduler_design_review_ticket_id") or "").strip()
+
+    @staticmethod
+    def _snn_transition_memory_replay_artifact_id(artifact: Mapping[str, Any] | None) -> str:
+        if not isinstance(artifact, Mapping):
+            return ""
+        return str(artifact.get("replay_artifact_id") or "").strip()
+
     def _rebuild_snn_replay_evaluation_context_index_locked(self) -> None:
         self._snn_replay_evaluation_context_index.clear()
         for context in self._snn_replay_evaluation_contexts:
             context_id = self._snn_replay_context_id(context)
             if context_id and context_id not in self._snn_replay_evaluation_context_index:
                 self._snn_replay_evaluation_context_index[context_id] = context
+
+    def _snn_replay_provenance_source_window_locked(
+        self,
+        *,
+        replay_evaluation_context_id: str | None = None,
+        review_ticket_id: str | None = None,
+        replay_artifact_id: str | None = None,
+        permit_id: str | None = None,
+    ) -> dict[str, Any]:
+        context_id = str(replay_evaluation_context_id or "").strip()
+        ticket_id = str(review_ticket_id or "").strip()
+        artifact_id = str(replay_artifact_id or "").strip()
+        regeneration_permit_id = str(permit_id or "").strip()
+        requested = {
+            "replay_evaluation_context": bool(context_id),
+            "review_ticket": bool(ticket_id),
+            "replay_artifact": bool(artifact_id),
+            "regeneration_permit": bool(regeneration_permit_id),
+        }
+        hits = {
+            "replay_evaluation_context": bool(
+                context_id and context_id in self._snn_replay_evaluation_context_index
+            ),
+            "review_ticket": bool(
+                ticket_id and ticket_id in self._snn_replay_artifact_recording_review_ticket_index
+            ),
+            "replay_artifact": bool(
+                artifact_id and artifact_id in self._snn_transition_memory_replay_artifact_index
+            ),
+            "regeneration_permit": bool(
+                regeneration_permit_id and regeneration_permit_id in self._regeneration_permit_index
+            ),
+        }
+        source_record_count = sum(1 for enabled in requested.values() if enabled)
+        return {
+            "surface": "bounded_snn_replay_artifact_provenance_source_window.v1",
+            "policy": SNN_REPLAY_PROVENANCE_SOURCE_WINDOW_POLICY,
+            "source_record_limit": SNN_REPLAY_PROVENANCE_SOURCE_RECORD_LIMIT,
+            "source_record_count": int(source_record_count),
+            "index_lookup_count": int(source_record_count),
+            "index_hit_count": int(sum(1 for enabled in hits.values() if enabled)),
+            "lookup_requested": requested,
+            "lookup_hit": hits,
+            "replay_evaluation_context_retention_count": int(
+                len(self._snn_replay_evaluation_contexts)
+            ),
+            "review_ticket_retention_count": int(
+                len(self._snn_replay_artifact_recording_review_tickets)
+            ),
+            "replay_artifact_retention_count": int(
+                len(self._snn_transition_memory_replay_artifacts)
+            ),
+            "regeneration_permit_retention_count": int(len(self._regeneration_permits)),
+            "context_lookup_policy": "replay_evaluation_context_id_index",
+            "review_ticket_lookup_policy": "review_ticket_id_index",
+            "artifact_lookup_policy": "replay_artifact_id_index",
+            "permit_lookup_policy": "permit_id_index",
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_live_replay": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "gpu_used": False,
+        }
+
+    def _snn_replay_provenance_source_window(
+        self,
+        *,
+        replay_evaluation_context_id: str | None = None,
+        review_ticket_id: str | None = None,
+        replay_artifact_id: str | None = None,
+        permit_id: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            return self._snn_replay_provenance_source_window_locked(
+                replay_evaluation_context_id=replay_evaluation_context_id,
+                review_ticket_id=review_ticket_id,
+                replay_artifact_id=replay_artifact_id,
+                permit_id=permit_id,
+            )
 
     def _verified_snn_replay_evaluation_context_payload_locked(
         self,
@@ -998,6 +1222,9 @@ class ReplayController:
             raise ValueError(
                 "SNN replay artifact recording review ticket requires a ready due-cycle review proposal."
             )
+        source_window = self._snn_replay_provenance_source_window(
+            replay_evaluation_context_id=context_id,
+        )
         with self._lock:
             recorded_revision = int(self._runtime_state.state_revision)
             material = {
@@ -1009,6 +1236,7 @@ class ReplayController:
                 "replay_evaluation_context_hash": context["evidence_hash"],
                 "source_metadata_hash": context.get("source_metadata_hash"),
                 "emission_lineage": context_lineage,
+                "source_window_hash": self._sha256_json(source_window),
             }
             if due_cycle_review_proposal is not None:
                 material["due_cycle_review_proposal_hash"] = due_cycle_provenance[
@@ -1038,6 +1266,7 @@ class ReplayController:
                 "evidence_hash": evidence_hash,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 **material,
+                "source_window": source_window,
                 "policy_surface": proposal.get("surface"),
                 "review_action": review.get("review_action"),
             }
@@ -1058,16 +1287,12 @@ class ReplayController:
             else None
         )
         with self._lock:
-            ticket = next(
-                (
-                    dict(item)
-                    for item in self._snn_replay_artifact_recording_review_tickets
-                    if str(item.get("review_ticket_id") or "") == str(review_ticket_id or "")
-                ),
-                None,
+            ticket = self._snn_replay_artifact_recording_review_ticket_index.get(
+                str(review_ticket_id or "").strip()
             )
             if ticket is None:
                 return None
+            ticket = dict(ticket)
             material = {
                 "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
                 "operator_id": ticket.get("operator_id"),
@@ -1082,6 +1307,8 @@ class ReplayController:
                     else {}
                 ),
             }
+            if ticket.get("source_window_hash"):
+                material["source_window_hash"] = ticket.get("source_window_hash")
             if ticket.get("due_cycle_review_proposal_hash"):
                 material["due_cycle_review_proposal_hash"] = ticket.get(
                     "due_cycle_review_proposal_hash"
@@ -1233,16 +1460,12 @@ class ReplayController:
             else None
         )
         with self._lock:
-            ticket = next(
-                (
-                    dict(item)
-                    for item in self._snn_sleep_plasticity_review_tickets
-                    if str(item.get("review_ticket_id") or "") == str(review_ticket_id or "")
-                ),
-                None,
+            ticket = self._snn_sleep_plasticity_review_ticket_index.get(
+                str(review_ticket_id or "").strip()
             )
             if ticket is None:
                 return None
+            ticket = dict(ticket)
             material = {
                 "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
                 "operator_id": ticket.get("operator_id"),
@@ -1906,17 +2129,12 @@ class ReplayController:
             else None
         )
         with self._lock:
-            ticket = next(
-                (
-                    dict(item)
-                    for item in self._snn_sleep_plasticity_scheduler_design_review_tickets
-                    if str(item.get("scheduler_design_review_ticket_id") or "")
-                    == str(scheduler_design_review_ticket_id or "")
-                ),
-                None,
+            ticket = self._snn_sleep_plasticity_scheduler_design_review_ticket_index.get(
+                str(scheduler_design_review_ticket_id or "").strip()
             )
             if ticket is None:
                 return None
+            ticket = dict(ticket)
             try:
                 design_parameters = dict(ticket.get("design_parameters") or {})
                 current = self.snn_sleep_plasticity_scheduler_design(
@@ -3710,6 +3928,9 @@ class ReplayController:
                 selection.get("acknowledged_review_due_at") if ready else None
             ),
         }
+        source_window = self._snn_replay_provenance_source_window(
+            replay_evaluation_context_id=context_id if context_id else None,
+        )
         proposal_hash = self._sha256_json(
             {
                 "ready": ready,
@@ -3722,6 +3943,7 @@ class ReplayController:
                     policy_proposal
                 ),
                 "review_target": review_target,
+                "source_window": source_window,
             }
         )
         return {
@@ -3771,6 +3993,7 @@ class ReplayController:
                 "reason": "control_plane_due_cycle_replay_artifact_recording_review_proposal",
             },
             "review_target": review_target,
+            "source_window": source_window,
             "promotion_gate": {
                 "status": (
                     "ready_for_operator_due_cycle_replay_artifact_recording_review"
@@ -4212,9 +4435,16 @@ class ReplayController:
                 if isinstance(metadata.get("emission_lineage"), Mapping)
                 else {}
             )
+            source_window = (
+                dict(metadata.get("source_window"))
+                if isinstance(metadata.get("source_window"), Mapping)
+                else {}
+            )
             if source_metadata_hash or emission_lineage:
                 material["source_metadata_hash"] = source_metadata_hash
                 material["emission_lineage"] = emission_lineage
+            if source_window:
+                material["source_window_hash"] = self._sha256_json(source_window)
             evidence_hash = self._sha256_json(material)
             artifact = {
                 "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
@@ -4231,6 +4461,8 @@ class ReplayController:
                 "artifact_proposal_surface": metadata.get("artifact_proposal_surface"),
                 "artifact_proposal_source": metadata.get("artifact_proposal_source"),
             }
+            if source_window:
+                artifact["source_window"] = source_window
             self._snn_transition_memory_replay_artifacts.appendleft(deepcopy(artifact))
             self._runtime_state.mark_dirty_without_revision()
             return deepcopy(artifact)
@@ -4310,6 +4542,10 @@ class ReplayController:
             for item in replay_window
         ):
             raise ValueError("Evaluated SNN replay artifact proposal must use current internal-ledger evidence.")
+        source_window = self._snn_replay_provenance_source_window(
+            replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+            review_ticket_id=str(ticket["review_ticket_id"]),
+        )
         artifact = self.record_snn_transition_memory_replay_artifact(
             mismatch_report=(
                 proposal.get("mismatch_report")
@@ -4340,6 +4576,7 @@ class ReplayController:
                     for item in replay_window
                     if str(item.get("readout_evidence_hash") or "")
                 ],
+                "source_window": source_window,
             },
         )
         return deepcopy(artifact)
@@ -4371,6 +4608,13 @@ class ReplayController:
             )
             if artifact is None:
                 raise ValueError("Regeneration permit requires a verified server-owned SNN replay artifact.")
+            source_window = self._snn_replay_provenance_source_window_locked(
+                replay_evaluation_context_id=str(
+                    artifact.get("replay_evaluation_context_id") or ""
+                ),
+                review_ticket_id=str(artifact.get("review_ticket_id") or ""),
+                replay_artifact_id=str(artifact.get("replay_artifact_id") or ""),
+            )
             material = {
                 "issued_state_revision": issued_revision,
                 "operator_id": normalized_operator_id,
@@ -4386,6 +4630,7 @@ class ReplayController:
                 "readout_evidence_hashes": list(artifact.get("readout_evidence_hashes") or []),
                 "regeneration_design_hash": self._sha256_json(design),
                 "regeneration_design_candidate_count": len(design["candidate_synapses"]),
+                "source_window_hash": self._sha256_json(source_window),
             }
             if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
                 material["source_metadata_hash"] = artifact.get("source_metadata_hash")
@@ -4410,6 +4655,7 @@ class ReplayController:
                 "operator_id": normalized_operator_id,
                 "confirmation": True,
                 **material,
+                "source_window": source_window,
             }
             self._regeneration_permits.appendleft(deepcopy(permit))
             self._runtime_state.mark_dirty_without_revision()
@@ -4419,12 +4665,10 @@ class ReplayController:
         replay = proposal.get("replay_evidence") if isinstance(proposal.get("replay_evidence"), Mapping) else {}
         permit_id = str(replay.get("permit_id") or "")
         with self._lock:
-            permit = next(
-                (dict(item) for item in self._regeneration_permits if str(item.get("permit_id") or "") == permit_id),
-                None,
-            )
+            permit = self._regeneration_permit_index.get(permit_id.strip())
             if permit is None:
                 return False
+            permit = dict(permit)
             material = {
                 "issued_state_revision": int(permit.get("issued_state_revision", -1)),
                 "operator_id": permit.get("operator_id"),
@@ -4443,6 +4687,8 @@ class ReplayController:
                     permit.get("regeneration_design_candidate_count", 0) or 0
                 ),
             }
+            if permit.get("source_window_hash"):
+                material["source_window_hash"] = permit.get("source_window_hash")
             if permit.get("source_metadata_hash") or permit.get("emission_lineage"):
                 material["source_metadata_hash"] = permit.get("source_metadata_hash")
                 material["emission_lineage"] = (
@@ -4490,16 +4736,12 @@ class ReplayController:
         operator_id: str,
         expected_revision: int,
     ) -> dict[str, Any] | None:
-        artifact = next(
-            (
-                dict(item)
-                for item in self._snn_transition_memory_replay_artifacts
-                if str(item.get("replay_artifact_id") or "") == str(replay_artifact_id or "")
-            ),
-            None,
+        artifact = self._snn_transition_memory_replay_artifact_index.get(
+            str(replay_artifact_id or "").strip()
         )
         if artifact is None:
             return None
+        artifact = dict(artifact)
         material = {
             "recorded_state_revision": int(artifact.get("recorded_state_revision", -1)),
             "operator_id": artifact.get("operator_id"),
@@ -4518,6 +4760,8 @@ class ReplayController:
             "review_ticket_hash": artifact.get("review_ticket_hash"),
             "readout_evidence_hashes": list(artifact.get("readout_evidence_hashes") or []),
         }
+        if artifact.get("source_window_hash"):
+            material["source_window_hash"] = artifact.get("source_window_hash")
         if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
             material["source_metadata_hash"] = artifact.get("source_metadata_hash")
             material["emission_lineage"] = (

@@ -7,6 +7,7 @@ related_code:
   - ../../../src/marulho/service/living_loop_replay.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -58,6 +59,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-awake-ripple-bounded-scope.json
   - reports/bounded_replay_window_20260618/replay-plan-source-window-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json
+  - reports/bounded_replay_window_20260618/snn-replay-artifact-provenance-source-window.json
 ---
 
 # Replay/consolidation
@@ -305,6 +307,27 @@ allocation. The matching 65536-column `524288`-token hot-path check stayed in
 band at `6298.310 tokens/sec`, `train_compute=0.129349 ms/token`, bounded
 `12/65536` route rows, `65526` cached transition rows, `1799->1800 MiB` GPU
 memory, no observed contention, and zero graph/native/sequence failures.
+
+The replay-artifact provenance path now follows that same selected-source
+boundary after nomination. Artifact review tickets, evaluated transition-memory
+replay artifacts, regeneration permits, sleep review tickets, and scheduler
+design review tickets use controller-owned ID indexes instead of retained-deque
+linear lookups. New evaluated artifacts and permits carry
+`bounded_snn_replay_artifact_provenance_source_window.v1`, capped to context,
+ticket, artifact, and permit IDs, with CPU archival placement, no global
+candidate/score scan, no raw replay text, `language_reasoning=false`,
+`runs_live_tick=false`, and `gpu_used=false`. The focused benchmark
+`reports/bounded_replay_window_20260618/snn-replay-artifact-provenance-source-window.json`
+kept the oldest retained provenance chain verifiable at the retention tail,
+used `4` indexed lookups instead of the old worst-case `256` retained-record
+checks, averaged `0.348376 ms`, used `0.012636 MiB` traced peak allocation, and
+allocated no CUDA memory. The accepted 65536-column `524288`-token hot-path
+rerun stayed in band at `6286.248 tokens/sec` with `train_compute=0.129585
+ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, flat
+GPU memory behavior, no observed contention, and zero graph/native/sequence
+failures after one same-code run at `5849.047 tokens/sec` was rejected as below
+the maintained band. This is not live replay; it keeps structural-write consent
+tied to bounded replay evidence without a retained-history scan.
 
 The target-aware replay-strength slice keeps replay under the same guard but
 lets the slow window test a bounded schedule from one snapshot before commit.
@@ -722,9 +745,9 @@ query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
-replay-plan construction, and source-bank wrapper APIs implemented; future
-larger replay windows still require repeated long-run hot-path and grounding
-checks
+replay-plan construction, linear replay-artifact provenance lookups, and
+source-bank wrapper APIs implemented; future larger replay windows still
+require repeated long-run hot-path and grounding checks
 
 ## Links
 
