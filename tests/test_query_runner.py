@@ -104,7 +104,7 @@ class _FakeTrainer:
 
 
 class QueryRunnerTermMatchingTests(unittest.TestCase):
-    def test_memory_matches_caches_repeated_semantic_term_pairs(self) -> None:
+    def test_memory_matches_with_report_caches_repeated_semantic_term_pairs(self) -> None:
         trainer = _FakeTrainer(["alphabeto gamma delta."] * 16)
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
         calls: list[tuple[str, str]] = []
@@ -114,7 +114,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             return 1.0 if (left, right) == ("alphabeta", "alphabeto") else 0.0
 
         with patch.object(query_runner, "semantic_unit_similarity", side_effect=fake_similarity):
-            matches = query_runner.memory_matches(
+            matches, report = query_runner.memory_matches_with_report(
                 trainer,
                 pattern,
                 pattern,
@@ -125,10 +125,11 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
 
         self.assertEqual(calls.count(("alphabeta", "alphabeto")), 1)
         self.assertTrue(matches)
+        self.assertEqual(report["surface"], "bounded_query_memory_match.v1")
         self.assertTrue(all(match["matched_query_terms"] == ["alphabeta"] for match in matches))
         self.assertTrue(all(match["query_overlap"] == 1 for match in matches))
 
-    def test_memory_matches_keeps_health_smoke_scale_semantic_work_bounded(self) -> None:
+    def test_memory_matches_with_report_keeps_health_smoke_scale_semantic_work_bounded(self) -> None:
         trainer = _FakeTrainer(["alphabeto gamma delta."] * 512)
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
         calls: list[tuple[str, str]] = []
@@ -138,7 +139,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             return 1.0 if (left, right) == ("alphabeta", "alphabeto") else 0.0
 
         with patch.object(query_runner, "semantic_unit_similarity", side_effect=fake_similarity):
-            matches = query_runner.memory_matches(
+            matches, report = query_runner.memory_matches_with_report(
                 trainer,
                 pattern,
                 pattern,
@@ -148,6 +149,8 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             )
 
         self.assertTrue(matches)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
         self.assertEqual(calls.count(("alphabeta", "alphabeto")), 1)
         self.assertEqual(len(calls), len(set(calls)))
         self.assertLessEqual(len(calls), 9)
@@ -215,7 +218,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         )
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
 
-        compound_matches = query_runner.memory_matches(
+        compound_matches, compound_report = query_runner.memory_matches_with_report(
             trainer,
             pattern,
             pattern,
@@ -223,7 +226,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             top_chars=1,
             query_terms=["submarineballastcontrol"],
         )
-        cat_matches = query_runner.memory_matches(
+        cat_matches, cat_report = query_runner.memory_matches_with_report(
             trainer,
             pattern,
             pattern,
@@ -234,8 +237,54 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
 
         self.assertEqual(compound_matches[0]["memory_index"], 0)
         self.assertEqual(compound_matches[0]["matched_query_terms"], ["submarineballastcontrol"])
+        self.assertEqual(compound_report["surface"], "bounded_query_memory_match.v1")
         self.assertEqual(cat_matches[0]["memory_index"], 1)
         self.assertEqual(cat_matches[0]["matched_query_terms"], ["cat"])
+        self.assertEqual(cat_report["surface"], "bounded_query_memory_match.v1")
+
+    def test_context_memory_match_report_aggregates_per_context_cache_hits(self) -> None:
+        trainer = _FakeTrainer([f"context memory episode {index}" for index in range(64)])
+        pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        replay_entry_cache: dict[int, dict[str, object]] = {}
+
+        first_matches, first_report = query_runner.memory_matches_with_report(
+            trainer,
+            pattern,
+            pattern,
+            top_k=4,
+            top_chars=1,
+            memory_candidate_limit=16,
+            replay_entry_cache=replay_entry_cache,
+        )
+        second_matches, second_report = query_runner.memory_matches_with_report(
+            trainer,
+            pattern,
+            pattern,
+            top_k=4,
+            top_chars=1,
+            memory_candidate_limit=16,
+            replay_entry_cache=replay_entry_cache,
+        )
+        aggregate = query_runner.build_context_memory_match_report(
+            [
+                {**first_report, "context_label": "context_a"},
+                {**second_report, "context_label": "context_b"},
+            ]
+        )
+
+        self.assertEqual([match["memory_index"] for match in first_matches], [0, 1, 2, 3])
+        self.assertEqual([match["memory_index"] for match in second_matches], [0, 1, 2, 3])
+        self.assertEqual(aggregate["surface"], "bounded_context_comparison_memory_match.v1")
+        self.assertEqual(aggregate["context_labels"], ["context_a", "context_b"])
+        self.assertEqual(aggregate["raw_text_payload_count"], 4)
+        self.assertEqual(aggregate["raw_text_payload_cache_hits"], 4)
+        self.assertEqual(aggregate["raw_text_payload_policy"], "shared_returned_similarity_matches_only")
+        self.assertFalse(aggregate["global_candidate_scan"])
+        self.assertFalse(aggregate["global_score_scan"])
+        self.assertFalse(aggregate["runs_live_tick"])
+        self.assertFalse(aggregate["runs_every_token"])
+        self.assertFalse(aggregate["language_reasoning"])
+        self.assertFalse(hasattr(query_runner, "memory_matches"))
 
 
 if __name__ == "__main__":

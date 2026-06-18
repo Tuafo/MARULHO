@@ -802,6 +802,31 @@ processed `6237.075 tokens/sec`, with `train_compute=0.131104 ms/token`,
 `state_transition_runs_all_columns=false`, had zero graph/native/sequence
 failures, GPU memory `1809->1861 MiB`, and no observed contention.
 
+Context comparison now reports its bounded query-memory cost instead of
+calling the deleted report-dropping `query_runner.memory_matches(...)`
+compatibility wrapper. The comparison path calls
+`memory_matches_with_report(...)` once per context, shares one returned
+replay-entry payload cache, and emits
+`bounded_context_comparison_memory_match.v1` with the per-context reports
+attached. The benchmark
+`reports/bounded_replay_window_20260618/context-memory-match-bounded.json`
+used two contexts over a `65536`-entry archive, a `192`-entry per-context
+candidate window, and `top_k=8`. It preserved selected-index parity,
+collapsed duplicate raw payload reads from `16` to `8` with `8` cache hits,
+and reduced mean readout latency from `71.927 ms` to `70.550 ms`. It reports
+CPU archival/score placement, no global candidate/score scan,
+`runs_live_tick=false`, `runs_every_token=false`, and
+`language_reasoning=false`.
+
+The paired 65536-column `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-context-memory-match.json`
+processed `6065.987 tokens/sec`, with `train_compute=0.135179 ms/token`,
+`prepare_training=0.006512 ms/token`, `finalize_total=0.006339 ms/token`, and
+`concept_observation=0.000474 ms/token`. It kept route scoring bounded at
+`12/65536`, cached `65526` transition rows, reported
+`state_transition_runs_all_columns=false`, had zero graph/native/sequence
+failures, GPU memory `1839->1845 MiB`, and no observed contention.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
 hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper

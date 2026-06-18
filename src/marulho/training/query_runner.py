@@ -460,7 +460,7 @@ def memory_matches_with_report(
             replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
             raw_text_payload_count += 1
             if replay_entry_cache is not None:
-                replay_entry_cache[int(idx)] = dict(replay_entry)
+                replay_entry_cache[int(idx)] = replay_entry
         else:
             raw_text_payload_cache_hits += 1
         capture_tag = float(replay_entry.get("capture_tag", 0.0))
@@ -648,11 +648,6 @@ def memory_matches_with_report(
     return _finish(merged[:limit])
 
 
-def memory_matches(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-    matches, _report = memory_matches_with_report(*args, **kwargs)
-    return matches
-
-
 def build_memory_episodes(
     memory_matches: list[dict[str, Any]],
     *,
@@ -769,6 +764,88 @@ def read_text_argument(text: Optional[str], file_path: Optional[Path]) -> Option
     return None
 
 
+def build_context_memory_match_report(
+    context_reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    reports = [dict(report) for report in context_reports if isinstance(report, Mapping)]
+    match_indices: list[int] = []
+    context_labels: list[str] = []
+    for report in reports:
+        label = str(report.get("context_label") or "").strip()
+        if label:
+            context_labels.append(label)
+        match_indices.extend(
+            int(index)
+            for index in list(report.get("match_indices", []))
+            if isinstance(index, int) or str(index).lstrip("-").isdigit()
+        )
+    any_global_candidate_scan = any(
+        bool(report.get("global_candidate_scan")) for report in reports
+    )
+    any_global_score_scan = any(bool(report.get("global_score_scan")) for report in reports)
+    any_language_reasoning = any(
+        bool(report.get("language_reasoning")) for report in reports
+    )
+    raw_payload_count = sum(
+        int(report.get("raw_text_payload_count", 0) or 0) for report in reports
+    )
+    raw_payload_cache_hits = sum(
+        int(report.get("raw_text_payload_cache_hits", 0) or 0) for report in reports
+    )
+    candidate_index_count = sum(
+        int(report.get("candidate_index_count", 0) or 0) for report in reports
+    )
+    similarity_score_count = sum(
+        int(report.get("similarity_score_count", 0) or 0) for report in reports
+    )
+    replay_priority_score_count = sum(
+        int(report.get("replay_priority_score_count", 0) or 0) for report in reports
+    )
+    returned_count = sum(int(report.get("returned_count", 0) or 0) for report in reports)
+    fallback_reasons = [
+        str(report.get("fallback_reason"))
+        for report in reports
+        if report.get("fallback_reason") not in (None, "")
+    ]
+    return {
+        "surface": "bounded_context_comparison_memory_match.v1",
+        "status": "matched" if returned_count > 0 else "empty",
+        "scope": "context_comparison_query_memory_match_slow_path",
+        "context_count": int(len(reports)),
+        "context_labels": context_labels,
+        "candidate_surface": "bounded_query_memory_match.v1",
+        "candidate_window_policy": "per_context_bounded_query_memory_match",
+        "candidate_scope": "per_context_bucket_indexed_candidate_window",
+        "candidate_index_count": int(candidate_index_count),
+        "unique_candidate_index_count": int(len({int(index) for index in match_indices})),
+        "match_indices": match_indices,
+        "returned_count": int(returned_count),
+        "raw_text_payload_loaded": bool(raw_payload_count > 0),
+        "raw_text_payload_count": int(raw_payload_count),
+        "raw_text_payload_cache_hits": int(raw_payload_cache_hits),
+        "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+        "similarity_score_count": int(similarity_score_count),
+        "replay_priority_score_count": int(replay_priority_score_count),
+        "global_candidate_scan": bool(any_global_candidate_scan),
+        "global_score_scan": bool(any_global_score_scan),
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "language_reasoning": bool(any_language_reasoning),
+        "score_device": "cpu",
+        "archival_storage_device": "cpu",
+        "quality_metric": "context_comparison_memory_match_parity",
+        "fallback_reason": fallback_reasons[0] if fallback_reasons else None,
+        "selection_budget": {
+            "context_budget": int(len(reports)),
+            "candidate_window_entries": int(candidate_index_count),
+            "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+        },
+        "context_reports": reports,
+    }
+
+
 def build_context_comparison(
     checkpoint: Path,
     query_text: str,
@@ -797,10 +874,25 @@ def build_context_comparison(
         }
 
     comparisons: list[dict[str, Any]] = []
+    context_memory_reports: list[dict[str, Any]] = []
+    replay_entry_cache: dict[int, dict[str, Any]] = {}
     for label, context_value in (("context_a", context_a), ("context_b", context_b)):
         primed = prime_context(trainer, encoder, context_value)
         routing_key = trainer.routing_key_for_pattern(pattern_vec)
         winner = trainer.contextual_winner_for_pattern(pattern_vec)
+        matches, memory_match_report = memory_matches_with_report(
+            trainer,
+            pattern_vec,
+            routing_key,
+            top_k_memories,
+            top_chars,
+            replay_entry_cache=replay_entry_cache,
+        )
+        memory_match_report = {
+            **dict(memory_match_report),
+            "context_label": label,
+        }
+        context_memory_reports.append(memory_match_report)
         comparisons.append(
             {
                 "label": label,
@@ -810,7 +902,8 @@ def build_context_comparison(
                 "winner_shard": int(winner % max(1, trainer.config.routing_shards)),
                 "context_state_norm": float(torch.norm(trainer.context_state().float()).item()),
                 "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
-                "memory_matches": memory_matches(trainer, pattern_vec, routing_key, top_k_memories, top_chars),
+                "memory_match_report": memory_match_report,
+                "memory_matches": matches,
             }
         )
 
@@ -818,6 +911,9 @@ def build_context_comparison(
         "supported": True,
         "query_text": query_text,
         "winner_switch": bool(comparisons[0]["winner_column"] != comparisons[1]["winner_column"]),
+        "memory_match_report": build_context_memory_match_report(
+            context_memory_reports
+        ),
         "comparisons": comparisons,
     }
 

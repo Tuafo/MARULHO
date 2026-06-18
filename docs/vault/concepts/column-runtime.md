@@ -581,6 +581,29 @@ processed `6237.075 tokens/sec`, with
 `65526` cached transition rows, no observed contention, GPU memory
 `1809->1861 MiB`, and zero graph/native/sequence failures.
 
+On 2026-06-18, context comparison stopped using the report-dropping query
+memory wrapper. The old `query_runner.memory_matches(...)` compatibility
+surface is deleted; `build_context_comparison(...)` now calls
+`memory_matches_with_report(...)` once per compared context, shares one
+returned replay-entry payload cache, exposes each per-context report, and
+returns `bounded_context_comparison_memory_match.v1` at the comparison root.
+This is explicit slow readout, not column-runtime mutation: the report carries
+`runs_live_tick=false`, `runs_every_token=false`,
+`global_candidate_scan=false`, `global_score_scan=false`, CPU archival/score
+placement, and `language_reasoning=false`.
+
+The bounded comparison benchmark
+`reports/bounded_replay_window_20260618/context-memory-match-bounded.json`
+preserved selected-index parity for both contexts (`quality.min=1.0`) over a
+`65536`-entry synthetic archive, reduced raw payload reads from `16` to `8`
+with `8` cache hits, and reduced mean latency from `71.927 ms` to
+`70.550 ms`. The paired `524288`-token active-pressure protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-context-memory-match.json`
+processed `6065.987 tokens/sec`, with `train_compute=0.135179 ms/token`,
+`concept_observation=0.000474 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`1839->1845 MiB`, and zero graph/native/sequence failures.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

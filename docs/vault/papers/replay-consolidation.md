@@ -502,6 +502,26 @@ stayed in band at `6237.075 tokens/sec`, with
 `65526` cached transition rows, GPU memory `1809->1861 MiB`, no observed
 contention, and zero graph/native/sequence failures.
 
+The context-comparison memory follow-up closes the remaining report-dropping
+query readout path. Context A/B comparison now calls
+`memory_matches_with_report(...)` for each context, shares one returned
+replay-entry payload cache across contexts, returns per-context reports, and
+emits `bounded_context_comparison_memory_match.v1`. The old
+`query_runner.memory_matches(...)` compatibility wrapper is removed, so new
+callers cannot accidentally drop bounded recall evidence. The report keeps
+context comparison in explicit slow readout (`runs_live_tick=false`,
+`runs_every_token=false`), records CPU archival/score placement, and reports no
+global score/candidate scan or hidden language reasoning. The benchmark
+`reports/bounded_replay_window_20260618/context-memory-match-bounded.json`
+preserved selected indices for both contexts, reduced payload reads from `16`
+to `8` with `8` cache hits, and reduced mean latency from `71.927 ms` to
+`70.550 ms`. The paired `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-context-memory-match.json`
+stayed in the maintained band at `6065.987 tokens/sec`, with bounded
+`12/65536` route rows, `65526` cached transition rows, GPU memory
+`1839->1845 MiB`, no observed contention, and zero graph/native/sequence
+failures.
+
 The replay-score helper cleanup removes a leftover archive-wide scoring API.
 The replay-priority formula remains, but callers must now use
 `replay_scores_for_indices(...)` with explicit candidate indices. That keeps
@@ -542,7 +562,7 @@ candidate windows, capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
 bounded source-bank semantic recall, bounded runtime concept memory lookup,
-bounded awake-ripple tagging, and
+bounded context-comparison memory recall, bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

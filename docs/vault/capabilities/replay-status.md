@@ -175,6 +175,18 @@ Current bounded selection evidence:
   `concept_observation=0.000474 ms/token`, bounded `12/65536` route rows, GPU
   memory `1809->1861 MiB`, no observed contention, and zero graph/native
   failures.
+- `reports/bounded_replay_window_20260618/context-memory-match-bounded.json`
+  proves context comparison no longer uses the deleted report-dropping
+  `query_runner.memory_matches(...)` wrapper. It emits
+  `bounded_context_comparison_memory_match.v1`, preserves selected-index
+  parity for both contexts, reduces raw payload reads from `16` to `8` with
+  `8` cache hits, and reports CPU archival/scoring with no global candidate or
+  score scan.
+- `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-context-memory-match.json`
+  keeps the longer live cadence protected at `6065.987 tokens/sec`, with
+  `concept_observation=0.000474 ms/token`, bounded `12/65536` route rows, GPU
+  memory `1839->1845 MiB`, no observed contention, and zero graph/native
+  failures.
 - `reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
   keeps ConceptStore signature lookup bounded to evidence-provided indices over
   `65536` archival entries, preserves diagnostic legacy signature quality
