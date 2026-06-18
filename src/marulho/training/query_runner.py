@@ -404,7 +404,10 @@ def memory_matches_with_report(
     )
     ordered_focus_terms = _dedupe_terms(focus_terms)
     term_match_cache = _SemanticTermMatchCache()
+    text_ranking_required = bool(query_terms or ordered_focus_terms or memory_priority)
     matches: list[dict[str, Any]] = []
+    candidate_rows: list[dict[str, Any]] = []
+    raw_text_payload_count = 0
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
@@ -419,8 +422,18 @@ def memory_matches_with_report(
                 "memory_priority_count": int(len(memory_priority or {})),
                 "similarity_score_count": int(len(candidate_indices)),
                 "replay_priority_score_count": int(len(replay_scores)),
-                "result_count": int(len(matches)),
+                "result_count": int(
+                    len(matches) if text_ranking_required else len(candidate_rows)
+                ),
                 "returned_count": int(len(result_matches)),
+                "raw_text_payload_loaded": bool(raw_text_payload_count > 0),
+                "raw_text_payload_count": int(raw_text_payload_count),
+                "raw_text_payload_policy": (
+                    "candidate_window_text_ranking"
+                    if text_ranking_required
+                    else "returned_similarity_matches_only"
+                ),
+                "language_reasoning": False,
                 "runs_live_tick": False,
                 "mutates_runtime_state": False,
                 "applies_plasticity": False,
@@ -429,24 +442,22 @@ def memory_matches_with_report(
         )
         return result_matches, report
 
-    for idx in candidate_indices:
-        ref_key = store.slow_routing_keys[idx]
-        ref_input = store.slow_input_patterns[idx]
-        if isinstance(ref_key, torch.Tensor):
-            similarity = cosine_similarity(query_key, ref_key.float())
-        elif isinstance(ref_input, torch.Tensor):
-            similarity = cosine_similarity(query_input, ref_input.float())
-        else:
-            similarity = cosine_similarity(query_input, store.slow_buffer[idx].float())
-
-        evidence_pattern = ref_input.float() if isinstance(ref_input, torch.Tensor) else store.slow_buffer[idx].float()
+    def _build_match(
+        idx: int,
+        *,
+        similarity: float,
+        evidence_pattern: torch.Tensor,
+        replay_priority: float,
+    ) -> dict[str, Any]:
+        nonlocal raw_text_payload_count
         replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
+        raw_text_payload_count += 1
         capture_tag = float(replay_entry.get("capture_tag", 0.0))
         prp_level = float(replay_entry.get("prp_level", 0.0))
         capture_strength = float(replay_entry.get("capture_strength", 0.0))
         consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
         text = replay_entry.get("text") or store.slow_raw_windows[idx]
-        raw_window = store.slow_raw_windows[idx]
+        raw_window = replay_entry.get("raw_window") or store.slow_raw_windows[idx]
         replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
         source_name = " ".join(str(replay_metadata.get("source_name", "")).split()).strip()
         source_type = " ".join(str(replay_metadata.get("source_type", "")).split()).strip()
@@ -459,41 +470,81 @@ def memory_matches_with_report(
         )
         focus_overlap = len(matched_focus_terms)
         focus_priority = _memory_focus_priority(memory_priority, (idx,))
-        matches.append(
-            {
-                "memory_index": int(idx),
-                "similarity": float(similarity),
-                "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
-                "raw_window": raw_window,
-                "text": text,
-                "metadata": dict(replay_metadata),
-                "source_name": source_name,
-                "source_type": source_type,
-                "provider": provider,
-                "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
-                "importance": float(store.slow_importance[idx]),
-                "tag_strength": float(capture_tag),
-                "capture_tag": float(capture_tag),
-                "prp_level": float(prp_level),
-                "capture_strength": float(capture_strength),
-                "consolidation_level": consolidation_level,
-                "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
-                "replay_count": int(store.slow_replay_count[idx]),
-                "replay_priority": float(replay_scores.get(int(idx), 0.0)),
-                "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
-                "query_overlap": int(query_overlap),
-                "matched_query_terms": matched_query_terms,
-                "focus_overlap": int(focus_overlap),
-                "matched_focus_terms": matched_focus_terms,
-                "memory_focus_priority": float(focus_priority),
-                "complete_sentence": int(complete_sentence),
-                "clipped_overlap": int(clipped_overlap),
-            }
-        )
+        return {
+            "memory_index": int(idx),
+            "similarity": float(similarity),
+            "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
+            "raw_window": raw_window,
+            "text": text,
+            "metadata": dict(replay_metadata),
+            "source_name": source_name,
+            "source_type": source_type,
+            "provider": provider,
+            "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
+            "importance": float(store.slow_importance[idx]),
+            "tag_strength": float(capture_tag),
+            "capture_tag": float(capture_tag),
+            "prp_level": float(prp_level),
+            "capture_strength": float(capture_strength),
+            "consolidation_level": consolidation_level,
+            "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
+            "replay_count": int(store.slow_replay_count[idx]),
+            "replay_priority": float(replay_priority),
+            "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
+            "query_overlap": int(query_overlap),
+            "matched_query_terms": matched_query_terms,
+            "focus_overlap": int(focus_overlap),
+            "matched_focus_terms": matched_focus_terms,
+            "memory_focus_priority": float(focus_priority),
+            "complete_sentence": int(complete_sentence),
+            "clipped_overlap": int(clipped_overlap),
+        }
 
-    if not query_terms and not ordered_focus_terms and not memory_priority:
-        matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
-        return _finish(matches[:limit])
+    for idx in candidate_indices:
+        ref_key = store.slow_routing_keys[idx]
+        ref_input = store.slow_input_patterns[idx]
+        if isinstance(ref_key, torch.Tensor):
+            similarity = cosine_similarity(query_key, ref_key.float())
+        elif isinstance(ref_input, torch.Tensor):
+            similarity = cosine_similarity(query_input, ref_input.float())
+        else:
+            similarity = cosine_similarity(query_input, store.slow_buffer[idx].float())
+
+        evidence_pattern = ref_input.float() if isinstance(ref_input, torch.Tensor) else store.slow_buffer[idx].float()
+        replay_priority = float(replay_scores.get(int(idx), 0.0))
+        if text_ranking_required:
+            matches.append(
+                _build_match(
+                    idx,
+                    similarity=float(similarity),
+                    evidence_pattern=evidence_pattern,
+                    replay_priority=replay_priority,
+                )
+            )
+        else:
+            candidate_rows.append(
+                {
+                    "memory_index": int(idx),
+                    "similarity": float(similarity),
+                    "evidence_pattern": evidence_pattern,
+                    "replay_priority": float(replay_priority),
+                }
+            )
+
+    if not text_ranking_required:
+        candidate_rows.sort(key=lambda item: float(item["similarity"]), reverse=True)
+        selected_rows = candidate_rows[:limit]
+        selected_matches = [
+            _build_match(
+                int(row["memory_index"]),
+                similarity=float(row["similarity"]),
+                evidence_pattern=row["evidence_pattern"],
+                replay_priority=float(row["replay_priority"]),
+            )
+            for row in selected_rows
+            if isinstance(row.get("evidence_pattern"), torch.Tensor)
+        ]
+        return _finish(selected_matches)
 
     if not query_terms:
         matches.sort(

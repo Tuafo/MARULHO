@@ -25,6 +25,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
@@ -231,6 +233,17 @@ similarity `0.9932903051`. The matching hot-path report
 processed `262144` tokens at `6137.185 tokens/sec`, kept bounded `12/65536`
 route rows, cached `65526` transition rows, reported no observed contention,
 kept GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
+For similarity-only query readout, the same surface now delays replay text
+payload construction until after the returned set is known. The benchmark
+`reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json`
+kept selected indices identical to the retired eager candidate-payload shape,
+loaded raw text for `5` returned matches instead of all `192` candidates, and
+reduced mean latency from `33.612 ms` to `25.881 ms`. The report records
+`raw_text_payload_policy=returned_similarity_matches_only` and
+`language_reasoning=false`. The 524288-token hot-path check stayed in band at
+`6152.079 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, flat GPU memory (`1874->1878 MiB`), no observed contention,
+and zero graph/native/sequence failures.
 
 Concept-frontier source acquisition now uses that selected-window contract too.
 `concept_frontier_metrics_with_report(...)` emits

@@ -36,6 +36,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
@@ -84,6 +86,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.training.query_runner --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --query-text "bounded replay memory" --top-k-candidates 5 --top-k-memories 5 --top-chars 4 --output-json reports\bounded_replay_window_20260617\query-memory-match-bounded-window.json`
 - Hot-path protection for bounded query-memory match:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-memory-match.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded query-memory returned payload benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.query_memory_payload_benchmark --output reports\bounded_replay_window_20260617\query-memory-payload-returned-only.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 5 --iterations 16`
+- Hot-path protection for query-memory returned payloads:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-query-memory-payload.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded concept-frontier memory metrics tests:
   `PYTHONPATH=src python -m pytest tests\test_autonomy_runner.py::AutonomySelectionTests::test_concept_frontier_metrics_use_bounded_candidate_window -q`
 - Bounded concept-frontier memory metrics benchmark:
@@ -532,6 +538,25 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 all `0`. The velocity surface reported no observed contention: CPU max `14%`,
 GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
 stayed flat at `1848 MiB` before and after measurement.
+
+The query-memory payload follow-up keeps explicit query readout bounded after
+candidate selection. Similarity-only readout now scores the selected candidate
+window tensor-first and materializes replay text only for returned matches,
+while term/focus ranking still reports the intentional bounded candidate-window
+text ranking policy. `bounded_query_memory_match.v1` now records
+`raw_text_payload_loaded`, `raw_text_payload_count`,
+`raw_text_payload_policy`, and `language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json`
+compared the retired eager candidate-payload shape with the returned-only path
+over `65536` archival entries, a `192`-entry candidate window, and `16`
+iterations: selected indices matched exactly, raw text payload loads dropped
+from `192` to `5`, and mean latency moved from `33.612 ms` to `25.881 ms`
+(`1.299x`). The longer hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json`
+processed `524288` tokens at `6152.079 tokens/sec`, with
+`train_compute=0.132199 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, flat GPU memory (`1874->1878 MiB`), no observed
+contention, and zero graph/native/sequence failures.
 
 The concept-frontier metric follow-up applies the same selected-window rule to
 autonomy source-acquisition planning. `concept_frontier_metrics_with_report(...)`

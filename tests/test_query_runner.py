@@ -177,10 +177,34 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertEqual(report["candidate_index_count"], 5)
         self.assertEqual(report["similarity_score_count"], 5)
         self.assertEqual(report["replay_priority_score_count"], 5)
+        self.assertEqual(report["raw_text_payload_policy"], "candidate_window_text_ranking")
+        self.assertEqual(report["raw_text_payload_count"], 5)
         self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["runs_live_tick"])
         self.assertLessEqual(max(trainer.model.memory_store.replay_entry_calls), 4)
+
+    def test_memory_matches_loads_text_only_for_returned_similarity_matches(self) -> None:
+        trainer = _FakeTrainer([f"memory episode {index}" for index in range(128)])
+        pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
+
+        matches, report = query_runner.memory_matches_with_report(
+            trainer,
+            pattern,
+            pattern,
+            top_k=4,
+            top_chars=1,
+            memory_candidate_limit=32,
+        )
+
+        self.assertEqual([match["memory_index"] for match in matches], [0, 1, 2, 3])
+        self.assertEqual(report["candidate_index_count"], 32)
+        self.assertEqual(report["similarity_score_count"], 32)
+        self.assertEqual(report["raw_text_payload_policy"], "returned_similarity_matches_only")
+        self.assertEqual(report["raw_text_payload_count"], 4)
+        self.assertTrue(report["raw_text_payload_loaded"])
+        self.assertFalse(report["language_reasoning"])
+        self.assertEqual(trainer.model.memory_store.replay_entry_calls, [0, 1, 2, 3])
 
     def test_memory_matches_preserves_literal_and_inflection_matches(self) -> None:
         trainer = _FakeTrainer(

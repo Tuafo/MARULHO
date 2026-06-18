@@ -17,6 +17,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json
@@ -125,6 +127,15 @@ Current bounded selection evidence:
   keeps the live tick protected at `6137.185 tokens/sec`, bounded
   `12/65536` route rows, flat `1848 MiB` GPU memory, and zero graph/native
   failures.
+- `reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json`
+  proves similarity-only query readout now materializes replay text only for
+  returned matches. It preserves selected indices against the retired eager
+  candidate-payload shape, drops raw text payload loads from `192` to `5`, and
+  reduces mean readout latency from `33.612 ms` to `25.881 ms`.
+- `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json`
+  keeps the longer live tick protected at `6152.079 tokens/sec`, bounded
+  `12/65536` route rows, flat GPU memory (`1874->1878 MiB`), no observed
+  contention, and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json`
   keeps concept-frontier acquisition metrics bounded at `64/8192` scored
   entries, preserves the diagnostic full-scan top-1, and reduces metric latency

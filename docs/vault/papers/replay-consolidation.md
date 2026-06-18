@@ -37,6 +37,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
@@ -116,6 +118,12 @@ so `query_runner.memory_matches_with_report(...)` records
 bucket-indexed memory window, and the query runner computes similarity plus
 replay-priority scores only for those entries. This keeps readout recall from
 becoming an archive-wide hidden reasoning pass.
+
+Explicit query text payloads follow the same selected-window rule. Similarity
+ranking can stay tensor-only until the returned set is known; raw replay text
+is then materialized only for returned evidence. Term/focus ranking may still
+inspect text inside the bounded candidate window, but the report must state
+that policy explicitly and keep `language_reasoning=false`.
 
 ConceptStore signature lookup is now treated as an evidence-window lookup, not
 as general archive traversal. CLS and continual-replay work argue for separating
@@ -372,6 +380,19 @@ processed `262144` tokens at `6137.185 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `1848 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The query-memory payload follow-up tightens that readout boundary. The
+similarity-only path no longer builds text payloads for every candidate before
+sorting; it scores the bounded candidate window first, then loads replay text
+only for returned matches. The benchmark
+`reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json`
+preserved selected indices against the retired eager candidate-payload shape,
+reduced raw text payload loads from `192` to `5`, and reduced mean latency from
+`33.612 ms` to `25.881 ms` (`1.299x`). The 524288-token hot-path report
+`reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json`
+processed `6152.079 tokens/sec`, with bounded `12/65536` route rows, `65526`
+cached transition rows, flat GPU memory (`1874->1878 MiB`), no observed
+contention, and zero graph/native/sequence failures.
+
 The concept-frontier follow-up applies the same selected-memory rule to source
 acquisition planning. `concept_frontier_metrics_with_report(...)` derives
 candidate buckets from the probe-bank routing signature and uses
@@ -479,8 +500,9 @@ candidate repair, reconstruction-guarded HF replay acceptance, skipped repeated
 rejected replay attempts, target-specific repair-strength budgets, tensor-only
 sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
-readout, bounded concept-frontier metrics, bounded semantic frontier-gap
-planning, bounded recent tag/anchor setup, bounded awake-ripple tagging, and
+readout, returned-only query text payloads, bounded concept-frontier metrics,
+bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
+bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

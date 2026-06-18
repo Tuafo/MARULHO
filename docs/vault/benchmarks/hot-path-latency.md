@@ -18,6 +18,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-capped-replay-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-collection.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-query-memory-match.json
+  - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
@@ -2862,6 +2863,33 @@ and native burst failures were all `0`. The velocity surface reported no
 observed contention: CPU max `14%`, GPU utilization max `10%`, GPU memory
 utilization max `10%`, and GPU memory stayed flat at `1848 MiB` before and
 after measurement.
+
+### Returned-Only Query Memory Payload, 2026-06-18
+
+The query-memory payload slice keeps explicit readout text payloads behind the
+bounded return set when no query/focus terms require candidate-window text
+ranking. Similarity-only query readout still scores the selected candidate
+window, but `bounded_query_memory_match.v1` now reports
+`raw_text_payload_policy=returned_similarity_matches_only`,
+`raw_text_payload_count`, and `language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260617/query-memory-payload-returned-only.json`
+preserved selected indices against the retired eager candidate-payload shape,
+loaded raw text for `5` returned matches instead of `192` candidates, and
+reduced mean latency from `33.612 ms` to `25.881 ms`.
+
+The 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-524288-i32-query-memory-payload.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6152.079 tokens/sec`, with
+`train_compute=0.132199 ms/token`, `prepare_training=0.006607 ms/token`,
+`finalize_total=0.006542 ms/token`, and `tick_duration_ms.p95=21.044`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native sequence, and native
+burst failures were all `0`. The velocity surface reported no observed
+contention: CPU max `47%`, GPU utilization max `10%`, GPU memory utilization
+max `10%`, and GPU memory moved only from `1874 MiB` to `1878 MiB`.
 
 ### Bounded Concept-Frontier Memory Metrics, 2026-06-17
 
