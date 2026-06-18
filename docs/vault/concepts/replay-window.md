@@ -236,6 +236,21 @@ stayed in band at `6148.125 tokens/sec` with `12/65536` route rows, `65526`
 cached transition rows, zero graph/native/sequence failures, flat `1848 MiB`
 GPU memory, and no observed contention.
 
+The hot-bucket source construction below that capped scorer is now bounded too.
+`_candidate_indices_for_bucket_ids(...)` used to build `list(reversed(...))`
+for every selected bucket before returning the capped candidate list. It now
+uses tail-indexed cursors and reports
+`candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`,
+`candidate_source_entry_read_count`, materialization counts, CPU source device,
+and no full-bucket scan/materialization. The diagnostic benchmark
+`reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
+kept newest-candidate parity on a `65536`-entry bucket, read `32` source
+indices within a `32`-entry source-read budget, materialized `0`, used
+`0.0 MiB` CUDA allocation, and cut mean source latency from `0.416944 ms` to
+`0.060931 ms` (`6.843x`). This source window feeds
+replay selection, replay-query collection, query readout, frontier planning,
+and awake ripple tagging.
+
 The replay query-collection follow-up applies the same cap before HF recall
 queries are loaded. `DualMemoryStore.collect_replay_query_indices(...)` emits
 `bounded_replay_query_collection.v1`, returns recent bucket-indexed query

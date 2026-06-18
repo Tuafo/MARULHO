@@ -3534,3 +3534,48 @@ before/around measurement, while CPU stayed at `15%` max and GPU memory
 utilization at `16%`; because throughput and stage timings stayed in the
 maintained band, this is accepted as hot-path protection evidence but not as a
 clean contention-free throughput ceiling.
+
+### Bucket Candidate Source Window, 2026-06-18
+
+This slice retires hot-bucket source materialization inside the shared memory
+candidate collector. The old implementation returned a bounded candidate list
+but first built `list(reversed(...))` over each selected bucket, so a large
+bucket could still create source-size work before replay selection, replay-query
+collection, query readout, frontier planning, or awake ripple tagging.
+
+Focused source benchmark:
+
+`python -m marulho.evaluation.bucket_candidate_source_window_benchmark --output reports\bounded_replay_window_20260618\bucket-candidate-source-window-bounded.json --archive-size 65536 --candidate-limit 32 --iterations 64`
+
+It passed newest-candidate parity on a `65536`-entry hot bucket. The legacy
+materialized source path averaged `0.416944 ms`; the bounded cursor path
+averaged `0.060931 ms` (`6.843x`). The bounded report read `32` source
+entries within a `32`-entry source-read budget, materialized `0`, set
+`candidate_source_full_bucket_scan=false`, kept archival/source placement on
+CPU, and allocated `0.0 MiB` CUDA memory.
+
+Replay quality benchmark:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260618\synthetic-bucket-source-window.json`
+
+The positive-pressure arm kept the memory-consolidation gate and bounded recall
+gate passing, applied `2` accepted updates, measured
+`mean_input_pattern_distance=5.96046447753906e-08`, read `14` source entries in
+the selected replay cycle, materialized `0`, and reported no global candidate
+scan. Zero-pressure and no-anchor controls remained blocked as expected.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6290.744 tokens/sec`, with
+`train_compute=0.129997 ms/token`, `prepare_training=0.006358 ms/token`,
+`finalize_total=0.006150 ms/token`, and `tick_duration_ms.p95=20.763`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported no observed contention: CPU max `33%`, GPU max
+`10%`, GPU memory-util max `10%`, and RTX 3060 memory stayed flat at
+`1788 MiB`. This is accepted as same-band hot-path protection evidence; the
+change is a slow/source-window replay boundary and does not add live-tick work.

@@ -781,6 +781,21 @@ failures after one slower same-code run was rejected. This keeps replay-backed
 structural consent a bounded slow/control-plane path rather than a
 retained-history scan.
 
+Bucket-indexed memory windows now bound the source construction inside the
+shared store helper as well as the returned candidate count. The previous
+helper could return only `32` candidates while still materializing an entire
+hot bucket through `list(reversed(...))`. `_candidate_indices_for_bucket_ids(...)`
+now uses tail-indexed round-robin cursors and every bucket-scoped caller can
+report `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`,
+source-read count, materialization count, CPU source placement, and no
+full-bucket scan. `reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
+used a `65536`-entry hot bucket, preserved newest-candidate parity, read `32`
+source indices within a `32`-entry source-read budget, materialized `0`,
+allocated `0.0 MiB` CUDA, and reduced mean source latency from `0.416944 ms`
+to `0.060931 ms` (`6.843x`). The maintained
+contract is that replay/query/frontier/ripple windows are bounded before any
+modern-Hopfield-style local recall or replay scoring runs.
+
 HF replay query collection now bounds retained column-anchor source selection
 before the store collector runs. `capture_recent_memory_anchors(...)` records
 recency metadata and refreshes anchor dict recency on recapture; checkpoints

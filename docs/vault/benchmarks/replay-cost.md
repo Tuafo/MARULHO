@@ -5,6 +5,7 @@ related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -50,6 +51,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json
+  - reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json
+  - reports/bounded_replay_window_20260618/synthetic-bucket-source-window.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
@@ -76,6 +80,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-replay-tensor-payload-boundary.json`
 - Synthetic capped replay candidate window:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-capped-window.json`
+- Hot-bucket candidate source window:
+  `PYTHONPATH=src python -m marulho.evaluation.bucket_candidate_source_window_benchmark --output reports\bounded_replay_window_20260618\bucket-candidate-source-window-bounded.json --archive-size 65536 --candidate-limit 32 --iterations 64`
+- Synthetic replay quality for bucket source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260618\synthetic-bucket-source-window.json`
 - HF-backed replay recall with capped query collection:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-capped-query-collection`
 - HF-backed replay recall:
@@ -86,6 +94,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for capped replay candidate windows:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-capped-replay-window.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for bucket candidate source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
 - Hot-path protection for capped query collection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded query-memory match readout:
@@ -988,6 +998,23 @@ native sequence failures were all `0`. GPU memory stayed flat at `1787 MiB`.
 The velocity sampler observed borderline GPU contention at `20%`, so this is
 accepted as hot-path protection and same-band throughput evidence, not a clean
 contention-free ceiling.
+
+The bucket candidate source-window follow-up closes a lower-level source-cost
+gap in the shared store helper. The maintained collector now uses
+tail-indexed round-robin cursors and reports
+`candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`.
+`reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
+kept newest-candidate parity on a `65536`-entry hot bucket, read `32` source
+entries, materialized `0`, used CPU source/archival placement with
+`cuda_memory_delta_mib=0.0`, and reduced mean source latency from
+`0.416944 ms` to `0.060931 ms` (`6.843x`). The replay-quality rerun
+`reports/bounded_replay_window_20260618/synthetic-bucket-source-window.json`
+kept the positive-pressure consolidation and recall gates passing with
+`mean_input_pattern_distance=5.96046447753906e-08`, while the `524288`-token
+protection run stayed in band at `6290.744 tokens/sec`, with bounded
+`12/65536` route rows, flat `1788 MiB` RTX 3060 memory, and no observed
+contention. This keeps source construction selected and CPU-resident before
+any bounded replay/query/frontier/ripple operator runs.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

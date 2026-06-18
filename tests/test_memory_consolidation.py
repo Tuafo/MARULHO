@@ -39,6 +39,29 @@ class _IndexOnlySequence:
         raise AssertionError("archive iteration is not allowed")
 
 
+class _IndexOnlyBucketSequence:
+    def __init__(self, values: list[int]) -> None:
+        self._values = values
+        self.getitem_count = 0
+        self.iteration_attempts = 0
+        self.reversed_attempts = 0
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: int) -> int:
+        self.getitem_count += 1
+        return int(self._values[int(index)])
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        self.iteration_attempts += 1
+        raise AssertionError("bucket index iteration is not allowed")
+
+    def __reversed__(self):  # type: ignore[no-untyped-def]
+        self.reversed_attempts += 1
+        raise AssertionError("bucket index reverse materialization is not allowed")
+
+
 class MemoryConsolidationTests(unittest.TestCase):
     def test_train_step_can_defer_due_sleep_maintenance_until_allowed(self) -> None:
         cfg = MarulhoConfig(
@@ -381,6 +404,17 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["candidate_index_available_count"], 10)
         self.assertEqual(report["candidate_index_count"], 3)
         self.assertEqual(report["candidate_indices"], [9, 8, 7])
+        self.assertEqual(
+            report["candidate_source_window_policy"],
+            "tail_indexed_bucket_round_robin_no_full_bucket_materialization",
+        )
+        self.assertEqual(report["candidate_source_entry_read_count"], 3)
+        self.assertEqual(report["candidate_source_entry_read_budget"], 3)
+        self.assertFalse(report["candidate_source_entry_read_budget_exhausted"])
+        self.assertEqual(report["candidate_source_materialized_entry_count"], 0)
+        self.assertEqual(report["candidate_source_materialization_count"], 0)
+        self.assertFalse(report["candidate_source_full_bucket_scan"])
+        self.assertFalse(report["candidate_source_full_bucket_materialization"])
         self.assertEqual(report["tagged_count"], 3)
         self.assertEqual(report["scan_mode"], "awake_bucket_index")
         self.assertFalse(report["global_candidate_scan"])
@@ -389,6 +423,41 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["archival_storage_device"], "cpu")
         self.assertGreater(float(store.slow_ripple_strength[9]), 0.0)
         self.assertEqual(float(store.slow_ripple_strength[0]), old_strength)
+
+    def test_bucket_candidate_window_does_not_materialize_hot_bucket_source(self) -> None:
+        store = DualMemoryStore(capacity=2048)
+        store.slow_buffer = [
+            torch.tensor([float(index), 1.0], dtype=torch.float32)
+            for index in range(2048)
+        ]
+        store.slow_bucket_ids = [7 for _ in range(2048)]
+        bucket_indices = _IndexOnlyBucketSequence(list(range(2048)))
+        store._bucket_entry_indices[7] = bucket_indices  # type: ignore[assignment]
+
+        report = store.collect_query_memory_match_indices(
+            candidate_bucket_ids=[7],
+            max_candidates=5,
+        )
+
+        self.assertEqual(report["surface"], "bounded_query_memory_match_candidates.v1")
+        self.assertEqual(report["candidate_index_available_count"], 2048)
+        self.assertEqual(report["candidate_index_count"], 5)
+        self.assertEqual(report["match_indices"], [2047, 2046, 2045, 2044, 2043])
+        self.assertEqual(
+            report["candidate_source_window_policy"],
+            "tail_indexed_bucket_round_robin_no_full_bucket_materialization",
+        )
+        self.assertEqual(report["candidate_source_entry_available_count"], 2048)
+        self.assertEqual(report["candidate_source_entry_read_count"], 5)
+        self.assertEqual(report["candidate_source_entry_read_budget"], 5)
+        self.assertFalse(report["candidate_source_entry_read_budget_exhausted"])
+        self.assertEqual(report["candidate_source_materialized_entry_count"], 0)
+        self.assertEqual(report["candidate_source_materialization_count"], 0)
+        self.assertFalse(report["candidate_source_full_bucket_scan"])
+        self.assertFalse(report["candidate_source_full_bucket_materialization"])
+        self.assertEqual(bucket_indices.getitem_count, 5)
+        self.assertEqual(bucket_indices.iteration_attempts, 0)
+        self.assertEqual(bucket_indices.reversed_attempts, 0)
 
     def test_awake_ripple_unscoped_requires_awake_bucket_scope(self) -> None:
         store = DualMemoryStore(capacity=16)

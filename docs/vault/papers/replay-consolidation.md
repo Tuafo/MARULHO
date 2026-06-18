@@ -775,6 +775,23 @@ zero graph/native/sequence failures. This retires the input-unbounded service
 replay-plan shape while keeping replay selection inspectable and local to an
 operator-reviewed slow/service window.
 
+The shared bucket candidate source now has the same bounded-source contract as
+the replay/query callers that consume it. The previous helper returned a capped
+candidate list, but built `list(reversed(...))` for each selected bucket first,
+so one hot bucket could still create source work proportional to bucket size.
+`DualMemoryStore._candidate_indices_for_bucket_ids(...)` now walks bucket tails
+with per-bucket cursors, round-robins until the requested window is full, and
+reports `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`
+plus source-read/materialization counts. The diagnostic benchmark
+`reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
+used a `65536`-entry hot bucket, preserved newest-candidate parity, read `32`
+source entries within a `32`-entry source-read budget, materialized `0`, used
+CPU archival/source placement with `0.0 MiB` CUDA allocation, and reduced mean
+source latency from `0.416944 ms` to `0.060931 ms` (`6.843x`). This is not a
+transformer-style memory scan; it is the
+local source-window setup required before bounded associative recall, query
+readout, frontier planning, or awake ripple tagging.
+
 HF replay query collection now applies the same bounded-source rule to retained
 column anchors. The old runner capped returned query indices but still passed
 every retained `column_anchors` bucket into the store collector, so
@@ -831,7 +848,8 @@ awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
-source-bank wrapper APIs, plus the all-anchor HF replay-query source pass;
+source-bank wrapper APIs, plus the all-anchor HF replay-query source pass and
+full hot-bucket candidate source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
 

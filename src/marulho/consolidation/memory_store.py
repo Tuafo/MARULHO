@@ -5,10 +5,29 @@ from bisect import insort
 import math
 import time
 from collections import defaultdict
-from typing import Any, List, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, NamedTuple, Optional, Sequence
 
 import numpy as np
 import torch
+
+
+_BUCKET_CANDIDATE_SOURCE_WINDOW_POLICY = (
+    "tail_indexed_bucket_round_robin_no_full_bucket_materialization"
+)
+
+
+class _BucketCandidateWindow(NamedTuple):
+    normalized_bucket_ids: list[int] | None
+    candidate_indices: list[int]
+    available_count: int
+    available_count_is_lower_bound: bool
+    source_entry_read_count: int
+    source_entry_read_budget: int
+    source_entry_read_budget_exhausted: bool
+    source_materialized_entry_count: int
+    source_materialization_count: int
+    source_full_bucket_scan: bool
+    candidate_window_limit: int
 
 
 class DualMemoryStore:
@@ -312,6 +331,65 @@ class DualMemoryStore:
         return int(self._bucket_consolidation_cache_generation)
 
     @staticmethod
+    def _empty_bucket_candidate_source_fields() -> dict[str, Any]:
+        return {
+            "candidate_source_window_policy": "not_run",
+            "candidate_source_bucket_count": 0,
+            "candidate_source_entry_available_count": 0,
+            "candidate_source_entry_available_count_is_lower_bound": False,
+            "candidate_source_entry_read_count": 0,
+            "candidate_source_entry_read_budget": 0,
+            "candidate_source_entry_read_budget_exhausted": False,
+            "candidate_source_materialized_entry_count": 0,
+            "candidate_source_materialization_count": 0,
+            "candidate_source_full_bucket_scan": False,
+            "candidate_source_full_bucket_materialization": False,
+            "candidate_source_device": "cpu",
+        }
+
+    @staticmethod
+    def _bucket_candidate_source_fields(
+        window: _BucketCandidateWindow,
+    ) -> dict[str, Any]:
+        return {
+            "candidate_source_window_policy": (
+                _BUCKET_CANDIDATE_SOURCE_WINDOW_POLICY
+                if window.normalized_bucket_ids is not None
+                else "bucket_scope_required_no_source_window"
+            ),
+            "candidate_source_bucket_count": int(
+                len(window.normalized_bucket_ids or [])
+            ),
+            "candidate_source_entry_available_count": int(window.available_count),
+            "candidate_source_entry_available_count_is_lower_bound": bool(
+                window.available_count_is_lower_bound
+            ),
+            "candidate_source_entry_read_count": int(
+                window.source_entry_read_count
+            ),
+            "candidate_source_entry_read_budget": int(
+                window.source_entry_read_budget
+            ),
+            "candidate_source_entry_read_budget_exhausted": bool(
+                window.source_entry_read_budget_exhausted
+            ),
+            "candidate_source_materialized_entry_count": int(
+                window.source_materialized_entry_count
+            ),
+            "candidate_source_materialization_count": int(
+                window.source_materialization_count
+            ),
+            "candidate_source_full_bucket_scan": bool(
+                window.source_full_bucket_scan
+            ),
+            "candidate_source_full_bucket_materialization": bool(
+                window.source_materialized_entry_count > 0
+                or window.source_materialization_count > 0
+            ),
+            "candidate_source_device": "cpu",
+        }
+
+    @staticmethod
     def _empty_replay_selection_report() -> dict[str, Any]:
         return {
             "surface": "bounded_replay_window_selection.v1",
@@ -332,6 +410,7 @@ class DualMemoryStore:
             "candidate_window_policy": "not_run",
             "candidate_index_available_count": 0,
             "score_count": 0,
+            **DualMemoryStore._empty_bucket_candidate_source_fields(),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "diagnostic_global_score_scan": False,
@@ -408,6 +487,7 @@ class DualMemoryStore:
             "query_indices": [],
             "query_count": 0,
             "score_count": 0,
+            **DualMemoryStore._empty_bucket_candidate_source_fields(),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -434,6 +514,7 @@ class DualMemoryStore:
             "candidate_index_count": 0,
             "match_indices": [],
             "score_count": 0,
+            **DualMemoryStore._empty_bucket_candidate_source_fields(),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -562,6 +643,7 @@ class DualMemoryStore:
             "candidate_index_available_count_is_lower_bound": False,
             "candidate_index_count": 0,
             "candidate_indices": [],
+            **DualMemoryStore._empty_bucket_candidate_source_fields(),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -669,6 +751,7 @@ class DualMemoryStore:
             "candidate_indices": [],
             "tagged_count": 0,
             "scan_mode": "not_run",
+            **DualMemoryStore._empty_bucket_candidate_source_fields(),
             "global_candidate_scan": False,
             "diagnostic_global_candidate_scan": False,
             "runs_live_tick": True,
@@ -1513,13 +1596,13 @@ class DualMemoryStore:
             self.last_ripple_scan_mode = "awake_bucket_index"
             self.ripple_awake_bucket_scan_count += 1
             self.last_ripple_awake_bucket_count = int(len(bucket_ids))
-            _normalized, bounded_indices, available_count = (
-                self._candidate_indices_for_bucket_ids(
-                    bucket_ids,
-                    max_candidates=candidate_limit,
-                )
+            candidate_window = self._candidate_indices_for_bucket_ids(
+                bucket_ids,
+                max_candidates=candidate_limit,
             )
-            bounded_indices = [int(index) for index in bounded_indices]
+            bounded_indices = [
+                int(index) for index in candidate_window.candidate_indices
+            ]
             self.last_ripple_awake_candidate_count = int(len(bounded_indices))
             self.ripple_awake_bucket_candidate_count += int(
                 len(bounded_indices)
@@ -1548,11 +1631,14 @@ class DualMemoryStore:
                 "candidate_scope": "awake_bucket_index_candidate_window",
                 "candidate_bucket_ids": [int(bucket_id) for bucket_id in bucket_ids],
                 "candidate_bucket_count": int(len(bucket_ids)),
-                "candidate_index_available_count": int(available_count),
+                "candidate_index_available_count": int(
+                    candidate_window.available_count
+                ),
                 "candidate_index_count": int(len(bounded_indices)),
                 "candidate_indices": [int(index) for index in bounded_indices],
                 "tagged_count": int(tagged),
                 "scan_mode": str(self.last_ripple_scan_mode),
+                **self._bucket_candidate_source_fields(candidate_window),
                 "global_candidate_scan": False,
                 "diagnostic_global_candidate_scan": False,
                 "runs_live_tick": True,
@@ -1567,7 +1653,12 @@ class DualMemoryStore:
                 "selection_budget": {
                     "memory_budget_entries": int(len(self.slow_buffer)),
                     "candidate_window_entries": int(candidate_limit),
-                    "candidate_bucket_entries_available": int(available_count),
+                    "candidate_bucket_entries_available": int(
+                        candidate_window.available_count
+                    ),
+                    "candidate_source_read_budget_entries": int(
+                        candidate_window.source_entry_read_budget
+                    ),
                 },
             }
             self._invalidate_summary_cache()
@@ -1596,6 +1687,7 @@ class DualMemoryStore:
             "candidate_indices": [],
             "tagged_count": 0,
             "scan_mode": str(self.last_ripple_scan_mode),
+            **self._empty_bucket_candidate_source_fields(),
             "global_candidate_scan": False,
             "diagnostic_global_candidate_scan": False,
             "runs_live_tick": True,
@@ -1868,10 +1960,22 @@ class DualMemoryStore:
         bucket_ids: Sequence[int] | torch.Tensor | None,
         *,
         max_candidates: int | None = None,
-    ) -> tuple[list[int] | None, list[int], int]:
+    ) -> _BucketCandidateWindow:
         normalized = self._normalise_awake_bucket_ids(bucket_ids)
         if normalized is None:
-            return None, [], 0
+            return _BucketCandidateWindow(
+                normalized_bucket_ids=None,
+                candidate_indices=[],
+                available_count=0,
+                available_count_is_lower_bound=False,
+                source_entry_read_count=0,
+                source_entry_read_budget=0,
+                source_entry_read_budget_exhausted=False,
+                source_materialized_entry_count=0,
+                source_materialization_count=0,
+                source_full_bucket_scan=False,
+                candidate_window_limit=0,
+            )
         size = len(self.slow_buffer)
         available_count = int(
             sum(
@@ -1881,32 +1985,83 @@ class DualMemoryStore:
         )
         limit = None if max_candidates is None else max(0, int(max_candidates))
         if limit == 0:
-            return normalized, [], available_count
+            return _BucketCandidateWindow(
+                normalized_bucket_ids=normalized,
+                candidate_indices=[],
+                available_count=available_count,
+                available_count_is_lower_bound=False,
+                source_entry_read_count=0,
+                source_entry_read_budget=0,
+                source_entry_read_budget_exhausted=False,
+                source_materialized_entry_count=0,
+                source_materialization_count=0,
+                source_full_bucket_scan=False,
+                candidate_window_limit=0,
+            )
 
-        per_bucket_recent = [
-            list(reversed(self._bucket_entry_indices.get(int(bucket_id), ())))
+        per_bucket_entries = [
+            self._bucket_entry_indices.get(int(bucket_id), ())
             for bucket_id in normalized
         ]
-        offsets = [0 for _ in per_bucket_recent]
+        cursors = [len(bucket_entries) - 1 for bucket_entries in per_bucket_entries]
         bounded: list[int] = []
         seen: set[int] = set()
+        source_entry_read_count = 0
+        source_entry_read_budget = (
+            available_count
+            if limit is None
+            else int(max(0, limit) * max(1, len(per_bucket_entries)))
+        )
+        source_entry_read_budget_exhausted = False
         while True:
             progressed = False
-            for bucket_pos, bucket_entries in enumerate(per_bucket_recent):
-                while offsets[bucket_pos] < len(bucket_entries):
-                    raw_index = int(bucket_entries[offsets[bucket_pos]])
-                    offsets[bucket_pos] += 1
+            for bucket_pos, bucket_entries in enumerate(per_bucket_entries):
+                cursor = int(cursors[bucket_pos])
+                while cursor >= 0:
+                    if source_entry_read_count >= source_entry_read_budget:
+                        source_entry_read_budget_exhausted = True
+                        break
+                    raw_index = int(bucket_entries[cursor])
+                    cursor -= 1
+                    source_entry_read_count += 1
                     if raw_index in seen or raw_index < 0 or raw_index >= size:
                         continue
                     seen.add(raw_index)
                     bounded.append(raw_index)
                     progressed = True
                     break
+                cursors[bucket_pos] = cursor
+                if source_entry_read_budget_exhausted:
+                    break
                 if limit is not None and len(bounded) >= limit:
-                    return normalized, bounded, available_count
+                    return _BucketCandidateWindow(
+                        normalized_bucket_ids=normalized,
+                        candidate_indices=bounded,
+                        available_count=available_count,
+                        available_count_is_lower_bound=False,
+                        source_entry_read_count=source_entry_read_count,
+                        source_entry_read_budget=source_entry_read_budget,
+                        source_entry_read_budget_exhausted=False,
+                        source_materialized_entry_count=0,
+                        source_materialization_count=0,
+                        source_full_bucket_scan=False,
+                        candidate_window_limit=int(limit),
+                    )
             if not progressed:
                 break
-        return normalized, bounded, available_count
+        return _BucketCandidateWindow(
+            normalized_bucket_ids=normalized,
+            candidate_indices=bounded,
+            available_count=available_count,
+            available_count_is_lower_bound=False,
+            source_entry_read_count=source_entry_read_count,
+            source_entry_read_budget=source_entry_read_budget,
+            source_entry_read_budget_exhausted=source_entry_read_budget_exhausted,
+            source_materialized_entry_count=0,
+            source_materialization_count=0,
+            source_full_bucket_scan=bool(limit is None),
+            candidate_window_limit=int(len(bounded) if limit is None else limit),
+        )
 
     @staticmethod
     def _selection_score_summary(scores: Sequence[float]) -> dict[str, float]:
@@ -1947,12 +2102,12 @@ class DualMemoryStore:
             requested,
             int(candidate_pool) if candidate_pool is not None else requested,
         )
-        normalized_buckets, bucket_candidates, bucket_available_count = (
-            self._candidate_indices_for_bucket_ids(
-                candidate_bucket_ids,
-                max_candidates=candidate_window_limit,
-            )
+        candidate_window = self._candidate_indices_for_bucket_ids(
+            candidate_bucket_ids,
+            max_candidates=candidate_window_limit,
         )
+        normalized_buckets = candidate_window.normalized_bucket_ids
+        bucket_candidates = candidate_window.candidate_indices
         bucket_scoped = normalized_buckets is not None
         selected: list[int] = []
         selected_scores: list[float] = []
@@ -2032,7 +2187,7 @@ class DualMemoryStore:
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
             "candidate_index_available_count": int(
-                bucket_available_count
+                candidate_window.available_count
                 if bucket_scoped
                 else 0
             ),
@@ -2040,6 +2195,7 @@ class DualMemoryStore:
             "score_count": int(score_count),
             "selected_indices": selected,
             "selected_count": int(len(selected)),
+            **self._bucket_candidate_source_fields(candidate_window),
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "bounded_by_bucket_index": bool(bucket_scoped),
@@ -2062,6 +2218,9 @@ class DualMemoryStore:
                 "candidate_window_entries": int(candidate_window_limit),
                 "candidate_pool_entries": int(
                     candidate_pool if candidate_pool is not None else requested
+                ),
+                "candidate_source_read_budget_entries": int(
+                    candidate_window.source_entry_read_budget
                 ),
             },
             **self._selection_score_summary(selected_scores),
@@ -2248,12 +2407,12 @@ class DualMemoryStore:
         started = time.perf_counter()
         requested = max(0, int(max_queries))
         scoped_bucket_ids = [] if candidate_bucket_ids is None else candidate_bucket_ids
-        normalized_buckets, candidate_indices, available_count = (
-            self._candidate_indices_for_bucket_ids(
-                scoped_bucket_ids,
-                max_candidates=requested,
-            )
+        candidate_window = self._candidate_indices_for_bucket_ids(
+            scoped_bucket_ids,
+            max_candidates=requested,
         )
+        normalized_buckets = candidate_window.normalized_bucket_ids
+        candidate_indices = candidate_window.candidate_indices
         query_indices: list[int] = []
         skipped_missing_input_pattern = 0
         fallback_reason: str | None = None
@@ -2300,12 +2459,13 @@ class DualMemoryStore:
             ),
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
-            "candidate_index_available_count": int(available_count),
+            "candidate_index_available_count": int(candidate_window.available_count),
             "candidate_index_count": int(len(candidate_indices)),
             "query_indices": query_indices,
             "query_count": int(len(query_indices)),
             "skipped_missing_input_pattern_count": int(skipped_missing_input_pattern),
             "score_count": 0,
+            **self._bucket_candidate_source_fields(candidate_window),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -2318,6 +2478,9 @@ class DualMemoryStore:
                 "memory_budget_entries": int(len(self.slow_buffer)),
                 "candidate_window_entries": int(requested),
                 "query_budget_entries": int(requested),
+                "candidate_source_read_budget_entries": int(
+                    candidate_window.source_entry_read_budget
+                ),
             },
         }
         self.last_replay_query_collection_report = report
@@ -2336,12 +2499,12 @@ class DualMemoryStore:
         started = time.perf_counter()
         requested = max(0, int(max_candidates))
         scoped_bucket_ids = [] if candidate_bucket_ids is None else candidate_bucket_ids
-        normalized_buckets, candidate_indices, available_count = (
-            self._candidate_indices_for_bucket_ids(
-                scoped_bucket_ids,
-                max_candidates=requested,
-            )
+        candidate_window = self._candidate_indices_for_bucket_ids(
+            scoped_bucket_ids,
+            max_candidates=requested,
         )
+        normalized_buckets = candidate_window.normalized_bucket_ids
+        candidate_indices = candidate_window.candidate_indices
         fallback_reason: str | None = None
         if requested <= 0:
             fallback_reason = "empty_query_match_request"
@@ -2370,10 +2533,11 @@ class DualMemoryStore:
             ),
             "candidate_bucket_ids": list(normalized_buckets or []),
             "candidate_bucket_count": int(len(normalized_buckets or [])),
-            "candidate_index_available_count": int(available_count),
+            "candidate_index_available_count": int(candidate_window.available_count),
             "candidate_index_count": int(len(candidate_indices)),
             "match_indices": [int(index) for index in candidate_indices],
             "score_count": 0,
+            **self._bucket_candidate_source_fields(candidate_window),
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -2385,6 +2549,9 @@ class DualMemoryStore:
             "selection_budget": {
                 "memory_budget_entries": int(len(self.slow_buffer)),
                 "candidate_window_entries": int(requested),
+                "candidate_source_read_budget_entries": int(
+                    candidate_window.source_entry_read_budget
+                ),
             },
         }
         self.last_query_memory_match_report = report
@@ -2599,16 +2766,18 @@ class DualMemoryStore:
         available_is_lower_bound = False
         floor_token = 0
         fallback_reason: str | None = None
+        candidate_window: _BucketCandidateWindow | None = None
 
         if requested <= 0:
             fallback_reason = "empty_frontier_candidate_request"
         elif candidate_bucket_ids is not None:
-            normalized_buckets, candidate_indices, available_count = (
-                self._candidate_indices_for_bucket_ids(
-                    candidate_bucket_ids,
-                    max_candidates=requested,
-                )
+            candidate_window = self._candidate_indices_for_bucket_ids(
+                candidate_bucket_ids,
+                max_candidates=requested,
             )
+            normalized_buckets = candidate_window.normalized_bucket_ids
+            candidate_indices = candidate_window.candidate_indices
+            available_count = candidate_window.available_count
             if normalized_buckets is not None and not normalized_buckets:
                 fallback_reason = "empty_frontier_candidate_bucket_scope"
             elif not candidate_indices:
@@ -2630,6 +2799,12 @@ class DualMemoryStore:
                 fallback_reason = "empty_frontier_recent_candidate_window"
 
         latency_ms = (time.perf_counter() - started) * 1000.0
+        if candidate_window is not None:
+            source_fields = self._bucket_candidate_source_fields(candidate_window)
+            source_read_budget = int(candidate_window.source_entry_read_budget)
+        else:
+            source_fields = self._empty_bucket_candidate_source_fields()
+            source_read_budget = 0
         report = {
             "surface": "bounded_frontier_gap_candidates.v1",
             "status": "collected" if candidate_indices else "empty",
@@ -2657,6 +2832,7 @@ class DualMemoryStore:
             ),
             "candidate_index_count": int(len(candidate_indices)),
             "candidate_indices": [int(index) for index in candidate_indices],
+            **source_fields,
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -2670,6 +2846,7 @@ class DualMemoryStore:
             "selection_budget": {
                 "memory_budget_entries": int(len(self.slow_buffer)),
                 "candidate_window_entries": int(requested),
+                "candidate_source_read_budget_entries": source_read_budget,
             },
         }
         self.last_frontier_gap_collection_report = report
