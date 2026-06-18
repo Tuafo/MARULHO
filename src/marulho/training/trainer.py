@@ -2933,11 +2933,12 @@ class MarulhoTrainer:
             bounded_input_prepare_count = 0
             stored_routing_key_count = 0
             missing_routing_key_count = 0
+            stored_assembly_projection_fallback_count = 0
             commit_report = {
                 "sleep_replay_commit_strategy": "bounded_repair_reanchor",
                 "sleep_replay_winner_source": "stored_replay_bucket_with_anchor_scope",
                 "sleep_replay_local_trace_prepare_policy": (
-                    "stored_routing_key_candidate_prepare_before_dense_legacy_fallback"
+                    "stored_routing_key_then_stored_assembly_projection_no_dense_fallback"
                 ),
                 "sleep_replay_unconditional_dense_input_assembly_retired": True,
             }
@@ -2977,12 +2978,9 @@ class MarulhoTrainer:
                         )
                         bounded_input_prepare_count += 1
                     routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
-                elif replay_input is not None:
-                    missing_routing_key_count += 1
-                    if not bool(self.config.enable_learned_chunking):
-                        dense_input_assembly_fallback_count += 1
-                    routing_key = self.model.routing_key_from_pattern(replay_input)
                 else:
+                    missing_routing_key_count += 1
+                    stored_assembly_projection_fallback_count += 1
                     routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
                     routing_key = F.normalize(routing_key, dim=0)
 
@@ -3020,6 +3018,9 @@ class MarulhoTrainer:
                     ),
                     "sleep_replay_missing_routing_key_count": int(
                         missing_routing_key_count
+                    ),
+                    "sleep_replay_stored_assembly_projection_fallback_count": int(
+                        stored_assembly_projection_fallback_count
                     ),
                 }
             )

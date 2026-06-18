@@ -1879,6 +1879,91 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["sleep_replay_bounded_input_prepare_count"], 1)
         self.assertEqual(report["sleep_replay_stored_routing_key_count"], 1)
 
+    def test_repair_sleep_missing_routing_key_uses_stored_assembly_projection(self) -> None:
+        set_seed(11)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 10
+
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[1:5] = 1.0
+        pattern = pattern / pattern.sum()
+        assembly = trainer.model.competitive.assembly_from_input(
+            pattern.to(trainer.model.device)
+        ).detach().cpu()
+        target_key = torch.nn.functional.normalize(
+            torch.mv(trainer.model._W_assembly_project_t, assembly.to(trainer.model.device)),
+            dim=0,
+        )
+        trainer.model.memory_store.update(
+            assembly,
+            importance=1.0,
+            token_count=trainer.token_count,
+            bucket_id=0,
+            input_pattern=pattern,
+            routing_key=None,
+            raw_window="legacy repair memory trace",
+            text="legacy repair memory trace",
+            capture_tag=0.4,
+        )
+        anchored = trainer.capture_recent_memory_anchors(
+            window_tokens=1,
+            strength=2.0,
+        )
+
+        disturbed = torch.roll(target_key.detach().cpu(), shifts=1, dims=0)
+        disturbed = torch.nn.functional.normalize(disturbed, dim=0).to(
+            trainer.model.device
+        )
+        trainer.model.competitive.prototypes[0] = disturbed
+        before_distance = float(
+            torch.norm(
+                trainer.model.competitive.prototypes[0] - target_key.to(trainer.model.device)
+            ).item()
+        )
+
+        with patch.object(
+            trainer.model.competitive,
+            "assembly_from_input",
+            side_effect=AssertionError(
+                "repair replay must not rebuild dense input assemblies for missing routing keys"
+            ),
+        ):
+            updates = trainer._sleep_replay("repair")
+
+        after_distance = float(
+            torch.norm(
+                trainer.model.competitive.prototypes[0] - target_key.to(trainer.model.device)
+            ).item()
+        )
+
+        self.assertGreater(anchored, 0)
+        self.assertEqual(updates, 1)
+        self.assertLess(after_distance, before_distance)
+        report = trainer._last_sleep_replay_selection_report
+        self.assertEqual(report["sleep_replay_commit_strategy"], "bounded_repair_reanchor")
+        self.assertTrue(report["sleep_replay_unconditional_dense_input_assembly_retired"])
+        self.assertEqual(report["sleep_replay_dense_input_assembly_fallback_count"], 0)
+        self.assertEqual(report["sleep_replay_bounded_input_prepare_count"], 0)
+        self.assertEqual(report["sleep_replay_stored_routing_key_count"], 0)
+        self.assertEqual(report["sleep_replay_missing_routing_key_count"], 1)
+        self.assertEqual(
+            report["sleep_replay_stored_assembly_projection_fallback_count"],
+            1,
+        )
+        self.assertEqual(
+            report["sleep_replay_local_trace_prepare_policy"],
+            "stored_routing_key_then_stored_assembly_projection_no_dense_fallback",
+        )
+
     def test_repair_sleep_without_anchors_blocks_global_repair_mutation(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(

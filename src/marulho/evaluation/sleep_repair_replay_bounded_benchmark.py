@@ -48,6 +48,7 @@ def _setup_trainer(args: argparse.Namespace) -> tuple[MarulhoTrainer, list[int]]
     trainer.memory_warm_started = True
     trainer.token_count = 100
     bucket_ids: list[int] = []
+    drop_routing_every = max(0, int(getattr(args, "drop_routing_key_every", 0) or 0))
     for index in range(max(1, int(args.entry_count))):
         pattern = _pattern(cfg, index)
         routing_key = trainer.model.routing_key_from_pattern(pattern).detach().cpu()
@@ -59,7 +60,11 @@ def _setup_trainer(args: argparse.Namespace) -> tuple[MarulhoTrainer, list[int]]
             token_count=trainer.token_count + index,
             bucket_id=bucket_id,
             input_pattern=pattern,
-            routing_key=routing_key,
+            routing_key=(
+                None
+                if drop_routing_every > 0 and index % drop_routing_every == 0
+                else routing_key
+            ),
             raw_window=f"repair replay trace {index}",
             text=f"repair replay trace {index}",
             capture_tag=1.0,
@@ -121,11 +126,21 @@ def _mean_anchor_distance(trainer: MarulhoTrainer, bucket_ids: list[int]) -> flo
         )
         routing_key = entry.get("routing_key")
         if not isinstance(routing_key, torch.Tensor):
-            continue
-        target = torch.nn.functional.normalize(
-            routing_key.to(trainer.model.device),
-            dim=0,
-        )
+            assembly = entry.get("assembly")
+            if not isinstance(assembly, torch.Tensor):
+                continue
+            target = torch.nn.functional.normalize(
+                torch.mv(
+                    trainer.model._W_assembly_project_t,
+                    assembly.to(trainer.model.device),
+                ),
+                dim=0,
+            )
+        else:
+            target = torch.nn.functional.normalize(
+                routing_key.to(trainer.model.device),
+                dim=0,
+            )
         current = torch.nn.functional.normalize(
             trainer.model.competitive.prototypes[int(bucket_id)].detach(),
             dim=0,
@@ -202,7 +217,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     report_pass = bool(
         repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
         and int(repair_report.get("sleep_replay_dense_input_assembly_fallback_count", -1)) == 0
-        and int(repair_report.get("sleep_replay_bounded_input_prepare_count", 0)) >= int(updates)
+        and (
+            int(repair_report.get("sleep_replay_bounded_input_prepare_count", 0))
+            + int(
+                repair_report.get(
+                    "sleep_replay_stored_assembly_projection_fallback_count",
+                    0,
+                )
+            )
+        ) >= int(updates)
         and int(dense_call_count) == 0
         and not bool(repair_report.get("sleep_replay_text_payload_loaded"))
         and not bool(repair_report.get("sleep_replay_language_reasoning"))
@@ -212,7 +235,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "surface": "bounded_sleep_repair_replay_input_prepare_benchmark.v1",
         "pass": bool(quality_pass and report_pass and latency_pass),
-        "selection_criteria": "anchored_repair_replay_window_with_stored_routing_keys",
+        "selection_criteria": "anchored_repair_replay_window_with_stored_routing_or_assembly_trace",
         "quality_metric": "mean_anchor_prototype_distance_to_stored_routing_key",
         "latency_metric": "input_prepare_ms_for_selected_replay_entries",
         "n_columns": int(args.n_columns),
@@ -247,6 +270,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "bounded_input_prepare_count": int(
                 repair_report.get("sleep_replay_bounded_input_prepare_count", 0)
+            ),
+            "missing_routing_key_count": int(
+                repair_report.get("sleep_replay_missing_routing_key_count", 0)
+            ),
+            "stored_assembly_projection_fallback_count": int(
+                repair_report.get(
+                    "sleep_replay_stored_assembly_projection_fallback_count",
+                    0,
+                )
             ),
             "unconditional_dense_input_assembly_retired": bool(
                 repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
@@ -283,6 +315,7 @@ def main() -> None:
     parser.add_argument("--entry-count", type=int, default=32)
     parser.add_argument("--candidate-pool", type=int, default=64)
     parser.add_argument("--prepare-iterations", type=int, default=8)
+    parser.add_argument("--drop-routing-key-every", type=int, default=0)
     parser.add_argument("--seed", type=int, default=31)
     parser.add_argument("--min-prepare-speedup", type=float, default=1.0)
     parser.add_argument("--enable-learned-chunking", action="store_true")
@@ -299,6 +332,9 @@ def main() -> None:
                 "prepare_speedup": result["latency_ms"]["prepare_speedup"],
                 "dense_input_assembly_call_count": result["runtime_truth"][
                     "dense_input_assembly_call_count"
+                ],
+                "stored_assembly_projection_fallback_count": result["runtime_truth"][
+                    "stored_assembly_projection_fallback_count"
                 ],
                 "output": str(args.output),
             },

@@ -156,6 +156,18 @@ distance by `0.148684`, reduced selected input-prep latency from `61.351 ms` to
 payloads on CPU. The paired long hot-path run stayed in band at
 `6302.207 tokens/sec` with bounded `12/65536` route rows and no observed
 contention.
+The remaining dense legacy fallback for missing stored routing keys is also
+retired. Repair replay now uses the stored routing key when present and
+otherwise projects the selected stored assembly trace; the report exposes
+`sleep_replay_stored_assembly_projection_fallback_count` while keeping
+`sleep_replay_dense_input_assembly_fallback_count=0`. The mixed-key benchmark
+`reports/bounded_replay_window_20260618/sleep-repair-replay-no-dense-legacy-fallback.json`
+used `16` stored-assembly projection fallbacks over `32` anchored repair
+entries, made `0` dense input-assembly calls, improved repair quality by
+`0.171254`, and the 524288-token hot-path check stayed in band at
+`6298.782 tokens/sec` with bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, and zero graph/native/sequence
+failures.
 
 `PredictiveColumnState` owns `prediction_failure_streak` beside prediction error and confidence. Repeated raw failures increment the streak on the predictive tensor device; successful prediction resets it. The streak is saved in trainer checkpoints and restored with the model, so growth evidence survives rollback and does not live in `service`.
 
