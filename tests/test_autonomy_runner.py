@@ -27,6 +27,7 @@ from marulho.training.autonomy_runner import (
     autonomy_gate_from_comparison,
     concept_frontier_metrics_with_report,
     load_source_banks,
+    probe_gap,
     probe_diagnostics,
     select_active_source,
     update_source_feedback,
@@ -213,6 +214,72 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertFalse(report["runs_live_tick"])
         self.assertEqual(report["selection_budget"]["candidate_window_entries"], 32)
         self.assertEqual(store.collect_calls[0]["candidate_bucket_ids"], [1, 3])
+
+    def test_probe_gap_exposes_bank_memory_match_report(self) -> None:
+        bank_report = {
+            "surface": "bounded_source_bank_memory_match.v1",
+            "candidate_scope": "source_bank_probe_memory_recall_window",
+            "candidate_index_count": 4,
+            "raw_text_payload_count": 1,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+        }
+        trainer = SimpleNamespace(
+            config=SimpleNamespace(
+                n_columns=2,
+                acquisition_concept_novelty_weight=0.0,
+                acquisition_concept_uncertainty_weight=0.0,
+            ),
+            model=SimpleNamespace(
+                device=torch.device("cpu"),
+                competitive=SimpleNamespace(
+                    prototypes=torch.eye(2, dtype=torch.float32)
+                )
+            ),
+            routing_key_for_pattern=lambda pattern: pattern,
+        )
+        bank = SourceBank(
+            name="frontier",
+            source="frontier",
+            source_type="test",
+            hf_config=None,
+            text_field="text",
+            probe_patterns=[torch.tensor([1.0, 0.0], dtype=torch.float32)],
+            probe_raw_windows=["frontier"],
+            train_patterns=[],
+            train_raw_windows=[],
+        )
+
+        with patch(
+            "marulho.training.autonomy_runner.concept_frontier_metrics_with_report",
+            return_value=(0.0, 0.0, 0.0, {}),
+        ), patch(
+            "marulho.training.autonomy_runner.bank_gap_plan",
+            return_value={
+                "grounding_gap": 0.4,
+                "unsupported_ratio": 0.2,
+                "weak_concept_pressure": 0.1,
+                "answerability": 0.3,
+                "semantic_priority": 0.35,
+                "gap_plan": {"gap_terms": [], "follow_up_questions": []},
+                "bank_memory_match_report": bank_report,
+            },
+        ):
+            metrics = probe_gap(
+                trainer,
+                bank,
+                exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=1.0,
+            )
+
+        self.assertEqual(
+            metrics["bank_memory_match_report"]["surface"],
+            "bounded_source_bank_memory_match.v1",
+        )
+        self.assertFalse(metrics["bank_memory_match_report"]["runs_live_tick"])
+        self.assertFalse(metrics["bank_memory_match_report"]["language_reasoning"])
 
     def test_autonomy_gate_scales_for_small_gap_regime(self) -> None:
         gate = autonomy_gate_from_comparison(

@@ -364,6 +364,7 @@ def memory_matches_with_report(
     memory_priority: Mapping[object, object] | None = None,
     memory_candidate_limit: int | None = None,
     candidate_bucket_ids: Sequence[int] | None = None,
+    replay_entry_cache: dict[int, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     store = trainer.model.memory_store
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
@@ -408,6 +409,7 @@ def memory_matches_with_report(
     matches: list[dict[str, Any]] = []
     candidate_rows: list[dict[str, Any]] = []
     raw_text_payload_count = 0
+    raw_text_payload_cache_hits = 0
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
@@ -428,6 +430,7 @@ def memory_matches_with_report(
                 "returned_count": int(len(result_matches)),
                 "raw_text_payload_loaded": bool(raw_text_payload_count > 0),
                 "raw_text_payload_count": int(raw_text_payload_count),
+                "raw_text_payload_cache_hits": int(raw_text_payload_cache_hits),
                 "raw_text_payload_policy": (
                     "candidate_window_text_ranking"
                     if text_ranking_required
@@ -449,9 +452,17 @@ def memory_matches_with_report(
         evidence_pattern: torch.Tensor,
         replay_priority: float,
     ) -> dict[str, Any]:
-        nonlocal raw_text_payload_count
-        replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
-        raw_text_payload_count += 1
+        nonlocal raw_text_payload_count, raw_text_payload_cache_hits
+        replay_entry: dict[str, Any] | None = None
+        if replay_entry_cache is not None:
+            replay_entry = replay_entry_cache.get(int(idx))
+        if replay_entry is None:
+            replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
+            raw_text_payload_count += 1
+            if replay_entry_cache is not None:
+                replay_entry_cache[int(idx)] = dict(replay_entry)
+        else:
+            raw_text_payload_cache_hits += 1
         capture_tag = float(replay_entry.get("capture_tag", 0.0))
         prp_level = float(replay_entry.get("prp_level", 0.0))
         capture_strength = float(replay_entry.get("capture_strength", 0.0))

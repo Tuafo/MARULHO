@@ -41,6 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -150,6 +152,21 @@ window and loads raw text only for those selected candidates. The report
 surface `bounded_frontier_gap_selection.v1` records the candidate budget,
 global scan flags, archival CPU placement, `runs_live_tick=false`, and
 `language_reasoning=false`.
+
+Source-bank semantic recall now has the same explicit report boundary.
+`bank_memory_matches_with_report(...)` samples a capped set of source-bank
+probes, runs each probe through `bounded_query_memory_match.v1`, and emits
+`bounded_source_bank_memory_match.v1` with per-probe candidate windows,
+candidate counts, unique matched indices, raw text payload loads/cache hits,
+CPU archival and score placement, no global scans, `runs_live_tick=false`, and
+`language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
+kept selected indices identical to the diagnostic legacy path while reducing
+duplicate replay text payload loads from `32` to `4` with `28` shared-cache
+hits and reducing mean latency from `194.259 ms` to `179.366 ms` over a
+`65536`-entry archive. The matching clean 524288-token hot-path rerun stayed in
+band at `6524.395 tokens/sec` with bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, and GPU memory `1833->1798 MiB`.
 
 Awake-ripple replay tagging is treated as selected synaptic tagging/capture
 metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
@@ -502,7 +519,7 @@ sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
-bounded awake-ripple tagging, and
+bounded source-bank semantic recall, bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

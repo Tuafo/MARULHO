@@ -6,6 +6,7 @@ related_code:
   - ../../../src/marulho/core/hypercube.py
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
 related_docs:
@@ -59,6 +60,21 @@ preserves selected indices, and the 524288-token hot-path check stays in band
 at `6152.079 tokens/sec` with zero graph/native/sequence failures.
 
 Autonomy source-acquisition frontier metrics now use the same memory boundary. `concept_frontier_metrics_with_report(...)` derives candidate buckets from the probe-bank routing signature, calls the memory store's capped bucket-indexed collector, and emits `bounded_concept_frontier_memory_metrics.v1` while scoring only selected routing keys for novelty, uncertainty, and support. The synthetic scope benchmark at `reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json` scored `64/8192` entries at `5.040 ms` mean versus `658.116 ms` for the diagnostic full scan, preserved the full-scan top-1, and reported no global score/candidate scan. The matching 262144-token hot-path check stayed in band at `6148.846 tokens/sec`, with bounded `12/65536` route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence failures.
+
+Source-bank semantic recall also stays in the slow-path acquisition boundary.
+`bank_memory_matches_with_report(...)` samples bounded source-bank probes,
+delegates each probe to `bounded_query_memory_match.v1`, and emits
+`bounded_source_bank_memory_match.v1` with per-probe windows, candidate totals,
+unique candidate count, payload cache hits, CPU archival/score placement, and
+no global scans. The 65536-entry benchmark
+`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
+kept selected indices identical to the diagnostic legacy path while reducing
+raw text payload loads from `32` to `4`; the 524288-token protection rerun
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
+kept route scoring bounded at `12/65536`, cached `65526` state-transition rows,
+and reached `6524.395 tokens/sec` with no observed contention. This is
+source-acquisition evidence and not a live scheduler, topology, or mutation
+authority.
 
 ConceptStore signature lookup also stays bounded to already-selected evidence.
 `ConceptStore.observe(...)` now reports

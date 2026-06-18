@@ -3,6 +3,7 @@ type: capability
 status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -21,6 +22,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
@@ -65,6 +68,12 @@ Current bounded selection evidence:
   acquisition planning. It derives candidate buckets from the probe-bank
   signature, collects a capped bucket-indexed memory window, and computes
   novelty/uncertainty/support only over those selected entries.
+- `bounded_source_bank_memory_match.v1` is emitted from source-bank semantic
+  gap planning. It samples bounded source-bank probes, delegates per-probe
+  recall to `bounded_query_memory_match.v1`, shares returned replay-entry
+  payloads across probes, and reports candidate totals, unique candidate count,
+  CPU archival/score placement, no global scans, `runs_live_tick=false`,
+  `runs_every_token=false`, and `language_reasoning=false`.
 - `bounded_concept_memory_signature_lookup.v1` is emitted from ConceptStore
   semantic observation. It resolves memory signatures only from
   already-selected evidence indices, caps each source at `8` unique indices,
@@ -143,6 +152,16 @@ Current bounded selection evidence:
 - `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json`
   keeps the live tick protected at `6148.846 tokens/sec`, bounded
   `12/65536` route rows, flat `1805 MiB` GPU memory, no observed contention,
+  and zero graph/native failures.
+- `reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
+  proves source-bank semantic recall now emits
+  `bounded_source_bank_memory_match.v1`, preserves selected indices against the
+  diagnostic no-cache legacy aggregation (`quality.min=1.0`), reduces duplicate
+  raw text payload loads from `32` to `4`, and reports CPU archival/scoring
+  with no global candidate or score scan.
+- `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
+  keeps the longer live tick protected at `6524.395 tokens/sec`, bounded
+  `12/65536` route rows, GPU memory `1833->1798 MiB`, no observed contention,
   and zero graph/native failures.
 - `reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
   keeps ConceptStore signature lookup bounded to evidence-provided indices over

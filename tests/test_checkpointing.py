@@ -265,6 +265,26 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer.model.memory_store.last_query_memory_match_report = dict(
                 query_match_report
             )
+            bank_memory_report = {
+                "surface": "bounded_source_bank_memory_match.v1",
+                "status": "matched",
+                "scope": "source_bank_semantic_recall_slow_path",
+                "candidate_scope": "source_bank_probe_memory_recall_window",
+                "candidate_window_policy": "per_probe_bucket_indexed_candidate_window",
+                "probe_count": 2,
+                "candidate_index_count": 10,
+                "unique_candidate_index_count": 5,
+                "match_indices": [9, 8],
+                "raw_text_payload_count": 2,
+                "raw_text_payload_cache_hits": 1,
+                "runs_live_tick": False,
+                "language_reasoning": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+            }
+            trainer.model.memory_store.last_bank_memory_match_report = dict(
+                bank_memory_report
+            )
             awake_ripple_report = {
                 "surface": "bounded_awake_ripple_tag.v1",
                 "status": "tagged",
@@ -363,6 +383,21 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 [9, 8, 7, 6, 5],
             )
             self.assertFalse(restored_query_match_report["runs_live_tick"])
+            restored_bank_report = (
+                restored.model.memory_store.last_bank_memory_match_report
+            )
+            self.assertEqual(
+                restored_bank_report["surface"],
+                "bounded_source_bank_memory_match.v1",
+            )
+            self.assertEqual(
+                restored_bank_report["candidate_scope"],
+                "source_bank_probe_memory_recall_window",
+            )
+            self.assertEqual(restored_bank_report["match_indices"], [9, 8])
+            self.assertEqual(restored_bank_report["raw_text_payload_cache_hits"], 1)
+            self.assertFalse(restored_bank_report["runs_live_tick"])
+            self.assertFalse(restored_bank_report["language_reasoning"])
             restored_awake_report = (
                 restored.model.memory_store.last_awake_ripple_tag_report
             )

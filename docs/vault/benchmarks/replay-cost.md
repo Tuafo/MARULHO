@@ -3,6 +3,7 @@ type: benchmark
 status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
 related_docs:
@@ -40,6 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
+  - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-frontier-gap-bounded.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -96,6 +99,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.concept_frontier_scope_benchmark --output reports\bounded_replay_window_20260617\concept-frontier-bounded-scope.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --iterations 64 --dim 16`
 - Hot-path protection for bounded concept-frontier memory metrics:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Bounded source-bank memory match benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.source_bank_memory_match_benchmark --output reports\bounded_replay_window_20260618\source-bank-memory-match-bounded.json --capacity 65536 --bucket-count 16 --probe-samples 8 --memories-per-probe 4 --max-matches 16 --payload-repeats 24 --iterations 16`
+- Hot-path protection for bounded source-bank memory match:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded frontier-gap planner tests:
   `PYTHONPATH=src python -m pytest tests\test_gap_planner.py tests\test_memory_consolidation.py::MemoryConsolidationTests::test_frontier_gap_collection_uses_bounded_recent_index -q`
 - Bounded frontier-gap planner benchmark:
@@ -577,6 +584,26 @@ matching 65536-column hot-path run
 processed `262144` tokens at `6148.846 tokens/sec`, with
 `train_compute=0.131437 ms/token`, bounded `12/65536` route rows, flat
 `1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence
+failures.
+
+The source-bank memory-match follow-up applies the same selected-window rule to
+the bank-level acquisition plan. `bank_memory_matches_with_report(...)` samples
+bounded probe patterns, delegates each probe to `bounded_query_memory_match.v1`,
+shares a replay-entry payload cache across probes, and records
+`bounded_source_bank_memory_match.v1` with probe count, per-probe candidate
+windows, total and unique candidate counts, raw text payload loads/cache hits,
+CPU archival/score placement, no global scans, `runs_live_tick=false`, and
+`language_reasoning=false`. The benchmark
+`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
+compared the new path with a diagnostic no-cache legacy aggregation over
+`65536` archival entries and `8` probes: selected indices matched exactly,
+`quality.min=1.0`, raw text payload loads dropped from `32` to `4` with `28`
+cache hits, and mean latency improved from `194.259 ms` to `179.366 ms`
+(`1.083x`). The matching clean 524288-token hot-path rerun
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
+processed `6524.395 tokens/sec`, with `train_compute=0.124824 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+contention, GPU memory `1833->1798 MiB`, and zero graph/native/sequence
 failures.
 
 The ConceptStore signature lookup follow-up removes the remaining

@@ -58,6 +58,7 @@ class ProbeGapMetrics(TypedDict):
     semantic_gap_terms: list[dict[str, Any]]
     semantic_follow_up_questions: list[str]
     concept_frontier_memory_report: NotRequired[dict[str, Any]]
+    bank_memory_match_report: NotRequired[dict[str, Any]]
 
 
 class SourceSelectionFeedback(TypedDict):
@@ -578,6 +579,7 @@ def probe_gap(
         "semantic_gap_terms": list(semantic_plan["gap_plan"].get("gap_terms") or []),
         "semantic_follow_up_questions": list(semantic_plan["gap_plan"].get("follow_up_questions") or []),
         "concept_frontier_memory_report": concept_frontier_report,
+        "bank_memory_match_report": dict(semantic_plan.get("bank_memory_match_report") or {}),
     }
 
 

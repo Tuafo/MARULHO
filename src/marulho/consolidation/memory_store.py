@@ -111,6 +111,7 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_bank_memory_match_report = self._empty_bank_memory_match_report()
         self.last_frontier_gap_collection_report = (
             self._empty_frontier_gap_collection_report()
         )
@@ -171,6 +172,7 @@ class DualMemoryStore:
             self._empty_replay_query_collection_report()
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
+        self.last_bank_memory_match_report = self._empty_bank_memory_match_report()
         self.last_frontier_gap_collection_report = (
             self._empty_frontier_gap_collection_report()
         )
@@ -405,6 +407,58 @@ class DualMemoryStore:
             "applies_plasticity": False,
             "archival_storage_device": "cpu",
             "fallback_reason": "not_run",
+        }
+
+    @staticmethod
+    def _empty_bank_memory_match_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_source_bank_memory_match.v1",
+            "status": "not_run",
+            "scope": "source_bank_semantic_recall_slow_path",
+            "bank_name": "",
+            "memory_size": 0,
+            "requested_probe_count": 0,
+            "probe_count": 0,
+            "probe_indices": [],
+            "memories_per_probe": 0,
+            "max_matches": 0,
+            "candidate_surface": "bounded_query_memory_match.v1",
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_bucket_ids": [],
+            "candidate_bucket_count": 0,
+            "candidate_index_available_count": 0,
+            "candidate_index_count": 0,
+            "unique_candidate_index_count": 0,
+            "similarity_score_count": 0,
+            "replay_priority_score_count": 0,
+            "match_indices": [],
+            "result_count": 0,
+            "returned_count": 0,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_count": 0,
+            "raw_text_payload_cache_hits": 0,
+            "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "language_reasoning": False,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "quality_metric": "semantic_grounding_gap_inputs",
+            "latency_ms": 0.0,
+            "fallback_reason": "not_run",
+            "selection_budget": {
+                "memory_budget_entries": 0,
+                "probe_budget": 0,
+                "per_probe_return_budget": 0,
+                "returned_match_limit": 0,
+                "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+            },
+            "probe_reports": [],
         }
 
     @staticmethod
@@ -717,6 +771,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_bank_memory_match_report": dict(
+                self.last_bank_memory_match_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -2481,6 +2538,12 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return report
 
+    def record_bank_memory_match_report(self, report: Mapping[str, Any]) -> dict[str, Any]:
+        stored_report = dict(report)
+        self.last_bank_memory_match_report = stored_report
+        self._invalidate_summary_cache()
+        return stored_report
+
     def collect_frontier_gap_indices(
         self,
         *,
@@ -2848,6 +2911,9 @@ class DualMemoryStore:
                 "last_query_memory_match_report": dict(
                     self.last_query_memory_match_report
                 ),
+                "last_bank_memory_match_report": dict(
+                    self.last_bank_memory_match_report
+                ),
                 "last_frontier_gap_collection_report": dict(
                     self.last_frontier_gap_collection_report
                 ),
@@ -2940,6 +3006,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_bank_memory_match_report": dict(
+                self.last_bank_memory_match_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -3055,6 +3124,9 @@ class DualMemoryStore:
             ),
             "last_query_memory_match_report": dict(
                 self.last_query_memory_match_report
+            ),
+            "last_bank_memory_match_report": dict(
+                self.last_bank_memory_match_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -3264,6 +3336,12 @@ class DualMemoryStore:
             dict(raw_query_memory_match)
             if isinstance(raw_query_memory_match, Mapping)
             else self._empty_query_memory_match_report()
+        )
+        raw_bank_memory_match = snapshot.get("last_bank_memory_match_report")
+        self.last_bank_memory_match_report = (
+            dict(raw_bank_memory_match)
+            if isinstance(raw_bank_memory_match, Mapping)
+            else self._empty_bank_memory_match_report()
         )
         raw_frontier_gap = snapshot.get("last_frontier_gap_collection_report")
         self.last_frontier_gap_collection_report = (
