@@ -154,6 +154,9 @@ class MarulhoTrainer:
         self._cognitive_boundary_controller = CognitiveBoundaryController()
         self._slow_memory_archive_count = 0
         self._slow_memory_archive_skip_count = 0
+        self._slow_memory_strong_capture_archive_count = 0
+        self._slow_memory_strong_capture_refractory_skip_count = 0
+        self._slow_memory_last_strong_capture_token = -1
         self._slow_memory_last_archive_reason = "not_run"
         self._last_sleep_replay_selection_report: dict[str, Any] = {
             "surface": "bounded_replay_window_selection.v1",
@@ -181,6 +184,8 @@ class MarulhoTrainer:
         self._text_burst_fallback_count = 0
         self._text_burst_fallback_reasons: dict[str, int] = {}
         self._text_burst_strong_event_count = 0
+        self._text_burst_strong_archive_count = 0
+        self._text_burst_strong_refractory_skip_count = 0
         self._text_burst_last_fallback_reason: str | None = None
         self._pending_text_burst_events: list[
             tuple[int, torch.Tensor, str, dict[str, Any] | None]
@@ -266,6 +271,24 @@ class MarulhoTrainer:
         report["text_burst_strong_event_count"] = int(
             self._text_burst_strong_event_count
         )
+        report["text_burst_strong_archive_count"] = int(
+            self._text_burst_strong_archive_count
+        )
+        report["text_burst_strong_refractory_skip_count"] = int(
+            self._text_burst_strong_refractory_skip_count
+        )
+        report["slow_memory_strong_capture_min_interval_tokens"] = int(
+            self._slow_memory_strong_capture_min_interval_tokens()
+        )
+        report["slow_memory_strong_capture_archive_count"] = int(
+            self._slow_memory_strong_capture_archive_count
+        )
+        report["slow_memory_strong_capture_refractory_skip_count"] = int(
+            self._slow_memory_strong_capture_refractory_skip_count
+        )
+        report["slow_memory_last_strong_capture_token"] = int(
+            self._slow_memory_last_strong_capture_token
+        )
         report["text_burst_last_fallback_reason"] = (
             self._text_burst_last_fallback_reason
         )
@@ -331,6 +354,29 @@ class MarulhoTrainer:
         self._text_burst_last_fallback_reason = normalized_reason
         return False
 
+    def _slow_memory_strong_capture_min_interval_tokens(self) -> int:
+        return max(
+            2,
+            int(
+                getattr(
+                    self.config,
+                    "slow_memory_archive_strong_capture_min_interval_tokens",
+                    16,
+                )
+            ),
+        )
+
+    def _slow_memory_strong_capture_allowed(self, token_marker: int) -> bool:
+        if int(self._slow_memory_last_strong_capture_token) < 0:
+            return True
+        return (
+            int(token_marker) - int(self._slow_memory_last_strong_capture_token)
+        ) >= self._slow_memory_strong_capture_min_interval_tokens()
+
+    def _record_slow_memory_strong_capture_archive(self, token_marker: int) -> None:
+        self._slow_memory_last_strong_capture_token = int(token_marker)
+        self._slow_memory_strong_capture_archive_count += 1
+
     def _apply_text_burst_events(
         self,
         burst_outputs: Mapping[str, Any],
@@ -358,8 +404,11 @@ class MarulhoTrainer:
             )
         strong_assemblies = list(burst_outputs["strong_assemblies"])
         strong_routing_keys = list(burst_outputs["strong_routing_keys"])
+        archived_strong_count = 0
         for position, index in enumerate(strong_indices):
             token_marker, pattern, raw_window, metadata = pending[index]
+            if not self._slow_memory_strong_capture_allowed(token_marker):
+                continue
             row = strong_result_rows[position]
             self.model.memory_store.update(
                 strong_assemblies[position],
@@ -373,13 +422,21 @@ class MarulhoTrainer:
                 metadata=metadata,
                 capture_tag=max(0.0, float(row[0])),
             )
+            self._record_slow_memory_strong_capture_archive(token_marker)
+            archived_strong_count += 1
         event_count = len(pending)
         strong_count = len(strong_indices)
+        refractory_skip_count = max(0, strong_count - archived_strong_count)
         self._text_burst_strong_event_count += strong_count
-        self._slow_memory_archive_count += strong_count
-        self._slow_memory_archive_skip_count += event_count - strong_count
+        self._text_burst_strong_archive_count += archived_strong_count
+        self._text_burst_strong_refractory_skip_count += refractory_skip_count
+        self._slow_memory_strong_capture_refractory_skip_count += refractory_skip_count
+        self._slow_memory_archive_count += archived_strong_count
+        self._slow_memory_archive_skip_count += event_count - archived_strong_count
         self._slow_memory_last_archive_reason = (
-            "strong_capture" if strong_count else "cadence_skip"
+            "strong_capture"
+            if archived_strong_count
+            else ("strong_capture_refractory_skip" if strong_count else "cadence_skip")
         )
         graph = self._column_transition_runtime._cuda_graph_runtime
         assert graph is not None
@@ -404,7 +461,7 @@ class MarulhoTrainer:
         self._winner_host_mirror_skip_count += event_count - 1
         self._winner_host_mirror_fresh = True
         self._column_transition_runtime.graph_host_winner_reuse_count += 1
-        if self.model.surprise.dopamine > 0.7 and strong_count:
+        if self.model.surprise.dopamine > 0.7 and archived_strong_count:
             graph_runtime = getattr(graph, "_runtime", None)
             route_candidates = getattr(graph_runtime, "_route_candidates", None)
             awake_bucket_ids: torch.Tensor | list[int]
@@ -425,7 +482,11 @@ class MarulhoTrainer:
             self._awake_ripple_tag_count += 1
             self._awake_ripple_last_tagged = int(tagged)
             self._awake_ripple_last_reason = "strong_capture"
-            self._awake_ripple_tag_skip_count += event_count - strong_count
+            self._awake_ripple_tag_skip_count += event_count - archived_strong_count
+        elif self.model.surprise.dopamine > 0.7 and strong_count:
+            self._awake_ripple_tag_skip_count += event_count
+            self._awake_ripple_last_tagged = 0
+            self._awake_ripple_last_reason = "strong_capture_refractory_skip"
         elif self.model.surprise.dopamine > 0.7:
             self._awake_ripple_tag_skip_count += event_count
             self._awake_ripple_last_tagged = 0
@@ -3897,6 +3958,7 @@ class MarulhoTrainer:
         strong_capture_threshold = float(
             self.config.slow_memory_archive_strong_capture_threshold
         )
+        strong_capture_candidate = bool(capture_tag >= strong_capture_threshold)
         slow_memory_archive_reason = "memory_not_warm"
         slow_memory_archive_due = False
         if self.memory_warm_started:
@@ -3906,9 +3968,13 @@ class MarulhoTrainer:
             elif next_token % slow_memory_archive_interval == 0:
                 slow_memory_archive_due = True
                 slow_memory_archive_reason = "cadence"
-            elif capture_tag >= strong_capture_threshold:
-                slow_memory_archive_due = True
-                slow_memory_archive_reason = "strong_capture"
+            elif strong_capture_candidate:
+                if self._slow_memory_strong_capture_allowed(next_token):
+                    slow_memory_archive_due = True
+                    slow_memory_archive_reason = "strong_capture"
+                else:
+                    self._slow_memory_strong_capture_refractory_skip_count += 1
+                    slow_memory_archive_reason = "strong_capture_refractory_skip"
             else:
                 slow_memory_archive_reason = "cadence_skip"
         if profile_enabled:
@@ -3939,6 +4005,10 @@ class MarulhoTrainer:
                 capture_tag=capture_tag,
             )
             self._slow_memory_archive_count += 1
+            if slow_memory_archive_reason == "strong_capture" or (
+                slow_memory_archive_reason == "cadence" and strong_capture_candidate
+            ):
+                self._record_slow_memory_strong_capture_archive(next_token)
         elif self.memory_warm_started:
             self._slow_memory_archive_skip_count += 1
         self._slow_memory_last_archive_reason = slow_memory_archive_reason
@@ -4274,6 +4344,18 @@ class MarulhoTrainer:
         metrics["slow_memory_archive_count"] = int(self._slow_memory_archive_count)
         metrics["slow_memory_archive_skip_count"] = int(
             self._slow_memory_archive_skip_count
+        )
+        metrics["slow_memory_strong_capture_min_interval_tokens"] = int(
+            self._slow_memory_strong_capture_min_interval_tokens()
+        )
+        metrics["slow_memory_strong_capture_archive_count"] = int(
+            self._slow_memory_strong_capture_archive_count
+        )
+        metrics["slow_memory_strong_capture_refractory_skip_count"] = int(
+            self._slow_memory_strong_capture_refractory_skip_count
+        )
+        metrics["slow_memory_last_strong_capture_token"] = int(
+            self._slow_memory_last_strong_capture_token
         )
         metrics["awake_ripple_tag_count"] = int(self._awake_ripple_tag_count)
         metrics["awake_ripple_tag_skip_count"] = int(

@@ -47,6 +47,55 @@ def test_inplace_transition_falls_back_before_mutation_on_cpu() -> None:
     assert report["fallback_happens_before_mutation"] is True
 
 
+def test_strong_capture_admission_cadence_blocks_every_token_cpu_archive() -> None:
+    config = MarulhoConfig(
+        n_columns=16,
+        column_latent_dim=8,
+        bootstrap_tokens=0,
+        k_routing=4,
+        memory_capacity=16,
+        plasticity_mode="lite",
+        input_weight_blend=0.0,
+        enable_context_layer=False,
+        enable_binding_layer=False,
+        enable_abstraction_layer=False,
+        slow_memory_start_tokens=0,
+        slow_memory_archive_interval_tokens=10**9,
+        slow_memory_archive_strong_capture_threshold=0.0,
+        slow_memory_archive_strong_capture_min_interval_tokens=4,
+        trainer_telemetry_interval_tokens=10**9,
+        device="cpu",
+    )
+    trainer = MarulhoTrainer(MarulhoModel(config), config)
+    torch.manual_seed(20260618)
+    metrics = {}
+    raw_windows = [f"cpu strong capture {index}" for index in range(10)]
+    for raw_window in raw_windows:
+        metrics = trainer.train_step(
+            torch.rand(config.input_dim),
+            raw_window=raw_window,
+            allow_sleep_maintenance=False,
+            return_metrics=True,
+        )
+
+    assert trainer._slow_memory_archive_count == 4
+    assert trainer._slow_memory_archive_skip_count == 6
+    assert trainer._slow_memory_strong_capture_archive_count == 3
+    assert trainer._slow_memory_strong_capture_refractory_skip_count == 6
+    assert trainer._slow_memory_last_strong_capture_token == 10
+    assert trainer._slow_memory_last_archive_reason == "strong_capture"
+    assert trainer.model.memory_store.slow_raw_windows == [
+        raw_windows[0],
+        raw_windows[1],
+        raw_windows[5],
+        raw_windows[9],
+    ]
+    assert metrics["slow_memory_strong_capture_min_interval_tokens"] == 4
+    assert metrics["slow_memory_strong_capture_archive_count"] == 3
+    assert metrics["slow_memory_strong_capture_refractory_skip_count"] == 6
+    assert metrics["slow_memory_last_strong_capture_token"] == 10
+
+
 def test_inplace_transition_rejects_unsupported_plasticity_before_warmup() -> None:
     config = MarulhoConfig(
         n_columns=16,
@@ -1655,7 +1704,7 @@ def test_text_burst_drift_refresh_does_not_force_event_drain() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
-def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
+def test_text_burst_cadences_strong_memory_capture_admission() -> None:
     config = MarulhoConfig(
         n_columns=32,
         column_latent_dim=8,
@@ -1695,26 +1744,33 @@ def test_text_burst_preserves_all_strong_memory_capture_events() -> None:
         raw_windows=raw_windows,
     ) is True
 
-    assert trainer._slow_memory_archive_count == 9
-    assert trainer._slow_memory_archive_skip_count == 0
+    assert trainer._slow_memory_archive_count == 2
+    assert trainer._slow_memory_archive_skip_count == 7
     assert trainer._slow_memory_last_archive_reason == "strong_capture"
     runtime_report = trainer.column_transition_runtime_report()
     assert runtime_report["text_burst_strong_event_count"] == 8
-    assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
-    assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
-        range(2, 10)
-    )
+    assert runtime_report["text_burst_strong_archive_count"] == 1
+    assert runtime_report["text_burst_strong_refractory_skip_count"] == 7
+    assert runtime_report["slow_memory_strong_capture_min_interval_tokens"] == 16
+    assert runtime_report["slow_memory_strong_capture_archive_count"] == 1
+    assert runtime_report["slow_memory_strong_capture_refractory_skip_count"] == 7
+    assert runtime_report["slow_memory_last_strong_capture_token"] == 2
+    assert trainer.model.memory_store.slow_raw_windows == [
+        "strong capture warmup",
+        raw_windows[0],
+    ]
+    assert trainer.model.memory_store.slow_last_capture_token[-1:] == [2]
     assert all(
         pattern is not None and pattern.device.type == "cpu"
-        for pattern in trainer.model.memory_store.slow_input_patterns[-8:]
+        for pattern in trainer.model.memory_store.slow_input_patterns[-1:]
     )
     assert all(
         routing is not None and routing.device.type == "cpu"
-        for routing in trainer.model.memory_store.slow_routing_keys[-8:]
+        for routing in trainer.model.memory_store.slow_routing_keys[-1:]
     )
     assert all(
         value >= 0.0
-        for value in trainer.model.memory_store.slow_capture_tag[-8:]
+        for value in trainer.model.memory_store.slow_capture_tag[-1:]
     )
 
 
@@ -1881,6 +1937,8 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
     assert report["text_burst_event_forced_flush_count"] == 1
     assert report["text_burst_event_last_flush_reason"] == "test_boundary"
     assert report["text_burst_strong_event_count"] == 8
+    assert report["text_burst_strong_archive_count"] == 1
+    assert report["text_burst_strong_refractory_skip_count"] == 7
     assert graph_report["burst_event_forced_drain_count"] == 1
     assert graph_report["burst_event_slim_result_packet_count"] == 1
     assert graph_report["burst_event_strong_result_row_count"] == 8
@@ -1889,10 +1947,11 @@ def test_text_burst_forced_flush_preserves_pending_strong_events() -> None:
     assert graph_report["burst_event_strong_count_total"] == 8
     assert graph_report["burst_event_slot_reset_count"] == 1
     assert graph_report["burst_event_slot_reset_skip_count"] == 0
-    assert trainer.model.memory_store.slow_raw_windows[-8:] == raw_windows
-    assert trainer.model.memory_store.slow_last_capture_token[-8:] == list(
-        range(2, 10)
-    )
+    assert trainer.model.memory_store.slow_raw_windows == [
+        "forced flush warmup",
+        raw_windows[0],
+    ]
+    assert trainer.model.memory_store.slow_last_capture_token[-1:] == [2]
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")

@@ -210,6 +210,30 @@ class RuntimeStatusCore:
             "slow_memory_archive_skip_count": int(
                 getattr(self._trainer, "_slow_memory_archive_skip_count", 0)
             ),
+            "slow_memory_strong_capture_min_interval_tokens": int(
+                self._trainer._slow_memory_strong_capture_min_interval_tokens()
+                if hasattr(
+                    self._trainer, "_slow_memory_strong_capture_min_interval_tokens"
+                )
+                else getattr(
+                    self._trainer.config,
+                    "slow_memory_archive_strong_capture_min_interval_tokens",
+                    16,
+                )
+            ),
+            "slow_memory_strong_capture_archive_count": int(
+                getattr(self._trainer, "_slow_memory_strong_capture_archive_count", 0)
+            ),
+            "slow_memory_strong_capture_refractory_skip_count": int(
+                getattr(
+                    self._trainer,
+                    "_slow_memory_strong_capture_refractory_skip_count",
+                    0,
+                )
+            ),
+            "slow_memory_last_strong_capture_token": int(
+                getattr(self._trainer, "_slow_memory_last_strong_capture_token", -1)
+            ),
             "slow_memory_last_archive_reason": str(
                 getattr(self._trainer, "_slow_memory_last_archive_reason", "not_run")
             ),

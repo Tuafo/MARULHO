@@ -912,6 +912,19 @@ sustained band at `6376.873 tokens/sec` with bounded `12/65536` route rows,
 failures; the environment sampler did mark borderline GPU contention, so the
 claim is live-tick protection rather than a clean speed ceiling.
 
+Strong-capture slow-memory admission is now cadenced instead of every-strong.
+The column/runtime path still keeps device strong-event evidence for threshold
+crossings, but archival writes are selected by
+`slow_memory_archive_strong_capture_min_interval_tokens` before
+`DualMemoryStore.update(...)` runs. Runtime Truth exposes the configured
+interval, archived strong count, refractory skip count, and last archived
+strong token; ordinary live ticks in the 65536-column protection run reported
+zero strong archives and zero refractory skips, so the mechanism does not add a
+background archive workload. The focused report
+`bounded_strong_capture_admission_cadence.v1` archived `17/256` forced-strong
+tokens with a max selected gap of `16`, while the retired every-strong shape is
+only a projection in the report, not a second executable trainer path.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

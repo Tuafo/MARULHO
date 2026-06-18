@@ -11,6 +11,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
@@ -71,6 +72,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json
+  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/synthetic-score-tensor-helpers-retired.json
@@ -111,6 +115,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.status_replay_path_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260618\status-replay-path-source-window.json`
 - SNN readout-ledger normalization source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260618\snn-readout-ledger-normalization-source-window.json`
+- Strong-capture slow-memory admission cadence:
+  `PYTHONPATH=src python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260618\strong-capture-admission-cadence.json`
 - HF-backed replay recall with capped query collection:
   `PYTHONPATH=src python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --no-plots --output-dir reports\bounded_replay_window_20260617\hf-recall-capped-query-collection`
 - HF-backed replay recall:
@@ -1165,6 +1171,46 @@ It processed `524288` tokens at `6151.219 tokens/sec`, with
 sequence failures were all `0`; `velocity_environment.v1` reported no observed
 contention, CPU max `42%`, GPU max `12%`, GPU memory-util max `18%`, and RTX
 3060 memory `2162->2162 MiB`.
+
+The strong-capture admission cadence follow-up closes the remaining
+every-strong slow-memory write shape. Strong-event evidence can still be
+emitted by the device path on every threshold crossing, but `DualMemoryStore`
+admission now archives at most one strong capture per
+`slow_memory_archive_strong_capture_min_interval_tokens` window. The production
+config default is `16`, values `<=1` are invalid, and Runtime Truth exposes the
+min interval, strong archive count, refractory skip count, and last archived
+strong-capture token.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260618\strong-capture-admission-cadence.json`
+
+It forced every token to qualify as a strong candidate while disabling cadence
+admission with `slow_memory_archive_interval_tokens=1000000000`. The bounded
+path archived `17` records, skipped `239`, and selected `16` strong captures
+under a max selected gap of `16` tokens with a final gap of `14`. The retired
+every-strong path is not executable in the benchmark; it is projected from the
+forced-strong candidate count as `256` archive writes, giving a `15.058824x`
+write reduction. Bounded mean latency was `1172.027720 ms` over `10` runs.
+Archival storage stayed CPU-resident, active replay computation was `none`,
+CUDA allocation/reservation stayed `0.0 MiB`, and the report states no global
+candidate scan, no global score scan, no raw text loading except archived
+entries, and no language reasoning.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6100.415 tokens/sec`, with
+`train_compute=0.133405 ms/token`, `prepare_training=0.007070 ms/token`,
+`finalize_total=0.006437 ms/token`, `tick_duration_ms.p95=21.328`, bounded
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`, and
+`state_transition_cached_count=65526`. Strong-capture archive/refractory counts
+remained `0` in the ordinary live tick, graph/native/sequence failures were
+all `0`, and RTX 3060 memory stayed flat at `2390 MiB`. The rerun also
+succeeded at `5326.602 tokens/sec`, but included a `12435 ms` max tick outlier
+and observed GPU contention, so it is retained as variance evidence rather
+than promotion evidence.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger

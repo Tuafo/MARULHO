@@ -955,6 +955,27 @@ cached transition rows, flat `2162 MiB` GPU memory, no observed contention, and
 zero graph/native/sequence failures. This retires a broad retained-ledger copy
 shape without promoting ledger normalization into live replay.
 
+Strong-capture slow-memory admission now follows the same selected replay rule.
+Synaptic tagging/capture motivates retaining unusually strong traces for later
+stabilization, but it does not justify an immediate archive write for every
+tag. `bounded_strong_capture_admission_cadence.v1` keeps device strong-event
+evidence, then admits at most one strong capture per
+`slow_memory_archive_strong_capture_min_interval_tokens` window. The production
+default is `16`, config validation rejects values `<=1`, and Runtime Truth
+reports the min interval, strong archive count, refractory skip count, and last
+archived strong token. The benchmark
+`reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json`
+forced `256` strong candidates and archived `17` records instead of the retired
+every-strong projection of `256`, a `15.058824x` write reduction, while keeping
+max selected strong gap at `16` and final gap at `14`. The report states CPU
+archival storage, active replay computation `none`, no CUDA allocation, no
+global candidate/score scan, no raw text payload except archived entries, and
+no hidden language reasoning. The `524288`-token hot-path check stayed in band
+at `6100.415 tokens/sec` with `train_compute=0.133405 ms/token`, bounded
+`12/65536` route rows, flat `2390 MiB` GPU memory, and zero runtime failures;
+observed GPU contention keeps it as hot-path protection evidence rather than a
+clean speed ceiling.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -971,13 +992,14 @@ query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
-awake-ripple tagging, and retired unscoped
+strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
 source-bank wrapper APIs, retained-ledger replay-path status scans,
-readout-ledger full-materialization normalization, plus the all-anchor HF replay-query source pass and
-full hot-bucket candidate source materialization;
+readout-ledger full-materialization normalization, every-strong slow-memory
+admission, plus the all-anchor HF replay-query source pass and full hot-bucket
+candidate source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
 

@@ -3793,3 +3793,53 @@ velocity sampler reported no observed contention, CPU max `42%`, GPU max `12%`,
 GPU memory-util max `18%`, and RTX 3060 memory stayed flat at `2162 MiB`. This
 is same-band throughput protection for the ledger-normalization cleanup, not a
 new top-speed claim.
+
+## Strong-Capture Admission Cadence
+
+Strong-capture slow-memory admission now has its own refractory cadence, so a
+low threshold cannot turn every threshold crossing into a `DualMemoryStore`
+archive write. The device strong-event ring still records strong-event evidence,
+but archival admission is selected by
+`slow_memory_archive_strong_capture_min_interval_tokens` and stays CPU-resident.
+Production config rejects values `<=1`; the default is `16`.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260618\strong-capture-admission-cadence.json`
+
+Result: `pass=true`, bounded archive writes `17`, strong captures archived
+`16`, refractory skips `239`, max selected gap `16`, final gap `14`, and
+bounded mean latency `1172.027720 ms` over `10` runs. The retired every-strong
+admission shape is projected from the forced-strong candidate count, not
+executed as a side path: `256` projected writes, `15.058824x` write reduction.
+The report states archival storage `cpu`, active replay computation `none`, no
+GPU use, `0.0 MiB` CUDA allocation/reservation, no global candidate or score
+scan, and no hidden language reasoning.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6100.415 tokens/sec`, with
+`train_compute=0.133405 ms/token`, `prepare_training=0.007070 ms/token`,
+`finalize_total=0.006437 ms/token`, and `tick_duration_ms.p95=21.328`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native/sequence failures were
+all `0`. The ordinary live tick reported
+`slow_memory_strong_capture_archive_count=0`,
+`slow_memory_strong_capture_refractory_skip_count=0`, and
+`slow_memory_last_strong_capture_token=-1`, proving this slice did not add a
+new always-on archive workload. RTX 3060 memory stayed flat at `2390 MiB`.
+The environment sampler observed GPU-side contention, so this is accepted as
+same-band hot-path protection evidence rather than a clean top-speed ceiling.
+
+Same-code rerun:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The rerun succeeded at `5326.602 tokens/sec`, with
+`train_compute=0.157298 ms/token`, bounded `12/65536` route rows, zero
+runtime failures, and flat `2390 MiB` GPU memory, but a `12435 ms` max tick
+outlier and observed GPU contention make it variance evidence rather than a
+promotion run.

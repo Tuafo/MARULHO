@@ -400,6 +400,14 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "slow_memory_archive_strong_capture_threshold"):
             MarulhoConfig(slow_memory_archive_strong_capture_threshold=-0.1)
 
+    def test_slow_memory_archive_strong_capture_min_interval_must_exceed_one(self) -> None:
+        from marulho.config.model_config import MarulhoConfig
+
+        with self.assertRaisesRegex(ValueError, "slow_memory_archive_strong_capture_min_interval_tokens"):
+            MarulhoConfig(slow_memory_archive_strong_capture_min_interval_tokens=0)
+        with self.assertRaisesRegex(ValueError, "slow_memory_archive_strong_capture_min_interval_tokens"):
+            MarulhoConfig(slow_memory_archive_strong_capture_min_interval_tokens=1)
+
     def test_config_default_is_fixed(self) -> None:
         from marulho.config.model_config import MarulhoConfig
 
@@ -415,6 +423,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
         self.assertEqual(cfg.context_mode, "adaptive")
         self.assertEqual(cfg.cuda_graph_host_truth_sync_interval_tokens, 32)
         self.assertEqual(cfg.slow_memory_archive_interval_tokens, 256)
+        self.assertEqual(cfg.slow_memory_archive_strong_capture_min_interval_tokens, 16)
         self.assertEqual(cfg.predictive_dense_transition_mode, "inplace_triton")
         self.assertEqual(cfg.predictive_route_vote_mode, "cuda_graph_text")
 

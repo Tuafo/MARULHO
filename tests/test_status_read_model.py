@@ -4304,6 +4304,30 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             0,
         )
         self.assertEqual(
+            truth["evidence"]["memory_hot_path"][
+                "slow_memory_strong_capture_min_interval_tokens"
+            ],
+            model._trainer.config.slow_memory_archive_strong_capture_min_interval_tokens,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"][
+                "slow_memory_strong_capture_archive_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"][
+                "slow_memory_strong_capture_refractory_skip_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            truth["evidence"]["memory_hot_path"][
+                "slow_memory_last_strong_capture_token"
+            ],
+            -1,
+        )
+        self.assertEqual(
             truth["evidence"]["memory_hot_path"]["slow_memory_last_archive_reason"],
             "not_run",
         )

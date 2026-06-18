@@ -126,6 +126,7 @@ class MarulhoConfig:
     slow_memory_start_tokens: int = 0
     slow_memory_archive_interval_tokens: int = 256
     slow_memory_archive_strong_capture_threshold: float = 0.95
+    slow_memory_archive_strong_capture_min_interval_tokens: int = 16
     use_winner_local_drift: bool = True
 
     drift_threshold: float = 0.02
@@ -373,6 +374,8 @@ class MarulhoConfig:
             raise ValueError("slow_memory_archive_interval_tokens must be positive")
         if self.slow_memory_archive_strong_capture_threshold < 0.0:
             raise ValueError("slow_memory_archive_strong_capture_threshold must be non-negative")
+        if self.slow_memory_archive_strong_capture_min_interval_tokens <= 1:
+            raise ValueError("slow_memory_archive_strong_capture_min_interval_tokens must be greater than 1")
         if self.stc_tag_duration_weak <= 0.0:
             raise ValueError("stc_tag_duration_weak must be positive")
         if self.stc_tag_duration_strong <= 0.0:
