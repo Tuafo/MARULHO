@@ -163,6 +163,18 @@ Current bounded selection evidence:
   keeps the longer live tick protected at `6524.395 tokens/sec`, bounded
   `12/65536` route rows, GPU memory `1833->1798 MiB`, no observed contention,
   and zero graph/native failures.
+- `reports/bounded_replay_window_20260618/runtime-concept-memory-lookup-bounded.json`
+  proves cadenced runtime concept memory lookup is store-owned and bounded to
+  trainer-provided `memory_index` evidence. It preserves selected-index parity
+  over `512` observations on a `65536`-entry archive, reduces raw payload reads
+  from `512` to `64` with `448` cache hits, cuts mean lookup latency from
+  `47.156 ms` to `6.380 ms`, and reports CPU archival/scoring with no global
+  candidate or score scan.
+- `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-runtime-concept-memory-lookup.json`
+  keeps the longer live cadence protected at `6237.075 tokens/sec`, with
+  `concept_observation=0.000474 ms/token`, bounded `12/65536` route rows, GPU
+  memory `1809->1861 MiB`, no observed contention, and zero graph/native
+  failures.
 - `reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json`
   keeps ConceptStore signature lookup bounded to evidence-provided indices over
   `65536` archival entries, preserves diagnostic legacy signature quality

@@ -112,6 +112,9 @@ class DualMemoryStore:
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
         self.last_bank_memory_match_report = self._empty_bank_memory_match_report()
+        self.last_runtime_concept_memory_lookup_report = (
+            self._empty_runtime_concept_memory_lookup_report()
+        )
         self.last_frontier_gap_collection_report = (
             self._empty_frontier_gap_collection_report()
         )
@@ -173,6 +176,9 @@ class DualMemoryStore:
         )
         self.last_query_memory_match_report = self._empty_query_memory_match_report()
         self.last_bank_memory_match_report = self._empty_bank_memory_match_report()
+        self.last_runtime_concept_memory_lookup_report = (
+            self._empty_runtime_concept_memory_lookup_report()
+        )
         self.last_frontier_gap_collection_report = (
             self._empty_frontier_gap_collection_report()
         )
@@ -459,6 +465,55 @@ class DualMemoryStore:
                 "raw_text_payload_policy": "shared_returned_similarity_matches_only",
             },
             "probe_reports": [],
+        }
+
+    @staticmethod
+    def _empty_runtime_concept_memory_lookup_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_runtime_concept_memory_lookup.v1",
+            "status": "not_run",
+            "scope": "cadenced_runtime_concept_observation",
+            "memory_size": 0,
+            "input_observation_count": 0,
+            "processed_observation_count": 0,
+            "truncated_observation_count": 0,
+            "max_observation_count": 0,
+            "candidate_window_limit": 0,
+            "candidate_window_policy": "not_run",
+            "candidate_scope": "not_run",
+            "candidate_index_count": 0,
+            "unique_candidate_index_count": 0,
+            "match_indices": [],
+            "match_count": 0,
+            "unique_match_index_count": 0,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_count": 0,
+            "raw_text_payload_cache_hits": 0,
+            "invalid_observation_count": 0,
+            "invalid_memory_index_count": 0,
+            "out_of_bounds_index_count": 0,
+            "missing_routing_key_count": 0,
+            "empty_text_count": 0,
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": True,
+            "runs_every_token": False,
+            "cadenced_observation": True,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "language_reasoning": False,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "quality_metric": "runtime_concept_observation_match_parity",
+            "latency_ms": 0.0,
+            "fallback_reason": "not_run",
+            "selection_budget": {
+                "memory_budget_entries": 0,
+                "candidate_window_entries": 0,
+                "returned_match_limit": 0,
+                "raw_text_payload_policy": "cached_explicit_index_payloads_only",
+            },
         }
 
     @staticmethod
@@ -774,6 +829,9 @@ class DualMemoryStore:
             ),
             "last_bank_memory_match_report": dict(
                 self.last_bank_memory_match_report
+            ),
+            "last_runtime_concept_memory_lookup_report": dict(
+                self.last_runtime_concept_memory_lookup_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -2544,6 +2602,185 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return stored_report
 
+    def resolve_runtime_concept_memory_matches(
+        self,
+        *,
+        observations: Sequence[tuple[str | None, Mapping[str, Any] | None]],
+        max_observations: int = 64,
+        scope: str = "cadenced_runtime_concept_observation",
+    ) -> dict[str, Any]:
+        """Resolve runtime concept evidence from explicit train-step indices.
+
+        The runtime callback may run during feed/source observation, so the
+        archive boundary has to be stronger than "small in practice": callers
+        provide already-selected `memory_index` evidence and this method direct
+        indexes only those entries. It never searches or scores the archive.
+        """
+
+        started = time.perf_counter()
+        observation_count = len(observations)
+        limit = max(0, int(max_observations))
+        processed = min(observation_count, limit)
+        result_slots: list[int | None] = [None] * observation_count
+        matches: list[dict[str, Any]] = []
+        source_pairs: list[tuple[str, str]] = []
+        candidate_indices: list[int] = []
+        raw_payload_cache: dict[int, tuple[str, str, float, float, float] | None] = {}
+
+        invalid_observation_count = 0
+        invalid_memory_index_count = 0
+        out_of_bounds_index_count = 0
+        missing_routing_key_count = 0
+        empty_text_count = 0
+        raw_text_payload_count = 0
+        raw_text_payload_cache_hits = 0
+
+        routing_size = len(self.slow_routing_keys)
+        for observation_index in range(processed):
+            raw_window, metrics = observations[observation_index]
+            if not isinstance(metrics, Mapping):
+                invalid_observation_count += 1
+                continue
+            try:
+                idx = int(metrics.get("memory_index"))
+            except (TypeError, ValueError):
+                invalid_memory_index_count += 1
+                continue
+            if idx < 0 or idx >= routing_size:
+                out_of_bounds_index_count += 1
+                continue
+
+            candidate_indices.append(idx)
+            cached_payload = raw_payload_cache.get(idx, None)
+            cache_contains_index = idx in raw_payload_cache
+            if cache_contains_index:
+                raw_text_payload_cache_hits += 1
+            else:
+                routing_key = self.slow_routing_keys[idx]
+                if not isinstance(routing_key, torch.Tensor):
+                    missing_routing_key_count += 1
+                    raw_payload_cache[idx] = None
+                    continue
+
+                source_text = ""
+                if idx < len(self.slow_texts) and self.slow_texts[idx] is not None:
+                    source_text = str(self.slow_texts[idx])
+                elif idx < len(self.slow_raw_windows) and self.slow_raw_windows[idx] is not None:
+                    source_text = str(self.slow_raw_windows[idx])
+                elif raw_window is not None:
+                    source_text = str(raw_window)
+                source_text = " ".join(source_text.split()).strip()
+                if not source_text or not any(char.isalnum() for char in source_text):
+                    empty_text_count += 1
+                    raw_payload_cache[idx] = None
+                    continue
+
+                raw_match = (
+                    str(self.slow_raw_windows[idx])
+                    if idx < len(self.slow_raw_windows)
+                    and self.slow_raw_windows[idx] is not None
+                    else source_text
+                )
+                payload = (
+                    source_text,
+                    raw_match,
+                    float(self.slow_importance[idx])
+                    if idx < len(self.slow_importance)
+                    else 1.0,
+                    float(self.slow_capture_tag[idx])
+                    if idx < len(self.slow_capture_tag)
+                    else 0.0,
+                    float(self.slow_consolidation_level[idx])
+                    if idx < len(self.slow_consolidation_level)
+                    else 0.0,
+                )
+                raw_payload_cache[idx] = payload
+                raw_text_payload_count += 1
+                cached_payload = payload
+
+            if cached_payload is None:
+                continue
+            source_text, raw_match, importance, capture_tag, consolidation_level = cached_payload
+            matches.append(
+                {
+                    "memory_index": idx,
+                    "text": source_text,
+                    "raw_window": raw_match,
+                    "similarity": 1.0,
+                    "importance": importance,
+                    "capture_tag": capture_tag,
+                    "consolidation_level": consolidation_level,
+                }
+            )
+            source_pairs.append((source_text, raw_match))
+            result_slots[observation_index] = len(matches) - 1
+
+        fallback_reason: str | None = None
+        if limit <= 0:
+            fallback_reason = "empty_runtime_concept_observation_budget"
+        elif observation_count <= 0:
+            fallback_reason = "empty_runtime_concept_observation_batch"
+        elif not matches:
+            fallback_reason = "no_valid_runtime_concept_memory_matches"
+
+        latency_ms = (time.perf_counter() - started) * 1000.0
+        report = {
+            "surface": "bounded_runtime_concept_memory_lookup.v1",
+            "status": "matched" if matches else "empty",
+            "scope": str(scope),
+            "memory_size": int(len(self.slow_buffer)),
+            "input_observation_count": int(observation_count),
+            "processed_observation_count": int(processed),
+            "truncated_observation_count": int(max(0, observation_count - processed)),
+            "max_observation_count": int(limit),
+            "candidate_window_limit": int(limit),
+            "candidate_window_policy": "explicit_train_step_memory_indices_only",
+            "candidate_scope": "train_step_memory_index_evidence",
+            "candidate_index_count": int(len(candidate_indices)),
+            "unique_candidate_index_count": int(len({int(index) for index in candidate_indices})),
+            "match_indices": [int(match["memory_index"]) for match in matches],
+            "match_count": int(len(matches)),
+            "unique_match_index_count": int(
+                len({int(match["memory_index"]) for match in matches})
+            ),
+            "raw_text_payload_loaded": bool(raw_text_payload_count > 0),
+            "raw_text_payload_count": int(raw_text_payload_count),
+            "raw_text_payload_cache_hits": int(raw_text_payload_cache_hits),
+            "invalid_observation_count": int(invalid_observation_count),
+            "invalid_memory_index_count": int(invalid_memory_index_count),
+            "out_of_bounds_index_count": int(out_of_bounds_index_count),
+            "missing_routing_key_count": int(missing_routing_key_count),
+            "empty_text_count": int(empty_text_count),
+            "score_count": 0,
+            "global_score_scan": False,
+            "global_candidate_scan": False,
+            "runs_live_tick": True,
+            "runs_every_token": False,
+            "cadenced_observation": True,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "language_reasoning": False,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "quality_metric": "runtime_concept_observation_match_parity",
+            "latency_ms": float(latency_ms),
+            "fallback_reason": fallback_reason,
+            "selection_budget": {
+                "memory_budget_entries": int(len(self.slow_buffer)),
+                "candidate_window_entries": int(limit),
+                "returned_match_limit": int(limit),
+                "raw_text_payload_policy": "cached_explicit_index_payloads_only",
+            },
+        }
+        self.last_runtime_concept_memory_lookup_report = report
+        self._invalidate_summary_cache()
+        return {
+            "matches": matches,
+            "result_slots": result_slots,
+            "source_pairs": source_pairs,
+            "report": report,
+        }
+
     def collect_frontier_gap_indices(
         self,
         *,
@@ -2914,6 +3151,9 @@ class DualMemoryStore:
                 "last_bank_memory_match_report": dict(
                     self.last_bank_memory_match_report
                 ),
+                "last_runtime_concept_memory_lookup_report": dict(
+                    self.last_runtime_concept_memory_lookup_report
+                ),
                 "last_frontier_gap_collection_report": dict(
                     self.last_frontier_gap_collection_report
                 ),
@@ -3009,6 +3249,9 @@ class DualMemoryStore:
             ),
             "last_bank_memory_match_report": dict(
                 self.last_bank_memory_match_report
+            ),
+            "last_runtime_concept_memory_lookup_report": dict(
+                self.last_runtime_concept_memory_lookup_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -3127,6 +3370,9 @@ class DualMemoryStore:
             ),
             "last_bank_memory_match_report": dict(
                 self.last_bank_memory_match_report
+            ),
+            "last_runtime_concept_memory_lookup_report": dict(
+                self.last_runtime_concept_memory_lookup_report
             ),
             "last_frontier_gap_collection_report": dict(
                 self.last_frontier_gap_collection_report
@@ -3342,6 +3588,14 @@ class DualMemoryStore:
             dict(raw_bank_memory_match)
             if isinstance(raw_bank_memory_match, Mapping)
             else self._empty_bank_memory_match_report()
+        )
+        raw_runtime_concept_memory_lookup = snapshot.get(
+            "last_runtime_concept_memory_lookup_report"
+        )
+        self.last_runtime_concept_memory_lookup_report = (
+            dict(raw_runtime_concept_memory_lookup)
+            if isinstance(raw_runtime_concept_memory_lookup, Mapping)
+            else self._empty_runtime_concept_memory_lookup_report()
         )
         raw_frontier_gap = snapshot.get("last_frontier_gap_collection_report")
         self.last_frontier_gap_collection_report = (

@@ -779,6 +779,29 @@ processed `6152.328 tokens/sec`, with `train_compute=0.131727 ms/token`,
 failures, and reported no observed contention. The 524288-token run kept GPU
 memory flat at `2013 MiB`.
 
+Runtime concept memory lookup now has an explicit cost envelope instead of
+service-owned direct archive reads. The service passes cadenced train-step
+observations to `DualMemoryStore.resolve_runtime_concept_memory_matches(...)`;
+the store accepts only explicit `memory_index` evidence, caps the batch, caches
+duplicate text payloads, and records
+`bounded_runtime_concept_memory_lookup.v1`. The benchmark
+`reports/bounded_replay_window_20260618/runtime-concept-memory-lookup-bounded.json`
+used `512` observations over a `65536`-entry archive with `64` unique memory
+indices. It preserved selected-index parity, reduced raw payload reads from
+`512` to `64`, recorded `448` cache hits, and reduced mean lookup latency from
+`47.156 ms` to `6.380 ms`. It reports CPU archival/score placement, no global
+candidate/score scan, `runs_live_tick=true`, `runs_every_token=false`, and
+`language_reasoning=false`.
+
+The paired 65536-column `524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-runtime-concept-memory-lookup.json`
+processed `6237.075 tokens/sec`, with `train_compute=0.131104 ms/token`,
+`prepare_training=0.006390 ms/token`, `finalize_total=0.006141 ms/token`, and
+`concept_observation=0.000474 ms/token`. It kept route scoring bounded at
+`12/65536`, cached `65526` transition rows, reported
+`state_transition_runs_all_columns=false`, had zero graph/native/sequence
+failures, GPU memory `1809->1861 MiB`, and no observed contention.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window proof with a larger
 hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper

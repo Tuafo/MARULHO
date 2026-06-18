@@ -480,6 +480,28 @@ processed `524288` tokens at `6152.328 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, flat `2013 MiB` GPU memory, no
 observed contention, and zero graph/native/sequence failures.
 
+The runtime concept memory lookup follow-up applies the same boundary to
+cadenced source/feed concept observation. `OperatorInteractionRuntime` no
+longer reaches into `slow_routing_keys`, `slow_texts`, `slow_raw_windows`, or
+STC arrays directly. It asks `DualMemoryStore.resolve_runtime_concept_memory_matches(...)`
+to resolve only trainer-provided `memory_index` evidence, cap the observation
+batch, cache duplicate text payloads, and emit
+`bounded_runtime_concept_memory_lookup.v1`. This lookup can occur in the live
+runtime observation cadence, so it reports `runs_live_tick=true`; the important
+guard is that it also reports `runs_every_token=false`, no global score or
+candidate scan, CPU archival/score placement, and `language_reasoning=false`.
+The benchmark
+`reports/bounded_replay_window_20260618/runtime-concept-memory-lookup-bounded.json`
+preserved selected-index parity over `512` observations on a `65536`-entry
+archive, reduced payload reads from `512` to `64` with `448` cache hits, and
+cut mean lookup latency from `47.156 ms` to `6.380 ms` (`7.391x`). The paired
+`524288`-token protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-runtime-concept-memory-lookup.json`
+stayed in band at `6237.075 tokens/sec`, with
+`concept_observation=0.000474 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, GPU memory `1809->1861 MiB`, no observed
+contention, and zero graph/native/sequence failures.
+
 The replay-score helper cleanup removes a leftover archive-wide scoring API.
 The replay-priority formula remains, but callers must now use
 `replay_scores_for_indices(...)` with explicit candidate indices. That keeps
@@ -519,7 +541,8 @@ sleep replay payloads, selected-window SFA correction, capped pre-score replay
 candidate windows, capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
-bounded source-bank semantic recall, bounded awake-ripple tagging, and
+bounded source-bank semantic recall, bounded runtime concept memory lookup,
+bounded awake-ripple tagging, and
 retired unscoped random replay defaults plus the full-buffer replay-score and
 score-tensor helper APIs implemented; future larger replay windows still
 require repeated long-run hot-path and grounding checks

@@ -13,8 +13,6 @@ import time
 from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
-import torch
-
 from marulho.config.presets import get_autonomy_acquisition_preset
 from marulho.gap_planner import plan_query_gaps
 from marulho.service.interaction_pipeline import (
@@ -29,6 +27,7 @@ from marulho.training.query_runner import build_query_result, feed_text
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
+RUNTIME_CONCEPT_MEMORY_LOOKUP_LIMIT = 64
 
 
 class OperatorInteractionRuntime:
@@ -298,69 +297,31 @@ class OperatorInteractionRuntime:
         observations: Sequence[tuple[str | None, dict[str, Any] | None]],
     ) -> list[dict[str, Any] | None]:
         memory_store = self._trainer.model.memory_store
-        routing_keys = getattr(memory_store, "slow_routing_keys", []) or []
-        stored_texts = getattr(memory_store, "slow_texts", []) or []
-        stored_windows = getattr(memory_store, "slow_raw_windows", []) or []
-        slow_importance = getattr(memory_store, "slow_importance", []) or []
-        slow_capture_tag = getattr(memory_store, "slow_capture_tag", []) or []
-        slow_consolidation = getattr(memory_store, "slow_consolidation_level", []) or []
-        matches: list[dict[str, Any]] = []
-        source_pairs: list[tuple[str, str]] = []
-        result_slots: list[int | None] = []
-        for raw_window, metrics in observations:
-            result_slots.append(None)
-            if not isinstance(metrics, dict):
-                continue
-            try:
-                idx = int(metrics.get("memory_index"))
-            except (TypeError, ValueError):
-                continue
-            if idx < 0 or idx >= len(routing_keys):
-                continue
-            if not isinstance(routing_keys[idx], torch.Tensor):
-                continue
+        resolver = getattr(memory_store, "resolve_runtime_concept_memory_matches", None)
+        if not callable(resolver):
+            return [None] * len(observations)
 
-            source_text = ""
-            if idx < len(stored_texts) and stored_texts[idx] is not None:
-                source_text = str(stored_texts[idx])
-            elif idx < len(stored_windows) and stored_windows[idx] is not None:
-                source_text = str(stored_windows[idx])
-            elif raw_window is not None:
-                source_text = str(raw_window)
-            source_text = " ".join(source_text.split()).strip()
-            if not source_text or not any(char.isalnum() for char in source_text):
-                continue
-
-            raw_match = (
-                str(stored_windows[idx])
-                if idx < len(stored_windows) and stored_windows[idx] is not None
-                else source_text
-            )
-            matches.append(
-                {
-                    "memory_index": idx,
-                    "text": source_text,
-                    "raw_window": raw_match,
-                    "similarity": 1.0,
-                    "importance": (
-                        float(slow_importance[idx])
-                        if idx < len(slow_importance)
-                        else 1.0
-                    ),
-                    "capture_tag": (
-                        float(slow_capture_tag[idx])
-                        if idx < len(slow_capture_tag)
-                        else 0.0
-                    ),
-                    "consolidation_level": (
-                        float(slow_consolidation[idx])
-                        if idx < len(slow_consolidation)
-                        else 0.0
-                    ),
-                }
-            )
-            source_pairs.append((source_text, raw_match))
-            result_slots[-1] = len(matches) - 1
+        resolved = resolver(
+            observations=observations,
+            max_observations=RUNTIME_CONCEPT_MEMORY_LOOKUP_LIMIT,
+        )
+        matches = [
+            dict(match)
+            for match in list(resolved.get("matches", []))
+            if isinstance(match, Mapping)
+        ]
+        source_pairs = [
+            (str(left), str(right))
+            for left, right in list(resolved.get("source_pairs", []))
+        ]
+        result_slots = [
+            None if slot is None else int(slot)
+            for slot in list(resolved.get("result_slots", []))
+        ]
+        if len(result_slots) < len(observations):
+            result_slots.extend([None] * (len(observations) - len(result_slots)))
+        elif len(result_slots) > len(observations):
+            result_slots = result_slots[: len(observations)]
 
         results: list[dict[str, Any] | None] = [None] * len(observations)
         for match_index, match in enumerate(matches):
@@ -374,7 +335,6 @@ class OperatorInteractionRuntime:
             for result_index, slot in enumerate(result_slots):
                 if slot == match_index:
                     results[result_index] = observed
-                    break
 
         abstraction_layer = self._trainer.model.abstraction_layer
         if abstraction_layer is not None:

@@ -555,6 +555,32 @@ processed `262144` tokens at `6151.952 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, zero graph/native/sequence
 failures, flat `1805 MiB` GPU memory, and no observed contention.
 
+On 2026-06-18, runtime concept observation moved its memory lookup boundary
+out of `OperatorInteractionRuntime` and into `DualMemoryStore`. The service no
+longer direct-reads `slow_routing_keys`, `slow_texts`, `slow_raw_windows`,
+`slow_importance`, `slow_capture_tag`, or `slow_consolidation_level` to build
+concept matches. `DualMemoryStore.resolve_runtime_concept_memory_matches(...)`
+now accepts only trainer-emitted `memory_index` evidence, caps each observation
+batch, caches duplicate payload reads, and records
+`bounded_runtime_concept_memory_lookup.v1` in device reports, summaries, and
+checkpoints. This is cadenced live runtime observation, not sleep replay: the
+report truthfully uses `runs_live_tick=true` while keeping
+`runs_every_token=false`, `global_candidate_scan=false`,
+`global_score_scan=false`, CPU archival/score placement, and
+`language_reasoning=false`.
+
+The bounded lookup benchmark
+`reports/bounded_replay_window_20260618/runtime-concept-memory-lookup-bounded.json`
+preserved selected-index parity across `512` observations on a `65536`-entry
+archive, reduced raw payload reads from `512` to `64` with `448` cache hits,
+and improved mean lookup latency from `47.156 ms` to `6.380 ms`. The matching
+`524288`-token active-pressure protection run
+`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-runtime-concept-memory-lookup.json`
+processed `6237.075 tokens/sec`, with
+`concept_observation=0.000474 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`1809->1861 MiB`, and zero graph/native/sequence failures.
+
 ## Next Gate
 
 The in-place CUDA/Triton transition is now the promoted production executor owned by `MarulhoTrainer`. Startup compiles the all-column and routed-candidate shapes without launching the mutating kernel. Unsupported configurations fall back before mutation; failures after launch fail closed. Runtime Truth exposes requested/resolved mode, warmup, candidate shapes, device, execution/failure counts, fallback, and policy.

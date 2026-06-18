@@ -2977,6 +2977,44 @@ and `6196.447 tokens/sec`, but both are secondary evidence because the
 benchmark condition report observed pre-measurement GPU contention after
 prewarm.
 
+### Bounded Runtime Concept Memory Lookup, 2026-06-18
+
+The runtime concept memory lookup slice retires service-owned direct archive
+reads during cadenced source/feed concept observation. `OperatorInteractionRuntime`
+now asks `DualMemoryStore.resolve_runtime_concept_memory_matches(...)` to
+resolve only trainer-provided `memory_index` evidence, cap the observation
+batch, cache duplicate payloads, and report
+`bounded_runtime_concept_memory_lookup.v1`. This path can run inside live
+runtime observation cadence, so the report says `runs_live_tick=true`; it also
+reports `runs_every_token=false`, `global_candidate_scan=false`,
+`global_score_scan=false`, CPU archival/score placement, and
+`language_reasoning=false`.
+
+The bounded lookup benchmark was:
+
+`python -m marulho.evaluation.runtime_concept_memory_lookup_benchmark --capacity 65536 --observation-count 512 --unique-indices 64 --max-observations 512 --text-repeats 64 --iterations 24 --min-speedup 1.0 --output reports\bounded_replay_window_20260618\runtime-concept-memory-lookup-bounded.json`
+
+It preserved selected-index parity (`quality.min=1.0`), reduced raw text
+payload reads from `512` to `64` with `448` cache hits, and reduced mean lookup
+latency from `47.156 ms` to `6.380 ms` (`7.391x`) while reporting no archive
+iteration, no global score/candidate scan, CPU archival placement, and
+`runs_every_token=false`.
+
+The 65536-column 524288-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-runtime-concept-memory-lookup.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
+
+It processed `524288` tokens at `6237.075 tokens/sec`, with
+`train_compute=0.131104 ms/token`, `prepare_training=0.006390 ms/token`,
+`finalize_total=0.006141 ms/token`,
+`concept_observation=0.000474 ms/token`, and `tick_duration_ms.p95=20.906`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Native sequence and burst failures
+were `0`. The velocity surface reported no observed contention: CPU max `21%`,
+GPU utilization max `10%`, GPU memory utilization max `10%`, and GPU memory
+changed from `1809 MiB` to `1861 MiB`.
+
 ### Bounded Semantic Frontier-Gap Planner, 2026-06-18
 
 The semantic frontier-gap planner slice retires the old archive-shaped term

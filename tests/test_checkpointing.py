@@ -285,6 +285,27 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             trainer.model.memory_store.last_bank_memory_match_report = dict(
                 bank_memory_report
             )
+            runtime_concept_lookup_report = {
+                "surface": "bounded_runtime_concept_memory_lookup.v1",
+                "status": "matched",
+                "scope": "cadenced_runtime_concept_observation",
+                "candidate_scope": "train_step_memory_index_evidence",
+                "candidate_window_policy": "explicit_train_step_memory_indices_only",
+                "candidate_window_limit": 4,
+                "candidate_index_count": 2,
+                "unique_candidate_index_count": 1,
+                "match_indices": [4, 4],
+                "raw_text_payload_count": 1,
+                "raw_text_payload_cache_hits": 1,
+                "runs_live_tick": True,
+                "runs_every_token": False,
+                "language_reasoning": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+            }
+            trainer.model.memory_store.last_runtime_concept_memory_lookup_report = dict(
+                runtime_concept_lookup_report
+            )
             awake_ripple_report = {
                 "surface": "bounded_awake_ripple_tag.v1",
                 "status": "tagged",
@@ -398,6 +419,31 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored_bank_report["raw_text_payload_cache_hits"], 1)
             self.assertFalse(restored_bank_report["runs_live_tick"])
             self.assertFalse(restored_bank_report["language_reasoning"])
+            restored_runtime_concept_lookup_report = (
+                restored.model.memory_store.last_runtime_concept_memory_lookup_report
+            )
+            self.assertEqual(
+                restored_runtime_concept_lookup_report["surface"],
+                "bounded_runtime_concept_memory_lookup.v1",
+            )
+            self.assertEqual(
+                restored_runtime_concept_lookup_report["candidate_scope"],
+                "train_step_memory_index_evidence",
+            )
+            self.assertEqual(
+                restored_runtime_concept_lookup_report["match_indices"],
+                [4, 4],
+            )
+            self.assertEqual(
+                restored_runtime_concept_lookup_report["raw_text_payload_cache_hits"],
+                1,
+            )
+            self.assertFalse(
+                restored_runtime_concept_lookup_report["runs_every_token"]
+            )
+            self.assertFalse(
+                restored_runtime_concept_lookup_report["language_reasoning"]
+            )
             restored_awake_report = (
                 restored.model.memory_store.last_awake_ripple_tag_report
             )

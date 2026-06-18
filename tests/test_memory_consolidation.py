@@ -21,6 +21,22 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
+class _IndexOnlySequence:
+    def __init__(self, values: list[object]) -> None:
+        self._values = values
+        self.iteration_attempts = 0
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: int) -> object:
+        return self._values[int(index)]
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        self.iteration_attempts += 1
+        raise AssertionError("archive iteration is not allowed")
+
+
 class MemoryConsolidationTests(unittest.TestCase):
     def test_train_step_can_defer_due_sleep_maintenance_until_allowed(self) -> None:
         cfg = MarulhoConfig(
@@ -77,6 +93,78 @@ class MemoryConsolidationTests(unittest.TestCase):
         replay_entry = restored.replay_entry(0, current_token=12)
         self.assertEqual(replay_entry["raw_window"], "purrs safe.")
         self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
+
+    def test_runtime_concept_memory_lookup_uses_explicit_indices_without_archive_iteration(self) -> None:
+        store = DualMemoryStore(capacity=16)
+        store.slow_buffer = [torch.zeros(2, dtype=torch.float32) for _ in range(16)]
+        routing_keys = _IndexOnlySequence(
+            [
+                torch.tensor([1.0, 0.0], dtype=torch.float32)
+                if index == 3
+                else None
+                for index in range(16)
+            ]
+        )
+        stored_texts = _IndexOnlySequence(
+            [
+                "submarine ballast memory evidence"
+                if index == 3
+                else None
+                for index in range(16)
+            ]
+        )
+        stored_windows = _IndexOnlySequence(
+            [
+                "submarine ballast raw evidence"
+                if index == 3
+                else None
+                for index in range(16)
+            ]
+        )
+        store.slow_routing_keys = routing_keys  # type: ignore[assignment]
+        store.slow_texts = stored_texts  # type: ignore[assignment]
+        store.slow_raw_windows = stored_windows  # type: ignore[assignment]
+        store.slow_importance = [1.0 for _ in range(16)]
+        store.slow_capture_tag = array("d", [0.25 for _ in range(16)])
+        store.slow_consolidation_level = [0.5 for _ in range(16)]
+
+        resolved = store.resolve_runtime_concept_memory_matches(
+            observations=[
+                ("fallback one", {"memory_index": 3}),
+                ("fallback two", {"memory_index": 3}),
+                ("invalid", {}),
+                ("missing", None),
+                ("out", {"memory_index": 99}),
+            ],
+            max_observations=8,
+        )
+        report = resolved["report"]
+
+        self.assertEqual(report["surface"], "bounded_runtime_concept_memory_lookup.v1")
+        self.assertEqual(report["candidate_scope"], "train_step_memory_index_evidence")
+        self.assertEqual(report["candidate_window_policy"], "explicit_train_step_memory_indices_only")
+        self.assertEqual(report["match_indices"], [3, 3])
+        self.assertEqual(report["candidate_index_count"], 2)
+        self.assertEqual(report["unique_candidate_index_count"], 1)
+        self.assertEqual(report["raw_text_payload_count"], 1)
+        self.assertEqual(report["raw_text_payload_cache_hits"], 1)
+        self.assertEqual(report["invalid_memory_index_count"], 1)
+        self.assertEqual(report["invalid_observation_count"], 1)
+        self.assertEqual(report["out_of_bounds_index_count"], 1)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertFalse(report["language_reasoning"])
+        self.assertEqual(report["archival_storage_device"], "cpu")
+        self.assertEqual(resolved["result_slots"], [0, 1, None, None, None])
+        self.assertEqual(len(resolved["matches"]), 2)
+        self.assertEqual(routing_keys.iteration_attempts, 0)
+        self.assertEqual(stored_texts.iteration_attempts, 0)
+        self.assertEqual(stored_windows.iteration_attempts, 0)
+        self.assertEqual(
+            store.last_runtime_concept_memory_lookup_report["match_indices"],
+            [3, 3],
+        )
 
     def test_frontier_gap_collection_uses_bounded_recent_index(self) -> None:
         store = DualMemoryStore(capacity=64)
