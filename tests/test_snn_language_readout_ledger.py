@@ -8,7 +8,10 @@ from threading import RLock
 
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.runtime_facade import RuntimeFacade
-from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    SNNLanguagePlasticityApplicationExecutor,
+)
 from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
@@ -398,6 +401,22 @@ def _first_rollout_synapse(design: dict[str, object]) -> str:
         f"{int(first.get('source_neuron_index', first['source_step_index']))}:"
         f"{int(first.get('target_neuron_index', first['target_step_index']))}"
     )
+
+
+def _regeneration_candidate(index: int) -> dict[str, object]:
+    pre_index = 65 + (index % 31)
+    post_index = 66 + (index % 31)
+    return {
+        "pre_index": pre_index,
+        "post_index": post_index,
+        "synapse": f"{pre_index}:{post_index}",
+        "initial_weight": 0.02,
+        "locality_distance": 1,
+    }
+
+
+def _regeneration_candidates(count: int) -> list[dict[str, object]]:
+    return [_regeneration_candidate(index) for index in range(count)]
 
 
 def test_readout_ledger_records_ready_provenance_bound_draft_once() -> None:
@@ -11817,6 +11836,16 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
     assert accepted["applies_plasticity"] is False
     assert accepted["language_capacity"]["language_neuron_count"] == 128
     assert accepted["promotion_gate"]["required_evidence"]["regeneration_design_indices_canonical"] is True
+    assert accepted["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert accepted["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is True
+    assert (
+        accepted["candidate_source_window"]["surface"]
+        == "bounded_snn_rollout_regeneration_permit_candidate_synapse_window.v1"
+    )
+    assert accepted["candidate_source_window"]["source_window_limit"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert accepted["candidate_source_window"]["source_window_count"] == 1
     assert accepted["promotion_gate"]["required_evidence"]["language_capacity_state_available"] is True
     assert accepted["promotion_gate"]["required_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
     assert accepted["replay_evidence"]["permit_id"] == "permit-1"
@@ -11824,6 +11853,68 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
     assert accepted["after"]["dirty_state"] is True
     assert accepted["promotion_gate"]["eligible_for_regeneration_application"] is True
     assert accepted["promotion_gate"]["eligible_for_structural_write"] is False
+
+
+def test_rollout_regeneration_permit_request_blocks_oversized_candidate_window_before_replay_controller() -> None:
+    runtime_state = RuntimeState()
+    calls: list[dict[str, object]] = []
+
+    class _ReplayController:
+        def issue_regeneration_permit(self, **kwargs: object) -> dict[str, object]:
+            calls.append(dict(kwargs))
+            raise AssertionError("oversized permit must not reach replay controller")
+
+    class _Root:
+        _runtime_state = runtime_state
+        _replay_controller = _ReplayController()
+
+    facade = RuntimeFacade(_Root())
+    review = {
+        "surface": "snn_language_readout_rollout_regeneration_replay_artifact_review.v1",
+        "owned_by_marulho": True,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 32,
+            "capacity_expansion_count": 1,
+        },
+        "permit_request_preview": {
+            "replay_artifact_id": "artifact-1",
+            "regeneration_design": {
+                "locality_radius": 1,
+                "initial_weight": 0.02,
+                "max_new_synapses": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1,
+                "mismatch_score": 0.9,
+                "candidate_count": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1,
+                "candidate_synapses": _regeneration_candidates(
+                    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+                ),
+            },
+            "permit_issued": False,
+        },
+        "promotion_gate": {"eligible_for_regeneration_permit_request": True},
+    }
+
+    result = facade.snn_language_readout_rollout_regeneration_permit_request(
+        rollout_regeneration_replay_artifact_review=review,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    required = result["promotion_gate"]["required_evidence"]
+    assert result["accepted"] is False
+    assert result["issues_regeneration_permit"] is False
+    assert calls == []
+    assert required["candidate_source_window_bounded"] is True
+    assert required["candidate_payload_not_truncated"] is False
+    assert required["candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert required["candidate_source_window"]["source_payload_truncated"] is True
+    assert runtime_state.state_revision == 0
 
 
 def test_rollout_regeneration_application_preflight_requires_revision_and_checkpoint() -> None:
@@ -11924,6 +12015,16 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
         ]
         is True
     )
+    assert ready["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert ready["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is True
+    assert (
+        ready["candidate_source_window"]["surface"]
+        == (
+            "bounded_snn_rollout_regeneration_application_preflight_"
+            "candidate_synapse_window.v1"
+        )
+    )
+    assert ready["candidate_source_window"]["source_window_count"] == 1
     assert (
         ready["promotion_gate"]["required_evidence"][
             "language_capacity_state_available"
@@ -11940,6 +12041,71 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
     assert mismatched_restore["promotion_gate"]["required_evidence"][
         "applied_replay_lineage_restore_validation_not_mismatched"
     ] is False
+
+
+def test_rollout_regeneration_application_preflight_blocks_oversized_candidate_window() -> None:
+    runtime_state = RuntimeState()
+
+    class _Root:
+        _runtime_state = runtime_state
+
+    facade = RuntimeFacade(_Root())
+    permit_request = {
+        "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
+        "accepted": True,
+        "owned_by_marulho": True,
+        "applies_plasticity": False,
+        "mutates_runtime_state": True,
+        "checkpoint_written": False,
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 16,
+            "capacity_expansion_count": 1,
+        },
+        "replay_evidence": {
+            "permit_id": "permit-1",
+            "ready": True,
+            "owned_by_marulho": True,
+        },
+        "regeneration_design": {
+            "locality_radius": 1,
+            "initial_weight": 0.02,
+            "max_new_synapses": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1,
+            "mismatch_score": 0.9,
+            "candidate_count": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1,
+            "candidate_synapses": _regeneration_candidates(
+                SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+            ),
+        },
+        "promotion_gate": {
+            "eligible_for_regeneration_application": True,
+            "required_evidence": {
+                "applied_replay_lineage_restore_validation_not_mismatched": True
+            },
+        },
+    }
+
+    result = facade.snn_language_readout_rollout_regeneration_application_preflight(
+        rollout_regeneration_permit_request=permit_request,
+        expected_state_revision=runtime_state.state_revision,
+        checkpoint_path="checkpoint://rollout-regeneration",
+    )
+
+    required = result["promotion_gate"]["required_evidence"]
+    assert result["ready"] is False
+    assert result["executor_called"] is False
+    assert result["regeneration_proposal"]["available"] is False
+    assert required["candidate_source_window_bounded"] is True
+    assert required["candidate_payload_not_truncated"] is False
+    assert required["candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert len(result["regeneration_proposal"]["regeneration_design"]["candidate_synapses"]) == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert runtime_state.state_revision == 0
 
 
 def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executor(
@@ -12062,6 +12228,13 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
     assert result["language_capacity"]["language_neuron_count"] == 128
     assert result["proposal_language_capacity"]["language_neuron_count"] == 128
     assert result["promotion_gate"]["required_evidence"]["regeneration_design_indices_canonical"] is True
+    assert result["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert result["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is True
+    assert (
+        result["candidate_source_window"]["surface"]
+        == "bounded_snn_rollout_regeneration_application_candidate_synapse_window.v1"
+    )
+    assert result["candidate_source_window"]["source_window_count"] == 1
     assert result["promotion_gate"]["required_evidence"]["language_capacity_state_available"] is True
     assert result["promotion_gate"]["required_evidence"]["proposal_language_capacity_state_available"] is True
     assert result["promotion_gate"]["required_evidence"]["proposal_language_capacity_matches_preflight"] is True
@@ -12080,6 +12253,101 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
     ] == local_edge
     assert runtime_state.state_revision == 1
     assert result["promotion_gate"]["status"] == "checkpoint_backed_regeneration_applied"
+
+
+def test_rollout_regeneration_application_blocks_oversized_candidate_window_before_executor(
+    tmp_path: Path,
+) -> None:
+    runtime_state = RuntimeState()
+    calls: list[dict[str, object]] = []
+
+    class _Executor:
+        def regenerate_transition_memory(self, **kwargs: object) -> dict[str, object]:
+            calls.append(dict(kwargs))
+            raise AssertionError("oversized application must not reach executor")
+
+    class _Root:
+        _runtime_state = runtime_state
+        _snn_language_plasticity_executor = _Executor()
+
+    facade = RuntimeFacade(_Root())
+    checkpoint_path = str(tmp_path / "rollout-regeneration.pt")
+    preflight = {
+        "surface": "snn_language_readout_rollout_regeneration_application_preflight.v1",
+        "ready": True,
+        "owned_by_marulho": True,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "executor_called": False,
+        "expected_state_revision": runtime_state.state_revision,
+        "checkpoint_path": checkpoint_path,
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 16,
+            "capacity_expansion_count": 1,
+        },
+        "regeneration_proposal": {
+            "available": True,
+            "ready": True,
+            "owned_by_marulho": True,
+            "generates_text": False,
+            "loads_external_checkpoint": False,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 16,
+                "capacity_expansion_count": 1,
+            },
+            "promotion_gate": {"status": "ready_for_operator_review"},
+            "replay_evidence": {
+                "available": True,
+                "ready": True,
+                "owned_by_marulho": True,
+                "source": "replay_controller.regeneration_permit",
+                "permit_id": "permit-1",
+                "replay_window_id": "replay-window-1",
+                "replay_artifact_id": "artifact-1",
+                "replay_artifact_hash": "artifact-hash-1",
+                "replay_window_hash": "window-hash-1",
+                "readout_evidence_hashes": ["readout-hash-1"],
+                "evidence_hash": "sha256:rollout-replay-window-1",
+            },
+            "regeneration_design": {
+                "locality_radius": 1,
+                "mismatch_score": 0.9,
+                "candidate_synapses": _regeneration_candidates(
+                    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+                ),
+            },
+        },
+        "promotion_gate": {
+            "eligible_for_checkpoint_backed_regeneration_executor": True,
+        },
+    }
+
+    result = facade.snn_language_readout_rollout_regeneration_application(
+        rollout_regeneration_application_preflight=preflight,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=checkpoint_path,
+    )
+
+    required = result["promotion_gate"]["required_evidence"]
+    assert result["accepted"] is False
+    assert result["executor_called"] is False
+    assert result["writes_checkpoint"] is False
+    assert calls == []
+    assert required["candidate_source_window_bounded"] is True
+    assert required["candidate_payload_not_truncated"] is False
+    assert required["candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert not Path(checkpoint_path).exists()
+    assert runtime_state.state_revision == 0
 
 
 def test_readout_ledger_replay_priority_is_deterministic_read_only_advisory() -> None:

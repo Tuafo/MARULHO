@@ -7,6 +7,10 @@ from marulho.service.operator_interaction import OperatorInteractionRuntime
 from marulho.service.reporting import ServiceReporter
 from marulho.service.replay_dataset_bundle import ReplayDatasetPackager
 from marulho.service.runtime_evidence import RuntimeEvidenceReporter
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    bounded_application_synapse_window,
+)
 
 _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _SNN_LANGUAGE_NEURON_COUNT = 64
@@ -24,6 +28,35 @@ class RuntimeFacade:
 
     def __init__(self, composition_root: Any) -> None:
         self._root = composition_root
+
+    @staticmethod
+    def _rollout_regeneration_candidate_window(
+        raw_value: Any,
+        *,
+        source: str,
+        surface: str,
+        field_name: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return bounded_application_synapse_window(
+            raw_value,
+            source=source,
+            surface=surface,
+            field_name=field_name,
+        )
+
+    @staticmethod
+    def _rollout_regeneration_candidate_window_bounded(
+        source_window: Mapping[str, Any],
+        *,
+        surface: str,
+    ) -> bool:
+        return (
+            source_window.get("surface") == surface
+            and int(source_window.get("source_window_count", 0) or 0)
+            <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+            and bool(source_window.get("global_candidate_scan")) is False
+            and bool(source_window.get("global_score_scan")) is False
+        )
 
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         return self._root._status_read_model.status(fresh_wait_seconds=fresh_wait_seconds)
@@ -1098,11 +1131,24 @@ class RuntimeFacade:
             if isinstance(preview.get("regeneration_design"), Mapping)
             else {}
         )
-        candidates = [
-            dict(item)
-            for item in list(regeneration_design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ]
+        candidate_window_surface = (
+            "bounded_snn_rollout_regeneration_permit_candidate_synapse_window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_regeneration_candidate_window(
+            regeneration_design.get("candidate_synapses"),
+            source=(
+                "service.runtime_facade."
+                "rollout_regeneration_permit_candidate_synapses"
+            ),
+            surface=candidate_window_surface,
+            field_name=(
+                "permit_request_preview.regeneration_design.candidate_synapses"
+            ),
+        )
+        bounded_regeneration_design = {
+            **dict(regeneration_design),
+            "candidate_synapses": candidates,
+        }
         before_revision = int(self._root._runtime_state.state_revision)
         restore_validation_not_mismatched = (
             self._applied_replay_lineage_restore_validation_not_mismatched()
@@ -1123,6 +1169,15 @@ class RuntimeFacade:
             ),
             "replay_artifact_id_available": bool(str(preview.get("replay_artifact_id") or "")),
             "regeneration_design_available": bool(regeneration_design),
+            "candidate_source_window_bounded": (
+                self._rollout_regeneration_candidate_window_bounded(
+                    candidate_source_window,
+                    surface=candidate_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "regeneration_design_indices_canonical": all(
                 0 <= int(item.get("pre_index", -1)) < language_neuron_count
                 and 0 <= int(item.get("post_index", -1)) < language_neuron_count
@@ -1133,6 +1188,10 @@ class RuntimeFacade:
             "applied_replay_lineage_restore_validation_not_mismatched": (
                 restore_validation_not_mismatched
             ),
+        }
+        required_evidence = {
+            **required,
+            "candidate_source_window": dict(candidate_source_window),
         }
         if not all(required.values()):
             return {
@@ -1153,6 +1212,7 @@ class RuntimeFacade:
                 "issues_regeneration_permit": False,
                 "executor_ready": False,
                 "language_capacity": language_capacity,
+                "candidate_source_window": dict(candidate_source_window),
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -1163,13 +1223,13 @@ class RuntimeFacade:
                     "eligible_for_pruning": False,
                     "eligible_for_plasticity_application": False,
                     "eligible_for_action": False,
-                    "required_evidence": required,
+                    "required_evidence": required_evidence,
                 },
             }
         try:
             permit = self._root._replay_controller.issue_regeneration_permit(
                 replay_artifact_id=str(preview.get("replay_artifact_id") or ""),
-                regeneration_design=dict(preview.get("regeneration_design") or {}),
+                regeneration_design=dict(bounded_regeneration_design),
                 operator_id=operator_id,
                 confirmation=confirmation,
             )
@@ -1193,6 +1253,7 @@ class RuntimeFacade:
                 "issues_regeneration_permit": False,
                 "executor_ready": False,
                 "language_capacity": language_capacity,
+                "candidate_source_window": dict(candidate_source_window),
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -1204,7 +1265,7 @@ class RuntimeFacade:
                     "eligible_for_plasticity_application": False,
                     "eligible_for_action": False,
                     "required_evidence": {
-                        **required,
+                        **required_evidence,
                         "replay_controller_permit_issued": False,
                     },
                 },
@@ -1231,7 +1292,8 @@ class RuntimeFacade:
             ),
             "replay_evidence": permit,
             "language_capacity": language_capacity,
-            "regeneration_design": dict(regeneration_design),
+            "regeneration_design": dict(bounded_regeneration_design),
+            "candidate_source_window": dict(candidate_source_window),
             "before": {"state_revision": before_revision},
             "after": {
                 "state_revision": int(self._root._runtime_state.state_revision),
@@ -1247,7 +1309,7 @@ class RuntimeFacade:
                 "eligible_for_action": False,
                 "next_gate": "checkpoint_backed_snn_transition_memory_regeneration",
                 "required_evidence": {
-                    **required,
+                    **required_evidence,
                     "replay_controller_permit_issued": True,
                     "checkpoint_executor_still_required": True,
                 },
@@ -1271,11 +1333,23 @@ class RuntimeFacade:
         )
         language_capacity = self._snn_language_capacity_state(request)
         language_neuron_count = int(language_capacity["language_neuron_count"])
-        candidates = [
-            dict(item)
-            for item in list(design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ]
+        candidate_window_surface = (
+            "bounded_snn_rollout_regeneration_application_preflight_"
+            "candidate_synapse_window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_regeneration_candidate_window(
+            design.get("candidate_synapses"),
+            source=(
+                "service.runtime_facade."
+                "rollout_regeneration_application_preflight_candidate_synapses"
+            ),
+            surface=candidate_window_surface,
+            field_name="regeneration_design.candidate_synapses",
+        )
+        bounded_regeneration_design = {
+            **dict(design),
+            "candidate_synapses": candidates,
+        }
         before_revision = int(self._root._runtime_state.state_revision)
         checkpoint = str(checkpoint_path or "").strip()
         request_required = (
@@ -1295,6 +1369,15 @@ class RuntimeFacade:
             "permit_ready": bool(permit.get("ready")),
             "permit_owned_by_marulho": bool(permit.get("owned_by_marulho")),
             "regeneration_design_available": bool(design),
+            "candidate_source_window_bounded": (
+                self._rollout_regeneration_candidate_window_bounded(
+                    candidate_source_window,
+                    surface=candidate_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "regeneration_design_indices_canonical": all(
                 0 <= int(item.get("pre_index", -1)) < language_neuron_count
                 and 0 <= int(item.get("post_index", -1)) < language_neuron_count
@@ -1314,6 +1397,10 @@ class RuntimeFacade:
                 and self._applied_replay_lineage_restore_validation_not_mismatched()
             ),
         }
+        required_evidence = {
+            **required,
+            "candidate_source_window": dict(candidate_source_window),
+        }
         ready = all(required.values())
         proposal = {
             "available": ready,
@@ -1329,7 +1416,8 @@ class RuntimeFacade:
             "mutates_runtime_state": False,
             "replay_evidence": dict(permit),
             "language_capacity": language_capacity,
-            "regeneration_design": dict(design),
+            "regeneration_design": dict(bounded_regeneration_design),
+            "candidate_source_window": dict(candidate_source_window),
             "promotion_gate": {
                 "status": "ready_for_operator_review"
                 if ready
@@ -1355,6 +1443,7 @@ class RuntimeFacade:
             "expected_state_revision": int(expected_state_revision),
             "checkpoint_path": checkpoint or None,
             "language_capacity": language_capacity,
+            "candidate_source_window": dict(candidate_source_window),
             "regeneration_proposal": proposal,
             "before": {"state_revision": before_revision},
             "after": {"state_revision": int(self._root._runtime_state.state_revision)},
@@ -1373,7 +1462,7 @@ class RuntimeFacade:
                 "next_gate": "checkpoint_backed_snn_transition_memory_regeneration"
                 if ready
                 else "collect_rollout_regeneration_permit_and_checkpoint_evidence",
-                "required_evidence": required,
+                "required_evidence": required_evidence,
             },
         }
 
@@ -1402,11 +1491,28 @@ class RuntimeFacade:
             if isinstance(proposal.get("regeneration_design"), Mapping)
             else {}
         )
-        candidates = [
-            dict(item)
-            for item in list(design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ]
+        candidate_window_surface = (
+            "bounded_snn_rollout_regeneration_application_candidate_synapse_"
+            "window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_regeneration_candidate_window(
+            design.get("candidate_synapses"),
+            source=(
+                "service.runtime_facade."
+                "rollout_regeneration_application_candidate_synapses"
+            ),
+            surface=candidate_window_surface,
+            field_name="regeneration_proposal.regeneration_design.candidate_synapses",
+        )
+        bounded_design = {
+            **dict(design),
+            "candidate_synapses": candidates,
+        }
+        bounded_proposal = {
+            **dict(proposal),
+            "regeneration_design": bounded_design,
+            "candidate_source_window": dict(candidate_source_window),
+        }
         preflight_checkpoint = str(preflight.get("checkpoint_path") or "").strip()
         requested_checkpoint = str(checkpoint_path or "").strip()
         effective_checkpoint = requested_checkpoint or preflight_checkpoint
@@ -1438,6 +1544,15 @@ class RuntimeFacade:
                 proposal.get("loads_external_checkpoint")
             ),
             "regeneration_design_available": bool(design),
+            "candidate_source_window_bounded": (
+                self._rollout_regeneration_candidate_window_bounded(
+                    candidate_source_window,
+                    surface=candidate_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "regeneration_design_indices_canonical": all(
                 0 <= int(item.get("pre_index", -1)) < language_neuron_count
                 and 0 <= int(item.get("post_index", -1)) < language_neuron_count
@@ -1456,6 +1571,10 @@ class RuntimeFacade:
                 == int(language_capacity["outgoing_fanout_budget"])
             ),
             "language_capacity_state_dynamic_limits_applied": True,
+        }
+        required_evidence = {
+            **required,
+            "candidate_source_window": dict(candidate_source_window),
         }
         if not all(required.values()):
             return {
@@ -1479,6 +1598,7 @@ class RuntimeFacade:
                 "checkpoint_path": effective_checkpoint or None,
                 "language_capacity": language_capacity,
                 "proposal_language_capacity": proposal_language_capacity,
+                "candidate_source_window": dict(candidate_source_window),
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -1489,12 +1609,12 @@ class RuntimeFacade:
                     "eligible_for_pruning": False,
                     "eligible_for_plasticity_application": False,
                     "eligible_for_action": False,
-                    "required_evidence": required,
+                    "required_evidence": required_evidence,
                 },
             }
 
         executor_result = self._root._snn_language_plasticity_executor.regenerate_transition_memory(
-            regeneration_proposal=dict(proposal),
+            regeneration_proposal=dict(bounded_proposal),
             expected_state_revision=expected_state_revision,
             operator_id=operator_id,
             confirmation=confirmation,
@@ -1530,6 +1650,7 @@ class RuntimeFacade:
             "checkpoint_path": effective_checkpoint,
             "language_capacity": language_capacity,
             "proposal_language_capacity": proposal_language_capacity,
+            "candidate_source_window": dict(candidate_source_window),
             "executor_result": executor_result,
             "before": {"state_revision": before_revision},
             "after": {"state_revision": int(self._root._runtime_state.state_revision)},
@@ -1543,7 +1664,7 @@ class RuntimeFacade:
                 "eligible_for_pruning": False,
                 "eligible_for_plasticity_application": False,
                 "eligible_for_action": False,
-                "required_evidence": required,
+                "required_evidence": required_evidence,
             },
         }
 

@@ -129,7 +129,7 @@ def _bounded_mapping_source_window(
     return selected, report
 
 
-def _bounded_application_synapse_window(
+def bounded_application_synapse_window(
     raw_value: Any,
     *,
     source: str,
@@ -310,7 +310,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             before_revision = int(self._runtime_state.state_revision)
             readiness = dict(live_application_readiness)
             delta = dict(shadow_delta)
-            synapses, synapse_source_window = _bounded_application_synapse_window(
+            synapses, synapse_source_window = bounded_application_synapse_window(
                 delta.get("bounded_synapses"),
                 source=(
                     "service.snn_language_plasticity_executor."
@@ -3910,7 +3910,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             gate = proposal.get("promotion_gate") if isinstance(proposal.get("promotion_gate"), Mapping) else {}
             design = proposal.get("regeneration_design") if isinstance(proposal.get("regeneration_design"), Mapping) else {}
             replay = proposal.get("replay_evidence") if isinstance(proposal.get("replay_evidence"), Mapping) else {}
-            candidates, candidate_source_window = _bounded_application_synapse_window(
+            candidates, candidate_source_window = bounded_application_synapse_window(
                 design.get("candidate_synapses"),
                 source=(
                     "service.snn_language_plasticity_executor."

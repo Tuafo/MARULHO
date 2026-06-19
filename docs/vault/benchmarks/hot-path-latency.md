@@ -3959,6 +3959,53 @@ all `0`. The environment sampler reported no observed contention, CPU max
 `2020->2034 MiB`. This keeps the checkpointed application cleanup out of the
 live tick while preserving the maintained 6k-ish throughput band.
 
+## Rollout Regeneration Facade Candidate Windows
+
+The rollout-regeneration facade now refuses caller-sized candidate payloads
+before permit issuance, application preflight, or checkpoint-backed application.
+Permit, preflight, and application all use the executor-owned
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32` source-window operator and
+require the source payload to be untruncated before calling the replay
+controller or executor. The old full-payload facade behavior is retired, not
+kept as a compatibility route.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.rollout_regeneration_facade_candidate_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\rollout-regeneration-facade-candidate-window.json`
+
+Result: `pass=true`, oversized permit `32/2048` blocked before the replay
+controller, oversized preflight `32/2048` blocked before proposal readiness,
+oversized application `32/2048` blocked before the executor, zero checkpoint
+writes for oversized applications, exact-window flow still advanced through one
+permit and one executor call with `32` candidates, `64x` projected source-work
+reduction, CPU archival, source-window, facade-gate, and active-application placement, traced Python peak
+allocation `1.852119 MiB`, `0.0 MiB` CUDA allocation/reservation, no global
+candidate/score scan, no raw text payload, no hidden language reasoning, no
+live tick, and no every-token cadence.
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-rollout-regeneration-facade-candidate-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+The first same-code run succeeded but is below-band variance evidence:
+`5938.820 tokens/sec`, `train_compute=0.137347 ms/token`,
+`prepare_training=0.007065 ms/token`, `finalize_total=0.006444 ms/token`,
+bounded `12/65536` route rows, `65526` cached rows, no observed contention, GPU
+memory `2033->2031 MiB`, and zero graph/native sequence failures.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-rollout-regeneration-facade-candidate-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+The accepted rerun processed `524288` tokens at `6121.143 tokens/sec`, with
+`train_compute=0.133293 ms/token`, `prepare_training=0.006856 ms/token`,
+`finalize_total=0.006270 ms/token`, and `tick_duration_ms.p95=21.611`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+all `0`. The environment sampler observed light GPU contention at `23%`, CPU
+max `36%`, GPU memory-util max `23%`, and flat RTX 3060 memory at `2031 MiB`.
+This is accepted hot-path protection evidence under contention, not a clean
+speed-ceiling claim.
+
 ## Dense Readout Training Transition Windows
 
 The checkpointed dense-readout training boundary now refuses caller-sized

@@ -980,6 +980,24 @@ transition rows, no observed contention, and zero graph/native failures. This
 keeps structural writes slow-path, operator/checkpoint gated, and bounded
 without putting replay/application work into the live tick.
 
+The rollout-regeneration facade now protects that same slow-path boundary
+before permit issuance or application preflight. Permit, preflight, and
+application use the shared `SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32`
+operator, emit `bounded_snn_rollout_regeneration_permit_candidate_synapse_window.v1`,
+`bounded_snn_rollout_regeneration_application_preflight_candidate_synapse_window.v1`,
+and `bounded_snn_rollout_regeneration_application_candidate_synapse_window.v1`,
+and require untruncated candidate payloads before replay-controller or executor
+calls. Runtime Truth capacity inventory records the three facade
+candidate-source-window boundaries as CPU source windows that do not run in the
+live tick or every-token cadence. The facade benchmark
+`reports/bounded_replay_window_20260619/rollout-regeneration-facade-candidate-window.json`
+blocked oversized permit/preflight/application payloads at `32/2048` while the
+exact `32`-candidate flow still reached the single executor path. The accepted
+long rerun stayed in band at `6121.143 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native failures, and
+flat `2031 MiB` GPU memory under sampled GPU contention. The old full-list
+facade route is retired rather than preserved as side code.
+
 Dense-readout training now shares that single-window rule instead of preserving
 an old caller-sized training side path. The design, schema, preflight, and
 executor all use `SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT=32`

@@ -26,6 +26,8 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.semantics import build_spike_language_decoder_probe
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
     SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
     SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
 )
@@ -4963,8 +4965,32 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(capacity_boundaries["fixed_boundary_count"], 2)
         self.assertEqual(
             capacity_boundaries["dynamic_capacity_aware_boundary_count"],
-            8,
+            11,
         )
+        boundary_by_id = {
+            item["boundary_id"]: item
+            for item in capacity_boundaries["boundary_inventory"]
+        }
+        for boundary_id in [
+            "runtime_facade.regeneration_permit_candidate_source_window",
+            "runtime_facade.regeneration_application_preflight_candidate_source_window",
+            "runtime_facade.regeneration_application_candidate_source_window",
+        ]:
+            self.assertIn(boundary_id, boundary_by_id)
+            self.assertEqual(boundary_by_id[boundary_id]["boundary_kind"], "source_window")
+            self.assertEqual(
+                boundary_by_id[boundary_id]["window_limit"],
+                SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+            )
+            self.assertEqual(
+                boundary_by_id[boundary_id]["window_policy"],
+                SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
+            )
+            self.assertTrue(
+                boundary_by_id[boundary_id]["requires_untruncated_source_payload"]
+            )
+            self.assertFalse(boundary_by_id[boundary_id]["global_candidate_scan"])
+            self.assertFalse(boundary_by_id[boundary_id]["runs_live_tick"])
         self.assertTrue(
             capacity_boundaries["capacity_resize_blocked_by_fixed_boundaries"]
         )
@@ -6299,6 +6325,12 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "runtime_facade.regeneration_application_sparse_index_validators",
             compatibility["incompatible_boundary_ids"],
         )
+        for boundary_id in [
+            "runtime_facade.regeneration_permit_candidate_source_window",
+            "runtime_facade.regeneration_application_preflight_candidate_source_window",
+            "runtime_facade.regeneration_application_candidate_source_window",
+        ]:
+            self.assertNotIn(boundary_id, compatibility["incompatible_boundary_ids"])
         self.assertNotIn(
             "snn_language_readout_ledger.sparse_edge_budget",
             compatibility["incompatible_boundary_ids"],

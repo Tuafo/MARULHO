@@ -1350,6 +1350,55 @@ GPU max `15%`, GPU memory-util max `18%`, and RTX 3060 memory `2029->2028 MiB`.
 This retires the caller-sized checkpointed training side path while preserving
 the maintained 6k-ish live-tick band.
 
+The rollout-regeneration facade now uses the same single candidate-window
+operator before permit issuance, application preflight, and checkpoint-backed
+application. The old facade path built full `regeneration_design.candidate_synapses`
+lists before the bounded executor could reject them. The maintained path caps
+each facade gate at `SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32`, forwards
+only the bounded regeneration design, and requires untruncated candidate
+payloads before calling the replay controller or executor.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.rollout_regeneration_facade_candidate_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\rollout-regeneration-facade-candidate-window.json`
+
+It passed with oversized permit, preflight, and application payloads blocked at
+`32/2048`, zero replay-controller calls for oversized permits, zero executor
+calls and zero checkpoint writes for oversized applications, no global
+candidate/score scan, no raw text payload, and no hidden language reasoning.
+The exact `32`-candidate flow still issued one permit, produced one ready
+preflight proposal, and reached the single executor path with `32` candidates.
+Mean latencies were `0.728800 ms` for oversized permit blocking,
+`0.735856 ms` for oversized preflight blocking, `0.742636 ms` for oversized
+application blocking, and `2.277792 ms` for the exact permit/preflight/application
+flow. Archival storage, source-window selection, facade gating, and active
+application placement stayed CPU-resident, traced Python peak allocation was
+`1.852119 MiB`, CUDA allocation/reservation stayed `0.0 MiB`, and the retired
+facade full-payload work is projected from source counts only (`64x`
+source-work reduction).
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-rollout-regeneration-facade-candidate-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+The first same-code run succeeded but is retained as below-band variance:
+`5938.820 tokens/sec`, `train_compute=0.137347 ms/token`, bounded
+`12/65536` route rows, `65526` cached rows, no observed contention, GPU memory
+`2033->2031 MiB`, and zero graph/native sequence failures.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-rollout-regeneration-facade-candidate-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+The accepted rerun processed `524288` tokens at `6121.143 tokens/sec`, with
+`train_compute=0.133293 ms/token`, `prepare_training=0.006856 ms/token`,
+`finalize_total=0.006270 ms/token`, and `tick_duration_ms.p95=21.611`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+`0`. The sampler observed light GPU contention at `23%`, CPU max was `36%`,
+GPU memory-util max was `23%`, and RTX 3060 memory stayed flat at `2031 MiB`.
+This is protection evidence that the facade cleanup did not add live-tick work,
+not a clean speed-ceiling claim.
+
 The strong-capture admission cadence follow-up closes the remaining
 every-strong slow-memory write shape. Strong-event evidence can still be
 emitted by the device path on every threshold crossing, but `DualMemoryStore`

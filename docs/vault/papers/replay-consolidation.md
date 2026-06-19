@@ -1030,6 +1030,27 @@ text payload, and `64x` projected source-work reduction. The clean
 failures. This retires the downstream caller-sized application side path rather
 than keeping it as a second implementation.
 
+The rollout-regeneration facade now applies the same rule before replay
+permits and application preflight can authorize the checkpointed executor.
+`RuntimeFacade.snn_language_readout_rollout_regeneration_permit_request(...)`,
+`snn_language_readout_rollout_regeneration_application_preflight(...)`, and
+`snn_language_readout_rollout_regeneration_application(...)` use the shared
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32` source-window operator,
+forward only the bounded regeneration design, and require untruncated candidate
+payloads before replay-controller or executor calls. The benchmark
+`reports/bounded_replay_window_20260619/rollout-regeneration-facade-candidate-window.json`
+blocked oversized permit, preflight, and application payloads at `32/2048`,
+with zero replay-controller calls for oversized permits and zero
+executor/checkpoint calls for oversized applications; exact-window flow still
+reached the single executor path. It recorded CPU archival, source-window,
+facade-gate, and active-application placement, `1.852119 MiB` traced Python peak, `0.0 MiB` CUDA
+allocation/reservation, no global candidate/score scan, no raw text payload, no
+hidden language reasoning, and `64x` projected source-work reduction. The
+accepted `524288`-token rerun stayed in band at `6121.143 tokens/sec` with
+bounded `12/65536` route rows, flat `2031 MiB` GPU memory, zero graph/native
+failures, and sampled GPU contention. The old facade full-list route is now a
+retired projection, not an implementation kept beside the selected path.
+
 The dense-readout training executor now applies the same local-window rule to
 checkpointed training transitions. The old path copied every caller-supplied
 `training_transitions` record and each caller-sized `pre_indices`/`post_indices`
@@ -1094,6 +1115,7 @@ bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
+bounded rollout-regeneration facade candidate windows,
 bounded dense-readout training transition windows,
 strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
@@ -1103,6 +1125,7 @@ source-bank wrapper APIs, retained-ledger replay-path status scans,
 readout-ledger full-materialization normalization, every-strong slow-memory
 admission, caller-supplied full-payload readout replay materialization,
 caller-supplied checkpointed application synapse materialization,
+runtime-facade rollout-regeneration full-payload candidate materialization,
 caller-supplied checkpointed dense-readout training transition materialization,
 plus the all-anchor HF replay-query source pass and full hot-bucket candidate
 source materialization;
