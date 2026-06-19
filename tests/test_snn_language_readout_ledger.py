@@ -14,6 +14,7 @@ from marulho.service.snn_language_plasticity_executor import (
 )
 from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
+    SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
@@ -732,6 +733,9 @@ def test_readout_ledger_dense_label_candidate_history_is_read_only_audit_surface
     assert history["freeform_language_generation"] is False
     assert history["applies_plasticity"] is False
     assert history["mutates_runtime_state"] is False
+    assert history["summary"]["source_window"]["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_source_window.v1"
+    )
     assert history["summary"]["returned_dense_label_candidate_event_count"] == 1
     assert history["summary"]["dense_label_candidate_event_count"] == 1
     event = history["dense_label_candidate_events"][0]
@@ -796,6 +800,9 @@ def test_readout_ledger_dense_label_candidate_calibration_policy_is_advisory_onl
     assert policy["trains_runtime_model"] is False
     assert policy["applies_plasticity"] is False
     assert policy["mutates_runtime_state"] is False
+    assert policy["source_window"]["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_source_window.v1"
+    )
     assert policy["candidate_count"] == 1
     assert policy["ready_candidate_count"] == 1
     candidate = policy["calibration_candidates"][0]
@@ -819,6 +826,104 @@ def test_readout_ledger_dense_label_candidate_calibration_policy_is_advisory_onl
     assert empty["promotion_gate"][
         "eligible_for_operator_dense_label_calibration_review"
     ] is False
+
+
+def test_dense_label_candidate_history_and_policy_use_dense_source_window_only() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                label_slot = index % 4
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "dense_label_candidate_evidence_hash": f"{index + 1:064x}",
+                    "dense_label_candidate_evidence_id": (
+                        f"dense-label-candidate:{index}"
+                    ),
+                    "review_hash": f"{index + 1001:064x}",
+                    "source_execution_hash": f"{index + 2001:064x}",
+                    "label_hash": f"{label_slot + 3001:064x}",
+                    "labels": [f"label-{label_slot}", f"focus-{index % 2}"],
+                    "tensor_device": "cpu",
+                    "active_count": (index % 16) + 1,
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    ledger_state: dict[str, object] = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state["total_dense_label_candidate_count"] = source_count
+    ledger_state["last_dense_label_candidate_recorded_at"] = (
+        "2026-06-19T00:00:00+00:00"
+    )
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    history = ledger.dense_label_candidate_history(limit=4)
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+
+    history_window = history["summary"]["source_window"]
+    policy_window = policy["source_window"]
+    assert history_window["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_source_window.v1"
+    )
+    assert policy_window["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_source_window.v1"
+    )
+    assert history_window["policy"] == (
+        SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY
+    )
+    assert policy_window["policy"] == (
+        SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY
+    )
+    assert history_window["source_window_count"] == ledger_limit
+    assert policy_window["source_window_count"] == ledger_limit
+    assert history_window["source_record_count"] == source_count
+    assert policy_window["source_record_count"] == source_count
+    assert history_window["source_payload_truncated"] is True
+    assert policy_window["source_payload_truncated"] is True
+    assert history["summary"]["returned_dense_label_candidate_event_count"] == 4
+    assert history["summary"]["dense_label_candidate_event_count"] == ledger_limit
+    assert policy["candidate_count"] == 4
+    assert policy["ready_candidate_count"] == 4
+    assert policy["promotion_gate"]["required_evidence"][
+        "dense_label_candidate_source_window_bounded"
+    ] is True
+    assert policy_window["runs_live_tick"] is False
+    assert policy_window["runs_every_token"] is False
+    assert policy_window["global_candidate_scan"] is False
+    assert policy_window["global_score_scan"] is False
+    assert policy_window["raw_text_payload_loaded"] is False
+    assert policy_window["language_reasoning"] is False
+    assert policy_window["mutates_runtime_state"] is False
+    assert policy_window["applies_plasticity"] is False
+    assert policy_window["archival_storage_device"] == "cpu"
+    assert policy_window["lookup_device"] == "cpu"
+    assert policy_window["gpu_used"] is False
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        source = ledger_state[field]
+        assert isinstance(source, CountedRows)
+        if field == "dense_label_candidate_events":
+            assert source.iterated == ledger_limit * 2
+        else:
+            assert source.iterated == 0
 
 
 def test_readout_ledger_dense_label_calibration_evaluation_design_is_read_only() -> None:

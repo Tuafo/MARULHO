@@ -25,6 +25,9 @@ SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
 SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY = (
     "recent_readout_evidence_hash_source_window_v1"
 )
+SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY = (
+    "recent_dense_label_candidate_calibration_source_window_v1"
+)
 SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "events",
     "rollout_events",
@@ -829,10 +832,12 @@ class SNNLanguageReadoutEvidenceLedger:
         """Inspect reviewed dense decoder labels without replay or generation."""
 
         with self._lock:
-            state = self._normalized_state()
+            source_events, source_window = (
+                self._dense_label_candidate_source_window_with_report()
+            )
             count = max(0, min(int(limit), self._limit))
             events = (
-                list(state["dense_label_candidate_events"])[:count]
+                list(source_events)[:count]
                 if count > 0
                 else []
             )
@@ -907,25 +912,23 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "limit": count,
                 "summary": {
-                    "dense_label_candidate_event_count": len(
-                        state["dense_label_candidate_events"]
+                    "dense_label_candidate_event_count": int(
+                        source_window.get("source_window_count", 0) or 0
                     ),
                     "returned_dense_label_candidate_event_count": len(
                         reviewed_events
                     ),
                     "total_dense_label_candidate_count": int(
-                        state.get(
-                            "total_dense_label_candidate_count",
-                            len(state["dense_label_candidate_events"]),
-                        )
+                        source_window.get("total_dense_label_candidate_count", 0)
                         or 0
                     ),
                     "unique_review_count": len(unique_review_hashes),
                     "unique_decoder_execution_count": len(unique_execution_hashes),
                     "unique_label_set_count": len(unique_label_hashes),
-                    "last_dense_label_candidate_recorded_at": state.get(
+                    "last_dense_label_candidate_recorded_at": source_window.get(
                         "last_dense_label_candidate_recorded_at"
                     ),
+                    "source_window": source_window,
                 },
                 "dense_label_candidate_events": reviewed_events,
                 "promotion_gate": {
@@ -974,16 +977,18 @@ class SNNLanguageReadoutEvidenceLedger:
         """Rank reviewed dense decoder labels for calibration review only."""
 
         with self._lock:
-            state = self._normalized_state()
+            source_events, source_window = (
+                self._dense_label_candidate_source_window_with_report()
+            )
             count = max(0, min(int(limit), self._limit))
             events = (
-                list(state["dense_label_candidate_events"])[:count]
+                list(source_events)[:count]
                 if count > 0
                 else []
             )
             all_events = [
                 dict(item)
-                for item in list(state["dense_label_candidate_events"])
+                for item in list(source_events)
                 if isinstance(item, Mapping)
             ]
             label_set_counts: dict[str, int] = {}
@@ -1100,6 +1105,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "limit": count,
                 "candidate_count": len(candidates),
                 "ready_candidate_count": len(ready_candidates),
+                "source_window": source_window,
                 "calibration_candidates": candidates,
                 "promotion_gate": {
                     "status": (
@@ -1124,6 +1130,14 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "required_evidence": {
                         "dense_label_candidate_history_available": bool(events),
+                        "dense_label_candidate_source_window_bounded": bool(
+                            source_window.get("surface")
+                            == (
+                                "bounded_snn_dense_label_candidate_calibration_source_window.v1"
+                            )
+                            and not bool(source_window.get("global_candidate_scan"))
+                            and not bool(source_window.get("global_score_scan"))
+                        ),
                         "ready_calibration_candidates_available": ready,
                         "bounded_label_candidates": all(
                             0 < int(item.get("label_count", 0) or 0) <= 8
@@ -38286,6 +38300,71 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
         return hashes, report
+
+    def _dense_label_candidate_source_window_with_report(
+        self,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(
+            state,
+            "dense_label_candidate_events",
+        )
+        source_count = self._source_record_count(
+            state,
+            "dense_label_candidate_events",
+        )
+        source_window_count = int(len(events))
+        total_count = int(
+            state.get(
+                "total_dense_label_candidate_count",
+                source_count if source_count is not None else source_window_count,
+            )
+            or 0
+        )
+        report = {
+            "surface": "bounded_snn_dense_label_candidate_calibration_source_window.v1",
+            "policy": SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.dense_label_candidate_events",
+            "selection_criteria": [
+                "operator_reviewed_dense_label_candidates_only",
+                "bounded_source_window_before_history_or_calibration_policy",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "total_dense_label_candidate_count": total_count,
+            "last_dense_label_candidate_recorded_at": state.get(
+                "last_dense_label_candidate_recorded_at"
+            ),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return events, report
 
     def known_readout_evidence_hashes(self) -> set[str]:
         """Expose current internal ledger identities for controller verification."""

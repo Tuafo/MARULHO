@@ -23,6 +23,7 @@ import torch
 
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_readout_ledger import (
+    SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
@@ -45,8 +46,17 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                     "emission_review_hash": f"{field}:review:{index}",
                     "prediction_hash": f"{field}:prediction:{index}",
                     "persistent_transition_weights_hash": f"{field}:weights:{index}",
+                    "dense_label_candidate_evidence_hash": f"{index + 1:064x}",
+                    "dense_label_candidate_evidence_id": (
+                        f"dense-label-candidate:{index}"
+                    ),
+                    "review_hash": f"{index + 1001:064x}",
+                    "source_execution_hash": f"{index + 2001:064x}",
+                    "label_hash": f"{(index % 8) + 3001:064x}",
                     "labels": [f"{field}:label:{index}"],
                     "label_grounding": [True],
+                    "tensor_device": "cpu",
+                    "active_count": (index % 16) + 1,
                 }
             )
         state[field] = rows
@@ -55,9 +65,11 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_recorded_count": count,
             "total_rollout_recorded_count": count,
             "total_emission_review_count": count,
+            "total_dense_label_candidate_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
+            "last_dense_label_candidate_recorded_at": "2026-06-18T00:00:00+00:00",
         }
     )
     return state
@@ -135,6 +147,91 @@ def _broad_normalized_known_hash_lookup(
         "normalization_source_window": dict(
             normalized.get("_normalization_source_window") or {}
         ),
+    }
+
+
+def _dense_label_policy_hashes(
+    events: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[str]:
+    selected = list(events)[: max(0, int(limit))]
+    label_set_counts: dict[str, int] = {}
+    execution_counts: dict[str, int] = {}
+    for event in events:
+        label_hash = str(event.get("label_hash") or "")
+        execution_hash = str(event.get("source_execution_hash") or "")
+        if label_hash:
+            label_set_counts[label_hash] = label_set_counts.get(label_hash, 0) + 1
+        if execution_hash:
+            execution_counts[execution_hash] = execution_counts.get(execution_hash, 0) + 1
+    scored: list[tuple[float, str]] = []
+    for index, event in enumerate(selected):
+        label_hash = str(event.get("label_hash") or "")
+        active_count = int(event.get("active_count", 0) or 0)
+        evidence_hash = str(event.get("dense_label_candidate_evidence_hash") or "")
+        recency = (
+            1.0 - min(1.0, index / max(1, len(selected) - 1))
+            if len(selected) > 1
+            else 1.0
+        )
+        repetition = (
+            min(1.0, label_set_counts.get(label_hash, 0) / 3.0)
+            if label_hash
+            else 0.0
+        )
+        activity = min(1.0, active_count / 16.0)
+        score = 100.0 * (0.40 * repetition + 0.30 * activity + 0.30 * recency)
+        scored.append((score, evidence_hash))
+    scored.sort(key=lambda item: (-float(item[0]), str(item[1])))
+    return [evidence_hash for _score, evidence_hash in scored]
+
+
+def _bounded_dense_label_calibration(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    history = ledger.dense_label_candidate_history(limit=limit)
+    policy = ledger.dense_label_candidate_calibration_policy(limit=limit)
+    return {
+        "history_hashes": [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in list(history.get("dense_label_candidate_events") or [])
+        ],
+        "policy_hashes": [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in list(policy.get("calibration_candidates") or [])
+        ],
+        "ready_candidate_count": int(policy.get("ready_candidate_count", 0) or 0),
+        "history_source_window": dict(
+            dict(history.get("summary") or {}).get("source_window") or {}
+        ),
+        "policy_source_window": dict(policy.get("source_window") or {}),
+    }
+
+
+def _broad_normalized_dense_label_calibration(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    source_window = dict(normalized.get("_normalization_source_window") or {})
+    events = [
+        dict(item)
+        for item in list(normalized.get("dense_label_candidate_events") or [])
+        if isinstance(item, Mapping)
+    ]
+    count = max(0, min(int(limit), len(events)))
+    return {
+        "history_hashes": [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in events[:count]
+        ],
+        "policy_hashes": _dense_label_policy_hashes(events, limit=count),
+        "ready_candidate_count": int(count),
+        "normalization_source_window": source_window,
     }
 
 
@@ -258,6 +355,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=runs,
         fn=lambda: _broad_normalized_known_hash_lookup(ledger),
     )
+    dense_label, dense_label_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_dense_label_calibration(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
+    broad_dense_label, broad_dense_label_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _broad_normalized_dense_label_calibration(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -283,6 +394,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     broad_known_hash_rows = int(
         dict(
             broad_known_hash.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
+    dense_label_source_window = dict(dense_label.get("policy_source_window") or {})
+    dense_label_mean = statistics.fmean(dense_label_samples)
+    broad_dense_label_mean = statistics.fmean(broad_dense_label_samples)
+    dense_label_rows = int(dense_label_source_window.get("source_window_count", 0) or 0)
+    broad_dense_label_rows = int(
+        dict(
+            broad_dense_label.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
     )
@@ -326,6 +447,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "known_hash_bounded_less_work": known_hash_rows < broad_known_hash_rows,
         "known_hash_latency_not_slower_than_broad_normalization": (
             known_hash_mean <= broad_known_hash_mean * 1.1
+        ),
+        "dense_label_surface_present": dense_label_source_window.get("surface")
+        == "bounded_snn_dense_label_candidate_calibration_source_window.v1",
+        "dense_label_policy_present": dense_label_source_window.get("policy")
+        == SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
+        "dense_label_history_parity": dense_label.get("history_hashes")
+        == broad_dense_label.get("history_hashes"),
+        "dense_label_policy_parity": dense_label.get("policy_hashes")
+        == broad_dense_label.get("policy_hashes"),
+        "dense_label_ready_count_parity": dense_label.get("ready_candidate_count")
+        == broad_dense_label.get("ready_candidate_count"),
+        "dense_label_bounded_less_work": dense_label_rows < broad_dense_label_rows,
+        "dense_label_latency_not_slower_than_broad_normalization": (
+            dense_label_mean <= broad_dense_label_mean * 1.1
         ),
     }
     return {
@@ -447,6 +582,48 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             },
             "source_window": known_hash_report,
         },
+        "dense_label_calibration_boundary": {
+            "surface": "bounded_snn_dense_label_candidate_calibration_source_window.v1",
+            "policy": SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.dense_label_candidate_events",
+            "selection_criteria": [
+                "operator_reviewed_dense_label_candidates_only",
+                "bounded source window before history or calibration policy",
+            ],
+            "quality": {
+                "metric": "dense_label_history_and_policy_hash_parity",
+                "history_hash_parity": dense_label.get("history_hashes")
+                == broad_dense_label.get("history_hashes"),
+                "policy_hash_parity": dense_label.get("policy_hashes")
+                == broad_dense_label.get("policy_hashes"),
+                "ready_candidate_count_parity": dense_label.get(
+                    "ready_candidate_count"
+                )
+                == broad_dense_label.get("ready_candidate_count"),
+                "candidate_count": int(len(dense_label.get("policy_hashes") or [])),
+            },
+            "latency": {
+                "bounded": _latency_summary(dense_label_samples),
+                "broad_normalized": _latency_summary(broad_dense_label_samples),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_dense_label_mean / max(dense_label_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_dense_label_history"
+                    "_or_calibration_policy"
+                ),
+                "bounded_checked_record_count": dense_label_rows,
+                "old_checked_record_count": broad_dense_label_rows,
+                "record_work_reduction": round(
+                    broad_dense_label_rows / max(1, dense_label_rows),
+                    6,
+                ),
+            },
+            "source_window": dense_label_source_window,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -477,7 +654,8 @@ def main() -> None:
         "work_reduction={work:.6f} bounded_recent={bounded_recent:.6f} "
         "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
         "store_legacy_mean_ms={store_legacy:.6f} known_hash_bounded_mean_ms={known_hash_bounded:.6f} "
-        "known_hash_broad_mean_ms={known_hash_broad:.6f}".format(
+        "known_hash_broad_mean_ms={known_hash_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
+        "dense_label_broad_mean_ms={dense_label_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -496,6 +674,12 @@ def main() -> None:
             known_hash_broad=report["known_evidence_hash_boundary"]["latency"][
                 "broad_normalized"
             ]["mean_ms"],
+            dense_label_bounded=report["dense_label_calibration_boundary"][
+                "latency"
+            ]["bounded"]["mean_ms"],
+            dense_label_broad=report["dense_label_calibration_boundary"][
+                "latency"
+            ]["broad_normalized"]["mean_ms"],
         )
     )
 

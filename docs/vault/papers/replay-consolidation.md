@@ -82,6 +82,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1037,6 +1039,21 @@ stayed in the same sustained band at `5938.461 tokens/sec` with bounded
 `12/65536` route rows, `65526` cached transition rows, no observed contention,
 GPU memory `2032->2031 MiB`, and zero graph/native sequence failures. This is
 throughput protection for a slow replay/readout gate, not a speed promotion.
+Dense-label history and calibration policy now follow the same one-family rule:
+`bounded_snn_dense_label_candidate_calibration_source_window.v1` reads only
+`dense_label_candidate_events` before operator history or calibration ranking.
+The follow-up report
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json`
+preserved history-hash, policy-hash, and ready-candidate parity while checking
+`128` dense-label rows instead of `2944` normalized ledger rows (`23x` less
+source work), reducing mean history+policy latency from `222.453668 ms` to
+`49.093244 ms` (`4.531248x`), and using CPU archival/lookup placement with
+`9.320584 MiB` traced Python peak and no CUDA allocation/reservation. The
+paired `524288`-token protection run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json`
+stayed in band at `6018.915 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`2030->2029 MiB`, and zero graph/native sequence failures.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

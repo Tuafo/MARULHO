@@ -100,6 +100,24 @@ transition rows, no observed contention, GPU memory `2032->2031 MiB`, and zero
 graph/native sequence failures. The broad normalized lookup is benchmark-local
 diagnostic evidence only, not a production fallback.
 
+Dense-label candidate history and calibration policy also use a single bounded
+source window. `dense_label_candidate_history(...)` and
+`dense_label_candidate_calibration_policy(...)` read only
+`dense_label_candidate_events` through
+`bounded_snn_dense_label_candidate_calibration_source_window.v1` instead of
+normalizing every retained ledger family first. The report records CPU
+archival/lookup placement, no raw text, no hidden language reasoning, no live
+tick, no every-token cadence, no mutation/plasticity, and no CUDA archive. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json`
+preserved history and policy parity while checking `128` dense-label rows
+instead of `2944` normalized rows and reducing mean history+policy latency from
+`222.453668 ms` to `49.093244 ms`. The paired `524288`-token protection run
+stayed in band at `6018.915 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, GPU memory
+`2030->2029 MiB`, and zero graph/native sequence failures. The broad normalized
+dense-label path is retired from production.
+
 Replay query collection now uses the same bounded window. `DualMemoryStore.collect_replay_query_indices(...)` reports `bounded_replay_query_collection.v1` for HF replay recall and returns recent bucket-indexed query indices up to `max_queries` instead of walking `slow_bucket_ids` until enough anchor hits are found. The report records candidate buckets, available versus collected index counts, query indices, skipped missing input-pattern payloads, `score_count=0`, no global score/candidate scan, CPU archival placement, and `runs_live_tick=false`. The HF query-collection report at `reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json` kept recall and consolidation gates passing, collected `3` Task-A anchor queries through a `candidate_window_limit=16`, accepted `6` guarded repairs, and kept after-consolidation input-pattern recall exact. The matching long hot-path run processed `262144` tokens at `6221.949 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 
 Explicit query readout is bounded the same way. `query_runner.memory_matches_with_report(...)` reports `bounded_query_memory_match.v1` and uses routing-owned candidate bucket ids to collect a capped bucket-indexed memory window before computing similarity, semantic term support, or replay-priority scores. The query report at `reports/bounded_replay_window_20260617/query-memory-match-bounded-window.json` used `candidate_window_limit=192`, scored `1` candidate, returned `1` memory match, reported no global score/candidate scan, kept archival placement on CPU, and marked `runs_live_tick=false` and `mutates_runtime_state=false`. The matching long hot-path run processed `262144` tokens at `6137.185 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
