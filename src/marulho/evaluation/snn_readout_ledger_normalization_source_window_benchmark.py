@@ -90,6 +90,8 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_dense_label_candidate_count": count,
             "total_dense_label_calibration_update_count": count,
             "total_autonomous_confidence_use_count": count,
+            "total_autonomous_hash_readout_binding_count": count,
+            "total_autonomous_bound_readout_observation_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -98,6 +100,12 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_confidence_used_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_hash_readout_bound_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_bound_readout_observed_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -593,6 +601,213 @@ def _broad_normalized_record_family_append(
     }
 
 
+def _autonomous_binding_event() -> dict[str, Any]:
+    return {
+        "autonomous_hash_readout_binding_event_hash": "a" * 64,
+        "autonomous_hash_readout_binding_event_id": "benchmark-binding",
+        "bound_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 0,
+        "binding_count": 1,
+        "bindings": [
+            {
+                "binding_index": 0,
+                "dense_label_candidate_evidence_hash": "1" * 64,
+                "readout_slot_hash": "2" * 64,
+            }
+        ],
+        "output_is_hash_binding_only": True,
+    }
+
+
+def _autonomous_observation_event() -> dict[str, Any]:
+    return {
+        "autonomous_bound_readout_observation_event_hash": "b" * 64,
+        "autonomous_bound_readout_observation_event_id": "benchmark-observation",
+        "observed_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 1,
+        "binding_count": 1,
+        "observation_cycles": 4,
+        "sample_count": 4,
+        "mean_activation_sparsity": 0.75,
+        "max_slot_drift": 0.05,
+        "mean_binding_reactivation": 0.8,
+        "target_hashes": ["3" * 64],
+        "sample_hashes": ["4" * 64, "5" * 64, "6" * 64, "7" * 64],
+        "output_is_hash_observation_only": True,
+    }
+
+
+def _bounded_autonomous_readout_event_family_chain(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    binding_event = _autonomous_binding_event()
+    binding_duplicate, binding_summary, binding_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_hash_readout_binding_events",
+            event=binding_event,
+            duplicate_key="autonomous_hash_readout_binding_event_hash",
+            total_count_key="total_autonomous_hash_readout_binding_count",
+            timestamp_key="last_autonomous_hash_readout_bound_at",
+            timestamp_value=binding_event["bound_at"],
+        )
+    )
+    binding_events, binding_review_window = ledger._record_family_window_with_report(  # noqa: SLF001
+        field="autonomous_hash_readout_binding_events",
+        duplicate_key="autonomous_hash_readout_binding_event_hash",
+    )
+    binding_hash = binding_event["autonomous_hash_readout_binding_event_hash"]
+    binding_review_match = any(
+        str(item.get("autonomous_hash_readout_binding_event_hash") or "")
+        == binding_hash
+        for item in binding_events
+    )
+
+    observation_event = _autonomous_observation_event()
+    observation_duplicate, observation_summary, observation_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_bound_readout_observation_events",
+            event=observation_event,
+            duplicate_key="autonomous_bound_readout_observation_event_hash",
+            total_count_key="total_autonomous_bound_readout_observation_count",
+            timestamp_key="last_autonomous_bound_readout_observed_at",
+            timestamp_value=observation_event["observed_at"],
+        )
+    )
+    observation_events, observation_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_bound_readout_observation_events",
+            duplicate_key="autonomous_bound_readout_observation_event_hash",
+        )
+    )
+    observation_hash = observation_event[
+        "autonomous_bound_readout_observation_event_hash"
+    ]
+    observation_review_match = any(
+        str(item.get("autonomous_bound_readout_observation_event_hash") or "")
+        == observation_hash
+        for item in observation_events
+    )
+
+    return {
+        "binding_duplicate": binding_duplicate,
+        "observation_duplicate": observation_duplicate,
+        "binding_hash": binding_hash,
+        "observation_hash": observation_hash,
+        "binding_review_match": binding_review_match,
+        "observation_review_match": observation_review_match,
+        "binding_total_count": int(
+            binding_summary.get("total_autonomous_hash_readout_binding_count", 0)
+            or 0
+        ),
+        "observation_total_count": int(
+            observation_summary.get(
+                "total_autonomous_bound_readout_observation_count",
+                0,
+            )
+            or 0
+        ),
+        "source_windows": {
+            "binding_append": binding_append_window,
+            "binding_review": binding_review_window,
+            "observation_append": observation_append_window,
+            "observation_review": observation_review_window,
+        },
+    }
+
+
+def _broad_normalized_autonomous_readout_event_family_chain(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    binding_event = _autonomous_binding_event()
+    binding_hash = binding_event["autonomous_hash_readout_binding_event_hash"]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    binding_append_source = dict(normalized.get("_normalization_source_window") or {})
+    binding_events = normalized["autonomous_hash_readout_binding_events"]
+    binding_duplicate = binding_hash in {
+        str(item.get("autonomous_hash_readout_binding_event_hash") or "")
+        for item in list(binding_events)
+    }
+    if not binding_duplicate:
+        binding_events.appendleft(deepcopy(binding_event))
+        normalized["total_autonomous_hash_readout_binding_count"] = int(
+            normalized.get("total_autonomous_hash_readout_binding_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_hash_readout_bound_at"] = binding_event[
+            "bound_at"
+        ]
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    binding_review_source = dict(normalized.get("_normalization_source_window") or {})
+    binding_review_match = any(
+        str(item.get("autonomous_hash_readout_binding_event_hash") or "")
+        == binding_hash
+        for item in list(normalized["autonomous_hash_readout_binding_events"])
+    )
+
+    observation_event = _autonomous_observation_event()
+    observation_hash = observation_event[
+        "autonomous_bound_readout_observation_event_hash"
+    ]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    observation_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    observation_events = normalized["autonomous_bound_readout_observation_events"]
+    observation_duplicate = observation_hash in {
+        str(item.get("autonomous_bound_readout_observation_event_hash") or "")
+        for item in list(observation_events)
+    }
+    if not observation_duplicate:
+        observation_events.appendleft(deepcopy(observation_event))
+        normalized["total_autonomous_bound_readout_observation_count"] = int(
+            normalized.get("total_autonomous_bound_readout_observation_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_bound_readout_observed_at"] = observation_event[
+            "observed_at"
+        ]
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    observation_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    observation_review_match = any(
+        str(item.get("autonomous_bound_readout_observation_event_hash") or "")
+        == observation_hash
+        for item in list(normalized["autonomous_bound_readout_observation_events"])
+    )
+
+    return {
+        "binding_duplicate": binding_duplicate,
+        "observation_duplicate": observation_duplicate,
+        "binding_hash": binding_hash,
+        "observation_hash": observation_hash,
+        "binding_review_match": binding_review_match,
+        "observation_review_match": observation_review_match,
+        "binding_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_hash_readout_binding_count",
+                0,
+            )
+            or 0
+        ),
+        "observation_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_bound_readout_observation_count",
+                0,
+            )
+            or 0
+        ),
+        "normalization_source_windows": {
+            "binding_append": binding_append_source,
+            "binding_review": binding_review_source,
+            "observation_append": observation_append_source,
+            "observation_review": observation_review_source,
+        },
+    }
+
+
 def _timed_runs(
     *,
     runs: int,
@@ -622,6 +837,16 @@ def _latency_summary(samples: list[float]) -> dict[str, float]:
         "median_ms": round(statistics.median(samples), 6),
         "p95_ms": round(ordered[index_95], 6),
     }
+
+
+def _sum_source_window_counts(
+    windows: Mapping[str, Mapping[str, Any]],
+    *,
+    key: str,
+) -> int:
+    return int(
+        sum(int(dict(window).get(key, 0) or 0) for window in windows.values())
+    )
 
 
 def _recent_retention_rate(normalized: Mapping[str, deque[dict[str, Any]]]) -> float:
@@ -791,6 +1016,41 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         setup=lambda: _reset_state(broad_record_state, record_seed_state),
         fn=lambda: _broad_normalized_record_family_append(broad_record_ledger),
     )
+    autonomous_chain_seed_state = _seed_ledger_state(retention_count=retention_count)
+    autonomous_chain_state: dict[str, Any] = {}
+    broad_autonomous_chain_state: dict[str, Any] = {}
+    autonomous_chain_ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: autonomous_chain_state,
+        limit=ledger_limit,
+    )
+    broad_autonomous_chain_ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: broad_autonomous_chain_state,
+        limit=ledger_limit,
+    )
+    autonomous_chain, autonomous_chain_samples = _timed_runs(
+        runs=runs,
+        setup=lambda: _reset_state(
+            autonomous_chain_state,
+            autonomous_chain_seed_state,
+        ),
+        fn=lambda: _bounded_autonomous_readout_event_family_chain(
+            autonomous_chain_ledger
+        ),
+    )
+    broad_autonomous_chain, broad_autonomous_chain_samples = _timed_runs(
+        runs=runs,
+        setup=lambda: _reset_state(
+            broad_autonomous_chain_state,
+            autonomous_chain_seed_state,
+        ),
+        fn=lambda: _broad_normalized_autonomous_readout_event_family_chain(
+            broad_autonomous_chain_ledger
+        ),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -890,6 +1150,28 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             broad_record_append.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
+    )
+    autonomous_chain_source_windows = {
+        str(key): dict(value)
+        for key, value in dict(autonomous_chain.get("source_windows") or {}).items()
+        if isinstance(value, Mapping)
+    }
+    broad_autonomous_chain_source_windows = {
+        str(key): dict(value)
+        for key, value in dict(
+            broad_autonomous_chain.get("normalization_source_windows") or {}
+        ).items()
+        if isinstance(value, Mapping)
+    }
+    autonomous_chain_mean = statistics.fmean(autonomous_chain_samples)
+    broad_autonomous_chain_mean = statistics.fmean(broad_autonomous_chain_samples)
+    autonomous_chain_rows = _sum_source_window_counts(
+        autonomous_chain_source_windows,
+        key="source_window_count",
+    )
+    broad_autonomous_chain_rows = _sum_source_window_counts(
+        broad_autonomous_chain_source_windows,
+        key="source_window_count_total",
     )
     pass_checks = {
         "surface_present": source_window.get("surface")
@@ -1032,6 +1314,40 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "record_append_latency_not_slower_than_broad_normalization": (
             record_append_mean <= broad_record_append_mean * 1.1
+        ),
+        "autonomous_chain_surface_present": all(
+            dict(window).get("surface")
+            == "bounded_snn_readout_ledger_record_family_source_window.v1"
+            for window in autonomous_chain_source_windows.values()
+        ),
+        "autonomous_chain_policy_present": all(
+            dict(window).get("policy")
+            == SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY
+            for window in autonomous_chain_source_windows.values()
+        ),
+        "autonomous_chain_hash_parity": (
+            autonomous_chain.get("binding_hash")
+            == broad_autonomous_chain.get("binding_hash")
+            and autonomous_chain.get("observation_hash")
+            == broad_autonomous_chain.get("observation_hash")
+        ),
+        "autonomous_chain_review_match_parity": (
+            autonomous_chain.get("binding_review_match")
+            == broad_autonomous_chain.get("binding_review_match")
+            and autonomous_chain.get("observation_review_match")
+            == broad_autonomous_chain.get("observation_review_match")
+        ),
+        "autonomous_chain_total_count_parity": (
+            autonomous_chain.get("binding_total_count")
+            == broad_autonomous_chain.get("binding_total_count")
+            and autonomous_chain.get("observation_total_count")
+            == broad_autonomous_chain.get("observation_total_count")
+        ),
+        "autonomous_chain_bounded_less_work": (
+            autonomous_chain_rows < broad_autonomous_chain_rows
+        ),
+        "autonomous_chain_latency_not_slower_than_broad_normalization": (
+            autonomous_chain_mean <= broad_autonomous_chain_mean * 1.1
         ),
     }
     return {
@@ -1407,6 +1723,76 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "write_device": "cpu",
             "gpu_used": False,
         },
+        "autonomous_hash_readout_event_family_chain_boundary": {
+            "surface": "bounded_snn_autonomous_hash_readout_event_family_chain_source_window.v1",
+            "policy": SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
+            "source": (
+                "snn_readout_ledger.autonomous_hash_readout_binding_events"
+                "+autonomous_bound_readout_observation_events"
+            ),
+            "selection_criteria": [
+                "binding_and_observation_event_families_only",
+                "bounded_source_window_before_duplicate_or_review_lookup",
+            ],
+            "quality": {
+                "metric": "autonomous_hash_readout_event_hash_count_and_review_parity",
+                "binding_hash_parity": autonomous_chain.get("binding_hash")
+                == broad_autonomous_chain.get("binding_hash"),
+                "observation_hash_parity": autonomous_chain.get("observation_hash")
+                == broad_autonomous_chain.get("observation_hash"),
+                "binding_review_match_parity": autonomous_chain.get(
+                    "binding_review_match"
+                )
+                == broad_autonomous_chain.get("binding_review_match"),
+                "observation_review_match_parity": autonomous_chain.get(
+                    "observation_review_match"
+                )
+                == broad_autonomous_chain.get("observation_review_match"),
+                "binding_total_count_parity": autonomous_chain.get(
+                    "binding_total_count"
+                )
+                == broad_autonomous_chain.get("binding_total_count"),
+                "observation_total_count_parity": autonomous_chain.get(
+                    "observation_total_count"
+                )
+                == broad_autonomous_chain.get("observation_total_count"),
+            },
+            "latency": {
+                "bounded": _latency_summary(autonomous_chain_samples),
+                "broad_normalized": _latency_summary(
+                    broad_autonomous_chain_samples
+                ),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_autonomous_chain_mean / max(autonomous_chain_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_autonomous_hash"
+                    "_readout_binding_or_observation_append_and_review"
+                ),
+                "bounded_checked_record_count": autonomous_chain_rows,
+                "old_checked_record_count": broad_autonomous_chain_rows,
+                "record_work_reduction": round(
+                    broad_autonomous_chain_rows / max(1, autonomous_chain_rows),
+                    6,
+                ),
+            },
+            "source_windows": autonomous_chain_source_windows,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": True,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -1445,7 +1831,9 @@ def main() -> None:
         "autonomous_confidence_use_bounded_mean_ms={confidence_use_bounded:.6f} "
         "autonomous_confidence_use_broad_mean_ms={confidence_use_broad:.6f} "
         "record_append_bounded_mean_ms={record_append_bounded:.6f} "
-        "record_append_broad_mean_ms={record_append_broad:.6f}".format(
+        "record_append_broad_mean_ms={record_append_broad:.6f} "
+        "autonomous_chain_bounded_mean_ms={autonomous_chain_bounded:.6f} "
+        "autonomous_chain_broad_mean_ms={autonomous_chain_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -1494,6 +1882,12 @@ def main() -> None:
             record_append_broad=report["record_family_append_boundary"][
                 "latency"
             ]["broad_normalized"]["mean_ms"],
+            autonomous_chain_bounded=report[
+                "autonomous_hash_readout_event_family_chain_boundary"
+            ]["latency"]["bounded"]["mean_ms"],
+            autonomous_chain_broad=report[
+                "autonomous_hash_readout_event_family_chain_boundary"
+            ]["latency"]["broad_normalized"]["mean_ms"],
         )
     )
 

@@ -3791,6 +3791,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert binding_execution["ledger_summary"][
         "total_autonomous_hash_readout_binding_count"
     ] == 1
+    _assert_record_family_source_window(
+        binding_execution["source_window"],
+        field="autonomous_hash_readout_binding_events",
+        expected_count=0,
+    )
     assert binding_execution["promotion_gate"][
         "eligible_for_autonomous_hash_readout_binding_event_review"
     ] is True
@@ -3851,6 +3856,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert binding_event_review_body["event_recorded_in_ledger"] is True
     assert binding_event_review_body["binding_count"] == 1
     assert binding_event_review_body["candidate_hashes"] == [candidate_hash]
+    _assert_record_family_source_window(
+        binding_event_review["source_window"],
+        field="autonomous_hash_readout_binding_events",
+        expected_count=1,
+    )
     assert binding_event_review_body["output_is_hash_binding_only"] is True
     assert binding_event_review_body["operator_approval_required"] is False
     assert binding_event_review_body["mutation_allowed"] is False
@@ -4049,6 +4059,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert observation_execution["ledger_summary"][
         "total_autonomous_bound_readout_observation_count"
     ] == 1
+    _assert_record_family_source_window(
+        observation_execution["source_window"],
+        field="autonomous_bound_readout_observation_events",
+        expected_count=0,
+    )
     assert observation_execution["promotion_gate"][
         "eligible_for_autonomous_bound_readout_observation_event_review"
     ] is True
@@ -4130,6 +4145,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert observation_event_review_body["mean_activation_sparsity"] == 0.75
     assert observation_event_review_body["max_slot_drift"] == 0.05
     assert observation_event_review_body["mean_binding_reactivation"] == 0.8
+    _assert_record_family_source_window(
+        observation_event_review["source_window"],
+        field="autonomous_bound_readout_observation_events",
+        expected_count=1,
+    )
     assert observation_event_review_body["output_is_hash_observation_only"] is True
     assert observation_event_review_body["operator_approval_required"] is False
     assert observation_event_review_body["mutation_allowed"] is False

@@ -93,6 +93,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-confidence-use-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-record-family-append.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-autonomous-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1146,6 +1148,27 @@ processed `524288` tokens at `5966.765 tokens/sec`,
 transition rows, no observed contention, GPU memory `2046->2043 MiB`, and zero
 graph/native sequence failures. The old broad-normalized single-family record
 append shape is retired as benchmark-only evidence.
+
+The autonomous hash-readout binding and bound-observation chain now uses the
+same event-family source window on both write and review. Binding execution and
+review read only `autonomous_hash_readout_binding_events`; observation execution
+and review read only `autonomous_bound_readout_observation_events`. The active
+chain reports
+`bounded_snn_autonomous_hash_readout_event_family_chain_source_window.v1`, keeps
+CPU archival/lookup/write placement, and forbids raw text, hidden language
+reasoning, live-tick replay, every-token cadence, CUDA archival metadata, and
+plasticity. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-autonomous-chain.json`
+preserved binding/observation hash, review-match, and total-count parity while
+checking `512` target-family rows instead of `11776` normalized rows (`23x` less
+source work), reducing mean chain latency from `2371.472400 ms` to
+`110.685950 ms` (`21.425234x`). The paired `524288`-token hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json`
+processed `524288` tokens at `6272.156 tokens/sec`,
+`train_compute=0.130202 ms/token`, bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, GPU memory `2044->2045 MiB`, and zero
+graph/native sequence failures. The old broad-normalized binding/observation
+append and review shape is retired as benchmark-only evidence.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

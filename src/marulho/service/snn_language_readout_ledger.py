@@ -7456,26 +7456,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_hash_readout_binding_events",
+                    duplicate_key="autonomous_hash_readout_binding_event_hash",
+                    total_count_key="total_autonomous_hash_readout_binding_count",
+                    timestamp_key="last_autonomous_hash_readout_bound_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_hash_readout_binding_event_hash") or "")
-                    for item in state["autonomous_hash_readout_binding_events"]
-                }
-                duplicate = (
-                    event["autonomous_hash_readout_binding_event_hash"]
-                    in existing_hashes
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_hash_readout_binding_events",
+                        event=event,
+                        duplicate_key="autonomous_hash_readout_binding_event_hash",
+                        total_count_key="total_autonomous_hash_readout_binding_count",
+                        timestamp_key="last_autonomous_hash_readout_bound_at",
+                        timestamp_value=event["bound_at"],
+                    )
                 )
                 if not duplicate:
-                    state["autonomous_hash_readout_binding_events"].appendleft(
-                        deepcopy(event)
-                    )
-                    state["total_autonomous_hash_readout_binding_count"] = int(
-                        state.get("total_autonomous_hash_readout_binding_count", 0)
-                        or 0
-                    ) + 1
-                    state["last_autonomous_hash_readout_bound_at"] = event["bound_at"]
-                    self._store_state(state)
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_autonomous_hash_readout_binding_executor",
@@ -7510,7 +7510,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_hash_readout_binding_event_hash"
                 ],
                 "autonomous_hash_readout_binding_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_hash_readout_binding_recorded"
@@ -7571,10 +7572,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 if isinstance(item, Mapping)
             ]
             event_hash = str(event.get("autonomous_hash_readout_binding_event_hash") or "")
-            state = self._normalized_state()
+            events, source_window = self._record_family_window_with_report(
+                field="autonomous_hash_readout_binding_events",
+                duplicate_key="autonomous_hash_readout_binding_event_hash",
+            )
             matching_events = [
                 dict(item)
-                for item in list(state["autonomous_hash_readout_binding_events"])
+                for item in events
                 if str(item.get("autonomous_hash_readout_binding_event_hash") or "")
                 == event_hash
             ]
@@ -7681,6 +7685,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_hash_readout_binding_event_hash": event_hash,
                 "expected_state_revision": int(expected_state_revision),
                 "observed_state_revision": before_revision,
+                "source_window": source_window,
                 "autonomous_hash_readout_binding_event_review": {
                     "event_recorded_in_ledger": bool(matching_events),
                     "event_revision": event_revision,
@@ -8319,28 +8324,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_bound_readout_observation_events",
+                    duplicate_key="autonomous_bound_readout_observation_event_hash",
+                    total_count_key="total_autonomous_bound_readout_observation_count",
+                    timestamp_key="last_autonomous_bound_readout_observed_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_bound_readout_observation_event_hash") or "")
-                    for item in state["autonomous_bound_readout_observation_events"]
-                }
-                duplicate = (
-                    event["autonomous_bound_readout_observation_event_hash"]
-                    in existing_hashes
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_bound_readout_observation_events",
+                        event=event,
+                        duplicate_key="autonomous_bound_readout_observation_event_hash",
+                        total_count_key="total_autonomous_bound_readout_observation_count",
+                        timestamp_key="last_autonomous_bound_readout_observed_at",
+                        timestamp_value=event["observed_at"],
+                    )
                 )
                 if not duplicate:
-                    state["autonomous_bound_readout_observation_events"].appendleft(
-                        deepcopy(event)
-                    )
-                    state["total_autonomous_bound_readout_observation_count"] = int(
-                        state.get("total_autonomous_bound_readout_observation_count", 0)
-                        or 0
-                    ) + 1
-                    state["last_autonomous_bound_readout_observed_at"] = event[
-                        "observed_at"
-                    ]
-                    self._store_state(state)
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_autonomous_bound_readout_observation_executor",
@@ -8377,7 +8380,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_bound_readout_observation_event": event
                 if accepted
                 else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_bound_readout_observation_recorded"
@@ -8449,10 +8453,13 @@ class SNNLanguageReadoutEvidenceLedger:
             event_hash = str(
                 event.get("autonomous_bound_readout_observation_event_hash") or ""
             )
-            state = self._normalized_state()
+            events, source_window = self._record_family_window_with_report(
+                field="autonomous_bound_readout_observation_events",
+                duplicate_key="autonomous_bound_readout_observation_event_hash",
+            )
             matching_events = [
                 dict(item)
-                for item in list(state["autonomous_bound_readout_observation_events"])
+                for item in events
                 if str(
                     item.get("autonomous_bound_readout_observation_event_hash") or ""
                 )
@@ -8608,6 +8615,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_bound_readout_observation_event_hash": event_hash,
                 "expected_state_revision": int(expected_state_revision),
                 "observed_state_revision": before_revision,
+                "source_window": source_window,
                 "autonomous_bound_readout_observation_event_review": {
                     "event_recorded_in_ledger": bool(matching_events),
                     "event_revision": event_revision,
@@ -38173,6 +38181,57 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         return summary
 
+    def _record_family_window_with_report(
+        self,
+        *,
+        field: str,
+        duplicate_key: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(state, field)
+        source_count = self._source_record_count(state, field)
+        source_window = self._record_family_source_window_report(
+            field=field,
+            source_count=source_count,
+            source_window_count=len(events),
+            duplicate_key=duplicate_key,
+        )
+        return events, source_window
+
+    def _record_family_current_summary_with_report(
+        self,
+        *,
+        field: str,
+        duplicate_key: str,
+        total_count_key: str,
+        timestamp_key: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        state = self._ledger_state()
+        events, source_window = self._record_family_window_with_report(
+            field=field,
+            duplicate_key=duplicate_key,
+        )
+        source_count = source_window.get("source_record_count")
+        total_count = int(
+            state.get(
+                total_count_key,
+                source_count if source_count is not None else len(events),
+            )
+            or 0
+        )
+        return (
+            self._record_family_ledger_summary(
+                field=field,
+                window_event_count=len(events),
+                total_count_key=total_count_key,
+                total_count=total_count,
+                timestamp_key=timestamp_key,
+                timestamp_value=state.get(timestamp_key),
+                source_window=source_window,
+            ),
+            source_window,
+        )
+
     def _append_record_family_window(
         self,
         *,
@@ -38184,17 +38243,14 @@ class SNNLanguageReadoutEvidenceLedger:
         timestamp_value: Any,
     ) -> tuple[bool, dict[str, Any], dict[str, Any]]:
         state = self._ledger_state()
-        events = self._bounded_mapping_list_from_state(state, field)
-        source_count = self._source_record_count(state, field)
-        source_window = self._record_family_source_window_report(
+        events, source_window = self._record_family_window_with_report(
             field=field,
-            source_count=source_count,
-            source_window_count=len(events),
             duplicate_key=duplicate_key,
         )
         event_hash = str(event.get(duplicate_key) or "")
         existing_hashes = {str(item.get(duplicate_key) or "") for item in events}
         duplicate = bool(event_hash) and event_hash in existing_hashes
+        source_count = source_window.get("source_record_count")
         total_count = int(
             state.get(
                 total_count_key,
