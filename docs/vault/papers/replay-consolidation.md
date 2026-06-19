@@ -101,6 +101,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-output-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-text-surface-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-text-surface-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-surface-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-surface-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1446,6 +1448,26 @@ bounded `12/65536` route rows, `65526` cached transition rows, zero graph/native
 sequence failures, no observed contention, and GPU memory `2045->2047 MiB`.
 This keeps text-surface commit as selected CPU-resident ledger evidence rather
 than an always-on or hidden language replay path.
+
+Autonomous text-surface materialization and bounded language-surface commit now
+complete that same selected-source chain. `execute_autonomous_text_surface_materialization(...)`
+and its review read only `autonomous_text_surface_materialization_events`; the
+bounded language-surface commit executor/review read only
+`autonomous_bounded_language_surface_commit_events` and preserve
+`current_text_surface_materialization` plus
+`current_bounded_language_surface_commit` as single current pointers. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-surface-chain.json`
+preserved hash, review-match, total-count, and current-pointer parity across
+the full ten-family autonomous language-surface chain while checking `2560`
+target-family rows instead of `58880` broad-normalized rows (`23x`) and
+reducing mean chain latency from `11175.229267 ms` to `525.534133 ms`
+(`21.264517x`). The paired `524288`-token hot-path run stayed in the maintained
+band at `5994.060 tokens/sec`, with bounded `12/65536` route rows, `65526`
+cached transition rows, zero graph/native sequence failures, CUDA runtime on
+the RTX 3060, and GPU memory `2044->2059 MiB`. The replay/ledger benchmark
+itself kept archival/source/review metadata on CPU, reported no live tick or
+every-token work, and did no hidden language reasoning.
 
 ## Links
 

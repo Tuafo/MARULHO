@@ -1247,6 +1247,25 @@ band at `5980.715 tokens/sec`, `tick_duration_ms.p95=22.136`,
 failures. No observed contention was reported, with RTX 3060 memory
 `2045->2047 MiB`.
 
+Text-surface materialization and bounded language-surface commit now complete
+the same ledger path. Execution/review reads only
+`autonomous_text_surface_materialization_events` or
+`autonomous_bounded_language_surface_commit_events`, reports the bounded
+record-family source window, and keeps the single current materialization/commit
+pointers without broad `_normalized_state()` duplicate or review scans. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-surface-chain.json`
+kept hash, review, total-count, and current-pointer parity across the ten-family
+autonomous language-surface chain while reducing checked rows from `58880` to
+`2560` and mean chain latency from `11175.229267 ms` to `525.534133 ms`; CUDA
+was available but unused for ledger metadata, with archival/source/review
+placement on CPU. The paired long run stayed in band at `5994.060 tokens/sec`,
+`tick_duration_ms.p95=21.991`, `train_compute=0.135570 ms/token`,
+`prepare_training=0.007057 ms/token`, `finalize_total=0.006414 ms/token`,
+`route_input_rows_scored=12/65536`, `state_transition_runs_all_columns=false`,
+and zero graph/native sequence failures. RTX 3060 runtime memory moved
+`2044->2059 MiB`.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

@@ -7268,6 +7268,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_surface_materialization_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_text_surface_materialization_executor["source_window"],
+        field="autonomous_text_surface_materialization_events",
+        expected_count=0,
+    )
     assert text_surface_materialization_executor["surface"] == (
         "snn_language_autonomous_text_surface_materialization_executor.v1"
     )
@@ -7288,6 +7293,17 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert text_surface_materialization_executor["output_is_bounded_text_surface"] is True
     assert text_surface_materialization_executor["text_fragments"] == (
         bounded_text_fragments
+    )
+    _assert_record_family_source_window(
+        text_surface_materialization_executor["source_window"],
+        field="autonomous_text_surface_materialization_events",
+        expected_count=0,
+    )
+    assert (
+        text_surface_materialization_executor["ledger_summary"][
+            "total_autonomous_text_surface_materialization_count"
+        ]
+        == 1
     )
     assert text_surface_materialization_executor["rendered_text"] == (
         "\n".join(bounded_text_fragments)
@@ -7336,6 +7352,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_surface_materialization_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_text_surface_materialization_event_review["source_window"],
+        field="autonomous_text_surface_materialization_events",
+        expected_count=1,
+    )
     assert text_surface_materialization_event_review["surface"] == (
         "snn_language_autonomous_text_surface_materialization_event_review.v1"
     )
@@ -7353,6 +7374,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert text_surface_materialization_event_review["decodes_text"] is False
     assert text_surface_materialization_event_review["trains_runtime_model"] is False
     assert text_surface_materialization_event_review["applies_plasticity"] is False
+    _assert_record_family_source_window(
+        text_surface_materialization_event_review["source_window"],
+        field="autonomous_text_surface_materialization_events",
+        expected_count=1,
+    )
     text_surface_materialization_review_body = (
         text_surface_materialization_event_review[
             "autonomous_text_surface_materialization_event_review"
@@ -7637,6 +7663,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_bounded_language_surface_commit_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_bounded_language_surface_commit_executor["source_window"],
+        field="autonomous_bounded_language_surface_commit_events",
+        expected_count=0,
+    )
     assert bounded_language_surface_commit_executor["surface"] == (
         "snn_language_autonomous_bounded_language_surface_commit_executor.v1"
     )
@@ -7674,6 +7705,17 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     assert bounded_language_surface_commit_executor["text_fragments"] == (
         bounded_text_fragments
+    )
+    _assert_record_family_source_window(
+        bounded_language_surface_commit_executor["source_window"],
+        field="autonomous_bounded_language_surface_commit_events",
+        expected_count=0,
+    )
+    assert (
+        bounded_language_surface_commit_executor["ledger_summary"][
+            "total_autonomous_bounded_language_surface_commit_count"
+        ]
+        == 1
     )
     bounded_language_surface_commit_event = bounded_language_surface_commit_executor[
         "autonomous_bounded_language_surface_commit_event"
@@ -7733,6 +7775,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_bounded_language_surface_commit_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_bounded_language_surface_commit_event_review["source_window"],
+        field="autonomous_bounded_language_surface_commit_events",
+        expected_count=1,
+    )
     assert bounded_language_surface_commit_event_review["surface"] == (
         "snn_language_autonomous_bounded_language_surface_commit_event_review.v1"
     )
@@ -7762,6 +7809,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         is False
     )
     assert bounded_language_surface_commit_event_review["applies_plasticity"] is False
+    _assert_record_family_source_window(
+        bounded_language_surface_commit_event_review["source_window"],
+        field="autonomous_bounded_language_surface_commit_events",
+        expected_count=1,
+    )
     assert bounded_language_surface_commit_event_review["rendered_text"] == (
         "\n".join(bounded_text_fragments)
     )

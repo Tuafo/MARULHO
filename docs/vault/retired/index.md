@@ -11,6 +11,7 @@ related_benchmarks: []
 
         - [Autonomous Confidence Use Broad Ledger Normalization](autonomous-confidence-use-broad-ledger-normalization.md)
 - [Autonomous Hash Readout Broad Ledger Normalization](autonomous-hash-readout-broad-ledger-normalization.md)
+- [Autonomous Language Surface Broad Ledger Normalization](autonomous-language-surface-broad-ledger-normalization.md)
 - [Autonomous Output Chain Broad Ledger Normalization](autonomous-output-chain-broad-ledger-normalization.md)
 - [Autonomous Text Surface Broad Ledger Normalization](autonomous-text-surface-broad-ledger-normalization.md)
 - [Autonomous Training Probe Broad Ledger Normalization](autonomous-training-probe-broad-ledger-normalization.md)
