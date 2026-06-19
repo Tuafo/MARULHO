@@ -11,6 +11,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -71,6 +72,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260619/readout-replay-target-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
 ---
 
 # Replay/consolidation
@@ -955,6 +958,29 @@ cached transition rows, flat `2162 MiB` GPU memory, no observed contention, and
 zero graph/native/sequence failures. This retires a broad retained-ledger copy
 shape without promoting ledger normalization into live replay.
 
+SNN readout replay dry-run and plasticity bridge payloads now obey the same
+bounded-source rule after replay design has selected candidates. The active
+path caps caller-supplied `selected_replay_targets`, dry-run
+`ephemeral_replay.trace`, and `candidate_replay_sequences` to `32` records
+before tensor work or bridge canonicalization, and emits
+`bounded_snn_readout_replay_dry_run_target_window.v1`,
+`bounded_snn_readout_plasticity_preflight_trace_window.v1`, and
+`bounded_snn_readout_plasticity_bridge_sequence_window.v1`. The reports state
+CPU archival placement, CPU active replay computation for this benchmark, no
+global candidate/score scan, no live tick, no every-token cadence, no raw replay
+text, and no hidden language reasoning. The benchmark
+`reports/bounded_replay_window_20260619/readout-replay-target-window.json`
+passed with dry-run `32/2048`, bridge `32/2048`, `64x` source-work reduction,
+mean dry-run latency `6.061784 ms`, mean bridge latency `1.328924 ms`, and
+`0.0 MiB` CUDA allocation/reservation. The paired `524288`-token hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json`
+stayed in the maintained band at `6109.000 tokens/sec`,
+`train_compute=0.133186 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, GPU memory `2020->2018 MiB`,
+and zero graph/native sequence failures. This retires caller-supplied
+full-payload replay materialization without adding a second implementation
+path.
+
 Strong-capture slow-memory admission now follows the same selected replay rule.
 Synaptic tagging/capture motivates retaining unusually strong traces for later
 stabilization, but it does not justify an immediate archive write for every
@@ -992,14 +1018,16 @@ query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
+bounded readout replay target/sequence windows,
 strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
 source-bank wrapper APIs, retained-ledger replay-path status scans,
 readout-ledger full-materialization normalization, every-strong slow-memory
-admission, plus the all-anchor HF replay-query source pass and full hot-bucket
-candidate source materialization;
+admission, caller-supplied full-payload readout replay materialization, plus the
+all-anchor HF replay-query source pass and full hot-bucket candidate source
+materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
 

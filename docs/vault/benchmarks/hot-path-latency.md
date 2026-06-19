@@ -12,6 +12,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
@@ -34,6 +35,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260619/readout-replay-target-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -3843,3 +3846,37 @@ The rerun succeeded at `5326.602 tokens/sec`, with
 runtime failures, and flat `2390 MiB` GPU memory, but a `12435 ms` max tick
 outlier and observed GPU contention make it variance evidence rather than a
 promotion run.
+
+## SNN Readout Replay Target Windows
+
+`SNNLanguageReadoutEvidenceLedger.replay_dry_run(...)`,
+`plasticity_preflight(...)`, and `plasticity_replay_bridge(...)` now cap
+caller-supplied replay payload windows to `32` records before sparse tensor
+materialization, plasticity preflight, or bridge canonicalization. The old
+full-payload shape is not kept as an executable comparison path; the focused
+benchmark projects the retired work from source counts only.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.readout_replay_target_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-replay-target-window.json`
+
+Result: `pass=true`, dry-run `32/2048`, bridge `32/2048`, `64x` work
+reduction on both surfaces, mean dry-run latency `6.061784 ms`, mean bridge
+latency `1.328924 ms`, CPU archival/source/replay placement, `0.0 MiB` CUDA
+allocation/reservation, no global candidate/score scan, no raw replay text, no
+hidden language reasoning, no live tick, and no every-token cadence.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6109.000 tokens/sec`, with
+`train_compute=0.133186 ms/token`, `prepare_training=0.006965 ms/token`,
+`finalize_total=0.006289 ms/token`, and `tick_duration_ms.p95=21.677`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+all `0`. The environment sampler reported no observed contention, CPU max
+`31%`, GPU max `13%`, GPU memory-util max `18%`, and RTX 3060 memory
+`2020->2018 MiB`. This remains same-band throughput protection for a
+slow/control-plane readout replay cleanup, not a new live replay path.

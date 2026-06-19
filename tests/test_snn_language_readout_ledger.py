@@ -14,6 +14,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
+    SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
 )
@@ -12575,6 +12576,20 @@ def test_readout_replay_dry_run_executes_only_isolated_sparse_tensors() -> None:
     assert dry_run["returns_trained_weights"] is False
     assert dry_run["device_evidence"]["tensor_device"] == "cpu"
     assert dry_run["device_evidence"]["cuda_fallback_blocked"] is False
+    assert dry_run["replay_target_window"]["surface"] == (
+        "bounded_snn_readout_replay_dry_run_target_window.v1"
+    )
+    assert dry_run["replay_target_window"]["source_window_limit"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert dry_run["replay_target_window"]["source_window_count"] == 1
+    assert dry_run["replay_target_window"]["global_candidate_scan"] is False
+    assert dry_run["replay_target_window"]["global_score_scan"] is False
+    assert dry_run["replay_target_window"]["raw_text_payload_loaded"] is False
+    assert dry_run["replay_target_window"]["language_reasoning"] is False
+    assert dry_run["replay_target_window"]["archival_storage_device"] == "cpu"
+    assert dry_run["replay_target_window"]["active_replay_computation_device"] == "cpu"
+    assert dry_run["promotion_gate"]["required_evidence"]["replay_target_window_bounded"] is True
     assert dry_run["isolated_replay_summary"]["target_count"] == 1
     assert dry_run["isolated_replay_summary"]["pressure_non_worsening"] is True
     assert dry_run["ephemeral_replay"]["runtime_update_applied"] is False
@@ -12584,6 +12599,67 @@ def test_readout_replay_dry_run_executes_only_isolated_sparse_tensors() -> None:
     assert dry_run["promotion_gate"]["eligible_for_operator_replay_dry_run_review"] is True
     assert dry_run["promotion_gate"]["eligible_for_live_replay"] is False
     assert dry_run["promotion_gate"]["eligible_for_plasticity_application"] is False
+
+
+def test_readout_replay_dry_run_bounds_untrusted_target_payload() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            "prediction-wide-dry-run",
+            "evaluation-wide-dry-run",
+            "weights-wide-dry-run",
+            ["memory pressure"],
+        ),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    evaluation = ledger.rehearsal_evaluation(ledger.replay_priority(limit=1), candidate_limit=1)
+    experiment = ledger.rehearsal_experiment(evaluation, replay_cycles=4)
+    design = ledger.replay_design(
+        experiment,
+        replay_policy={"max_candidates": 1, "max_replay_cycles": 3, "min_pressure_gain": 0.01},
+        rollback_policy={"available": True, "snapshot_id": "snapshot-1"},
+    )
+    oversized = deepcopy(design)
+    oversized["selected_replay_targets"] = list(design["selected_replay_targets"]) * (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT * 4
+    )
+    before = runtime_state.snapshot()
+
+    dry_run = ledger.replay_dry_run(
+        oversized,
+        operator_approval=True,
+        operator_id="operator-test",
+        device_evidence={"device": "cpu", "source": "unit-test"},
+    )
+    after = runtime_state.snapshot()
+
+    assert before == after
+    assert dry_run["isolated_replay_summary"]["target_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert len(dry_run["ephemeral_replay"]["trace"]) == SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    assert dry_run["replay_target_source_count"] == SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT * 4
+    assert dry_run["replay_target_window"]["source_truncated_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT * 3
+    )
+    assert dry_run["replay_target_window"]["source_window_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert dry_run["replay_target_window"]["global_candidate_scan"] is False
+    assert dry_run["replay_target_window"]["runs_live_tick"] is False
+    assert dry_run["replay_target_window"]["runs_every_token"] is False
+    assert dry_run["replay_target_window"]["language_reasoning"] is False
+    assert dry_run["promotion_gate"]["required_evidence"]["replay_target_window_bounded"] is True
+    assert dry_run["promotion_gate"]["eligible_for_operator_replay_dry_run_review"] is True
 
 
 def test_readout_replay_dry_run_blocks_without_operator_or_device_evidence() -> None:
@@ -12677,6 +12753,13 @@ def test_readout_plasticity_preflight_reviews_dry_run_without_applying_weights()
     assert preflight["surface"] == "snn_language_readout_plasticity_preflight.v1"
     assert preflight["readout_replay_dry_run_hash"] == dry_run["readout_replay_dry_run_hash"]
     assert preflight["device_evidence"]["tensor_device"] == "cpu"
+    assert preflight["replay_trace_window"]["surface"] == (
+        "bounded_snn_readout_plasticity_preflight_trace_window.v1"
+    )
+    assert preflight["replay_trace_window"]["source_window_count"] == 1
+    assert preflight["replay_trace_window"]["archival_storage_device"] == "cpu"
+    assert preflight["replay_trace_window"]["global_candidate_scan"] is False
+    assert preflight["promotion_gate"]["required_evidence"]["replay_trace_window_bounded"] is True
     assert preflight["readout_plasticity_preflight_hash"]
     assert preflight["owned_by_marulho"] is True
     assert preflight["generates_text"] is False
@@ -12783,6 +12866,14 @@ def test_readout_plasticity_replay_bridge_emits_existing_replay_experiment_contr
     assert bridge["readout_plasticity_replay_bridge_hash"]
     assert bridge["device_evidence"]["tensor_device"] == "cpu"
     assert bridge["device_evidence"]["device_report_available"] is True
+    assert bridge["replay_sequence_window"]["surface"] == (
+        "bounded_snn_readout_plasticity_bridge_sequence_window.v1"
+    )
+    assert bridge["replay_sequence_window"]["source_window_count"] == bridge["replay_experiment"]["replay_sequence_count"]
+    assert bridge["replay_sequence_window"]["global_candidate_scan"] is False
+    assert bridge["replay_sequence_window"]["global_score_scan"] is False
+    assert bridge["replay_sequence_window"]["archival_storage_device"] == "cpu"
+    assert bridge["promotion_gate"]["required_evidence"]["replay_sequence_window_bounded"] is True
     assert bridge["generates_text"] is False
     assert bridge["decodes_text"] is False
     assert bridge["trains_runtime_model"] is False
@@ -12810,6 +12901,81 @@ def test_readout_plasticity_replay_bridge_emits_existing_replay_experiment_contr
     assert bridge["ephemeral_replay"]["checkpoint_written"] is False
     assert bridge["promotion_gate"]["eligible_for_operator_application_review"] is True
     assert bridge["promotion_gate"]["eligible_for_plasticity_application"] is False
+
+
+def test_readout_plasticity_replay_bridge_bounds_untrusted_sequence_payload() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            "prediction-wide-bridge",
+            "evaluation-wide-bridge",
+            "weights-wide-bridge",
+            ["memory pressure", "prediction error", "transition support"],
+        ),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    evaluation = ledger.rehearsal_evaluation(ledger.replay_priority(limit=1), candidate_limit=1)
+    experiment = ledger.rehearsal_experiment(evaluation, replay_cycles=6)
+    design = ledger.replay_design(
+        experiment,
+        replay_policy={"max_candidates": 1, "max_replay_cycles": 6, "min_pressure_gain": 0.01},
+        rollback_policy={"available": True, "snapshot_id": "snapshot-1"},
+    )
+    dry_run = ledger.replay_dry_run(
+        design,
+        operator_approval=True,
+        operator_id="operator-test",
+        device_evidence={"device": "cpu", "source": "unit-test"},
+    )
+    preflight = ledger.plasticity_preflight(
+        dry_run,
+        plasticity_policy={"locality_radius": 8},
+        runtime_truth_delta={"improved_or_stable": True},
+        rollback_policy={"available": True, "snapshot_id": "snapshot-1"},
+    )
+    oversized = deepcopy(preflight)
+    oversized["candidate_replay_sequences"] = list(preflight["candidate_replay_sequences"]) * (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT * 4
+    )
+    before = runtime_state.snapshot()
+
+    bridge = ledger.plasticity_replay_bridge(
+        oversized,
+        runtime_truth_delta={"improved_or_stable": True},
+        rollback_policy={"available": True, "snapshot_id": "snapshot-1"},
+    )
+    after = runtime_state.snapshot()
+
+    assert before == after
+    assert bridge["replay_experiment"]["replay_sequence_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert len(bridge["canonical_replay_sequences"]) == SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    assert bridge["replay_sequence_source_count"] == (
+        len(preflight["candidate_replay_sequences"])
+        * SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+        * 4
+    )
+    assert bridge["replay_sequence_window"]["source_window_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert bridge["replay_sequence_window"]["source_truncated_count"] == (
+        bridge["replay_sequence_source_count"] - SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert bridge["replay_sequence_window"]["runs_live_tick"] is False
+    assert bridge["replay_sequence_window"]["runs_every_token"] is False
+    assert bridge["replay_sequence_window"]["language_reasoning"] is False
+    assert bridge["promotion_gate"]["required_evidence"]["replay_sequence_window_bounded"] is True
+    assert bridge["promotion_gate"]["eligible_for_operator_application_review"] is True
 
 
 def test_readout_plasticity_replay_bridge_blocks_missing_preflight() -> None:

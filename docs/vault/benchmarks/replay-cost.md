@@ -11,6 +11,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
@@ -72,6 +73,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260619/readout-replay-target-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence-rerun.json
@@ -115,6 +118,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.status_replay_path_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260618\status-replay-path-source-window.json`
 - SNN readout-ledger normalization source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260618\snn-readout-ledger-normalization-source-window.json`
+- SNN readout replay target payload windows:
+  `PYTHONPATH=src python -m marulho.evaluation.readout_replay_target_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-replay-target-window.json`
 - Strong-capture slow-memory admission cadence:
   `PYTHONPATH=src python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260618\strong-capture-admission-cadence.json`
 - HF-backed replay recall with capped query collection:
@@ -143,6 +148,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05`
 - Hot-path protection for SNN readout-ledger normalization:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for SNN readout replay target payload windows:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for capped query collection:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260617\hotpath-active-pressure-65536-262144-i32-query-collection.json --target-tokens 262144 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 480 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
 - Bounded query-memory match readout:
@@ -1172,6 +1179,43 @@ sequence failures were all `0`; `velocity_environment.v1` reported no observed
 contention, CPU max `42%`, GPU max `12%`, GPU memory-util max `18%`, and RTX
 3060 memory `2162->2162 MiB`.
 
+The SNN readout replay dry-run/preflight/bridge path now bounds caller-supplied
+payloads before tensor materialization. `replay_dry_run(...)` windows
+`selected_replay_targets`, `plasticity_preflight(...)` windows the dry-run
+ephemeral replay trace, and `plasticity_replay_bridge(...)` windows
+`candidate_replay_sequences` with `SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32`.
+The three surfaces report
+`bounded_snn_readout_replay_dry_run_target_window.v1`,
+`bounded_snn_readout_plasticity_preflight_trace_window.v1`, and
+`bounded_snn_readout_plasticity_bridge_sequence_window.v1` with CPU archival
+placement, no global candidate/score scan, no live tick, no every-token cadence,
+no raw replay text, and no hidden language reasoning. The focused benchmark was:
+
+`python -m marulho.evaluation.readout_replay_target_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-replay-target-window.json`
+
+It passed while cutting both dry-run targets and bridge sequences from
+`2048` supplied records to `32` materialized records (`64x` less source work),
+with `2016` truncated in each surface. Mean dry-run latency was `6.061784 ms`;
+mean bridge latency was `1.328924 ms`. Archival storage, source selection, and
+active replay computation stayed on CPU, `cuda_memory_allocated_before/after`
+and `cuda_memory_reserved_before/after` remained `0.0 MiB`, and the report marks
+the old full-payload shape as a projection, not an executable side path.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6109.000 tokens/sec`, with
+`train_compute=0.133186 ms/token`, `prepare_training=0.006965 ms/token`,
+`finalize_total=0.006289 ms/token`, and `tick_duration_ms.p95=21.677`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph and native sequence failures
+were `0`; `velocity_environment.v1` reported no observed contention, CPU max
+`31%`, GPU max `13%`, GPU memory-util max `18%`, and RTX 3060 memory
+`2020->2018 MiB`. This is same-band hot-path protection for a slow/control-plane
+replay cleanup, not a live-tick replay promotion.
+
 The strong-capture admission cadence follow-up closes the remaining
 every-strong slow-memory write shape. Strong-event evidence can still be
 emitted by the device path on every threshold crossing, but `DualMemoryStore`
@@ -1213,7 +1257,7 @@ and observed GPU contention, so it is retained as variance evidence rather
 than promotion evidence.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
-grounded target, or replace the synthetic capped-window proof with a larger
-hot-bucket replay corpus. Do not broaden a schedule or revive unscoped helper
-scans without a target-specific quality gate and a clean long-run check proving
-replay remains slow-window work.
+grounded target, or replace the synthetic capped-window/readout-payload proof
+with a larger grounded replay corpus. Do not broaden a schedule or revive
+unscoped helper scans without a target-specific quality gate and a clean
+long-run check proving replay remains slow-window work.

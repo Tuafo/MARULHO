@@ -10,6 +10,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
@@ -924,6 +925,24 @@ background archive workload. The focused report
 `bounded_strong_capture_admission_cadence.v1` archived `17/256` forced-strong
 tokens with a max selected gap of `16`, while the retired every-strong shape is
 only a projection in the report, not a second executable trainer path.
+
+Readout replay dry-run and plasticity bridge payloads are also bounded before
+they can become tensor or bridge work. The column scheduler still does not run
+these surfaces in the live tick: `SNNLanguageReadoutEvidenceLedger` caps
+caller-supplied dry-run targets, dry-run trace records, and bridge candidate
+sequences to `32` records with
+`bounded_snn_readout_replay_dry_run_target_window.v1`,
+`bounded_snn_readout_plasticity_preflight_trace_window.v1`, and
+`bounded_snn_readout_plasticity_bridge_sequence_window.v1`. Each report states
+CPU archival placement, no global candidate/score scan, no raw replay text, no
+hidden language reasoning, `runs_live_tick=false`, and `runs_every_token=false`.
+`reports/bounded_replay_window_20260619/readout-replay-target-window.json`
+reduced dry-run and bridge materialization from `2048` caller records to `32`
+records (`64x` less source work), while the paired `524288`-token protection
+run stayed in band at `6109.000 tokens/sec` with bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, and zero graph/native
+sequence failures. The old full-payload shape is a retired projection in the
+benchmark, not a side implementation path.
 
 ## Links
 

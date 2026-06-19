@@ -55,6 +55,10 @@ SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT = 16
 SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_POLICY = (
     "recent_emission_review_and_readout_event_source_window_v1"
 )
+SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT = 32
+SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY = (
+    "bounded_snn_readout_replay_target_source_window_v1"
+)
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
@@ -35779,11 +35783,12 @@ class SNNLanguageReadoutEvidenceLedger:
         device = self._safe_tensor_device(
             requested_device
         )
-        targets = [
-            dict(item)
-            for item in list(report.get("selected_replay_targets") or [])
-            if isinstance(item, Mapping)
-        ]
+        targets, replay_target_window = self._bounded_replay_payload_window(
+            report.get("selected_replay_targets"),
+            source="readout_replay_design.selected_replay_targets",
+            surface="bounded_snn_readout_replay_dry_run_target_window.v1",
+            active_replay_computation_device=str(device),
+        )
         cycles = max(1, min(int(design.get("max_replay_cycles", 1) or 1), 12))
         known_evidence_hashes = self._known_readout_evidence_hashes()
         vectors: list[torch.Tensor] = []
@@ -35886,6 +35891,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "pressure_non_worsening": bool(pressure_non_worsening),
                     "sparse_replay_stable": bool(stable),
                 },
+                "replay_target_window": replay_target_window,
                 "requested_device": requested_device,
                 "tensor_device": str(device),
             }
@@ -35910,6 +35916,20 @@ class SNNLanguageReadoutEvidenceLedger:
             "trained_weights_absent": not bool(report.get("returns_trained_weights")),
             "design_execution_disabled": not bool(design.get("execution_allowed")),
             "rollback_evidence_available": bool(rollback.get("available")),
+            "replay_target_window_bounded": (
+                replay_target_window["surface"]
+                == "bounded_snn_readout_replay_dry_run_target_window.v1"
+                and replay_target_window["source_window_count"]
+                <= replay_target_window["source_window_limit"]
+                and replay_target_window["global_candidate_scan"] is False
+                and replay_target_window["global_score_scan"] is False
+                and replay_target_window["runs_live_tick"] is False
+                and replay_target_window["runs_every_token"] is False
+                and replay_target_window["archival_storage_device"] == "cpu"
+                and replay_target_window["gpu_resident_archival_metadata"] is False
+                and replay_target_window["language_reasoning"] is False
+                and replay_target_window["raw_text_payload_loaded"] is False
+            ),
             "targets_available": bool(trace),
             "source_targets_non_executable": all(
                 not bool(item.get("source_executable"))
@@ -35948,6 +35968,21 @@ class SNNLanguageReadoutEvidenceLedger:
             "returns_trained_weights": False,
             "replay_design_surface": report.get("surface"),
             "readout_replay_dry_run_hash": dry_run_hash,
+            "replay_target_window": replay_target_window,
+            "replay_target_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
+            "replay_target_window_limit": int(
+                replay_target_window["source_window_limit"]
+            ),
+            "replay_target_source_count": replay_target_window["source_total_count"],
+            "replay_target_count": int(len(targets)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "archival_storage_device": "cpu",
+            "active_replay_computation_device": str(device),
             "device_evidence": {
                 "requested_device": requested_device,
                 "tensor_device": str(device),
@@ -36022,11 +36057,16 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(gate.get("required_evidence"), Mapping)
             else {}
         )
-        traces = [
-            dict(item)
-            for item in list(ephemeral.get("trace") or [])
-            if isinstance(item, Mapping)
-        ]
+        traces, replay_trace_window = self._bounded_replay_payload_window(
+            ephemeral.get("trace"),
+            source="readout_replay_dry_run.ephemeral_replay.trace",
+            surface="bounded_snn_readout_plasticity_preflight_trace_window.v1",
+            active_replay_computation_device=str(
+                device_report.get("tensor_device")
+                or device_report.get("device")
+                or "cpu"
+            ),
+        )
         policy = dict(plasticity_policy or {})
         truth_delta = dict(runtime_truth_delta or {})
         rollback = dict(rollback_policy or {})
@@ -36076,6 +36116,7 @@ class SNNLanguageReadoutEvidenceLedger:
             {
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
                 "candidate_pairs": candidate_pairs,
+                "replay_trace_window": replay_trace_window,
                 "learning_rate": learning_rate,
                 "max_weight_delta": max_weight_delta,
                 "locality_radius": locality_radius,
@@ -36108,6 +36149,20 @@ class SNNLanguageReadoutEvidenceLedger:
             "ephemeral_weight_persistence_absent": not bool(ephemeral.get("weights_persisted")),
             "ephemeral_generation_absent": not bool(ephemeral.get("generated_text")),
             "dry_run_hash_available": bool(report.get("readout_replay_dry_run_hash")),
+            "replay_trace_window_bounded": (
+                replay_trace_window["surface"]
+                == "bounded_snn_readout_plasticity_preflight_trace_window.v1"
+                and replay_trace_window["source_window_count"]
+                <= replay_trace_window["source_window_limit"]
+                and replay_trace_window["global_candidate_scan"] is False
+                and replay_trace_window["global_score_scan"] is False
+                and replay_trace_window["runs_live_tick"] is False
+                and replay_trace_window["runs_every_token"] is False
+                and replay_trace_window["archival_storage_device"] == "cpu"
+                and replay_trace_window["gpu_resident_archival_metadata"] is False
+                and replay_trace_window["language_reasoning"] is False
+                and replay_trace_window["raw_text_payload_loaded"] is False
+            ),
             "trace_available": bool(traces),
             "selected_evidence_present_in_internal_ledger": all(
                 str(item.get("readout_evidence_hash") or "") in known_evidence_hashes
@@ -36142,6 +36197,18 @@ class SNNLanguageReadoutEvidenceLedger:
             "returns_trained_weights": False,
             "readout_replay_dry_run_surface": report.get("surface"),
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
+            "replay_trace_window": replay_trace_window,
+            "replay_trace_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
+            "replay_trace_window_limit": int(replay_trace_window["source_window_limit"]),
+            "replay_trace_source_count": replay_trace_window["source_total_count"],
+            "replay_trace_count": int(len(traces)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "archival_storage_device": "cpu",
             "device_evidence": dict(device_report),
             "readout_plasticity_preflight_hash": candidate_hash,
             "plasticity_preflight": {
@@ -36223,11 +36290,16 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(gate.get("required_evidence"), Mapping)
             else {}
         )
-        sequences = [
-            dict(item)
-            for item in list(report.get("candidate_replay_sequences") or [])
-            if isinstance(item, Mapping)
-        ]
+        sequences, replay_sequence_window = self._bounded_replay_payload_window(
+            report.get("candidate_replay_sequences"),
+            source="readout_plasticity_preflight.candidate_replay_sequences",
+            surface="bounded_snn_readout_plasticity_bridge_sequence_window.v1",
+            active_replay_computation_device=str(
+                device_report.get("tensor_device")
+                or device_report.get("device")
+                or "cpu"
+            ),
+        )
         canonical_sequences = [
             {
                 "sequence_id": str(index),
@@ -36279,6 +36351,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "preflight_hash": report.get("readout_plasticity_preflight_hash"),
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
                 "canonical_replay_sequences": canonical_sequences,
+                "replay_sequence_window": replay_sequence_window,
                 "application_design": {
                     "learning_rate": learning_rate,
                     "max_weight_delta": max_weight_delta,
@@ -36313,6 +36386,20 @@ class SNNLanguageReadoutEvidenceLedger:
             "decoding_absent": not bool(report.get("decodes_text")),
             "trained_weights_absent": not bool(report.get("returns_trained_weights")),
             "candidate_sequences_available": replay_count > 0,
+            "replay_sequence_window_bounded": (
+                replay_sequence_window["surface"]
+                == "bounded_snn_readout_plasticity_bridge_sequence_window.v1"
+                and replay_sequence_window["source_window_count"]
+                <= replay_sequence_window["source_window_limit"]
+                and replay_sequence_window["global_candidate_scan"] is False
+                and replay_sequence_window["global_score_scan"] is False
+                and replay_sequence_window["runs_live_tick"] is False
+                and replay_sequence_window["runs_every_token"] is False
+                and replay_sequence_window["archival_storage_device"] == "cpu"
+                and replay_sequence_window["gpu_resident_archival_metadata"] is False
+                and replay_sequence_window["language_reasoning"] is False
+                and replay_sequence_window["raw_text_payload_loaded"] is False
+            ),
             "candidate_sequences_grounded": coverage >= 0.5,
             "candidate_sequence_indices_available": all(
                 bool(item.get("pre_indices")) and bool(item.get("post_indices"))
@@ -36358,6 +36445,22 @@ class SNNLanguageReadoutEvidenceLedger:
             "readout_plasticity_preflight_surface": report.get("surface"),
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
             "readout_plasticity_replay_bridge_hash": bridge_hash,
+            "replay_sequence_window": replay_sequence_window,
+            "replay_sequence_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
+            "replay_sequence_window_limit": int(
+                replay_sequence_window["source_window_limit"]
+            ),
+            "replay_sequence_source_count": replay_sequence_window[
+                "source_total_count"
+            ],
+            "bounded_replay_sequence_count": int(len(sequences)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "archival_storage_device": "cpu",
             "device_evidence": {
                 "requested_device": device_report.get("requested_device")
                 or device_report.get("device")
@@ -37369,6 +37472,80 @@ class SNNLanguageReadoutEvidenceLedger:
         if retained_count == 0 and source_events:
             retained_count = len(source_events)
         return (source_events, int(retained_count))
+
+    def _bounded_replay_payload_window(
+        self,
+        raw_value: Any,
+        *,
+        source: str,
+        surface: str,
+        limit: int = SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
+        active_replay_computation_device: str = "none",
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        source_limit = max(0, min(int(limit), SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT))
+        if isinstance(raw_value, (str, bytes, Mapping)) or raw_value is None:
+            raw_iterable: Any = []
+            source_count: int | None = 0
+        else:
+            raw_iterable = raw_value
+            try:
+                source_count = int(len(raw_value))
+            except TypeError:
+                source_count = None
+        selected = [
+            deepcopy(dict(item))
+            for item in islice(raw_iterable, source_limit)
+            if isinstance(item, Mapping)
+        ]
+        truncated_count = (
+            max(0, int(source_count) - int(len(selected)))
+            if source_count is not None
+            else None
+        )
+        report = {
+            "surface": surface,
+            "policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
+            "window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
+            "source": source,
+            "selection_criteria": [
+                "caller_supplied_replay_payload_order",
+                "bounded_source_window_before_tensor_materialization",
+                "provenance_hashes_revalidated_after_windowing",
+            ],
+            "source_window_limit": int(source_limit),
+            "source_window_count": int(len(selected)),
+            "source_total_count": source_count,
+            "source_truncated_count": truncated_count,
+            "candidate_count_before_limit": source_count,
+            "candidate_count_returned": int(len(selected)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "active_replay_computation_device": str(active_replay_computation_device),
+            "score_device": str(active_replay_computation_device),
+            "gpu_resident_archival_metadata": False,
+            "device_placement": {
+                "archival_storage": "cpu",
+                "source_window_selection": "cpu",
+                "active_replay_computation": str(active_replay_computation_device),
+            },
+            "gpu_used_for_archival_metadata": False,
+            "memory_budget": {
+                "max_source_records": int(source_limit),
+                "max_materialized_records": int(source_limit),
+                "archival_storage_device": "cpu",
+                "active_replay_computation_device": str(
+                    active_replay_computation_device
+                ),
+            },
+        }
+        return selected, report
 
     def _bounded_mapping_deque_from_state(
         self,
