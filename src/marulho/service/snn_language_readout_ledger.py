@@ -115,6 +115,7 @@ SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
     "last_autonomous_bounded_language_surface_committed_at",
     "last_autonomous_bounded_language_surface_used_at",
     "last_autonomous_snn_language_generated_at",
+    "last_autonomous_snn_language_decoded_at",
     "last_autonomous_snn_language_thought_surface_recorded_at",
     "last_autonomous_snn_language_thought_memory_recorded_at",
     "last_autonomous_snn_language_thought_consolidated_at",
@@ -21528,32 +21529,29 @@ class SNNLanguageReadoutEvidenceLedger:
                 "action_absent": not bool(evidence.get("executes_action")),
             }
             accepted = all(required.values())
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_snn_language_decoding_events",
+                    duplicate_key="autonomous_snn_language_decoding_event_hash",
+                    total_count_key="total_autonomous_snn_language_decoding_count",
+                    timestamp_key="last_autonomous_snn_language_decoded_at",
+                )
+            )
             duplicate = False
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(
-                        item.get("autonomous_snn_language_decoding_event_hash")
-                        or ""
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_snn_language_decoding_events",
+                        event=event,
+                        duplicate_key="autonomous_snn_language_decoding_event_hash",
+                        total_count_key=(
+                            "total_autonomous_snn_language_decoding_count"
+                        ),
+                        timestamp_key="last_autonomous_snn_language_decoded_at",
+                        timestamp_value=event["recorded_at"],
                     )
-                    for item in state["autonomous_snn_language_decoding_events"]
-                }
-                duplicate = event_hash in existing_hashes
+                )
                 if not duplicate:
-                    state["autonomous_snn_language_decoding_events"].appendleft(
-                        deepcopy(event)
-                    )
-                    state["total_autonomous_snn_language_decoding_count"] = (
-                        int(
-                            state.get(
-                                "total_autonomous_snn_language_decoding_count",
-                                0,
-                            )
-                            or 0
-                        )
-                        + 1
-                    )
-                    self._store_state(state)
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
@@ -21601,7 +21599,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_decoding_event": (
                     event if accepted else None
                 ),
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "ledger_summary": ledger_summary,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "autonomous_snn_language_decoding_recorded"
@@ -21732,11 +21731,14 @@ class SNNLanguageReadoutEvidenceLedger:
             semantic_constraint_hash = str(
                 event.get("semantic_constraint_hash") or ""
             )
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_snn_language_decoding_events",
+                duplicate_key="autonomous_snn_language_decoding_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(state["autonomous_snn_language_decoding_events"])
+                    for item in source_events
                     if str(
                         item.get("autonomous_snn_language_decoding_event_hash")
                         or ""
@@ -21915,6 +21917,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "rendered_text_hash": rendered_text_hash,
                 "autonomous_snn_language_decoding_event_hash": event_hash,
                 "autonomous_snn_language_decoding_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_surface_design"
@@ -22708,41 +22711,39 @@ class SNNLanguageReadoutEvidenceLedger:
                 "action_absent": not bool(policy.get("executes_action")),
             }
             accepted = all(required.values())
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_snn_language_thought_surface_events",
+                    duplicate_key=(
+                        "autonomous_snn_language_thought_surface_event_hash"
+                    ),
+                    total_count_key=(
+                        "total_autonomous_snn_language_thought_surface_count"
+                    ),
+                    timestamp_key=(
+                        "last_autonomous_snn_language_thought_surface_recorded_at"
+                    ),
+                )
+            )
             duplicate = False
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(
-                        item.get(
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_snn_language_thought_surface_events",
+                        event=event,
+                        duplicate_key=(
                             "autonomous_snn_language_thought_surface_event_hash"
-                        )
-                        or ""
+                        ),
+                        total_count_key=(
+                            "total_autonomous_snn_language_thought_surface_count"
+                        ),
+                        timestamp_key=(
+                            "last_autonomous_snn_language_thought_surface_recorded_at"
+                        ),
+                        timestamp_value=event["recorded_at"],
                     )
-                    for item in state[
-                        "autonomous_snn_language_thought_surface_events"
-                    ]
-                }
-                duplicate = event_hash in existing_hashes
+                )
                 if not duplicate:
-                    state[
-                        "autonomous_snn_language_thought_surface_events"
-                    ].appendleft(deepcopy(event))
-                    state[
-                        "total_autonomous_snn_language_thought_surface_count"
-                    ] = (
-                        int(
-                            state.get(
-                                "total_autonomous_snn_language_thought_surface_count",
-                                0,
-                            )
-                            or 0
-                        )
-                        + 1
-                    )
-                    state[
-                        "last_autonomous_snn_language_thought_surface_recorded_at"
-                    ] = event["recorded_at"]
-                    self._store_state(state)
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
@@ -22786,7 +22787,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_surface_event": (
                     event if accepted else None
                 ),
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "ledger_summary": ledger_summary,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "autonomous_snn_language_thought_surface_recorded"
@@ -22934,13 +22936,16 @@ class SNNLanguageReadoutEvidenceLedger:
             event_max_association_edges = int(
                 event.get("max_association_edges", 0) or 0
             )
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_snn_language_thought_surface_events",
+                duplicate_key=(
+                    "autonomous_snn_language_thought_surface_event_hash"
+                ),
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(
-                        state["autonomous_snn_language_thought_surface_events"]
-                    )
+                    for item in source_events
                     if str(
                         item.get(
                             "autonomous_snn_language_thought_surface_event_hash"
@@ -23131,6 +23136,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "rendered_text_hash": rendered_text_hash,
                 "autonomous_snn_language_thought_surface_event_hash": event_hash,
                 "autonomous_snn_language_thought_surface_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_memory_design"
@@ -24057,37 +24063,37 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
             }
             accepted = all(required.values())
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_snn_language_thought_memory_events",
+                    duplicate_key="autonomous_snn_language_thought_memory_event_hash",
+                    total_count_key=(
+                        "total_autonomous_snn_language_thought_memory_count"
+                    ),
+                    timestamp_key=(
+                        "last_autonomous_snn_language_thought_memory_recorded_at"
+                    ),
+                )
+            )
             duplicate = False
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(
-                        item.get("autonomous_snn_language_thought_memory_event_hash")
-                        or ""
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_snn_language_thought_memory_events",
+                        event=event,
+                        duplicate_key=(
+                            "autonomous_snn_language_thought_memory_event_hash"
+                        ),
+                        total_count_key=(
+                            "total_autonomous_snn_language_thought_memory_count"
+                        ),
+                        timestamp_key=(
+                            "last_autonomous_snn_language_thought_memory_recorded_at"
+                        ),
+                        timestamp_value=event["recorded_at"],
                     )
-                    for item in state[
-                        "autonomous_snn_language_thought_memory_events"
-                    ]
-                }
-                duplicate = event_hash in existing_hashes
+                )
                 if not duplicate:
-                    state["autonomous_snn_language_thought_memory_events"].appendleft(
-                        deepcopy(event)
-                    )
-                    state["total_autonomous_snn_language_thought_memory_count"] = (
-                        int(
-                            state.get(
-                                "total_autonomous_snn_language_thought_memory_count",
-                                0,
-                            )
-                            or 0
-                        )
-                        + 1
-                    )
-                    state["last_autonomous_snn_language_thought_memory_recorded_at"] = (
-                        event["recorded_at"]
-                    )
-                    self._store_state(state)
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
@@ -24133,7 +24139,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_memory_event": (
                     event if accepted else None
                 ),
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "ledger_summary": ledger_summary,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "autonomous_snn_language_thought_memory_recorded"
@@ -24283,13 +24290,14 @@ class SNNLanguageReadoutEvidenceLedger:
             event_max_local_learning_targets = int(
                 event.get("max_local_learning_targets", 0) or 0
             )
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_snn_language_thought_memory_events",
+                duplicate_key="autonomous_snn_language_thought_memory_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(
-                        state["autonomous_snn_language_thought_memory_events"]
-                    )
+                    for item in source_events
                     if str(
                         item.get("autonomous_snn_language_thought_memory_event_hash")
                         or ""
@@ -24504,6 +24512,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_memory_event_hash": event_hash,
                 "memory_trace_hash": memory_trace_hash,
                 "autonomous_snn_language_thought_memory_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_consolidation_design"
@@ -25367,41 +25376,41 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
             }
             accepted = all(required.values())
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_snn_language_thought_consolidation_events",
+                    duplicate_key=(
+                        "autonomous_snn_language_thought_consolidation_event_hash"
+                    ),
+                    total_count_key=(
+                        "total_autonomous_snn_language_thought_consolidation_count"
+                    ),
+                    timestamp_key=(
+                        "last_autonomous_snn_language_thought_consolidated_at"
+                    ),
+                )
+            )
             duplicate = False
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(
-                        item.get(
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field=(
+                            "autonomous_snn_language_thought_consolidation_events"
+                        ),
+                        event=event,
+                        duplicate_key=(
                             "autonomous_snn_language_thought_consolidation_event_hash"
-                        )
-                        or ""
+                        ),
+                        total_count_key=(
+                            "total_autonomous_snn_language_thought_consolidation_count"
+                        ),
+                        timestamp_key=(
+                            "last_autonomous_snn_language_thought_consolidated_at"
+                        ),
+                        timestamp_value=event["recorded_at"],
                     )
-                    for item in state[
-                        "autonomous_snn_language_thought_consolidation_events"
-                    ]
-                }
-                duplicate = event_hash in existing_hashes
+                )
                 if not duplicate:
-                    state[
-                        "autonomous_snn_language_thought_consolidation_events"
-                    ].appendleft(deepcopy(event))
-                    state[
-                        "total_autonomous_snn_language_thought_consolidation_count"
-                    ] = (
-                        int(
-                            state.get(
-                                "total_autonomous_snn_language_thought_consolidation_count",
-                                0,
-                            )
-                            or 0
-                        )
-                        + 1
-                    )
-                    state[
-                        "last_autonomous_snn_language_thought_consolidated_at"
-                    ] = event["recorded_at"]
-                    self._store_state(state)
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
@@ -25449,7 +25458,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_consolidation_event": (
                     event if accepted else None
                 ),
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "ledger_summary": ledger_summary,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "autonomous_snn_language_thought_consolidation_recorded"
@@ -25599,15 +25609,16 @@ class SNNLanguageReadoutEvidenceLedger:
             homeostatic_decay = float(
                 event.get("homeostatic_decay", 0.0) or 0.0
             )
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_snn_language_thought_consolidation_events",
+                duplicate_key=(
+                    "autonomous_snn_language_thought_consolidation_event_hash"
+                ),
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(
-                        state[
-                            "autonomous_snn_language_thought_consolidation_events"
-                        ]
-                    )
+                    for item in source_events
                     if str(
                         item.get(
                             "autonomous_snn_language_thought_consolidation_event_hash"
@@ -25821,6 +25832,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_consolidation_event_review": (
                     review
                 ),
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_structural_plasticity_design"
@@ -26788,41 +26800,43 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
             }
             accepted = all(required.values())
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field=(
+                        "autonomous_snn_language_thought_structural_plasticity_events"
+                    ),
+                    duplicate_key=(
+                        "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                    ),
+                    total_count_key=(
+                        "total_autonomous_snn_language_thought_structural_plasticity_count"
+                    ),
+                    timestamp_key=(
+                        "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                    ),
+                )
+            )
             duplicate = False
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(
-                        item.get(
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field=(
+                            "autonomous_snn_language_thought_structural_plasticity_events"
+                        ),
+                        event=event,
+                        duplicate_key=(
                             "autonomous_snn_language_thought_structural_plasticity_event_hash"
-                        )
-                        or ""
+                        ),
+                        total_count_key=(
+                            "total_autonomous_snn_language_thought_structural_plasticity_count"
+                        ),
+                        timestamp_key=(
+                            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                        ),
+                        timestamp_value=event["recorded_at"],
                     )
-                    for item in state[
-                        "autonomous_snn_language_thought_structural_plasticity_events"
-                    ]
-                }
-                duplicate = event_hash in existing_hashes
+                )
                 if not duplicate:
-                    state[
-                        "autonomous_snn_language_thought_structural_plasticity_events"
-                    ].appendleft(deepcopy(event))
-                    state[
-                        "total_autonomous_snn_language_thought_structural_plasticity_count"
-                    ] = (
-                        int(
-                            state.get(
-                                "total_autonomous_snn_language_thought_structural_plasticity_count",
-                                0,
-                            )
-                            or 0
-                        )
-                        + 1
-                    )
-                    state[
-                        "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
-                    ] = event["recorded_at"]
-                    self._store_state(state)
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
@@ -26875,7 +26889,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_structural_plasticity_event": (
                     event if accepted else None
                 ),
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "ledger_summary": ledger_summary,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "autonomous_snn_language_thought_structural_plasticity_recorded"
@@ -27023,15 +27038,18 @@ class SNNLanguageReadoutEvidenceLedger:
             prune_hashes = [
                 str(item.get("source_hash") or "") for item in prune_candidates
             ]
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field=(
+                    "autonomous_snn_language_thought_structural_plasticity_events"
+                ),
+                duplicate_key=(
+                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                ),
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(
-                        state[
-                            "autonomous_snn_language_thought_structural_plasticity_events"
-                        ]
-                    )
+                    for item in source_events
                     if str(
                         item.get(
                             "autonomous_snn_language_thought_structural_plasticity_event_hash"
@@ -27260,6 +27278,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "autonomous_snn_language_thought_structural_plasticity_event_review": (
                     review
                 ),
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_capacity_mutation_design"
@@ -38731,6 +38750,9 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "last_autonomous_snn_language_generated_at": state.get(
                 "last_autonomous_snn_language_generated_at"
+            ),
+            "last_autonomous_snn_language_decoded_at": state.get(
+                "last_autonomous_snn_language_decoded_at"
             ),
             "last_autonomous_snn_language_thought_surface_recorded_at": state.get(
                 "last_autonomous_snn_language_thought_surface_recorded_at"

@@ -1284,6 +1284,26 @@ placement on CPU. The paired long run stayed in band at `6074.417 tokens/sec`,
 and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `2044->2047 MiB`.
 
+SNN language decoding, thought-surface, thought-memory,
+thought-consolidation, and thought-structural-plasticity now stay on the same
+one-path ledger boundary. Execution/review reads only the target downstream
+language/thought event family, reports
+`bounded_snn_readout_ledger_record_family_source_window.v1`, and updates only
+that family count/timestamp. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json`
+kept hash, review-match, total-count, and current-pointer parity across the
+seventeen-component readout/language/thought chain while reducing checked rows
+from `100096` to `4352` and mean chain latency from `19704.406867 ms` to
+`1046.241300 ms`; CUDA was available but unused for ledger metadata, with
+archival/source/review placement on CPU. The clean paired rerun stayed in band
+at `6005.229 tokens/sec`, `tick_duration_ms.p95=22.012`,
+`train_compute=0.135094 ms/token`, `prepare_training=0.007082 ms/token`,
+`finalize_total=0.006415 ms/token`, `route_input_rows_scored=12/65536`,
+`state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures with no observed contention. RTX 3060 runtime memory moved
+`1856->1857 MiB`; the first same-shape run is not primary evidence because it
+observed GPU contention.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

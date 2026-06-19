@@ -105,6 +105,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-surface-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-generation-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-generation-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-thought-structural-chain-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1486,6 +1488,28 @@ transition rows, zero graph/native sequence failures, no observed contention,
 CUDA runtime on RTX 3060, and GPU memory `2044->2047 MiB`. The replay/ledger
 benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
+
+SNN language decoding through thought structural plasticity now follows the same
+single-family ledger boundary. Decoding, thought-surface, thought-memory,
+thought-consolidation, and thought-structural-plasticity executor/review pairs
+read only their target event family, return
+`bounded_snn_readout_ledger_record_family_source_window.v1`, and do not normalize
+all retained readout/replay ledger families. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json`
+preserved hash, review-match, total-count, and current-pointer parity across the
+expanded seventeen-component autonomous readout/language/thought chain while
+checking `4352` target-family rows instead of `100096` broad-normalized rows
+(`23x`) and reducing mean chain latency from `19704.406867 ms` to
+`1046.241300 ms` (`18.833520x`). The clean `524288`-token rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-thought-structural-chain-rerun.json`
+stayed in band at `6005.229 tokens/sec`, with bounded `12/65536` route rows,
+`10` output candidates, `65526` cached transition rows, zero graph/native
+sequence failures, no observed contention, CUDA runtime on RTX 3060, and GPU
+memory `1856->1857 MiB`. A first same-shape run succeeded at
+`5921.867 tokens/sec` but is not primary evidence because the sampler observed GPU
+contention. The replay/ledger benchmark kept archival/source/review metadata on
+CPU, reported no live tick or every-token work, and did no hidden language
+reasoning.
 
 ## Links
 

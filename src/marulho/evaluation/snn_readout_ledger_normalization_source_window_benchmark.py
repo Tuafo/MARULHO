@@ -38,6 +38,27 @@ from marulho.service.snn_language_readout_ledger import (
 )
 
 
+_AUTONOMOUS_CHAIN_COMPONENT_NAMES = (
+    "binding",
+    "observation",
+    "training",
+    "decoder",
+    "language_output",
+    "decoded_output",
+    "text_emission",
+    "text_commit",
+    "materialization",
+    "language_surface_commit",
+    "language_surface_use",
+    "language_generation",
+    "language_decoding",
+    "thought_surface",
+    "thought_memory",
+    "thought_consolidation",
+    "thought_structural_plasticity",
+)
+
+
 def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
     count = max(1, int(retention_count))
     state: dict[str, Any] = {}
@@ -102,6 +123,11 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_bounded_language_surface_commit_count": count,
             "total_autonomous_bounded_language_surface_use_count": count,
             "total_autonomous_snn_language_generation_count": count,
+            "total_autonomous_snn_language_decoding_count": count,
+            "total_autonomous_snn_language_thought_surface_count": count,
+            "total_autonomous_snn_language_thought_memory_count": count,
+            "total_autonomous_snn_language_thought_consolidation_count": count,
+            "total_autonomous_snn_language_thought_structural_plasticity_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -146,6 +172,21 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_snn_language_generated_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_decoded_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_thought_surface_recorded_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_thought_memory_recorded_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_thought_consolidated_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_thought_structural_plasticity_applied_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -1119,6 +1160,392 @@ def _autonomous_snn_language_generation_event() -> dict[str, Any]:
     }
 
 
+def _autonomous_snn_language_decoding_event() -> dict[str, Any]:
+    return {
+        "autonomous_snn_language_decoding_event_hash": "21" * 32,
+        "autonomous_snn_language_decoding_event_id": (
+            "benchmark-snn-language-decoding"
+        ),
+        "recorded_at": "2026-06-19T00:00:01+00:00",
+        "state_revision": 12,
+        "language_decoding_preflight_hash": "22" * 32,
+        "language_decoding_design_hash": "23" * 32,
+        "decoding_plan_hash": "24" * 32,
+        "event_review_hash": "25" * 32,
+        "autonomous_snn_language_generation_event_hash": "9a" * 32,
+        "generated_token_hashes": ["11" * 32],
+        "decoded_token_hashes": ["11" * 32],
+        "decoded_text_fragment_hashes": ["26" * 32],
+        "decoded_text_fragments": ["bounded surface"],
+        "rendered_text": "bounded surface",
+        "rendered_text_hash": "a6" * 32,
+        "spike_projection_hashes": ["12" * 32],
+        "active_neuron_hashes": ["13" * 32],
+        "membrane_state_hashes": ["14" * 32],
+        "output_fragment_hashes": ["15" * 32],
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "decoding_mode": "hash_bound_surface_projection",
+        "materialization_target": "bounded_local_surface",
+        "requested_device": "cpu",
+        "schema_valid": True,
+        "text_normalized": True,
+        "semantic_constraint_valid": True,
+        "literal_text_returned": True,
+        "generated_text_returned": True,
+        "operator_approval_required": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
+def _autonomous_snn_language_thought_surface_event() -> dict[str, Any]:
+    return {
+        "autonomous_snn_language_thought_surface_event_hash": "31" * 32,
+        "autonomous_snn_language_thought_surface_event_id": (
+            "benchmark-snn-language-thought-surface"
+        ),
+        "recorded_at": "2026-06-19T00:00:02+00:00",
+        "state_revision": 13,
+        "language_thought_surface_preflight_hash": "32" * 32,
+        "language_thought_surface_design_hash": "33" * 32,
+        "autonomous_snn_language_decoding_event_review_hash": "34" * 32,
+        "autonomous_snn_language_decoding_event_hash": "21" * 32,
+        "thought_surface_hash": "35" * 32,
+        "thought_role": "inner_speech_candidate",
+        "binding_mode": "hash_bound_inner_language",
+        "rendered_text": "bounded surface",
+        "decoded_text_fragments": ["bounded surface"],
+        "generated_token_hashes": ["11" * 32],
+        "decoded_token_hashes": ["11" * 32],
+        "spike_projection_hashes": ["12" * 32],
+        "active_neuron_hashes": ["13" * 32],
+        "membrane_state_hashes": ["14" * 32],
+        "output_fragment_hashes": ["15" * 32],
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "requested_device": "cpu",
+        "max_thought_fragments": 1,
+        "max_surface_chars": 256,
+        "max_association_edges": 1,
+        "schema_valid": True,
+        "text_normalized": True,
+        "semantic_constraint_valid": True,
+        "cognition_substrate_claimed": False,
+        "operator_approval_required": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
+def _autonomous_snn_language_thought_memory_event() -> dict[str, Any]:
+    return {
+        "autonomous_snn_language_thought_memory_event_hash": "41" * 32,
+        "autonomous_snn_language_thought_memory_event_id": (
+            "benchmark-snn-language-thought-memory"
+        ),
+        "recorded_at": "2026-06-19T00:00:03+00:00",
+        "state_revision": 14,
+        "language_thought_memory_preflight_hash": "42" * 32,
+        "language_thought_memory_design_hash": "43" * 32,
+        "thought_surface_event_review_hash": "44" * 32,
+        "autonomous_snn_language_thought_surface_event_hash": "31" * 32,
+        "thought_surface_hash": "35" * 32,
+        "memory_trace_hash": "45" * 32,
+        "memory_scope": "working_trace",
+        "consolidation_route": "deferred_local_trace",
+        "requested_device": "cpu",
+        "thought_role": "inner_speech_candidate",
+        "binding_mode": "hash_bound_inner_language",
+        "rendered_text": "bounded surface",
+        "decoded_text_fragments": ["bounded surface"],
+        "generated_token_hashes": ["11" * 32],
+        "decoded_token_hashes": ["11" * 32],
+        "spike_projection_hashes": ["12" * 32],
+        "active_neuron_hashes": ["13" * 32],
+        "membrane_state_hashes": ["14" * 32],
+        "output_fragment_hashes": ["15" * 32],
+        "local_learning_target_hashes": ["46" * 32],
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "max_trace_events": 1,
+        "max_local_learning_targets": 1,
+        "memory_recorded": True,
+        "cognition_substrate_claimed": False,
+        "operator_approval_required": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
+def _autonomous_snn_language_thought_consolidation_event() -> dict[str, Any]:
+    candidate_updates = [
+        {
+            "local_learning_target_hash": "46" * 32,
+            "applied_to_runtime": True,
+            "applied_in_ledger": True,
+        }
+    ]
+    return {
+        "autonomous_snn_language_thought_consolidation_event_hash": "51" * 32,
+        "autonomous_snn_language_thought_consolidation_event_id": (
+            "benchmark-snn-language-thought-consolidation"
+        ),
+        "recorded_at": "2026-06-19T00:00:04+00:00",
+        "state_revision": 15,
+        "thought_consolidation_preflight_hash": "52" * 32,
+        "thought_consolidation_design_hash": "53" * 32,
+        "memory_trace_hash": "45" * 32,
+        "autonomous_snn_language_thought_memory_event_hash": "41" * 32,
+        "consolidation_scope": "local_trace_reinforcement",
+        "consolidation_route": "deferred_local_trace",
+        "requested_device": "cpu",
+        "candidate_update_count": len(candidate_updates),
+        "candidate_updates": candidate_updates,
+        "local_learning_target_hashes": ["46" * 32],
+        "generated_token_hashes": ["11" * 32],
+        "spike_projection_hashes": ["12" * 32],
+        "learning_rate": 0.02,
+        "max_weight_delta": 0.04,
+        "homeostatic_decay": 0.01,
+        "local_only": True,
+        "normalization": True,
+        "plasticity_applied": True,
+        "runtime_state_mutated": True,
+        "cognition_substrate_claimed": False,
+        "operator_approval_required": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": True,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
+def _autonomous_snn_language_thought_structural_plasticity_event() -> dict[str, Any]:
+    growth_candidates = [
+        {
+            "local_learning_target_hash": "46" * 32,
+            "applied_to_runtime": True,
+            "applied_in_ledger": True,
+        }
+    ]
+    return {
+        "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+            "61" * 32
+        ),
+        "autonomous_snn_language_thought_structural_plasticity_event_id": (
+            "benchmark-snn-language-thought-structural-plasticity"
+        ),
+        "recorded_at": "2026-06-19T00:00:05+00:00",
+        "state_revision": 16,
+        "thought_structural_plasticity_preflight_hash": "62" * 32,
+        "thought_structural_plasticity_design_hash": "63" * 32,
+        "consolidation_event_review_hash": "64" * 32,
+        "autonomous_snn_language_thought_consolidation_event_hash": "51" * 32,
+        "memory_trace_hash": "45" * 32,
+        "autonomous_snn_language_thought_memory_event_hash": "41" * 32,
+        "structural_scope": "thought_trace_sparse_capacity",
+        "structural_route": "reviewed_consolidation_to_growth_prune",
+        "requested_device": "cpu",
+        "growth_candidate_count": len(growth_candidates),
+        "growth_candidates": growth_candidates,
+        "prune_candidate_count": 0,
+        "prune_candidates": [],
+        "proposed_new_neuron_count": 1,
+        "proposed_new_synapse_count": 1,
+        "proposed_prune_synapse_count": 0,
+        "max_new_neurons": 1,
+        "max_new_synapses": 1,
+        "max_prune_synapses": 0,
+        "structural_plasticity_applied": True,
+        "runtime_state_mutated": True,
+        "cognition_substrate_claimed": False,
+        "operator_approval_required": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+        "adds_neurons": True,
+        "adds_synapses": True,
+        "prunes_network": False,
+    }
+
+
+def _bounded_append_review_record_family(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    field: str,
+    event: Mapping[str, Any],
+    duplicate_key: str,
+    total_count_key: str,
+    timestamp_key: str,
+    timestamp_value: str,
+) -> dict[str, Any]:
+    duplicate, summary, append_window = ledger._append_record_family_window(  # noqa: SLF001
+        field=field,
+        event=dict(event),
+        duplicate_key=duplicate_key,
+        total_count_key=total_count_key,
+        timestamp_key=timestamp_key,
+        timestamp_value=timestamp_value,
+    )
+    source_events, review_window = ledger._record_family_window_with_report(  # noqa: SLF001
+        field=field,
+        duplicate_key=duplicate_key,
+    )
+    event_hash = str(event.get(duplicate_key) or "")
+    return {
+        "duplicate": duplicate,
+        "hash": event_hash,
+        "review_match": any(
+            str(item.get(duplicate_key) or "") == event_hash
+            for item in source_events
+        ),
+        "total_count": int(summary.get(total_count_key, 0) or 0),
+        "append_window": append_window,
+        "review_window": review_window,
+    }
+
+
+def _broad_normalized_append_review_record_family(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    field: str,
+    event: Mapping[str, Any],
+    duplicate_key: str,
+    total_count_key: str,
+    timestamp_key: str,
+    timestamp_value: str,
+) -> dict[str, Any]:
+    event_hash = str(event.get(duplicate_key) or "")
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    append_source = dict(normalized.get("_normalization_source_window") or {})
+    source_events = normalized[field]
+    duplicate = event_hash in {
+        str(item.get(duplicate_key) or "") for item in list(source_events)
+    }
+    if not duplicate:
+        source_events.appendleft(deepcopy(dict(event)))
+        normalized[total_count_key] = int(
+            normalized.get(total_count_key, 0) or 0
+        ) + 1
+        normalized[timestamp_key] = timestamp_value
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    review_source = dict(normalized.get("_normalization_source_window") or {})
+    return {
+        "duplicate": duplicate,
+        "hash": event_hash,
+        "review_match": any(
+            str(item.get(duplicate_key) or "") == event_hash
+            for item in list(normalized[field])
+        ),
+        "total_count": int(
+            ledger._ledger_state().get(total_count_key, 0) or 0  # noqa: SLF001
+        ),
+        "append_window": append_source,
+        "review_window": review_source,
+    }
+
+
+def _snn_language_thought_family_specs() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "name": "language_decoding",
+            "field": "autonomous_snn_language_decoding_events",
+            "event": _autonomous_snn_language_decoding_event(),
+            "duplicate_key": "autonomous_snn_language_decoding_event_hash",
+            "total_count_key": "total_autonomous_snn_language_decoding_count",
+            "timestamp_key": "last_autonomous_snn_language_decoded_at",
+            "timestamp_value_key": "recorded_at",
+        },
+        {
+            "name": "thought_surface",
+            "field": "autonomous_snn_language_thought_surface_events",
+            "event": _autonomous_snn_language_thought_surface_event(),
+            "duplicate_key": "autonomous_snn_language_thought_surface_event_hash",
+            "total_count_key": (
+                "total_autonomous_snn_language_thought_surface_count"
+            ),
+            "timestamp_key": (
+                "last_autonomous_snn_language_thought_surface_recorded_at"
+            ),
+            "timestamp_value_key": "recorded_at",
+        },
+        {
+            "name": "thought_memory",
+            "field": "autonomous_snn_language_thought_memory_events",
+            "event": _autonomous_snn_language_thought_memory_event(),
+            "duplicate_key": "autonomous_snn_language_thought_memory_event_hash",
+            "total_count_key": "total_autonomous_snn_language_thought_memory_count",
+            "timestamp_key": (
+                "last_autonomous_snn_language_thought_memory_recorded_at"
+            ),
+            "timestamp_value_key": "recorded_at",
+        },
+        {
+            "name": "thought_consolidation",
+            "field": "autonomous_snn_language_thought_consolidation_events",
+            "event": _autonomous_snn_language_thought_consolidation_event(),
+            "duplicate_key": (
+                "autonomous_snn_language_thought_consolidation_event_hash"
+            ),
+            "total_count_key": (
+                "total_autonomous_snn_language_thought_consolidation_count"
+            ),
+            "timestamp_key": "last_autonomous_snn_language_thought_consolidated_at",
+            "timestamp_value_key": "recorded_at",
+        },
+        {
+            "name": "thought_structural_plasticity",
+            "field": (
+                "autonomous_snn_language_thought_structural_plasticity_events"
+            ),
+            "event": _autonomous_snn_language_thought_structural_plasticity_event(),
+            "duplicate_key": (
+                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+            ),
+            "total_count_key": (
+                "total_autonomous_snn_language_thought_structural_plasticity_count"
+            ),
+            "timestamp_key": (
+                "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+            ),
+            "timestamp_value_key": "recorded_at",
+        },
+    )
+
+
 def _bounded_autonomous_readout_event_family_chain(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
@@ -1456,6 +1883,20 @@ def _bounded_autonomous_readout_event_family_chain(
         == language_generation_hash
         for item in language_generation_events
     )
+    thought_chain_results = {}
+    for spec in _snn_language_thought_family_specs():
+        event = dict(spec["event"])
+        thought_chain_results[str(spec["name"])] = (
+            _bounded_append_review_record_family(
+                ledger,
+                field=str(spec["field"]),
+                event=event,
+                duplicate_key=str(spec["duplicate_key"]),
+                total_count_key=str(spec["total_count_key"]),
+                timestamp_key=str(spec["timestamp_key"]),
+                timestamp_value=str(event[str(spec["timestamp_value_key"])]),
+            )
+        )
 
     return {
         "binding_duplicate": binding_duplicate,
@@ -1470,6 +1911,10 @@ def _bounded_autonomous_readout_event_family_chain(
         "language_surface_commit_duplicate": language_surface_commit_duplicate,
         "language_surface_use_duplicate": language_surface_use_duplicate,
         "language_generation_duplicate": language_generation_duplicate,
+        **{
+            f"{name}_duplicate": bool(result.get("duplicate"))
+            for name, result in thought_chain_results.items()
+        },
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
@@ -1482,6 +1927,10 @@ def _bounded_autonomous_readout_event_family_chain(
         "language_surface_commit_hash": language_surface_commit_hash,
         "language_surface_use_hash": language_surface_use_hash,
         "language_generation_hash": language_generation_hash,
+        **{
+            f"{name}_hash": str(result.get("hash") or "")
+            for name, result in thought_chain_results.items()
+        },
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
@@ -1496,6 +1945,10 @@ def _bounded_autonomous_readout_event_family_chain(
         ),
         "language_surface_use_review_match": language_surface_use_review_match,
         "language_generation_review_match": language_generation_review_match,
+        **{
+            f"{name}_review_match": bool(result.get("review_match"))
+            for name, result in thought_chain_results.items()
+        },
         "text_commit_current_match": text_commit_current_match,
         "materialization_current_match": materialization_current_match,
         "language_surface_commit_current_match": (
@@ -1567,6 +2020,10 @@ def _bounded_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        **{
+            f"{name}_total_count": int(result.get("total_count", 0) or 0)
+            for name, result in thought_chain_results.items()
+        },
         "source_windows": {
             "binding_append": binding_append_window,
             "binding_review": binding_review_window,
@@ -1596,6 +2053,14 @@ def _bounded_autonomous_readout_event_family_chain(
             "language_surface_use_review": language_surface_use_review_window,
             "language_generation_append": language_generation_append_window,
             "language_generation_review": language_generation_review_window,
+            **{
+                f"{name}_append": result["append_window"]
+                for name, result in thought_chain_results.items()
+            },
+            **{
+                f"{name}_review": result["review_window"]
+                for name, result in thought_chain_results.items()
+            },
         },
     }
 
@@ -2025,6 +2490,20 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         == language_generation_hash
         for item in list(normalized["autonomous_snn_language_generation_events"])
     )
+    thought_chain_results = {}
+    for spec in _snn_language_thought_family_specs():
+        event = dict(spec["event"])
+        thought_chain_results[str(spec["name"])] = (
+            _broad_normalized_append_review_record_family(
+                ledger,
+                field=str(spec["field"]),
+                event=event,
+                duplicate_key=str(spec["duplicate_key"]),
+                total_count_key=str(spec["total_count_key"]),
+                timestamp_key=str(spec["timestamp_key"]),
+                timestamp_value=str(event[str(spec["timestamp_value_key"])]),
+            )
+        )
 
     return {
         "binding_duplicate": binding_duplicate,
@@ -2039,6 +2518,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "language_surface_commit_duplicate": language_surface_commit_duplicate,
         "language_surface_use_duplicate": language_surface_use_duplicate,
         "language_generation_duplicate": language_generation_duplicate,
+        **{
+            f"{name}_duplicate": bool(result.get("duplicate"))
+            for name, result in thought_chain_results.items()
+        },
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
@@ -2051,6 +2534,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "language_surface_commit_hash": language_surface_commit_hash,
         "language_surface_use_hash": language_surface_use_hash,
         "language_generation_hash": language_generation_hash,
+        **{
+            f"{name}_hash": str(result.get("hash") or "")
+            for name, result in thought_chain_results.items()
+        },
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
@@ -2065,6 +2552,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         ),
         "language_surface_use_review_match": language_surface_use_review_match,
         "language_generation_review_match": language_generation_review_match,
+        **{
+            f"{name}_review_match": bool(result.get("review_match"))
+            for name, result in thought_chain_results.items()
+        },
         "text_commit_current_match": text_commit_current_match,
         "materialization_current_match": materialization_current_match,
         "language_surface_commit_current_match": (
@@ -2154,6 +2645,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        **{
+            f"{name}_total_count": int(result.get("total_count", 0) or 0)
+            for name, result in thought_chain_results.items()
+        },
         "normalization_source_windows": {
             "binding_append": binding_append_source,
             "binding_review": binding_review_source,
@@ -2183,6 +2678,14 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             "language_surface_use_review": language_surface_use_review_source,
             "language_generation_append": language_generation_append_source,
             "language_generation_review": language_generation_review_source,
+            **{
+                f"{name}_append": result["append_window"]
+                for name, result in thought_chain_results.items()
+            },
+            **{
+                f"{name}_review": result["review_window"]
+                for name, result in thought_chain_results.items()
+            },
         },
     }
 
@@ -2704,83 +3207,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY
             for window in autonomous_chain_source_windows.values()
         ),
-        "autonomous_chain_hash_parity": (
-            autonomous_chain.get("binding_hash")
-            == broad_autonomous_chain.get("binding_hash")
-            and autonomous_chain.get("observation_hash")
-            == broad_autonomous_chain.get("observation_hash")
-            and autonomous_chain.get("training_hash")
-            == broad_autonomous_chain.get("training_hash")
-            and autonomous_chain.get("decoder_hash")
-            == broad_autonomous_chain.get("decoder_hash")
-            and autonomous_chain.get("language_output_hash")
-            == broad_autonomous_chain.get("language_output_hash")
-            and autonomous_chain.get("decoded_output_hash")
-            == broad_autonomous_chain.get("decoded_output_hash")
-            and autonomous_chain.get("text_emission_hash")
-            == broad_autonomous_chain.get("text_emission_hash")
-            and autonomous_chain.get("text_commit_hash")
-            == broad_autonomous_chain.get("text_commit_hash")
-            and autonomous_chain.get("materialization_hash")
-            == broad_autonomous_chain.get("materialization_hash")
-            and autonomous_chain.get("language_surface_commit_hash")
-            == broad_autonomous_chain.get("language_surface_commit_hash")
-            and autonomous_chain.get("language_surface_use_hash")
-            == broad_autonomous_chain.get("language_surface_use_hash")
-            and autonomous_chain.get("language_generation_hash")
-            == broad_autonomous_chain.get("language_generation_hash")
+        "autonomous_chain_hash_parity": all(
+            autonomous_chain.get(f"{name}_hash")
+            == broad_autonomous_chain.get(f"{name}_hash")
+            for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
         ),
-        "autonomous_chain_review_match_parity": (
-            autonomous_chain.get("binding_review_match")
-            == broad_autonomous_chain.get("binding_review_match")
-            and autonomous_chain.get("observation_review_match")
-            == broad_autonomous_chain.get("observation_review_match")
-            and autonomous_chain.get("training_review_match")
-            == broad_autonomous_chain.get("training_review_match")
-            and autonomous_chain.get("decoder_review_match")
-            == broad_autonomous_chain.get("decoder_review_match")
-            and autonomous_chain.get("language_output_review_match")
-            == broad_autonomous_chain.get("language_output_review_match")
-            and autonomous_chain.get("decoded_output_review_match")
-            == broad_autonomous_chain.get("decoded_output_review_match")
-            and autonomous_chain.get("text_emission_review_match")
-            == broad_autonomous_chain.get("text_emission_review_match")
-            and autonomous_chain.get("text_commit_review_match")
-            == broad_autonomous_chain.get("text_commit_review_match")
-            and autonomous_chain.get("materialization_review_match")
-            == broad_autonomous_chain.get("materialization_review_match")
-            and autonomous_chain.get("language_surface_commit_review_match")
-            == broad_autonomous_chain.get("language_surface_commit_review_match")
-            and autonomous_chain.get("language_surface_use_review_match")
-            == broad_autonomous_chain.get("language_surface_use_review_match")
-            and autonomous_chain.get("language_generation_review_match")
-            == broad_autonomous_chain.get("language_generation_review_match")
+        "autonomous_chain_review_match_parity": all(
+            autonomous_chain.get(f"{name}_review_match")
+            == broad_autonomous_chain.get(f"{name}_review_match")
+            for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
         ),
-        "autonomous_chain_total_count_parity": (
-            autonomous_chain.get("binding_total_count")
-            == broad_autonomous_chain.get("binding_total_count")
-            and autonomous_chain.get("observation_total_count")
-            == broad_autonomous_chain.get("observation_total_count")
-            and autonomous_chain.get("training_total_count")
-            == broad_autonomous_chain.get("training_total_count")
-            and autonomous_chain.get("decoder_total_count")
-            == broad_autonomous_chain.get("decoder_total_count")
-            and autonomous_chain.get("language_output_total_count")
-            == broad_autonomous_chain.get("language_output_total_count")
-            and autonomous_chain.get("decoded_output_total_count")
-            == broad_autonomous_chain.get("decoded_output_total_count")
-            and autonomous_chain.get("text_emission_total_count")
-            == broad_autonomous_chain.get("text_emission_total_count")
-            and autonomous_chain.get("text_commit_total_count")
-            == broad_autonomous_chain.get("text_commit_total_count")
-            and autonomous_chain.get("materialization_total_count")
-            == broad_autonomous_chain.get("materialization_total_count")
-            and autonomous_chain.get("language_surface_commit_total_count")
-            == broad_autonomous_chain.get("language_surface_commit_total_count")
-            and autonomous_chain.get("language_surface_use_total_count")
-            == broad_autonomous_chain.get("language_surface_use_total_count")
-            and autonomous_chain.get("language_generation_total_count")
-            == broad_autonomous_chain.get("language_generation_total_count")
+        "autonomous_chain_total_count_parity": all(
+            autonomous_chain.get(f"{name}_total_count")
+            == broad_autonomous_chain.get(f"{name}_total_count")
+            for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
         ),
         "autonomous_chain_current_commit_parity": (
             bool(autonomous_chain.get("text_commit_current_match"))
@@ -3190,160 +3630,55 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_bounded_language_surface_commit_events"
                 "+autonomous_bounded_language_surface_use_events"
                 "+autonomous_snn_language_generation_events"
+                "+autonomous_snn_language_decoding_events"
+                "+autonomous_snn_language_thought_surface_events"
+                "+autonomous_snn_language_thought_memory_events"
+                "+autonomous_snn_language_thought_consolidation_events"
+                "+autonomous_snn_language_thought_structural_plasticity_events"
             ),
             "selection_criteria": [
                 (
                     "binding_observation_training_decoder_output_text_commit_"
-                    "materialization_language_surface_use_and_generation_"
+                    "materialization_language_surface_generation_thought_"
                     "event_families_only"
                 ),
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
                 "metric": (
-                    "autonomous_hash_readout_language_generation_chain_hash_count"
+                    "autonomous_hash_readout_thought_structural_chain_hash_count"
                     "_review_current_pointer_parity"
                 ),
-                "binding_hash_parity": autonomous_chain.get("binding_hash")
-                == broad_autonomous_chain.get("binding_hash"),
-                "observation_hash_parity": autonomous_chain.get("observation_hash")
-                == broad_autonomous_chain.get("observation_hash"),
-                "training_hash_parity": autonomous_chain.get("training_hash")
-                == broad_autonomous_chain.get("training_hash"),
-                "decoder_hash_parity": autonomous_chain.get("decoder_hash")
-                == broad_autonomous_chain.get("decoder_hash"),
-                "language_output_hash_parity": autonomous_chain.get(
-                    "language_output_hash"
-                )
-                == broad_autonomous_chain.get("language_output_hash"),
-                "decoded_output_hash_parity": autonomous_chain.get(
-                    "decoded_output_hash"
-                )
-                == broad_autonomous_chain.get("decoded_output_hash"),
-                "text_emission_hash_parity": autonomous_chain.get(
-                    "text_emission_hash"
-                )
-                == broad_autonomous_chain.get("text_emission_hash"),
-                "text_commit_hash_parity": autonomous_chain.get(
-                    "text_commit_hash"
-                )
-                == broad_autonomous_chain.get("text_commit_hash"),
-                "materialization_hash_parity": autonomous_chain.get(
-                    "materialization_hash"
-                )
-                == broad_autonomous_chain.get("materialization_hash"),
-                "language_surface_commit_hash_parity": autonomous_chain.get(
-                    "language_surface_commit_hash"
-                )
-                == broad_autonomous_chain.get("language_surface_commit_hash"),
-                "language_surface_use_hash_parity": autonomous_chain.get(
-                    "language_surface_use_hash"
-                )
-                == broad_autonomous_chain.get("language_surface_use_hash"),
-                "language_generation_hash_parity": autonomous_chain.get(
-                    "language_generation_hash"
-                )
-                == broad_autonomous_chain.get("language_generation_hash"),
-                "binding_review_match_parity": autonomous_chain.get(
-                    "binding_review_match"
-                )
-                == broad_autonomous_chain.get("binding_review_match"),
-                "observation_review_match_parity": autonomous_chain.get(
-                    "observation_review_match"
-                )
-                == broad_autonomous_chain.get("observation_review_match"),
-                "training_review_match_parity": autonomous_chain.get(
-                    "training_review_match"
-                )
-                == broad_autonomous_chain.get("training_review_match"),
-                "decoder_review_match_parity": autonomous_chain.get(
-                    "decoder_review_match"
-                )
-                == broad_autonomous_chain.get("decoder_review_match"),
-                "language_output_review_match_parity": autonomous_chain.get(
-                    "language_output_review_match"
-                )
-                == broad_autonomous_chain.get("language_output_review_match"),
-                "decoded_output_review_match_parity": autonomous_chain.get(
-                    "decoded_output_review_match"
-                )
-                == broad_autonomous_chain.get("decoded_output_review_match"),
-                "text_emission_review_match_parity": autonomous_chain.get(
-                    "text_emission_review_match"
-                )
-                == broad_autonomous_chain.get("text_emission_review_match"),
-                "text_commit_review_match_parity": autonomous_chain.get(
-                    "text_commit_review_match"
-                )
-                == broad_autonomous_chain.get("text_commit_review_match"),
-                "materialization_review_match_parity": autonomous_chain.get(
-                    "materialization_review_match"
-                )
-                == broad_autonomous_chain.get("materialization_review_match"),
-                "language_surface_commit_review_match_parity": autonomous_chain.get(
-                    "language_surface_commit_review_match"
-                )
-                == broad_autonomous_chain.get(
-                    "language_surface_commit_review_match"
+                "component_hash_parity": {
+                    name: autonomous_chain.get(f"{name}_hash")
+                    == broad_autonomous_chain.get(f"{name}_hash")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
+                },
+                "component_review_match_parity": {
+                    name: autonomous_chain.get(f"{name}_review_match")
+                    == broad_autonomous_chain.get(f"{name}_review_match")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
+                },
+                "component_total_count_parity": {
+                    name: autonomous_chain.get(f"{name}_total_count")
+                    == broad_autonomous_chain.get(f"{name}_total_count")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
+                },
+                "all_component_hash_parity": all(
+                    autonomous_chain.get(f"{name}_hash")
+                    == broad_autonomous_chain.get(f"{name}_hash")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
                 ),
-                "language_surface_use_review_match_parity": autonomous_chain.get(
-                    "language_surface_use_review_match"
-                )
-                == broad_autonomous_chain.get("language_surface_use_review_match"),
-                "language_generation_review_match_parity": autonomous_chain.get(
-                    "language_generation_review_match"
-                )
-                == broad_autonomous_chain.get("language_generation_review_match"),
-                "binding_total_count_parity": autonomous_chain.get(
-                    "binding_total_count"
-                )
-                == broad_autonomous_chain.get("binding_total_count"),
-                "observation_total_count_parity": autonomous_chain.get(
-                    "observation_total_count"
-                )
-                == broad_autonomous_chain.get("observation_total_count"),
-                "training_total_count_parity": autonomous_chain.get(
-                    "training_total_count"
-                )
-                == broad_autonomous_chain.get("training_total_count"),
-                "decoder_total_count_parity": autonomous_chain.get(
-                    "decoder_total_count"
-                )
-                == broad_autonomous_chain.get("decoder_total_count"),
-                "language_output_total_count_parity": autonomous_chain.get(
-                    "language_output_total_count"
-                )
-                == broad_autonomous_chain.get("language_output_total_count"),
-                "decoded_output_total_count_parity": autonomous_chain.get(
-                    "decoded_output_total_count"
-                )
-                == broad_autonomous_chain.get("decoded_output_total_count"),
-                "text_emission_total_count_parity": autonomous_chain.get(
-                    "text_emission_total_count"
-                )
-                == broad_autonomous_chain.get("text_emission_total_count"),
-                "text_commit_total_count_parity": autonomous_chain.get(
-                    "text_commit_total_count"
-                )
-                == broad_autonomous_chain.get("text_commit_total_count"),
-                "materialization_total_count_parity": autonomous_chain.get(
-                    "materialization_total_count"
-                )
-                == broad_autonomous_chain.get("materialization_total_count"),
-                "language_surface_commit_total_count_parity": autonomous_chain.get(
-                    "language_surface_commit_total_count"
-                )
-                == broad_autonomous_chain.get(
-                    "language_surface_commit_total_count"
+                "all_component_review_match_parity": all(
+                    autonomous_chain.get(f"{name}_review_match")
+                    == broad_autonomous_chain.get(f"{name}_review_match")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
                 ),
-                "language_surface_use_total_count_parity": autonomous_chain.get(
-                    "language_surface_use_total_count"
-                )
-                == broad_autonomous_chain.get("language_surface_use_total_count"),
-                "language_generation_total_count_parity": autonomous_chain.get(
-                    "language_generation_total_count"
-                )
-                == broad_autonomous_chain.get("language_generation_total_count"),
+                "all_component_total_count_parity": all(
+                    autonomous_chain.get(f"{name}_total_count")
+                    == broad_autonomous_chain.get(f"{name}_total_count")
+                    for name in _AUTONOMOUS_CHAIN_COMPONENT_NAMES
+                ),
                 "text_commit_current_parity": (
                     bool(autonomous_chain.get("text_commit_current_match"))
                     and bool(broad_autonomous_chain.get("text_commit_current_match"))
@@ -3382,7 +3717,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "retired_path_comparison": {
                 "old_policy": (
                     "normalize_all_ledger_event_fields_before_autonomous_hash"
-                    "_readout_language_generation_chain_append_or_review"
+                    "_readout_thought_structural_chain_append_or_review"
                 ),
                 "bounded_checked_record_count": autonomous_chain_rows,
                 "old_checked_record_count": broad_autonomous_chain_rows,

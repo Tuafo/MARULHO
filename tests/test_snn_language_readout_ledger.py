@@ -8656,6 +8656,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_decoding_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_decoding_executor["source_window"],
+        field="autonomous_snn_language_decoding_events",
+        expected_count=0,
+    )
     assert snn_language_decoding_executor["surface"] == (
         "snn_language_autonomous_snn_language_decoding_executor.v1"
     )
@@ -8700,6 +8705,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_decoding_executor["ledger_summary"][
         "total_autonomous_snn_language_decoding_count"
     ] == 1
+    _assert_record_family_source_window(
+        snn_language_decoding_executor["source_window"],
+        field="autonomous_snn_language_decoding_events",
+        expected_count=0,
+    )
     assert snn_language_decoding_executor["promotion_gate"][
         "eligible_for_autonomous_snn_language_decoding_event_review"
     ] is True
@@ -8723,6 +8733,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_decoding_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_decoding_event_review["source_window"],
+        field="autonomous_snn_language_decoding_events",
+        expected_count=1,
+    )
     assert snn_language_decoding_event_review["surface"] == (
         "snn_language_autonomous_snn_language_decoding_event_review.v1"
     )
@@ -8757,6 +8772,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_decoding_review_body["schema_valid"] is True
     assert snn_language_decoding_review_body["text_normalized"] is True
     assert snn_language_decoding_review_body["semantic_constraint_valid"] is True
+    _assert_record_family_source_window(
+        snn_language_decoding_event_review["source_window"],
+        field="autonomous_snn_language_decoding_events",
+        expected_count=1,
+    )
     assert snn_language_decoding_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_surface_design"
     ] is True
@@ -8893,6 +8913,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_surface_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_surface_executor["source_window"],
+        field="autonomous_snn_language_thought_surface_events",
+        expected_count=0,
+    )
     assert snn_language_thought_surface_executor["surface"] == (
         "snn_language_autonomous_snn_language_thought_surface_executor.v1"
     )
@@ -8932,6 +8957,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         len(ledger_state["autonomous_snn_language_thought_surface_events"])
         == 1
     )
+    _assert_record_family_source_window(
+        snn_language_thought_surface_executor["source_window"],
+        field="autonomous_snn_language_thought_surface_events",
+        expected_count=0,
+    )
     assert snn_language_thought_surface_executor["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_surface_event_review"
     ] is True
@@ -8954,6 +8984,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_surface_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_surface_event_review["source_window"],
+        field="autonomous_snn_language_thought_surface_events",
+        expected_count=1,
+    )
     assert snn_language_thought_surface_event_review["surface"] == (
         "snn_language_autonomous_snn_language_thought_surface_event_review.v1"
     )
@@ -8987,6 +9022,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert thought_review["replay_allowed"] is False
     assert thought_review["plasticity_allowed"] is False
     assert thought_review["cognition_substrate_claimed"] is False
+    _assert_record_family_source_window(
+        snn_language_thought_surface_event_review["source_window"],
+        field="autonomous_snn_language_thought_surface_events",
+        expected_count=1,
+    )
     assert snn_language_thought_surface_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_memory_design"
     ] is True
@@ -9132,6 +9172,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_memory_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_memory_executor["source_window"],
+        field="autonomous_snn_language_thought_memory_events",
+        expected_count=0,
+    )
     assert snn_language_thought_memory_executor["surface"] == (
         "snn_language_autonomous_snn_language_thought_memory_executor.v1"
     )
@@ -9175,6 +9220,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert thought_memory_event["cognition_substrate_claimed"] is False
     assert ledger_state["total_autonomous_snn_language_thought_memory_count"] == 1
     assert len(ledger_state["autonomous_snn_language_thought_memory_events"]) == 1
+    _assert_record_family_source_window(
+        snn_language_thought_memory_executor["source_window"],
+        field="autonomous_snn_language_thought_memory_events",
+        expected_count=0,
+    )
     assert snn_language_thought_memory_executor["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_memory_event_review"
     ] is True
@@ -9197,6 +9247,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_memory_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_memory_event_review["source_window"],
+        field="autonomous_snn_language_thought_memory_events",
+        expected_count=1,
+    )
     assert snn_language_thought_memory_event_review["surface"] == (
         "snn_language_autonomous_snn_language_thought_memory_event_review.v1"
     )
@@ -9239,6 +9294,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert thought_memory_review["fact_promotion_allowed"] is False
     assert thought_memory_review["action_allowed"] is False
     assert thought_memory_review["cognition_substrate_claimed"] is False
+    _assert_record_family_source_window(
+        snn_language_thought_memory_event_review["source_window"],
+        field="autonomous_snn_language_thought_memory_events",
+        expected_count=1,
+    )
     assert snn_language_thought_memory_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_consolidation_design"
     ] is True
@@ -9419,6 +9479,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_consolidation_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_consolidation_executor["source_window"],
+        field="autonomous_snn_language_thought_consolidation_events",
+        expected_count=0,
+    )
     assert snn_language_thought_consolidation_executor["surface"] == (
         "snn_language_autonomous_snn_language_thought_consolidation_executor.v1"
     )
@@ -9477,6 +9542,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         len(ledger_state["autonomous_snn_language_thought_consolidation_events"])
         == 1
     )
+    _assert_record_family_source_window(
+        snn_language_thought_consolidation_executor["source_window"],
+        field="autonomous_snn_language_thought_consolidation_events",
+        expected_count=0,
+    )
     assert snn_language_thought_consolidation_executor["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_consolidation_event_review"
     ] is True
@@ -9499,6 +9569,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_consolidation_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_consolidation_event_review["source_window"],
+        field="autonomous_snn_language_thought_consolidation_events",
+        expected_count=1,
+    )
     assert snn_language_thought_consolidation_event_review["surface"] == (
         "snn_language_autonomous_snn_language_thought_consolidation_event_review.v1"
     )
@@ -9576,6 +9651,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert (
         thought_consolidation_event_review["cognition_substrate_claimed"]
         is False
+    )
+    _assert_record_family_source_window(
+        snn_language_thought_consolidation_event_review["source_window"],
+        field="autonomous_snn_language_thought_consolidation_events",
+        expected_count=1,
     )
     assert snn_language_thought_consolidation_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
@@ -9797,6 +9877,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_structural_plasticity_executor[
         "promotion_gate"
     ]["required_evidence"]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_structural_plasticity_executor[
+            "source_window"
+        ],
+        field="autonomous_snn_language_thought_structural_plasticity_events",
+        expected_count=0,
+    )
     assert snn_language_thought_structural_plasticity_executor["surface"] == (
         "snn_language_autonomous_snn_language_thought_structural_plasticity_executor.v1"
     )
@@ -9890,6 +9977,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         )
         == 1
     )
+    _assert_record_family_source_window(
+        snn_language_thought_structural_plasticity_executor["source_window"],
+        field="autonomous_snn_language_thought_structural_plasticity_events",
+        expected_count=0,
+    )
     assert snn_language_thought_structural_plasticity_executor["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review"
     ] is True
@@ -9914,6 +10006,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_thought_structural_plasticity_event_review[
         "promotion_gate"
     ]["required_evidence"]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_thought_structural_plasticity_event_review[
+            "source_window"
+        ],
+        field="autonomous_snn_language_thought_structural_plasticity_events",
+        expected_count=1,
+    )
     assert snn_language_thought_structural_plasticity_event_review["surface"] == (
         "snn_language_autonomous_snn_language_thought_structural_plasticity_event_review.v1"
     )
@@ -10021,6 +10120,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert thought_structural_event_review["fact_promotion_allowed"] is False
     assert thought_structural_event_review["action_allowed"] is False
     assert thought_structural_event_review["cognition_substrate_claimed"] is False
+    _assert_record_family_source_window(
+        snn_language_thought_structural_plasticity_event_review[
+            "source_window"
+        ],
+        field="autonomous_snn_language_thought_structural_plasticity_events",
+        expected_count=1,
+    )
     assert snn_language_thought_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
     ] is True
