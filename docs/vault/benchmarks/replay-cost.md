@@ -9,6 +9,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
@@ -73,6 +74,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
   - reports/bounded_replay_window_20260619/emission-replay-context-review-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json
+  - reports/bounded_replay_window_20260619/snn-replay-evaluation-context-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json
@@ -332,6 +335,39 @@ processed `524288` tokens at `5990.908 tokens/sec` with
 cached transition rows, no observed contention, GPU memory `2032->2031 MiB`,
 and zero graph/native sequence failures. That keeps the bridge out of the live
 tick while preserving the maintained 6k-ish band.
+
+The generic SNN replay evaluation-context facade now follows the same rule for
+observed sparse slots. `snn_replay_evaluation_context(...)` windows
+caller-supplied `observed_readout_slots` through
+`SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32`, requires the source payload to be
+bounded, untruncated, and well formed before mismatch, pressure, or context
+recording can run, and stores the source-window report in the recorded context
+metadata. The old generic full-payload observed-slot bridge is retired as an
+active shape; the route remains only as a bounded server-recomputed evidence
+gate.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.snn_replay_evaluation_context_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\snn-replay-evaluation-context-window.json`
+
+It passed with an exact `32/32` observed-slot window recording one context,
+while oversized observed slots blocked at `32/2048`. Blocked payloads made no
+mismatch, pressure, or Replay Controller calls, and the accepted context carried
+the observed-slot source-window metadata. The report records no global
+candidate/score scan, no raw text replay payload, no hidden language reasoning,
+no live tick, no every-token cadence, CPU archival/source-window/gate
+placement, `64x` projected source-work reduction, `0.0 MiB` CUDA
+allocation/reservation, `0.656714 MiB` traced Python peak allocation,
+`1.276744 ms` exact-path mean latency, and `8.440372 ms` oversized-block mean
+latency.
+
+The long hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json`
+processed `524288` tokens at `6009.932 tokens/sec` with
+`train_compute=0.135671 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, GPU memory `2031->2045 MiB`, and zero graph/native
+sequence failures. Sampled GPU contention reached `22%`, so this is maintained
+throughput-band evidence rather than contention-free evidence.
 
 SNN rollout rehearsal promotion is bounded before it can feed rehearsal,
 consolidation, or regeneration review surfaces. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`

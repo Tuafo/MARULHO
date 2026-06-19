@@ -9,6 +9,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
@@ -837,6 +838,23 @@ run was below band at `5877.891 tokens/sec`; the rerun stayed in the maintained
 band at `5990.908 tokens/sec`, with bounded `12/65536` route rows, `65526`
 cached transition rows, no observed contention, GPU memory `2032->2031 MiB`,
 and zero graph/native sequence failures.
+
+The generic SNN replay evaluation-context facade now uses that same source
+window for observed sparse slots. `snn_replay_evaluation_context(...)` bounds
+`observed_readout_slots` at `32`, requires the window to be untruncated and
+well formed before mismatch, pressure, or context recording, and binds the
+source-window report into the recorded context metadata. The benchmark
+`reports/bounded_replay_window_20260619/snn-replay-evaluation-context-window.json`
+recorded one exact `32/32` context and blocked oversized observed-slot payloads
+at `32/2048` with zero blocked mismatch, pressure, or Replay Controller calls,
+CPU source/gate placement, no global candidate/score scan, no hidden language
+reasoning, `runs_live_tick=false`, and `runs_every_token=false`. The paired
+hot-path run stayed in the maintained band at `6009.932 tokens/sec`, with
+bounded `12/65536` route rows, `65526` cached transition rows, GPU memory
+`2031->2045 MiB`, and zero graph/native sequence failures; sampled GPU
+contention reached `22%`, so the evidence is throughput protection rather than
+contention-free hardware. This retires the old caller-sized generic context
+bridge as an active implementation shape.
 
 Rollout rehearsal promotion now keeps the same slow/control-plane boundary for
 trajectory evidence. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`

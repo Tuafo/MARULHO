@@ -2006,10 +2006,68 @@ class RuntimeFacade:
         return self._root._replay_controller.issue_regeneration_permit(**kwargs)
 
     def snn_replay_evaluation_context(self, **kwargs: Any) -> dict[str, Any]:
-        observed_slots = [
-            item.model_dump() if hasattr(item, "model_dump") else dict(item)
-            for item in list(kwargs.pop("observed_readout_slots"))
-        ]
+        observed_slot_source_window_surface = (
+            "bounded_snn_replay_evaluation_context_observed_slot_window.v1"
+        )
+        observed_slots, observed_slot_source_window = (
+            self._root._snn_language_readout_ledger._bounded_replay_payload_window(
+                kwargs.pop("observed_readout_slots"),
+                source="runtime_facade.snn_replay_evaluation_context.observed_readout_slots",
+                surface=observed_slot_source_window_surface,
+                active_replay_computation_device="cpu",
+            )
+        )
+        required = {
+            "observed_slot_source_window_bounded": (
+                self._readout_replay_payload_window_bounded(
+                    observed_slot_source_window,
+                    surface=observed_slot_source_window_surface,
+                )
+            ),
+            "observed_slot_payload_not_truncated": not bool(
+                observed_slot_source_window.get("source_payload_truncated")
+            ),
+            "observed_slot_payload_well_formed": int(
+                observed_slot_source_window.get("source_mapping_count", 0) or 0
+            )
+            == int(observed_slot_source_window.get("source_window_count", 0) or 0),
+            "observed_readout_slots_available": bool(observed_slots),
+        }
+        if not all(required.values()):
+            return {
+                "artifact_kind": "terminus_snn_replay_evaluation_context",
+                "surface": "snn_replay_evaluation_context.v1",
+                "available": False,
+                "ready": False,
+                "accepted": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "records_replay_context": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "observed_slot_source_window": dict(observed_slot_source_window),
+                "promotion_gate": {
+                    "status": "blocked_observed_slot_source_window",
+                    "eligible_for_replay_context_recording": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
         mismatch = self._root._status_read_model.snn_language_sequence_mismatch_probe(
             prediction_report=kwargs.pop("prediction_report"),
             observed_readout_slots=observed_slots,
@@ -2020,10 +2078,29 @@ class RuntimeFacade:
             runtime_truth_delta=kwargs.pop("runtime_truth_delta", None),
             rollback_policy=kwargs.pop("rollback_policy", None),
         )
-        return self._root._replay_controller.record_snn_replay_evaluation_context(
+        context = self._root._replay_controller.record_snn_replay_evaluation_context(
             mismatch_report=mismatch,
             pressure_report=pressure,
+            source_metadata={
+                "source": "runtime_facade.snn_replay_evaluation_context",
+                "observed_slot_source_window": dict(observed_slot_source_window),
+            },
         )
+        context = dict(context)
+        context["accepted"] = True
+        context["records_replay_context"] = True
+        context["observed_slot_source_window"] = dict(observed_slot_source_window)
+        context["promotion_gate"] = {
+            "status": "replay_evaluation_context_recorded",
+            "eligible_for_replay_context_recording": False,
+            "eligible_for_replay_memory": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "required_evidence": required,
+        }
+        return context
 
     def snn_replay_consolidation_priority_queue(self, **kwargs: Any) -> dict[str, Any]:
         limit = kwargs.pop("limit", 8)

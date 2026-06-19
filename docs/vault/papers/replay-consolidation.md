@@ -10,6 +10,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
@@ -44,6 +45,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
   - reports/bounded_replay_window_20260619/emission-replay-context-review-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json
+  - reports/bounded_replay_window_20260619/snn-replay-evaluation-context-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
@@ -392,6 +395,29 @@ route rows, `65526` cached rows, no observed contention, GPU memory
 `2032->2031 MiB`, and zero graph/native sequence failures. This retires the
 full-payload facade bridge rather than preserving a second context-recording
 route.
+
+The generic Replay Controller context facade now follows the same selected
+observed-slot boundary. `snn_replay_evaluation_context(...)` applies
+`SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32` to caller-supplied
+`observed_readout_slots`, requires the observed-slot window to be bounded,
+untruncated, and well formed before mismatch/pressure or context recording can
+run, and stores the source-window report in the recorded context metadata. This
+keeps the route as a bounded server-recomputed evidence gate instead of a
+second caller-sized context-recording path.
+`reports/bounded_replay_window_20260619/snn-replay-evaluation-context-window.json`
+passed with an exact `32/32` observed-slot context, oversized slots blocked at
+`32/2048`, and blocked payloads making no mismatch, pressure, or Replay
+Controller calls. The report records CPU archival/source/gate placement, no
+global candidate/score scan, no raw text payload, no hidden language reasoning,
+no live tick, no every-token cadence, source-window metadata on the accepted
+context, `64x` projected source-work reduction, `0.656714 MiB` traced Python
+peak, and `0.0 MiB` CUDA allocation/reservation. The hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json`
+processed `524288` tokens at `6009.932 tokens/sec` with bounded `12/65536`
+route rows, `65526` cached rows, GPU memory `2031->2045 MiB`, and zero
+graph/native sequence failures. Sampled GPU contention reached `22%`, so this
+is maintained-throughput evidence, not contention-free evidence. The generic
+full-payload observed-slot facade shape is retired.
 
 The rollout rehearsal promotion policy now applies the same source-window rule
 to sparse trajectory evidence before rehearsal or consolidation review. The
@@ -1166,6 +1192,7 @@ bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded emission replay-context review windows,
+bounded generic replay-context observed-slot windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
@@ -1185,6 +1212,7 @@ runtime-facade rollout-regeneration full-payload candidate materialization,
 readout-ledger rollout full-payload candidate materialization,
 replay-controller regeneration-design full-payload normalization,
 caller-supplied emission replay-context full-payload bridge,
+caller-supplied generic replay-context full-payload observed-slot bridge,
 caller-supplied checkpointed dense-readout training transition materialization,
 plus the all-anchor HF replay-query source pass and full hot-bucket candidate
 source materialization;

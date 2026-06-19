@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
 )
+from marulho.service.snn_language_readout_ledger import (
+    SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
+)
 from marulho.semantics.spike_language_neurons import (
     SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
 )
@@ -1241,7 +1244,7 @@ class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)
     observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(
-        ..., min_length=1, max_length=16
+        ..., min_length=1, max_length=SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
     )
     device_evidence: dict[str, Any] | None = None
     runtime_truth_delta: dict[str, Any] | None = None
@@ -1692,7 +1695,9 @@ class SNNLanguageTransitionMemoryRegenerationPermitRequest(BaseModel):
 
 class SNNReplayEvaluationContextRequest(BaseModel):
     prediction_report: dict[str, Any] = Field(..., min_length=1)
-    observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=16)
+    observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(
+        ..., min_length=1, max_length=SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
     device_evidence: dict[str, Any] | None = None
     runtime_truth_delta: dict[str, Any] | None = None
     rollback_policy: dict[str, Any] | None = None

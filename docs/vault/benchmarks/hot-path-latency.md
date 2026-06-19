@@ -11,6 +11,7 @@ related_code:
   - ../../../src/marulho/evaluation/compiled_hot_path_kernel_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
@@ -35,6 +36,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/emission-replay-context-review-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json
+  - reports/bounded_replay_window_20260619/snn-replay-evaluation-context-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
@@ -3729,6 +3732,48 @@ and zero route-vote/native sequence failures. Contention was not observed
 while the context-review benchmark kept archival/source/review work on CPU.
 GPU memory moved from `2032 MiB` to `2031 MiB`. The first clean same-code run
 at `5877.891 tokens/sec` is retained as below-band variance evidence.
+
+## SNN Replay Evaluation Context Observed-Slot Windows
+
+`snn_replay_evaluation_context(...)` now uses the same
+`SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32` source-window operator before it can
+recompute mismatch/pressure or record a Replay Controller context. The generic
+context route emits `bounded_snn_replay_evaluation_context_observed_slot_window.v1`,
+requires a bounded, untruncated, well-formed observed-slot window, and stores
+that source-window evidence in the recorded context metadata. This keeps the
+direct context endpoint as a bounded server-recomputed evidence gate rather
+than a caller-sized side route.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.snn_replay_evaluation_context_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\snn-replay-evaluation-context-window.json`
+
+Result: `pass=true`, an exact observed-slot window recorded one Replay
+Controller context at `32/32`, oversized observed slots blocked at `32/2048`,
+blocked payloads made no mismatch, pressure, or Replay Controller calls, and
+the recorded context carried the observed-slot source-window metadata. The
+exact path averaged `1.276744 ms`; the oversized block averaged `8.440372 ms`;
+projected source work fell `64x`; traced Python peak allocation was
+`0.656714 MiB`; CUDA allocation/reservation stayed `0.0 MiB`; archival
+storage, source-window selection, and review gates stayed CPU-resident; and the
+reports state no global candidate/score scan, no raw text payload, no hidden
+language reasoning, no live tick, and no every-token cadence.
+
+Hot-path protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-snn-replay-evaluation-context-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `87.236934 s`,
+`6009.932 tokens/sec`, `train_compute=0.135671 ms/token`,
+`prepare_training=0.006985 ms/token`, `finalize_total=0.006359 ms/token`, and
+profiled runtime `total=0.130420 ms/token`. Runtime Truth kept route scoring
+bounded at `12/65536` input rows and `10` output candidates, with `65526`
+cached transition rows, `state_transition_runs_all_columns=false`,
+`route_vote_rows_run_all_columns=false`, and zero graph/native sequence
+failures. The live runtime used CUDA on the RTX 3060; GPU memory moved from
+`2031 MiB` to `2045 MiB`. The velocity sampler observed GPU-side contention
+(`gpu max=22%`, memory-util max `23%`, CPU max `68%`), so the claim is
+throughput protection in the maintained band, not contention-free hardware.
 
 ## SNN Rollout Rehearsal Source Window
 
