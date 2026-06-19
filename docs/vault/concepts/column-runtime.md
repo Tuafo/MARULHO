@@ -1230,6 +1230,23 @@ checked rows from `35328` to `1536` and mean latency from `6778.768800 ms` to
 failures. The old broad-normalized production path is removed rather than kept
 as a side implementation.
 
+Bounded text-emission and text-surface commit now use that same single-family
+ledger route. `execute_autonomous_bounded_text_emission(...)` and its review
+read only `autonomous_bounded_text_emission_events`; text-surface commit
+execution/review read only `autonomous_text_surface_commit_events` and preserve
+`current_text_surface_commit` as a single current pointer. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-text-surface-chain.json`
+kept hash, review, total-count, and current-commit parity while reducing
+checked rows from `47104` to `2048` and mean chain latency from
+`9289.008333 ms` to `429.436800 ms`; CUDA was available but unused for ledger
+metadata, with `0.0 MiB` allocation/reservation. The paired long run stayed in
+band at `5980.715 tokens/sec`, `tick_duration_ms.p95=22.136`,
+`train_compute=0.135992 ms/token`, `prepare_training=0.007115 ms/token`,
+`finalize_total=0.006345 ms/token`, `route_input_rows_scored=12/65536`,
+`state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. No observed contention was reported, with RTX 3060 memory
+`2045->2047 MiB`.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

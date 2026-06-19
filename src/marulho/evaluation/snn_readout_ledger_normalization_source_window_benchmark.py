@@ -96,6 +96,8 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_decoder_probe_count": count,
             "total_autonomous_language_output_count": count,
             "total_autonomous_decoded_output_count": count,
+            "total_autonomous_bounded_text_emission_count": count,
+            "total_autonomous_text_surface_commit_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -122,6 +124,12 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_decoded_output_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_bounded_text_emitted_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_text_surface_committed_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -817,6 +825,96 @@ def _autonomous_decoded_output_event() -> dict[str, Any]:
     }
 
 
+def _autonomous_bounded_text_emission_event() -> dict[str, Any]:
+    return {
+        "autonomous_bounded_text_emission_event_hash": "e1" * 32,
+        "autonomous_bounded_text_emission_event_id": (
+            "benchmark-bounded-text-emission"
+        ),
+        "emitted_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 6,
+        "preflight_hash": "e2" * 32,
+        "bounded_text_emission_design_hash": "e3" * 32,
+        "review_hash": "e4" * 32,
+        "autonomous_decoded_output_event_hash": "d1" * 32,
+        "emission_mode": "bounded_text_hash_sequence",
+        "max_text_fragments": 1,
+        "text_fragment_count": 1,
+        "decoded_token_hashes": ["d7" * 32],
+        "text_fragment_hashes": ["e5" * 32],
+        "text_emission_slot_hashes": ["e6" * 32],
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "mean_confidence_score": 0.79,
+        "mean_spike_sparsity": 0.72,
+        "max_slot_drift": 0.02,
+        "text_emission_results": [
+            {
+                "bounded_text_emission_slot_hash": "e6" * 32,
+                "decoded_token_hash": "d7" * 32,
+                "text_fragment_hash": "e5" * 32,
+                "text_surface_schema_hash": "e7" * 32,
+                "text_normalizer_hash": "e8" * 32,
+                "semantic_constraint_hash": "e9" * 32,
+                "semantic_constraint_valid": True,
+                "text_normalized": True,
+                "confidence_score": 0.79,
+                "spike_sparsity": 0.72,
+                "slot_drift": 0.02,
+            }
+        ],
+        "output_is_hash_only": True,
+        "literal_text_returned": False,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+    }
+
+
+def _autonomous_text_surface_commit_event() -> dict[str, Any]:
+    return {
+        "autonomous_text_surface_commit_event_hash": "c1" * 32,
+        "autonomous_text_surface_commit_event_id": "benchmark-text-surface-commit",
+        "committed_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 7,
+        "preflight_hash": "c2" * 32,
+        "text_surface_commit_design_hash": "c3" * 32,
+        "commit_plan_hash": "c4" * 32,
+        "sequence_review_hash": "c5" * 32,
+        "autonomous_bounded_text_emission_event_hash": "e1" * 32,
+        "commit_scope": "hash_surface_state",
+        "retention_class": "ephemeral_hash_surface",
+        "text_fragment_count": 1,
+        "decoded_token_hashes": ["d7" * 32],
+        "text_fragment_hashes": ["e5" * 32],
+        "text_emission_slot_hashes": ["e6" * 32],
+        "fragment_sequence_hash": "c6" * 32,
+        "committed_surface_hash": "c6" * 32,
+        "previous_surface_hash": None,
+        "state_chain_hash": "c7" * 32,
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "mean_confidence_score": 0.79,
+        "mean_spike_sparsity": 0.72,
+        "max_slot_drift": 0.02,
+        "output_is_hash_only": True,
+        "literal_text_returned": False,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+    }
+
+
 def _bounded_autonomous_readout_event_family_chain(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
@@ -963,6 +1061,64 @@ def _bounded_autonomous_readout_event_family_chain(
         for item in decoded_output_events
     )
 
+    text_emission_event = _autonomous_bounded_text_emission_event()
+    text_emission_duplicate, text_emission_summary, text_emission_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_bounded_text_emission_events",
+            event=text_emission_event,
+            duplicate_key="autonomous_bounded_text_emission_event_hash",
+            total_count_key="total_autonomous_bounded_text_emission_count",
+            timestamp_key="last_autonomous_bounded_text_emitted_at",
+            timestamp_value=text_emission_event["emitted_at"],
+        )
+    )
+    text_emission_events, text_emission_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_bounded_text_emission_events",
+            duplicate_key="autonomous_bounded_text_emission_event_hash",
+        )
+    )
+    text_emission_hash = text_emission_event[
+        "autonomous_bounded_text_emission_event_hash"
+    ]
+    text_emission_review_match = any(
+        str(item.get("autonomous_bounded_text_emission_event_hash") or "")
+        == text_emission_hash
+        for item in text_emission_events
+    )
+
+    text_commit_event = _autonomous_text_surface_commit_event()
+    text_commit_duplicate, text_commit_summary, text_commit_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_text_surface_commit_events",
+            event=text_commit_event,
+            duplicate_key="autonomous_text_surface_commit_event_hash",
+            total_count_key="total_autonomous_text_surface_commit_count",
+            timestamp_key="last_autonomous_text_surface_committed_at",
+            timestamp_value=text_commit_event["committed_at"],
+        )
+    )
+    if not text_commit_duplicate:
+        ledger._ledger_state()["current_text_surface_commit"] = deepcopy(  # noqa: SLF001
+            text_commit_event
+        )
+    text_commit_events, text_commit_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_text_surface_commit_events",
+            duplicate_key="autonomous_text_surface_commit_event_hash",
+        )
+    )
+    text_commit_hash = text_commit_event["autonomous_text_surface_commit_event_hash"]
+    text_commit_review_match = any(
+        str(item.get("autonomous_text_surface_commit_event_hash") or "")
+        == text_commit_hash
+        for item in text_commit_events
+    )
+    text_commit_current_match = (
+        dict(ledger._ledger_state().get("current_text_surface_commit") or {})  # noqa: SLF001
+        == text_commit_event
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
@@ -970,18 +1126,25 @@ def _bounded_autonomous_readout_event_family_chain(
         "decoder_duplicate": decoder_duplicate,
         "language_output_duplicate": language_output_duplicate,
         "decoded_output_duplicate": decoded_output_duplicate,
+        "text_emission_duplicate": text_emission_duplicate,
+        "text_commit_duplicate": text_commit_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
         "decoder_hash": decoder_hash,
         "language_output_hash": language_output_hash,
         "decoded_output_hash": decoded_output_hash,
+        "text_emission_hash": text_emission_hash,
+        "text_commit_hash": text_commit_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
         "decoder_review_match": decoder_review_match,
         "language_output_review_match": language_output_review_match,
         "decoded_output_review_match": decoded_output_review_match,
+        "text_emission_review_match": text_emission_review_match,
+        "text_commit_review_match": text_commit_review_match,
+        "text_commit_current_match": text_commit_current_match,
         "binding_total_count": int(
             binding_summary.get("total_autonomous_hash_readout_binding_count", 0)
             or 0
@@ -1009,6 +1172,17 @@ def _bounded_autonomous_readout_event_family_chain(
             decoded_output_summary.get("total_autonomous_decoded_output_count", 0)
             or 0
         ),
+        "text_emission_total_count": int(
+            text_emission_summary.get(
+                "total_autonomous_bounded_text_emission_count",
+                0,
+            )
+            or 0
+        ),
+        "text_commit_total_count": int(
+            text_commit_summary.get("total_autonomous_text_surface_commit_count", 0)
+            or 0
+        ),
         "source_windows": {
             "binding_append": binding_append_window,
             "binding_review": binding_review_window,
@@ -1022,6 +1196,10 @@ def _bounded_autonomous_readout_event_family_chain(
             "language_output_review": language_output_review_window,
             "decoded_output_append": decoded_output_append_window,
             "decoded_output_review": decoded_output_review_window,
+            "text_emission_append": text_emission_append_window,
+            "text_emission_review": text_emission_review_window,
+            "text_commit_append": text_commit_append_window,
+            "text_commit_review": text_commit_review_window,
         },
     }
 
@@ -1204,6 +1382,74 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         for item in list(normalized["autonomous_decoded_output_events"])
     )
 
+    text_emission_event = _autonomous_bounded_text_emission_event()
+    text_emission_hash = text_emission_event[
+        "autonomous_bounded_text_emission_event_hash"
+    ]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    text_emission_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    text_emission_events = normalized["autonomous_bounded_text_emission_events"]
+    text_emission_duplicate = text_emission_hash in {
+        str(item.get("autonomous_bounded_text_emission_event_hash") or "")
+        for item in list(text_emission_events)
+    }
+    if not text_emission_duplicate:
+        text_emission_events.appendleft(deepcopy(text_emission_event))
+        normalized["total_autonomous_bounded_text_emission_count"] = int(
+            normalized.get("total_autonomous_bounded_text_emission_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_bounded_text_emitted_at"] = text_emission_event[
+            "emitted_at"
+        ]
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    text_emission_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    text_emission_review_match = any(
+        str(item.get("autonomous_bounded_text_emission_event_hash") or "")
+        == text_emission_hash
+        for item in list(normalized["autonomous_bounded_text_emission_events"])
+    )
+
+    text_commit_event = _autonomous_text_surface_commit_event()
+    text_commit_hash = text_commit_event["autonomous_text_surface_commit_event_hash"]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    text_commit_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    text_commit_events = normalized["autonomous_text_surface_commit_events"]
+    text_commit_duplicate = text_commit_hash in {
+        str(item.get("autonomous_text_surface_commit_event_hash") or "")
+        for item in list(text_commit_events)
+    }
+    if not text_commit_duplicate:
+        text_commit_events.appendleft(deepcopy(text_commit_event))
+        normalized["total_autonomous_text_surface_commit_count"] = int(
+            normalized.get("total_autonomous_text_surface_commit_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_text_surface_committed_at"] = text_commit_event[
+            "committed_at"
+        ]
+        normalized["current_text_surface_commit"] = deepcopy(text_commit_event)
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    text_commit_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    text_commit_review_match = any(
+        str(item.get("autonomous_text_surface_commit_event_hash") or "")
+        == text_commit_hash
+        for item in list(normalized["autonomous_text_surface_commit_events"])
+    )
+    text_commit_current_match = (
+        dict(normalized.get("current_text_surface_commit") or {}) == text_commit_event
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
@@ -1211,18 +1457,25 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "decoder_duplicate": decoder_duplicate,
         "language_output_duplicate": language_output_duplicate,
         "decoded_output_duplicate": decoded_output_duplicate,
+        "text_emission_duplicate": text_emission_duplicate,
+        "text_commit_duplicate": text_commit_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
         "decoder_hash": decoder_hash,
         "language_output_hash": language_output_hash,
         "decoded_output_hash": decoded_output_hash,
+        "text_emission_hash": text_emission_hash,
+        "text_commit_hash": text_commit_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
         "decoder_review_match": decoder_review_match,
         "language_output_review_match": language_output_review_match,
         "decoded_output_review_match": decoded_output_review_match,
+        "text_emission_review_match": text_emission_review_match,
+        "text_commit_review_match": text_commit_review_match,
+        "text_commit_current_match": text_commit_current_match,
         "binding_total_count": int(
             ledger._ledger_state().get(  # noqa: SLF001
                 "total_autonomous_hash_readout_binding_count",
@@ -1265,6 +1518,20 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "text_emission_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_bounded_text_emission_count",
+                0,
+            )
+            or 0
+        ),
+        "text_commit_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_text_surface_commit_count",
+                0,
+            )
+            or 0
+        ),
         "normalization_source_windows": {
             "binding_append": binding_append_source,
             "binding_review": binding_review_source,
@@ -1278,6 +1545,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             "language_output_review": language_output_review_source,
             "decoded_output_append": decoded_output_append_source,
             "decoded_output_review": decoded_output_review_source,
+            "text_emission_append": text_emission_append_source,
+            "text_emission_review": text_emission_review_source,
+            "text_commit_append": text_commit_append_source,
+            "text_commit_review": text_commit_review_source,
         },
     }
 
@@ -1812,6 +2083,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("language_output_hash")
             and autonomous_chain.get("decoded_output_hash")
             == broad_autonomous_chain.get("decoded_output_hash")
+            and autonomous_chain.get("text_emission_hash")
+            == broad_autonomous_chain.get("text_emission_hash")
+            and autonomous_chain.get("text_commit_hash")
+            == broad_autonomous_chain.get("text_commit_hash")
         ),
         "autonomous_chain_review_match_parity": (
             autonomous_chain.get("binding_review_match")
@@ -1826,6 +2101,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("language_output_review_match")
             and autonomous_chain.get("decoded_output_review_match")
             == broad_autonomous_chain.get("decoded_output_review_match")
+            and autonomous_chain.get("text_emission_review_match")
+            == broad_autonomous_chain.get("text_emission_review_match")
+            and autonomous_chain.get("text_commit_review_match")
+            == broad_autonomous_chain.get("text_commit_review_match")
         ),
         "autonomous_chain_total_count_parity": (
             autonomous_chain.get("binding_total_count")
@@ -1840,6 +2119,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("language_output_total_count")
             and autonomous_chain.get("decoded_output_total_count")
             == broad_autonomous_chain.get("decoded_output_total_count")
+            and autonomous_chain.get("text_emission_total_count")
+            == broad_autonomous_chain.get("text_emission_total_count")
+            and autonomous_chain.get("text_commit_total_count")
+            == broad_autonomous_chain.get("text_commit_total_count")
+        ),
+        "autonomous_chain_current_commit_parity": (
+            bool(autonomous_chain.get("text_commit_current_match"))
+            and bool(broad_autonomous_chain.get("text_commit_current_match"))
         ),
         "autonomous_chain_bounded_less_work": (
             autonomous_chain_rows < broad_autonomous_chain_rows
@@ -2231,13 +2518,21 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_decoder_probe_events"
                 "+autonomous_language_output_events"
                 "+autonomous_decoded_output_events"
+                "+autonomous_bounded_text_emission_events"
+                "+autonomous_text_surface_commit_events"
             ),
             "selection_criteria": [
-                "binding_observation_training_decoder_and_output_event_families_only",
+                (
+                    "binding_observation_training_decoder_output_text_and_commit"
+                    "_event_families_only"
+                ),
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
-                "metric": "autonomous_hash_readout_output_chain_hash_count_and_review_parity",
+                "metric": (
+                    "autonomous_hash_readout_text_surface_chain_hash_count"
+                    "_review_current_commit_parity"
+                ),
                 "binding_hash_parity": autonomous_chain.get("binding_hash")
                 == broad_autonomous_chain.get("binding_hash"),
                 "observation_hash_parity": autonomous_chain.get("observation_hash")
@@ -2254,6 +2549,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "decoded_output_hash"
                 )
                 == broad_autonomous_chain.get("decoded_output_hash"),
+                "text_emission_hash_parity": autonomous_chain.get(
+                    "text_emission_hash"
+                )
+                == broad_autonomous_chain.get("text_emission_hash"),
+                "text_commit_hash_parity": autonomous_chain.get(
+                    "text_commit_hash"
+                )
+                == broad_autonomous_chain.get("text_commit_hash"),
                 "binding_review_match_parity": autonomous_chain.get(
                     "binding_review_match"
                 )
@@ -2278,6 +2581,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "decoded_output_review_match"
                 )
                 == broad_autonomous_chain.get("decoded_output_review_match"),
+                "text_emission_review_match_parity": autonomous_chain.get(
+                    "text_emission_review_match"
+                )
+                == broad_autonomous_chain.get("text_emission_review_match"),
+                "text_commit_review_match_parity": autonomous_chain.get(
+                    "text_commit_review_match"
+                )
+                == broad_autonomous_chain.get("text_commit_review_match"),
                 "binding_total_count_parity": autonomous_chain.get(
                     "binding_total_count"
                 )
@@ -2302,6 +2613,18 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "decoded_output_total_count"
                 )
                 == broad_autonomous_chain.get("decoded_output_total_count"),
+                "text_emission_total_count_parity": autonomous_chain.get(
+                    "text_emission_total_count"
+                )
+                == broad_autonomous_chain.get("text_emission_total_count"),
+                "text_commit_total_count_parity": autonomous_chain.get(
+                    "text_commit_total_count"
+                )
+                == broad_autonomous_chain.get("text_commit_total_count"),
+                "text_commit_current_parity": (
+                    bool(autonomous_chain.get("text_commit_current_match"))
+                    and bool(broad_autonomous_chain.get("text_commit_current_match"))
+                ),
             },
             "latency": {
                 "bounded": _latency_summary(autonomous_chain_samples),

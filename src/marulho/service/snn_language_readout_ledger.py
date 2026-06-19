@@ -13472,29 +13472,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_bounded_text_emission_events",
+                    duplicate_key="autonomous_bounded_text_emission_event_hash",
+                    total_count_key="total_autonomous_bounded_text_emission_count",
+                    timestamp_key="last_autonomous_bounded_text_emitted_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_bounded_text_emission_event_hash") or "")
-                    for item in state["autonomous_bounded_text_emission_events"]
-                }
-                duplicate = (
-                    event["autonomous_bounded_text_emission_event_hash"]
-                    in existing_hashes
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_bounded_text_emission_events",
+                        event=event,
+                        duplicate_key="autonomous_bounded_text_emission_event_hash",
+                        total_count_key="total_autonomous_bounded_text_emission_count",
+                        timestamp_key="last_autonomous_bounded_text_emitted_at",
+                        timestamp_value=emitted_at,
+                    )
                 )
                 if not duplicate:
-                    state["autonomous_bounded_text_emission_events"].appendleft(
-                        deepcopy(event)
-                    )
-                    state["total_autonomous_bounded_text_emission_count"] = int(
-                        state.get(
-                            "total_autonomous_bounded_text_emission_count",
-                            0,
-                        )
-                        or 0
-                    ) + 1
-                    state["last_autonomous_bounded_text_emitted_at"] = emitted_at
-                    self._store_state(state)
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": (
@@ -13534,7 +13531,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_bounded_text_emission_event_hash"
                 ],
                 "autonomous_bounded_text_emission_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_bounded_text_emission_recorded"
@@ -13647,11 +13645,14 @@ class SNNLanguageReadoutEvidenceLedger:
             text_surface_schema_hash = str(event.get("text_surface_schema_hash") or "")
             text_normalizer_hash = str(event.get("text_normalizer_hash") or "")
             semantic_constraint_hash = str(event.get("semantic_constraint_hash") or "")
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_bounded_text_emission_events",
+                duplicate_key="autonomous_bounded_text_emission_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(state["autonomous_bounded_text_emission_events"])
+                    for item in source_events
                     if str(item.get("autonomous_bounded_text_emission_event_hash") or "")
                     == event_hash
                 ),
@@ -13810,6 +13811,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "expected_state_revision": int(expected_state_revision),
                 "autonomous_bounded_text_emission_event_hash": event_hash,
                 "autonomous_bounded_text_emission_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_text_surface_sequence_review"
@@ -14690,26 +14692,29 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_text_surface_commit_events",
+                    duplicate_key="autonomous_text_surface_commit_event_hash",
+                    total_count_key="total_autonomous_text_surface_commit_count",
+                    timestamp_key="last_autonomous_text_surface_committed_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_text_surface_commit_event_hash") or "")
-                    for item in state["autonomous_text_surface_commit_events"]
-                }
-                duplicate = (
-                    event["autonomous_text_surface_commit_event_hash"]
-                    in existing_hashes
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_text_surface_commit_events",
+                        event=event,
+                        duplicate_key="autonomous_text_surface_commit_event_hash",
+                        total_count_key="total_autonomous_text_surface_commit_count",
+                        timestamp_key="last_autonomous_text_surface_committed_at",
+                        timestamp_value=committed_at,
+                    )
                 )
                 if not duplicate:
-                    state["autonomous_text_surface_commit_events"].appendleft(
-                        deepcopy(event)
+                    self._ledger_state()["current_text_surface_commit"] = deepcopy(
+                        event
                     )
-                    state["total_autonomous_text_surface_commit_count"] = int(
-                        state.get("total_autonomous_text_surface_commit_count", 0) or 0
-                    ) + 1
-                    state["last_autonomous_text_surface_committed_at"] = committed_at
-                    state["current_text_surface_commit"] = deepcopy(event)
-                    self._store_state(state)
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_autonomous_text_surface_commit_executor",
@@ -14744,7 +14749,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_text_surface_commit_event_hash"
                 ],
                 "autonomous_text_surface_commit_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_text_surface_commit_recorded"
@@ -14862,17 +14868,21 @@ class SNNLanguageReadoutEvidenceLedger:
             text_surface_schema_hash = str(event.get("text_surface_schema_hash") or "")
             text_normalizer_hash = str(event.get("text_normalizer_hash") or "")
             semantic_constraint_hash = str(event.get("semantic_constraint_hash") or "")
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_text_surface_commit_events",
+                duplicate_key="autonomous_text_surface_commit_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(state["autonomous_text_surface_commit_events"])
+                    for item in source_events
                     if str(item.get("autonomous_text_surface_commit_event_hash") or "")
                     == event_hash
                 ),
                 None,
             )
             event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            state = self._ledger_state()
             current_commit = dict(state.get("current_text_surface_commit") or {})
             current_commit_matches = bool(current_commit) and current_commit == event
             required = {
@@ -15042,6 +15052,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "expected_state_revision": int(expected_state_revision),
                 "autonomous_text_surface_commit_event_hash": event_hash,
                 "autonomous_text_surface_commit_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_text_surface_materialization_design"

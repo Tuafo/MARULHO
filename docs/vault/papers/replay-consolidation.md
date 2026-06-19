@@ -99,6 +99,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-output-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-output-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-text-surface-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-text-surface-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1377,6 +1379,7 @@ bounded readout-ledger normalization/store-state source windows,
 bounded dense-label calibration update source windows,
 bounded autonomous confidence-use source windows,
 bounded autonomous output-chain source windows,
+bounded autonomous text-surface source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
@@ -1395,6 +1398,7 @@ readout-ledger rollout full-payload candidate materialization,
 broad-normalized dense-label calibration update lookup/write,
 broad-normalized autonomous confidence-use lookup/write,
 broad-normalized autonomous output-chain lookup/write,
+broad-normalized autonomous text-surface lookup/write,
 replay-controller regeneration-design full-payload normalization,
 caller-supplied emission replay-context full-payload bridge,
 caller-supplied generic replay-context full-payload observed-slot bridge,
@@ -1423,6 +1427,25 @@ rows, `65526` cached transition rows, zero graph/native sequence failures, and
 GPU memory `2046->2047 MiB` under observed GPU contention. This keeps output
 review as selected CPU-resident ledger evidence rather than hidden language
 reasoning or every-token replay work.
+
+The downstream text-surface side of that output chain follows the same
+selected-source rule. `execute_autonomous_bounded_text_emission(...)` and
+`autonomous_bounded_text_emission_event_review(...)` read only
+`autonomous_bounded_text_emission_events`; `execute_autonomous_text_surface_commit(...)`
+and `autonomous_text_surface_commit_event_review(...)` read only
+`autonomous_text_surface_commit_events` and update/read the single
+`current_text_surface_commit` pointer without broad ledger normalization. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-text-surface-chain.json`
+preserved hash, review-match, total-count, and current-commit parity across the
+eight-family autonomous text-surface chain while checking `2048` target-family
+rows instead of `47104` broad-normalized rows (`23x`) and reducing mean chain
+latency from `9289.008333 ms` to `429.436800 ms` (`21.630676x`). The paired
+`524288`-token hot-path run stayed in band at `5980.715 tokens/sec`, with
+bounded `12/65536` route rows, `65526` cached transition rows, zero graph/native
+sequence failures, no observed contention, and GPU memory `2045->2047 MiB`.
+This keeps text-surface commit as selected CPU-resident ledger evidence rather
+than an always-on or hidden language replay path.
 
 ## Links
 

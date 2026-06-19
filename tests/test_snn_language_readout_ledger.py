@@ -5621,6 +5621,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_emission_executor["promotion_gate"]["required_evidence"][
         "text_emission_results_bounded"
     ] is False
+    _assert_record_family_source_window(
+        blocked_text_emission_executor["source_window"],
+        field="autonomous_bounded_text_emission_events",
+        expected_count=0,
+    )
     assert text_emission_executor["surface"] == (
         "snn_language_autonomous_bounded_text_emission_executor.v1"
     )
@@ -5650,6 +5655,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert text_emission_event["output_is_hash_only"] is True
     assert text_emission_event["literal_text_returned"] is False
     assert text_emission_event["operator_approval_required"] is False
+    _assert_record_family_source_window(
+        text_emission_executor["source_window"],
+        field="autonomous_bounded_text_emission_events",
+        expected_count=0,
+    )
     assert text_emission_executor["promotion_gate"][
         "eligible_for_autonomous_bounded_text_emission_event_review"
     ] is True
@@ -5691,6 +5701,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_emission_event_review["promotion_gate"]["required_evidence"][
         "executor_accepted"
     ] is False
+    _assert_record_family_source_window(
+        blocked_text_emission_event_review["source_window"],
+        field="autonomous_bounded_text_emission_events",
+        expected_count=1,
+    )
     assert text_emission_event_review["surface"] == (
         "snn_language_autonomous_bounded_text_emission_event_review.v1"
     )
@@ -5721,6 +5736,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert text_emission_review_body["output_is_hash_only"] is True
     assert text_emission_review_body["literal_text_returned"] is False
     assert text_emission_review_body["operator_approval_required"] is False
+    _assert_record_family_source_window(
+        text_emission_event_review["source_window"],
+        field="autonomous_bounded_text_emission_events",
+        expected_count=1,
+    )
     assert text_emission_event_review["promotion_gate"][
         "eligible_for_autonomous_text_surface_sequence_review"
     ] is True
@@ -7024,6 +7044,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_surface_commit_executor["promotion_gate"]["required_evidence"][
         "preflight_ready"
     ] is False
+    _assert_record_family_source_window(
+        blocked_text_surface_commit_executor["source_window"],
+        field="autonomous_text_surface_commit_events",
+        expected_count=0,
+    )
     assert text_surface_commit_executor["surface"] == (
         "snn_language_autonomous_text_surface_commit_executor.v1"
     )
@@ -7054,6 +7079,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert text_surface_commit_event["output_is_hash_only"] is True
     assert text_surface_commit_event["literal_text_returned"] is False
     assert text_surface_commit_event["operator_approval_required"] is False
+    _assert_record_family_source_window(
+        text_surface_commit_executor["source_window"],
+        field="autonomous_text_surface_commit_events",
+        expected_count=0,
+    )
     assert text_surface_commit_executor["promotion_gate"][
         "eligible_for_autonomous_text_surface_commit_event_review"
     ] is True
@@ -7070,6 +7100,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_text_surface_commit_event_review["promotion_gate"]["required_evidence"][
         "executor_accepted"
     ] is False
+    _assert_record_family_source_window(
+        blocked_text_surface_commit_event_review["source_window"],
+        field="autonomous_text_surface_commit_events",
+        expected_count=1,
+    )
     assert text_surface_commit_event_review["surface"] == (
         "snn_language_autonomous_text_surface_commit_event_review.v1"
     )
@@ -7104,6 +7139,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert len(text_surface_commit_review_body["state_chain_hash"]) == 64
     assert text_surface_commit_review_body["output_is_hash_only"] is True
     assert text_surface_commit_review_body["literal_text_returned"] is False
+    _assert_record_family_source_window(
+        text_surface_commit_event_review["source_window"],
+        field="autonomous_text_surface_commit_events",
+        expected_count=1,
+    )
     assert text_surface_commit_event_review["promotion_gate"][
         "eligible_for_autonomous_text_surface_materialization_design"
     ] is True
