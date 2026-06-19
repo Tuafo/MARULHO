@@ -1210,6 +1210,26 @@ The paired `524288`-token protection run stayed in band at
 no observed contention, GPU memory `2029->2028 MiB`, and zero graph/native
 failures.
 
+Autonomous language-output and decoded-output event recording/review now share
+the same record-family source-window helper as the preceding autonomous
+binding, observation, training-window, and decoder-probe stages. Execution and
+review read only `autonomous_language_output_events` or
+`autonomous_decoded_output_events` before duplicate or ledger-presence checks,
+return the `bounded_snn_readout_ledger_record_family_source_window.v1` report,
+and write only the target event family plus count/timestamp fields. The
+expanded benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-output-chain.json`
+kept parity across the six-family autonomous output chain while reducing
+checked rows from `35328` to `1536` and mean latency from `6778.768800 ms` to
+`321.988933 ms`; CUDA was available but unused for ledger metadata, with
+`0.0 MiB` allocation/reservation. The paired long run stayed in band at
+`6048.638 tokens/sec`, `tick_duration_ms.p95=21.307`,
+`train_compute=0.134492 ms/token`, `prepare_training=0.006912 ms/token`,
+`finalize_total=0.006334 ms/token`, `route_input_rows_scored=12/65536`,
+`state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. The old broad-normalized production path is removed rather than kept
+as a side implementation.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

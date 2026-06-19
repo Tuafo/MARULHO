@@ -94,6 +94,8 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_bound_readout_observation_count": count,
             "total_autonomous_readout_training_window_count": count,
             "total_autonomous_decoder_probe_count": count,
+            "total_autonomous_language_output_count": count,
+            "total_autonomous_decoded_output_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -114,6 +116,12 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_decoder_probed_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_language_output_emitted_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_decoded_output_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -715,6 +723,100 @@ def _autonomous_decoder_probe_event() -> dict[str, Any]:
     }
 
 
+def _autonomous_language_output_event() -> dict[str, Any]:
+    return {
+        "autonomous_language_output_event_hash": "a1" * 32,
+        "autonomous_language_output_event_id": "benchmark-language-output",
+        "emitted_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 4,
+        "preflight_hash": "a2" * 32,
+        "language_output_design_hash": "a3" * 32,
+        "review_hash": "a4" * 32,
+        "autonomous_decoder_probe_event_hash": "f" * 64,
+        "output_mode": "hash_candidate_slots",
+        "max_output_tokens": 1,
+        "output_slot_count": 1,
+        "candidate_hashes": ["a5" * 32],
+        "output_slot_hashes": ["a6" * 32],
+        "emitted_hashes": ["a7" * 32],
+        "rank_hashes": ["a8" * 32],
+        "mean_confidence_score": 0.81,
+        "mean_spike_sparsity": 0.74,
+        "max_slot_drift": 0.03,
+        "output_slot_results": [
+            {
+                "language_output_slot_hash": "a6" * 32,
+                "candidate_hash": "a5" * 32,
+                "emitted_hash": "a7" * 32,
+                "rank_hashes": ["a8" * 32],
+                "confidence_score": 0.81,
+                "spike_sparsity": 0.74,
+                "slot_drift": 0.03,
+            }
+        ],
+        "source_output_slots": [
+            {
+                "language_output_slot_hash": "a6" * 32,
+                "candidate_hash": "a5" * 32,
+                "slot_index": 0,
+            }
+        ],
+        "output_is_hash_only": True,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+    }
+
+
+def _autonomous_decoded_output_event() -> dict[str, Any]:
+    return {
+        "autonomous_decoded_output_event_hash": "d1" * 32,
+        "autonomous_decoded_output_event_id": "benchmark-decoded-output",
+        "decoded_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 5,
+        "preflight_hash": "d2" * 32,
+        "decoded_output_design_hash": "d3" * 32,
+        "review_hash": "d4" * 32,
+        "autonomous_language_output_event_hash": "a1" * 32,
+        "decode_mode": "constrained_token_hash_map",
+        "max_decoded_tokens": 1,
+        "decoded_token_count": 1,
+        "decoded_output_slot_hashes": ["d5" * 32],
+        "token_candidate_hashes": ["d6" * 32],
+        "decoded_token_hashes": ["d7" * 32],
+        "token_id_hashes": ["d8" * 32],
+        "constraint_state_hashes": ["d9" * 32],
+        "mean_confidence_score": 0.79,
+        "mean_spike_sparsity": 0.72,
+        "max_slot_drift": 0.02,
+        "decoded_token_results": [
+            {
+                "decoded_output_slot_hash": "d5" * 32,
+                "token_candidate_hash": "d6" * 32,
+                "decoded_token_hash": "d7" * 32,
+                "token_id_hash": "d8" * 32,
+                "constraint_state_hash": "d9" * 32,
+                "constraint_valid": True,
+                "confidence_score": 0.79,
+                "spike_sparsity": 0.72,
+                "slot_drift": 0.02,
+            }
+        ],
+        "output_is_hash_only": True,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+    }
+
+
 def _bounded_autonomous_readout_event_family_chain(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
@@ -809,19 +911,77 @@ def _bounded_autonomous_readout_event_family_chain(
         for item in decoder_events
     )
 
+    language_output_event = _autonomous_language_output_event()
+    language_output_duplicate, language_output_summary, language_output_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_language_output_events",
+            event=language_output_event,
+            duplicate_key="autonomous_language_output_event_hash",
+            total_count_key="total_autonomous_language_output_count",
+            timestamp_key="last_autonomous_language_output_emitted_at",
+            timestamp_value=language_output_event["emitted_at"],
+        )
+    )
+    language_output_events, language_output_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_language_output_events",
+            duplicate_key="autonomous_language_output_event_hash",
+        )
+    )
+    language_output_hash = language_output_event[
+        "autonomous_language_output_event_hash"
+    ]
+    language_output_review_match = any(
+        str(item.get("autonomous_language_output_event_hash") or "")
+        == language_output_hash
+        for item in language_output_events
+    )
+
+    decoded_output_event = _autonomous_decoded_output_event()
+    decoded_output_duplicate, decoded_output_summary, decoded_output_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_decoded_output_events",
+            event=decoded_output_event,
+            duplicate_key="autonomous_decoded_output_event_hash",
+            total_count_key="total_autonomous_decoded_output_count",
+            timestamp_key="last_autonomous_decoded_output_at",
+            timestamp_value=decoded_output_event["decoded_at"],
+        )
+    )
+    decoded_output_events, decoded_output_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_decoded_output_events",
+            duplicate_key="autonomous_decoded_output_event_hash",
+        )
+    )
+    decoded_output_hash = decoded_output_event[
+        "autonomous_decoded_output_event_hash"
+    ]
+    decoded_output_review_match = any(
+        str(item.get("autonomous_decoded_output_event_hash") or "")
+        == decoded_output_hash
+        for item in decoded_output_events
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
         "training_duplicate": training_duplicate,
         "decoder_duplicate": decoder_duplicate,
+        "language_output_duplicate": language_output_duplicate,
+        "decoded_output_duplicate": decoded_output_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
         "decoder_hash": decoder_hash,
+        "language_output_hash": language_output_hash,
+        "decoded_output_hash": decoded_output_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
         "decoder_review_match": decoder_review_match,
+        "language_output_review_match": language_output_review_match,
+        "decoded_output_review_match": decoded_output_review_match,
         "binding_total_count": int(
             binding_summary.get("total_autonomous_hash_readout_binding_count", 0)
             or 0
@@ -841,6 +1001,14 @@ def _bounded_autonomous_readout_event_family_chain(
             decoder_summary.get("total_autonomous_decoder_probe_count", 0)
             or 0
         ),
+        "language_output_total_count": int(
+            language_output_summary.get("total_autonomous_language_output_count", 0)
+            or 0
+        ),
+        "decoded_output_total_count": int(
+            decoded_output_summary.get("total_autonomous_decoded_output_count", 0)
+            or 0
+        ),
         "source_windows": {
             "binding_append": binding_append_window,
             "binding_review": binding_review_window,
@@ -850,6 +1018,10 @@ def _bounded_autonomous_readout_event_family_chain(
             "training_review": training_review_window,
             "decoder_append": decoder_append_window,
             "decoder_review": decoder_review_window,
+            "language_output_append": language_output_append_window,
+            "language_output_review": language_output_review_window,
+            "decoded_output_append": decoded_output_append_window,
+            "decoded_output_review": decoded_output_review_window,
         },
     }
 
@@ -968,19 +1140,89 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         for item in list(normalized["autonomous_decoder_probe_events"])
     )
 
+    language_output_event = _autonomous_language_output_event()
+    language_output_hash = language_output_event[
+        "autonomous_language_output_event_hash"
+    ]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_output_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_output_events = normalized["autonomous_language_output_events"]
+    language_output_duplicate = language_output_hash in {
+        str(item.get("autonomous_language_output_event_hash") or "")
+        for item in list(language_output_events)
+    }
+    if not language_output_duplicate:
+        language_output_events.appendleft(deepcopy(language_output_event))
+        normalized["total_autonomous_language_output_count"] = int(
+            normalized.get("total_autonomous_language_output_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_language_output_emitted_at"] = (
+            language_output_event["emitted_at"]
+        )
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_output_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_output_review_match = any(
+        str(item.get("autonomous_language_output_event_hash") or "")
+        == language_output_hash
+        for item in list(normalized["autonomous_language_output_events"])
+    )
+
+    decoded_output_event = _autonomous_decoded_output_event()
+    decoded_output_hash = decoded_output_event["autonomous_decoded_output_event_hash"]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    decoded_output_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    decoded_output_events = normalized["autonomous_decoded_output_events"]
+    decoded_output_duplicate = decoded_output_hash in {
+        str(item.get("autonomous_decoded_output_event_hash") or "")
+        for item in list(decoded_output_events)
+    }
+    if not decoded_output_duplicate:
+        decoded_output_events.appendleft(deepcopy(decoded_output_event))
+        normalized["total_autonomous_decoded_output_count"] = int(
+            normalized.get("total_autonomous_decoded_output_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_decoded_output_at"] = decoded_output_event[
+            "decoded_at"
+        ]
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    decoded_output_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    decoded_output_review_match = any(
+        str(item.get("autonomous_decoded_output_event_hash") or "")
+        == decoded_output_hash
+        for item in list(normalized["autonomous_decoded_output_events"])
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
         "training_duplicate": training_duplicate,
         "decoder_duplicate": decoder_duplicate,
+        "language_output_duplicate": language_output_duplicate,
+        "decoded_output_duplicate": decoded_output_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
         "decoder_hash": decoder_hash,
+        "language_output_hash": language_output_hash,
+        "decoded_output_hash": decoded_output_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
         "decoder_review_match": decoder_review_match,
+        "language_output_review_match": language_output_review_match,
+        "decoded_output_review_match": decoded_output_review_match,
         "binding_total_count": int(
             ledger._ledger_state().get(  # noqa: SLF001
                 "total_autonomous_hash_readout_binding_count",
@@ -1009,6 +1251,20 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "language_output_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_language_output_count",
+                0,
+            )
+            or 0
+        ),
+        "decoded_output_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_decoded_output_count",
+                0,
+            )
+            or 0
+        ),
         "normalization_source_windows": {
             "binding_append": binding_append_source,
             "binding_review": binding_review_source,
@@ -1018,6 +1274,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             "training_review": training_review_source,
             "decoder_append": decoder_append_source,
             "decoder_review": decoder_review_source,
+            "language_output_append": language_output_append_source,
+            "language_output_review": language_output_review_source,
+            "decoded_output_append": decoded_output_append_source,
+            "decoded_output_review": decoded_output_review_source,
         },
     }
 
@@ -1548,6 +1808,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("training_hash")
             and autonomous_chain.get("decoder_hash")
             == broad_autonomous_chain.get("decoder_hash")
+            and autonomous_chain.get("language_output_hash")
+            == broad_autonomous_chain.get("language_output_hash")
+            and autonomous_chain.get("decoded_output_hash")
+            == broad_autonomous_chain.get("decoded_output_hash")
         ),
         "autonomous_chain_review_match_parity": (
             autonomous_chain.get("binding_review_match")
@@ -1558,6 +1822,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("training_review_match")
             and autonomous_chain.get("decoder_review_match")
             == broad_autonomous_chain.get("decoder_review_match")
+            and autonomous_chain.get("language_output_review_match")
+            == broad_autonomous_chain.get("language_output_review_match")
+            and autonomous_chain.get("decoded_output_review_match")
+            == broad_autonomous_chain.get("decoded_output_review_match")
         ),
         "autonomous_chain_total_count_parity": (
             autonomous_chain.get("binding_total_count")
@@ -1568,6 +1836,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("training_total_count")
             and autonomous_chain.get("decoder_total_count")
             == broad_autonomous_chain.get("decoder_total_count")
+            and autonomous_chain.get("language_output_total_count")
+            == broad_autonomous_chain.get("language_output_total_count")
+            and autonomous_chain.get("decoded_output_total_count")
+            == broad_autonomous_chain.get("decoded_output_total_count")
         ),
         "autonomous_chain_bounded_less_work": (
             autonomous_chain_rows < broad_autonomous_chain_rows
@@ -1957,13 +2229,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_bound_readout_observation_events"
                 "+autonomous_readout_training_window_events"
                 "+autonomous_decoder_probe_events"
+                "+autonomous_language_output_events"
+                "+autonomous_decoded_output_events"
             ),
             "selection_criteria": [
-                "binding_observation_training_and_decoder_event_families_only",
+                "binding_observation_training_decoder_and_output_event_families_only",
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
-                "metric": "autonomous_hash_readout_training_probe_hash_count_and_review_parity",
+                "metric": "autonomous_hash_readout_output_chain_hash_count_and_review_parity",
                 "binding_hash_parity": autonomous_chain.get("binding_hash")
                 == broad_autonomous_chain.get("binding_hash"),
                 "observation_hash_parity": autonomous_chain.get("observation_hash")
@@ -1972,6 +2246,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 == broad_autonomous_chain.get("training_hash"),
                 "decoder_hash_parity": autonomous_chain.get("decoder_hash")
                 == broad_autonomous_chain.get("decoder_hash"),
+                "language_output_hash_parity": autonomous_chain.get(
+                    "language_output_hash"
+                )
+                == broad_autonomous_chain.get("language_output_hash"),
+                "decoded_output_hash_parity": autonomous_chain.get(
+                    "decoded_output_hash"
+                )
+                == broad_autonomous_chain.get("decoded_output_hash"),
                 "binding_review_match_parity": autonomous_chain.get(
                     "binding_review_match"
                 )
@@ -1988,6 +2270,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "decoder_review_match"
                 )
                 == broad_autonomous_chain.get("decoder_review_match"),
+                "language_output_review_match_parity": autonomous_chain.get(
+                    "language_output_review_match"
+                )
+                == broad_autonomous_chain.get("language_output_review_match"),
+                "decoded_output_review_match_parity": autonomous_chain.get(
+                    "decoded_output_review_match"
+                )
+                == broad_autonomous_chain.get("decoded_output_review_match"),
                 "binding_total_count_parity": autonomous_chain.get(
                     "binding_total_count"
                 )
@@ -2004,6 +2294,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "decoder_total_count"
                 )
                 == broad_autonomous_chain.get("decoder_total_count"),
+                "language_output_total_count_parity": autonomous_chain.get(
+                    "language_output_total_count"
+                )
+                == broad_autonomous_chain.get("language_output_total_count"),
+                "decoded_output_total_count_parity": autonomous_chain.get(
+                    "decoded_output_total_count"
+                )
+                == broad_autonomous_chain.get("decoded_output_total_count"),
             },
             "latency": {
                 "bounded": _latency_summary(autonomous_chain_samples),
@@ -2018,7 +2316,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "retired_path_comparison": {
                 "old_policy": (
                     "normalize_all_ledger_event_fields_before_autonomous_hash"
-                    "_readout_training_probe_append_or_review"
+                    "_readout_output_chain_append_or_review"
                 ),
                 "bounded_checked_record_count": autonomous_chain_rows,
                 "old_checked_record_count": broad_autonomous_chain_rows,

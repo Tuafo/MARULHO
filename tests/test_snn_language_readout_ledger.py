@@ -4933,6 +4933,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_language_output_execution["promotion_gate"]["required_evidence"][
         "generated_text_absent"
     ] is False
+    _assert_record_family_source_window(
+        blocked_language_output_execution["source_window"],
+        field="autonomous_language_output_events",
+        expected_count=0,
+    )
     assert language_output_execution["surface"] == (
         "snn_language_autonomous_language_output_executor.v1"
     )
@@ -4963,6 +4968,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert language_output_execution["ledger_summary"][
         "total_autonomous_language_output_count"
     ] == 1
+    _assert_record_family_source_window(
+        language_output_execution["source_window"],
+        field="autonomous_language_output_events",
+        expected_count=0,
+    )
     assert language_output_execution["promotion_gate"][
         "eligible_for_autonomous_language_output_event_review"
     ] is True
@@ -5008,6 +5018,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_language_output_event_review["autonomous_language_output_event_review"][
         "event_recorded_in_ledger"
     ] is False
+    _assert_record_family_source_window(
+        blocked_language_output_event_review["source_window"],
+        field="autonomous_language_output_events",
+        expected_count=1,
+    )
     assert language_output_event_review["surface"] == (
         "snn_language_autonomous_language_output_event_review.v1"
     )
@@ -5037,6 +5052,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert language_output_event_review_body["generated_text_allowed"] is False
     assert language_output_event_review_body["operator_approval_required"] is False
     assert language_output_event_review_body["mutation_allowed"] is False
+    _assert_record_family_source_window(
+        language_output_event_review["source_window"],
+        field="autonomous_language_output_events",
+        expected_count=1,
+    )
     assert language_output_event_review["promotion_gate"][
         "eligible_for_autonomous_decoded_output_design"
     ] is True
@@ -5249,6 +5269,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_decoded_output_execution["promotion_gate"]["required_evidence"][
         "decoded_text_absent"
     ] is False
+    _assert_record_family_source_window(
+        blocked_decoded_output_execution["source_window"],
+        field="autonomous_decoded_output_events",
+        expected_count=0,
+    )
     assert decoded_output_execution["surface"] == (
         "snn_language_autonomous_decoded_output_executor.v1"
     )
@@ -5279,6 +5304,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert decoded_output_execution["ledger_summary"][
         "total_autonomous_decoded_output_count"
     ] == 1
+    _assert_record_family_source_window(
+        decoded_output_execution["source_window"],
+        field="autonomous_decoded_output_events",
+        expected_count=0,
+    )
     assert decoded_output_execution["promotion_gate"][
         "eligible_for_autonomous_decoded_output_event_review"
     ] is True
@@ -5320,6 +5350,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_decoded_output_event_review["autonomous_decoded_output_event_review"][
         "event_recorded_in_ledger"
     ] is False
+    _assert_record_family_source_window(
+        blocked_decoded_output_event_review["source_window"],
+        field="autonomous_decoded_output_events",
+        expected_count=1,
+    )
     assert decoded_output_event_review["surface"] == (
         "snn_language_autonomous_decoded_output_event_review.v1"
     )
@@ -5349,6 +5384,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert decoded_output_event_review_body["generated_text_allowed"] is False
     assert decoded_output_event_review_body["operator_approval_required"] is False
     assert decoded_output_event_review_body["mutation_allowed"] is False
+    _assert_record_family_source_window(
+        decoded_output_event_review["source_window"],
+        field="autonomous_decoded_output_events",
+        expected_count=1,
+    )
     assert decoded_output_event_review["promotion_gate"][
         "eligible_for_autonomous_bounded_text_emission_design"
     ] is True

@@ -60,6 +60,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-training-probe-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-output-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-output-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -4323,3 +4325,40 @@ all `0`. The environment sampler reported no observed contention, CPU max
 `54%`, GPU max `15%`, GPU memory-util max `18%`, and RTX 3060 memory
 `2029->2028 MiB`. This keeps checkpointed transition training outside the live
 tick while preserving the maintained 6k-ish throughput band.
+
+## Autonomous Output-Chain Ledger Windows
+
+Language-output and decoded-output execution/review no longer normalize every
+readout-ledger event family to append or review one hash-only output event. The
+production path now uses `bounded_snn_readout_ledger_record_family_source_window.v1`
+for `autonomous_language_output_events` and
+`autonomous_decoded_output_events`, matching the preceding binding,
+observation, training-window, and decoder-probe event families.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-output-chain.json`
+
+Result: `pass=true`; the bounded chain preserved hash, review-match, and
+total-count parity across binding, observation, training, decoder probe,
+language output, and decoded output. Checked source rows fell from `35328` to
+`1536` (`23x`), and mean chain latency fell from `6778.768800 ms` to
+`321.988933 ms` (`21.052801x`). Traced Python peak allocation was
+`447.571689 MiB`; CUDA was available on the RTX 3060 but the benchmark used no
+GPU allocation/reservation for archival ledger metadata.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-output-chain.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 300 --sample-interval-seconds 0.02`
+
+Result: `success=true`, `524288` tokens in `86.678694 s`,
+`6048.638 tokens/sec`, `tick_duration_ms.p95=21.307`,
+`train_compute=0.134492 ms/token`, `prepare_training=0.006912 ms/token`, and
+`finalize_total=0.006334 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, with `65526` cached
+transition rows, `state_transition_runs_all_columns=false`, and zero
+graph/native sequence failures. The environment sampler observed GPU
+contention (`cpu max=23%`, `gpu max=36%`, `gpu memory util max=26%`), so this
+is same-band protection evidence rather than a clean speed ceiling. Runtime
+CUDA memory moved `2046->2047 MiB`; the replay/ledger benchmark itself kept
+archival/source/review metadata on CPU.

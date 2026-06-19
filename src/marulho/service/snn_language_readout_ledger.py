@@ -11387,22 +11387,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_language_output_events",
+                    duplicate_key="autonomous_language_output_event_hash",
+                    total_count_key="total_autonomous_language_output_count",
+                    timestamp_key="last_autonomous_language_output_emitted_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_language_output_event_hash") or "")
-                    for item in state["autonomous_language_output_events"]
-                }
-                duplicate = event["autonomous_language_output_event_hash"] in existing_hashes
-                if not duplicate:
-                    state["autonomous_language_output_events"].appendleft(
-                        deepcopy(event)
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_language_output_events",
+                        event=event,
+                        duplicate_key="autonomous_language_output_event_hash",
+                        total_count_key="total_autonomous_language_output_count",
+                        timestamp_key="last_autonomous_language_output_emitted_at",
+                        timestamp_value=emitted_at,
                     )
-                    state["total_autonomous_language_output_count"] = int(
-                        state.get("total_autonomous_language_output_count", 0) or 0
-                    ) + 1
-                    state["last_autonomous_language_output_emitted_at"] = emitted_at
-                    self._store_state(state)
+                )
+                if not duplicate:
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_autonomous_language_output_executor",
@@ -11437,7 +11441,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_language_output_event_hash"
                 ],
                 "autonomous_language_output_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_language_output_recorded"
@@ -11528,11 +11533,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 event.get("mean_spike_sparsity", -1.0) or -1.0
             )
             observed_slot_drift = float(event.get("max_slot_drift", 2.0) or 2.0)
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_language_output_events",
+                duplicate_key="autonomous_language_output_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(state["autonomous_language_output_events"])
+                    for item in source_events
                     if str(item.get("autonomous_language_output_event_hash") or "")
                     == event_hash
                 ),
@@ -11666,6 +11674,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "expected_state_revision": int(expected_state_revision),
                 "autonomous_language_output_event_hash": event_hash,
                 "autonomous_language_output_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_decoded_output_design"
@@ -12388,22 +12397,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             duplicate = False
+            ledger_summary, source_window = (
+                self._record_family_current_summary_with_report(
+                    field="autonomous_decoded_output_events",
+                    duplicate_key="autonomous_decoded_output_event_hash",
+                    total_count_key="total_autonomous_decoded_output_count",
+                    timestamp_key="last_autonomous_decoded_output_at",
+                )
+            )
             if accepted:
-                state = self._normalized_state()
-                existing_hashes = {
-                    str(item.get("autonomous_decoded_output_event_hash") or "")
-                    for item in state["autonomous_decoded_output_events"]
-                }
-                duplicate = event["autonomous_decoded_output_event_hash"] in existing_hashes
-                if not duplicate:
-                    state["autonomous_decoded_output_events"].appendleft(
-                        deepcopy(event)
+                duplicate, ledger_summary, source_window = (
+                    self._append_record_family_window(
+                        field="autonomous_decoded_output_events",
+                        event=event,
+                        duplicate_key="autonomous_decoded_output_event_hash",
+                        total_count_key="total_autonomous_decoded_output_count",
+                        timestamp_key="last_autonomous_decoded_output_at",
+                        timestamp_value=decoded_at,
                     )
-                    state["total_autonomous_decoded_output_count"] = int(
-                        state.get("total_autonomous_decoded_output_count", 0) or 0
-                    ) + 1
-                    state["last_autonomous_decoded_output_at"] = decoded_at
-                    self._store_state(state)
+                )
+                if not duplicate:
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_autonomous_decoded_output_executor",
@@ -12438,7 +12451,8 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_decoded_output_event_hash"
                 ],
                 "autonomous_decoded_output_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": (
                         "autonomous_decoded_output_recorded"
@@ -12544,11 +12558,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 event.get("mean_spike_sparsity", -1.0) or -1.0
             )
             observed_slot_drift = float(event.get("max_slot_drift", 2.0) or 2.0)
-            state = self._normalized_state()
+            source_events, source_window = self._record_family_window_with_report(
+                field="autonomous_decoded_output_events",
+                duplicate_key="autonomous_decoded_output_event_hash",
+            )
             recorded_event = next(
                 (
                     deepcopy(dict(item))
-                    for item in list(state["autonomous_decoded_output_events"])
+                    for item in source_events
                     if str(item.get("autonomous_decoded_output_event_hash") or "")
                     == event_hash
                 ),
@@ -12688,6 +12705,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "expected_state_revision": int(expected_state_revision),
                 "autonomous_decoded_output_event_hash": event_hash,
                 "autonomous_decoded_output_event_review": review,
+                "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_bounded_text_emission_design"

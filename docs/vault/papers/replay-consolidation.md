@@ -97,6 +97,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-training-probe-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-output-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-output-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1374,6 +1376,7 @@ bounded status replay-path projections,
 bounded readout-ledger normalization/store-state source windows,
 bounded dense-label calibration update source windows,
 bounded autonomous confidence-use source windows,
+bounded autonomous output-chain source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
@@ -1391,6 +1394,7 @@ runtime-facade rollout-regeneration full-payload candidate materialization,
 readout-ledger rollout full-payload candidate materialization,
 broad-normalized dense-label calibration update lookup/write,
 broad-normalized autonomous confidence-use lookup/write,
+broad-normalized autonomous output-chain lookup/write,
 replay-controller regeneration-design full-payload normalization,
 caller-supplied emission replay-context full-payload bridge,
 caller-supplied generic replay-context full-payload observed-slot bridge,
@@ -1399,6 +1403,26 @@ plus the all-anchor HF replay-query source pass and full hot-bucket candidate
 source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
+
+Autonomous hash-only output evidence now uses the same record-family source
+window before duplicate checks or event-review lookup. `execute_autonomous_language_output(...)`
+and `autonomous_language_output_event_review(...)` read only
+`autonomous_language_output_events`; `execute_autonomous_decoded_output(...)`
+and `autonomous_decoded_output_event_review(...)` read only
+`autonomous_decoded_output_events`. The broad `_normalized_state()` production
+path is retired because it normalized unrelated replay/readout families before
+one output event could be appended or reviewed. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-output-chain.json`
+preserved hash, review-match, and total-count parity across binding,
+observation, training, decoder probe, language output, and decoded output while
+checking `1536` target-family rows instead of `35328` broad-normalized rows
+(`23x`) and reducing mean chain latency from `6778.768800 ms` to
+`321.988933 ms` (`21.052801x`). The paired `524288`-token hot-path run stayed
+in the maintained band at `6048.638 tokens/sec`, with bounded `12/65536` route
+rows, `65526` cached transition rows, zero graph/native sequence failures, and
+GPU memory `2046->2047 MiB` under observed GPU contention. This keeps output
+review as selected CPU-resident ledger evidence rather than hidden language
+reasoning or every-token replay work.
 
 ## Links
 
