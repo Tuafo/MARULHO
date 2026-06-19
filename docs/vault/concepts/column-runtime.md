@@ -1304,6 +1304,23 @@ failures with no observed contention. RTX 3060 runtime memory moved
 `1856->1857 MiB`; the first same-shape run is not primary evidence because it
 observed GPU contention.
 
+Synapse provenance audit now keeps the same one-path rule for readout evidence
+hash validation. `synapse_provenance_audit(...)` collects only hashes referenced
+by `synapse_provenance_by_key`, reads `events` through
+`bounded_snn_readout_evidence_event_map_source_window.v1`, and exposes that
+source window in the promotion gate. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-synapse-provenance-map.json`
+kept requested event-map hash parity while reducing checked rows from `2944` to
+`128` (`23x`) and mean event-map latency from `319.823233 ms` to
+`13.972533 ms`; CUDA was
+available but unused for ledger metadata, with archival/lookup placement on
+CPU. The paired long run stayed in band at `5994.111 tokens/sec`,
+`tick_duration_ms.p95=21.885`, `train_compute=0.135406 ms/token`,
+`prepare_training=0.007135 ms/token`, `finalize_total=0.006412 ms/token`,
+`route_input_rows_scored=12/65536`, `state_transition_runs_all_columns=false`,
+and zero graph/native sequence failures with no observed contention. RTX 3060
+runtime memory moved `1980->1976 MiB`.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

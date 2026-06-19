@@ -1511,6 +1511,24 @@ contention. The replay/ledger benchmark kept archival/source/review metadata on
 CPU, reported no live tick or every-token work, and did no hidden language
 reasoning.
 
+Synapse provenance audit now uses a bounded requested-hash event map rather than
+normalizing every readout/replay ledger family before checking runtime synapse
+lineage. `synapse_provenance_audit(...)` gathers only hashes from
+`synapse_provenance_by_key`, looks up `events` through
+`bounded_snn_readout_evidence_event_map_source_window.v1`, and keeps archival
+metadata and lookup on CPU. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-synapse-provenance-map.json`
+preserved requested event-map hash parity while checking `128` rows instead of
+`2944` broad-normalized rows (`23x`) and reducing mean event-map latency from
+`319.823233 ms` to `13.972533 ms` (`22.889424x`). The clean `524288`-token
+hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-synapse-provenance-map.json`
+stayed in band at `5994.111 tokens/sec`, with bounded `12/65536` route rows,
+`10` output candidates, `65526` cached transition rows, zero graph/native
+sequence failures, no observed contention, CUDA runtime on RTX 3060, and GPU
+memory `1980->1976 MiB`. The old broad-normalized audit event-map shape is
+retired; benchmark-local broad comparison remains only evidence.
+
 ## Links
 
 - [Research notes](../../research-living-brain.md)

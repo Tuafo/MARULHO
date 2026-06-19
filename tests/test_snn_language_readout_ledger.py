@@ -14280,6 +14280,94 @@ def test_known_readout_evidence_hashes_uses_events_only_source_window() -> None:
             assert source.iterated == 0
 
 
+def test_readout_evidence_event_map_uses_requested_hash_source_window() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "readout_evidence_hash": f"{self.field}:readout:{index}",
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    ledger_state: dict[str, object] = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    event_map, report = ledger._readout_evidence_event_map_for_hashes_with_report(  # noqa: SLF001
+        {
+            "events:readout:0",
+            "events:readout:7",
+            "events:readout:9",
+            "missing-readout-hash",
+        }
+    )
+
+    assert set(event_map) == {"events:readout:0", "events:readout:7"}
+    assert report["surface"] == (
+        "bounded_snn_readout_evidence_event_map_source_window.v1"
+    )
+    assert report["policy"] == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
+    assert report["source"] == "snn_readout_ledger.events"
+    assert report["selection_criteria"] == [
+        "requested_readout_evidence_hashes_only",
+        "bounded_source_window_before_synapse_provenance_audit",
+    ]
+    assert report["source_window_limit"] == ledger_limit
+    assert report["source_window_count"] == ledger_limit
+    assert report["source_record_count"] == source_count
+    assert report["source_payload_truncated"] is True
+    assert report["source_truncated_count"] == source_count - ledger_limit
+    assert report["requested_hash_count"] == 4
+    assert report["matched_hash_count"] == 2
+    assert report["missing_hash_count"] == 2
+    assert set(report["missing_hashes"]) == {
+        "events:readout:9",
+        "missing-readout-hash",
+    }
+    assert report["global_candidate_scan"] is False
+    assert report["global_score_scan"] is False
+    assert report["raw_text_payload_loaded"] is False
+    assert report["language_reasoning"] is False
+    assert report["runs_live_tick"] is False
+    assert report["runs_every_token"] is False
+    assert report["mutates_runtime_state"] is False
+    assert report["applies_plasticity"] is False
+    assert report["archival_storage_device"] == "cpu"
+    assert report["lookup_device"] == "cpu"
+    assert report["gpu_used"] is False
+    assert report["memory_budget"]["max_source_records"] == ledger_limit
+    assert report["memory_budget"]["max_requested_hashes"] == 4
+    assert report["memory_budget"]["max_returned_events"] == 4
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        source = ledger_state[field]
+        assert isinstance(source, CountedRows)
+        if field == "events":
+            assert source.iterated == ledger_limit
+        else:
+            assert source.iterated == 0
+
+
 def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -15041,6 +15129,21 @@ def test_readout_synapse_provenance_audit_uses_dynamic_neuron_capacity() -> None
     assert row["synapse_indices_in_range"] is True
     assert row["source_indices_in_range"] is True
     assert row["source_indices_match_synapse"] is True
+    assert audit["ledger_event_source_window"]["surface"] == (
+        "bounded_snn_readout_evidence_event_map_source_window.v1"
+    )
+    assert audit["ledger_event_source_window"][
+        "policy"
+    ] == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
+    assert audit["ledger_event_source_window"]["requested_hash_count"] == 1
+    assert audit["ledger_event_source_window"]["matched_hash_count"] == 0
+    assert audit["ledger_event_source_window"]["missing_hash_count"] == 1
+    assert audit["ledger_event_source_window"]["global_candidate_scan"] is False
+    assert audit["ledger_event_source_window"]["runs_live_tick"] is False
+    assert audit["ledger_event_source_window"]["archival_storage_device"] == "cpu"
+    assert audit["promotion_gate"]["required_evidence"][
+        "ledger_event_source_window_bounded"
+    ] is True
 
 
 def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger() -> None:
@@ -15326,9 +15429,25 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert audit["audited_synapses"][0]["weight_finite"] is True
     assert audit["audited_synapses"][0]["weight_bounded"] is True
     assert audit["audited_synapses"][0]["source_indices_match_synapse"] is True
+    assert audit["ledger_event_source_window"]["requested_hash_count"] == 1
+    assert audit["ledger_event_source_window"]["matched_hash_count"] == 1
+    assert audit["ledger_event_source_window"]["missing_hash_count"] == 0
+    assert audit["audit_summary"]["ledger_event_source_window_count"] <= audit[
+        "ledger_event_source_window"
+    ]["source_window_limit"]
+    assert audit["audit_summary"]["ledger_event_requested_hash_count"] == 1
+    assert audit["audit_summary"]["ledger_event_matched_hash_count"] == 1
+    assert audit["audit_summary"]["ledger_event_missing_hash_count"] == 0
+    assert audit["promotion_gate"]["required_evidence"][
+        "ledger_event_source_window_bounded"
+    ] is True
     assert audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is True
     assert blocked["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert blocked["promotion_gate"]["required_evidence"]["synapse_provenance_available"] is False
+    assert blocked["ledger_event_source_window"]["requested_hash_count"] == 0
+    assert blocked["promotion_gate"]["required_evidence"][
+        "ledger_event_source_window_bounded"
+    ] is True
     assert mismatched["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert mismatched["promotion_gate"]["required_evidence"]["audited_synapses_match_ledger_fields"] is False
     assert malformed["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
@@ -15339,6 +15458,12 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert non_numeric["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert non_numeric["promotion_gate"]["required_evidence"]["audited_synapses_have_finite_weights"] is False
     assert replay_regeneration["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is True
+    assert replay_regeneration["ledger_event_source_window"][
+        "requested_hash_count"
+    ] == 1
+    assert replay_regeneration["ledger_event_source_window"][
+        "matched_hash_count"
+    ] == 1
     assert replay_regeneration["audit_summary"]["replay_regeneration_synapse_count"] == 1
     assert replay_regeneration["audit_summary"]["local_edge_provenance_count"] == 1
     assert replay_regeneration["audit_summary"]["complete_local_edge_provenance_count"] == 1

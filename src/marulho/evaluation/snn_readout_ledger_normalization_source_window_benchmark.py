@@ -276,6 +276,50 @@ def _broad_normalized_known_hash_lookup(
     }
 
 
+def _readout_evidence_event_map_target_hashes() -> set[str]:
+    return {
+        "events:readout:0",
+        "events:readout:1",
+        "events:readout:2",
+        "events:readout:3",
+    }
+
+
+def _bounded_readout_evidence_event_map_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    event_map, report = ledger._readout_evidence_event_map_for_hashes_with_report(  # noqa: SLF001
+        _readout_evidence_event_map_target_hashes()
+    )
+    return {
+        "hashes": sorted(event_map.keys()),
+        "event_count": int(len(event_map)),
+        "report": report,
+    }
+
+
+def _broad_normalized_readout_evidence_event_map_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    target_hashes = _readout_evidence_event_map_target_hashes()
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    event_map = {
+        str(item.get("readout_evidence_hash") or ""): dict(item)
+        for item in list(normalized.get("events") or [])
+        if (
+            isinstance(item, Mapping)
+            and str(item.get("readout_evidence_hash") or "") in target_hashes
+        )
+    }
+    return {
+        "hashes": sorted(event_map.keys()),
+        "event_count": int(len(event_map)),
+        "normalization_source_window": dict(
+            normalized.get("_normalization_source_window") or {}
+        ),
+    }
+
+
 def _dense_label_policy_hashes(
     events: list[dict[str, Any]],
     *,
@@ -2827,6 +2871,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=runs,
         fn=lambda: _broad_normalized_known_hash_lookup(ledger),
     )
+    event_map, event_map_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_readout_evidence_event_map_lookup(ledger),
+    )
+    broad_event_map, broad_event_map_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _broad_normalized_readout_evidence_event_map_lookup(ledger),
+    )
     dense_label, dense_label_samples = _timed_runs(
         runs=runs,
         fn=lambda: _bounded_dense_label_calibration(
@@ -2958,6 +3010,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     broad_known_hash_rows = int(
         dict(
             broad_known_hash.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
+    event_map_report = dict(event_map.get("report") or {})
+    event_map_mean = statistics.fmean(event_map_samples)
+    broad_event_map_mean = statistics.fmean(broad_event_map_samples)
+    event_map_rows = int(event_map_report.get("source_window_count", 0) or 0)
+    broad_event_map_rows = int(
+        dict(
+            broad_event_map.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
     )
@@ -3096,6 +3158,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "known_hash_bounded_less_work": known_hash_rows < broad_known_hash_rows,
         "known_hash_latency_not_slower_than_broad_normalization": (
             known_hash_mean <= broad_known_hash_mean * 1.1
+        ),
+        "event_map_surface_present": event_map_report.get("surface")
+        == "bounded_snn_readout_evidence_event_map_source_window.v1",
+        "event_map_policy_present": event_map_report.get("policy")
+        == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+        "event_map_hash_parity": event_map.get("hashes")
+        == broad_event_map.get("hashes"),
+        "event_map_requested_hash_count": int(
+            event_map_report.get("requested_hash_count", 0) or 0
+        )
+        == len(_readout_evidence_event_map_target_hashes()),
+        "event_map_bounded_less_work": event_map_rows < broad_event_map_rows,
+        "event_map_latency_not_slower_than_broad_normalization": (
+            event_map_mean <= broad_event_map_mean * 1.1
         ),
         "dense_label_surface_present": dense_label_source_window.get("surface")
         == "bounded_snn_dense_label_candidate_calibration_source_window.v1",
@@ -3359,6 +3435,62 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 ),
             },
             "source_window": known_hash_report,
+        },
+        "readout_evidence_event_map_boundary": {
+            "surface": "bounded_snn_readout_evidence_event_map_source_window.v1",
+            "policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.events",
+            "selection_criteria": [
+                "requested_readout_evidence_hashes_only",
+                "bounded source window before synapse provenance audit",
+            ],
+            "quality": {
+                "metric": "requested_readout_evidence_event_map_hash_parity",
+                "hash_set_parity": event_map.get("hashes")
+                == broad_event_map.get("hashes"),
+                "requested_hash_count": int(
+                    event_map_report.get("requested_hash_count", 0) or 0
+                ),
+                "matched_hash_count": int(
+                    event_map_report.get("matched_hash_count", 0) or 0
+                ),
+                "missing_hash_count": int(
+                    event_map_report.get("missing_hash_count", 0) or 0
+                ),
+                "event_count": int(event_map.get("event_count", 0) or 0),
+            },
+            "latency": {
+                "bounded": _latency_summary(event_map_samples),
+                "broad_normalized": _latency_summary(broad_event_map_samples),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_event_map_mean / max(event_map_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_synapse"
+                    "_provenance_readout_evidence_event_map"
+                ),
+                "bounded_checked_record_count": event_map_rows,
+                "old_checked_record_count": broad_event_map_rows,
+                "record_work_reduction": round(
+                    broad_event_map_rows / max(1, event_map_rows),
+                    6,
+                ),
+            },
+            "source_window": event_map_report,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
         },
         "dense_label_calibration_boundary": {
             "surface": "bounded_snn_dense_label_candidate_calibration_source_window.v1",
@@ -3770,7 +3902,8 @@ def main() -> None:
         "work_reduction={work:.6f} bounded_recent={bounded_recent:.6f} "
         "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
         "store_legacy_mean_ms={store_legacy:.6f} known_hash_bounded_mean_ms={known_hash_bounded:.6f} "
-        "known_hash_broad_mean_ms={known_hash_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
+        "known_hash_broad_mean_ms={known_hash_broad:.6f} event_map_bounded_mean_ms={event_map_bounded:.6f} "
+        "event_map_broad_mean_ms={event_map_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
         "dense_label_broad_mean_ms={dense_label_broad:.6f} dense_label_eval_bounded_mean_ms={dense_label_eval_bounded:.6f} "
         "dense_label_eval_broad_mean_ms={dense_label_eval_broad:.6f} "
         "dense_label_update_bounded_mean_ms={dense_label_update_bounded:.6f} "
@@ -3799,6 +3932,12 @@ def main() -> None:
             known_hash_broad=report["known_evidence_hash_boundary"]["latency"][
                 "broad_normalized"
             ]["mean_ms"],
+            event_map_bounded=report["readout_evidence_event_map_boundary"][
+                "latency"
+            ]["bounded"]["mean_ms"],
+            event_map_broad=report["readout_evidence_event_map_boundary"][
+                "latency"
+            ]["broad_normalized"]["mean_ms"],
             dense_label_bounded=report["dense_label_calibration_boundary"][
                 "latency"
             ]["bounded"]["mean_ms"],

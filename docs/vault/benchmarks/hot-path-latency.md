@@ -70,6 +70,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-generation-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-thought-structural-chain-rerun.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-synapse-provenance-map.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-synapse-provenance-map.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -4528,3 +4530,37 @@ The first same-shape long run at
 succeeded at `5921.867 tokens/sec`, but it is rejected as primary throughput
 evidence because the sampler observed GPU contention (`gpu max=21%`, threshold
 `20%`).
+
+## Synapse Provenance Event-Map Windows
+
+Synapse provenance audit no longer normalizes every retained readout-ledger
+event family before validating readout-derived sparse-transition lineage. The
+production path gathers requested hashes from `synapse_provenance_by_key` and
+looks up only the `events` source window through
+`bounded_snn_readout_evidence_event_map_source_window.v1`.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-synapse-provenance-map.json`
+
+Result: `pass=true`; requested event-map hash parity was preserved. Checked
+source rows fell from `2944` broad-normalized rows to `128` bounded `events`
+rows (`23x`), and mean event-map latency fell from `319.823233 ms` to
+`13.972533 ms` (`22.889424x`). CUDA was available on the RTX 3060 but the
+benchmark used no GPU execution for archival ledger metadata; archival/lookup
+placement stayed CPU-only with `runs_live_tick=false`, `runs_every_token=false`,
+and `language_reasoning=false`.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-synapse-provenance-map.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 300 --sample-interval-seconds 0.02`
+
+Result: `success=true`, `524288` tokens in `87.467178 s`,
+`5994.111 tokens/sec`, `tick_duration_ms.p95=21.885`,
+`train_compute=0.135406 ms/token`, `prepare_training=0.007135 ms/token`, and
+`finalize_total=0.006412 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, with `65526` cached transition
+rows, `state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. The environment sampler reported no observed contention (`cpu
+max=48%`, `gpu max=13%`, `gpu memory util max=18%`). Runtime CUDA memory moved
+`1980->1976 MiB`.

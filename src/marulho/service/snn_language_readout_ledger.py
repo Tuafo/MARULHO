@@ -7,7 +7,7 @@ import hashlib
 import math
 import json
 from itertools import islice
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import torch
 
@@ -37172,12 +37172,20 @@ class SNNLanguageReadoutEvidenceLedger:
             for key, value in dict(runtime.get("synapse_provenance_by_key") or {}).items()
             if isinstance(value, Mapping)
         }
-        normalized = self._normalized_state()
-        ledger_events = {
-            str(item.get("readout_evidence_hash") or ""): dict(item)
-            for item in list(normalized.get("events") or [])
-            if isinstance(item, Mapping) and item.get("readout_evidence_hash")
-        }
+        requested_ledger_hashes: set[str] = set()
+        for provenance in provenance_by_key.values():
+            readout_hash = str(provenance.get("readout_evidence_hash") or "").strip()
+            if readout_hash:
+                requested_ledger_hashes.add(readout_hash)
+            for value in list(provenance.get("readout_evidence_hashes") or [])[:64]:
+                replay_hash = str(value).strip()
+                if replay_hash:
+                    requested_ledger_hashes.add(replay_hash)
+        ledger_events, ledger_event_source_window = (
+            self._readout_evidence_event_map_for_hashes_with_report(
+                requested_ledger_hashes
+            )
+        )
         all_rows: list[dict[str, Any]] = []
         for key in sorted(provenance_by_key.keys()):
             provenance = provenance_by_key.get(key, {})
@@ -37430,6 +37438,21 @@ class SNNLanguageReadoutEvidenceLedger:
             "audited_source_indices_in_range": all(
                 bool(row["source_indices_in_range"]) for row in all_rows
             ) if all_rows else False,
+            "ledger_event_source_window_bounded": (
+                ledger_event_source_window.get("surface")
+                == "bounded_snn_readout_evidence_event_map_source_window.v1"
+                and ledger_event_source_window.get("policy")
+                == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
+                and int(ledger_event_source_window.get("source_window_count", 0) or 0)
+                <= int(ledger_event_source_window.get("source_window_limit", 0) or 0)
+                and ledger_event_source_window.get("global_candidate_scan") is False
+                and ledger_event_source_window.get("global_score_scan") is False
+                and ledger_event_source_window.get("runs_live_tick") is False
+                and ledger_event_source_window.get("runs_every_token") is False
+                and ledger_event_source_window.get("archival_storage_device") == "cpu"
+                and ledger_event_source_window.get("lookup_device") == "cpu"
+                and ledger_event_source_window.get("gpu_used") is False
+            ),
             "audited_replay_regeneration_local_edge_provenance_complete": all(
                 bool(row["local_edge_provenance_complete"])
                 for row in replay_regeneration_rows
@@ -37479,6 +37502,18 @@ class SNNLanguageReadoutEvidenceLedger:
                 "noncanonical_weight_key_count": len(weights) - len(canonical_weight_keys),
                 "out_of_range_weight_key_count": len(weights) - len(in_range_weight_keys),
                 "ledger_event_count": len(ledger_events),
+                "ledger_event_source_window_count": int(
+                    ledger_event_source_window.get("source_window_count", 0) or 0
+                ),
+                "ledger_event_requested_hash_count": int(
+                    ledger_event_source_window.get("requested_hash_count", 0) or 0
+                ),
+                "ledger_event_matched_hash_count": int(
+                    ledger_event_source_window.get("matched_hash_count", 0) or 0
+                ),
+                "ledger_event_missing_hash_count": int(
+                    ledger_event_source_window.get("missing_hash_count", 0) or 0
+                ),
                 "replay_regeneration_synapse_count": len(replay_regeneration_rows),
                 "local_edge_provenance_count": sum(
                     1 for row in all_rows if bool(row.get("local_edge_provenance"))
@@ -37500,6 +37535,10 @@ class SNNLanguageReadoutEvidenceLedger:
                     restore_validation_available and not restore_summary_matches
                 ),
             },
+            "ledger_event_source_window": ledger_event_source_window,
+            "ledger_event_source_window_policy": (
+                SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
+            ),
             "audited_synapses": rows,
             "orphan_weight_keys": orphan_weight_keys[: max(0, min(int(limit), 512))],
             "dangling_provenance_keys": dangling_provenance_keys[:row_limit],
@@ -38828,6 +38867,73 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
         return hashes, report
+
+    def _readout_evidence_event_map_for_hashes_with_report(
+        self,
+        hashes: Iterable[str],
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+        requested_hashes = {
+            text
+            for value in hashes
+            if (text := str(value).strip())
+        }
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(state, "events")
+        source_count = self._source_record_count(state, "events")
+        event_map: dict[str, dict[str, Any]] = {}
+        for item in events:
+            readout_hash = str(item.get("readout_evidence_hash") or "")
+            if readout_hash and readout_hash in requested_hashes:
+                event_map[readout_hash] = dict(item)
+        matched_hashes = set(event_map.keys())
+        missing_hashes = sorted(requested_hashes - matched_hashes)
+        source_window_count = int(len(events))
+        report = {
+            "surface": "bounded_snn_readout_evidence_event_map_source_window.v1",
+            "policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.events",
+            "selection_criteria": [
+                "requested_readout_evidence_hashes_only",
+                "bounded_source_window_before_synapse_provenance_audit",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "requested_hash_count": int(len(requested_hashes)),
+            "matched_hash_count": int(len(matched_hashes)),
+            "missing_hash_count": int(len(missing_hashes)),
+            "missing_hashes": missing_hashes[: min(len(missing_hashes), 32)],
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "max_requested_hashes": int(len(requested_hashes)),
+                "max_returned_events": int(min(len(requested_hashes), self._limit)),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return event_map, report
 
     def _dense_label_candidate_source_window_with_report(
         self,

@@ -25,3 +25,4 @@ related_benchmarks: []
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
+- [Synapse Provenance Broad Event Map Normalization](synapse-provenance-broad-event-map-normalization.md)
