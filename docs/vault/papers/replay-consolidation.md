@@ -91,6 +91,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-update-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-confidence-use-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-confidence-use-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-record-family-append.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1122,6 +1124,28 @@ processed `524288` tokens at `5965.377 tokens/sec`,
 `2045->2047 MiB`, no observed contention, and zero graph/native sequence
 failures. The old broad-normalized duplicate/review lookup is retired as
 benchmark-only evidence.
+
+Readout-ledger recorders now use the same one-family rule for writes, not only
+for advisory lookups. `record_readout_draft(...)`,
+`record_readout_rollout_replay_evaluation(...)`,
+`record_readout_emission_review(...)`, and
+`record_dense_readout_label_candidate_review(...)` append through
+`bounded_snn_readout_ledger_record_family_source_window.v1`: each recorder
+reads only its target event family for duplicate detection, then persists only
+that event family plus its total-count and timestamp fields. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-record-family-append.json`
+preserved latest-hash and total-count parity while checking `128` `events` rows
+instead of `2944` normalized ledger rows (`23x` less source work), reducing mean
+append latency from `883.251340 ms` to `57.255420 ms` (`15.426511x`). The report
+keeps archival/lookup/write placement on CPU, uses no CUDA archive, loads no raw
+text, performs no hidden language reasoning, and does not run in the live tick or
+every token. The paired `524288`-token hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json`
+processed `524288` tokens at `5966.765 tokens/sec`,
+`train_compute=0.136141 ms/token`, bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, GPU memory `2046->2043 MiB`, and zero
+graph/native sequence failures. The old broad-normalized single-family record
+append shape is retired as benchmark-only evidence.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

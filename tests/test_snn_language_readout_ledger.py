@@ -20,6 +20,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+    SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
     SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
@@ -87,6 +88,35 @@ def _assert_autonomous_confidence_use_source_window(
     assert window["runs_live_tick"] is False
     assert window["runs_every_token"] is False
     assert window["mutates_runtime_state"] is False
+    assert window["applies_plasticity"] is False
+    assert window["archival_storage_device"] == "cpu"
+    assert window["lookup_device"] == "cpu"
+    assert window["write_device"] == "cpu"
+    assert window["gpu_used"] is False
+
+
+def _assert_record_family_source_window(
+    window: dict[str, object],
+    *,
+    field: str,
+    expected_count: int | None = None,
+) -> None:
+    assert window["surface"] == "bounded_snn_readout_ledger_record_family_source_window.v1"
+    assert window["policy"] == SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY
+    assert window["event_family"] == field
+    assert window["source"] == f"snn_readout_ledger.{field}"
+    assert window["selection_criteria"] == [
+        "single_record_family_only",
+        "bounded_source_window_before_duplicate_check",
+    ]
+    if expected_count is not None:
+        assert window["source_window_count"] == expected_count
+    assert window["global_candidate_scan"] is False
+    assert window["global_score_scan"] is False
+    assert window["raw_text_payload_loaded"] is False
+    assert window["language_reasoning"] is False
+    assert window["runs_live_tick"] is False
+    assert window["runs_every_token"] is False
     assert window["applies_plasticity"] is False
     assert window["archival_storage_device"] == "cpu"
     assert window["lookup_device"] == "cpu"
@@ -13712,6 +13742,140 @@ def test_readout_ledger_store_state_uses_bounded_event_field_windows() -> None:
     assert ledger_state["current_text_surface_commit"] == {"surface": "current.v1"}
     assert ledger_state["total_recorded_count"] == source_count
     assert ledger_state["last_recorded_at"] == "2026-06-19T00:00:00+00:00"
+
+
+def test_readout_ledger_recorders_use_single_family_append_windows() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "readout_evidence_hash": f"{self.field}:readout:{index}",
+                    "rollout_evidence_hash": f"{self.field}:rollout:{index}",
+                    "emission_review_hash": f"{self.field}:review:{index}",
+                    "dense_label_candidate_evidence_hash": (
+                        f"{self.field}:dense-label:{index}"
+                    ),
+                    "recorded_at": "2026-06-19T00:00:00+00:00",
+                    "reviewed_at": "2026-06-19T00:00:00+00:00",
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    counted_sources = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state: dict[str, object] = dict(counted_sources)
+    ledger_state.update(
+        {
+            "total_recorded_count": source_count,
+            "total_rollout_recorded_count": source_count,
+            "total_emission_review_count": source_count,
+            "total_dense_label_candidate_count": source_count,
+            "current_text_surface_commit": {"surface": "preserve-current.v1"},
+        }
+    )
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    draft_record = ledger.record_readout_draft(
+        readout_draft=_ready_draft(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    rollout_record = ledger.record_readout_rollout_replay_evaluation(
+        readout_rollout_replay_evaluation=_ready_rollout_replay_evaluation(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    emission_record = ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    dense_label_record = ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+
+    assert draft_record["accepted"] is True
+    assert rollout_record["accepted"] is True
+    assert emission_record["accepted"] is True
+    assert dense_label_record["accepted"] is True
+    _assert_record_family_source_window(
+        draft_record["source_window"],
+        field="events",
+        expected_count=ledger_limit,
+    )
+    _assert_record_family_source_window(
+        rollout_record["source_window"],
+        field="rollout_events",
+        expected_count=ledger_limit,
+    )
+    _assert_record_family_source_window(
+        emission_record["source_window"],
+        field="emission_review_events",
+        expected_count=ledger_limit,
+    )
+    _assert_record_family_source_window(
+        dense_label_record["source_window"],
+        field="dense_label_candidate_events",
+        expected_count=ledger_limit,
+    )
+    assert draft_record["source_window"]["source_record_count"] == source_count
+    assert rollout_record["source_window"]["source_record_count"] == source_count
+    assert emission_record["source_window"]["source_record_count"] == source_count
+    assert dense_label_record["source_window"]["source_record_count"] == source_count
+    assert draft_record["ledger_summary"]["total_recorded_count"] == source_count + 1
+    assert rollout_record["ledger_summary"]["total_rollout_recorded_count"] == (
+        source_count + 1
+    )
+    assert emission_record["ledger_summary"]["total_emission_review_count"] == (
+        source_count + 1
+    )
+    assert dense_label_record["ledger_summary"][
+        "total_dense_label_candidate_count"
+    ] == source_count + 1
+    assert ledger_state["current_text_surface_commit"] == {
+        "surface": "preserve-current.v1"
+    }
+    target_fields = {
+        "events",
+        "rollout_events",
+        "emission_review_events",
+        "dense_label_candidate_events",
+    }
+    for field, source in counted_sources.items():
+        if field in target_fields:
+            assert source.iterated == ledger_limit
+            stored = ledger_state[field]
+            assert isinstance(stored, list)
+            assert len(stored) == ledger_limit
+        else:
+            assert source.iterated == 0
+            assert ledger_state[field] is source
 
 
 def test_known_readout_evidence_hashes_uses_events_only_source_window() -> None:

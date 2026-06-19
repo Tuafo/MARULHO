@@ -22,6 +22,9 @@ DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
 SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
     "recent_ledger_event_field_source_window_v1"
 )
+SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY = (
+    "recent_readout_ledger_record_family_source_window_v1"
+)
 SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY = (
     "recent_readout_evidence_hash_source_window_v1"
 )
@@ -241,19 +244,22 @@ class SNNLanguageReadoutEvidenceLedger:
             if not accepted:
                 return self._blocked(before_revision, required_evidence)
 
-            state = self._normalized_state()
             event = self._ledger_event(
                 draft=draft,
                 operator_id=str(operator_id).strip(),
                 state_revision=before_revision,
             )
-            existing_hashes = {str(item.get("readout_evidence_hash") or "") for item in state["events"]}
-            duplicate = event["readout_evidence_hash"] in existing_hashes
+            duplicate, ledger_summary, source_window = (
+                self._append_record_family_window(
+                    field="events",
+                    event=event,
+                    duplicate_key="readout_evidence_hash",
+                    total_count_key="total_recorded_count",
+                    timestamp_key="last_recorded_at",
+                    timestamp_value=event["recorded_at"],
+                )
+            )
             if not duplicate:
-                state["events"].appendleft(deepcopy(event))
-                state["total_recorded_count"] = int(state.get("total_recorded_count", 0) or 0) + 1
-                state["last_recorded_at"] = event["recorded_at"]
-                self._store_state(state)
                 self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": "terminus_snn_language_readout_evidence_ledger_record",
@@ -273,7 +279,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "recorded_event": event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": "recorded" if not duplicate else "duplicate_already_recorded",
                     "eligible_for_replay_memory": True,
@@ -395,25 +402,23 @@ class SNNLanguageReadoutEvidenceLedger:
             if not accepted:
                 return self._blocked_rollout_record(before_revision, required_evidence)
 
-            state = self._normalized_state()
             event = self._rollout_ledger_event(
                 evaluation=evaluation,
                 operator_id=str(operator_id).strip(),
                 state_revision=before_revision,
                 targets=targets,
             )
-            existing_hashes = {
-                str(item.get("rollout_evidence_hash") or "")
-                for item in state["rollout_events"]
-            }
-            duplicate = event["rollout_evidence_hash"] in existing_hashes
+            duplicate, ledger_summary, source_window = (
+                self._append_record_family_window(
+                    field="rollout_events",
+                    event=event,
+                    duplicate_key="rollout_evidence_hash",
+                    total_count_key="total_rollout_recorded_count",
+                    timestamp_key="last_rollout_recorded_at",
+                    timestamp_value=event["recorded_at"],
+                )
+            )
             if not duplicate:
-                state["rollout_events"].appendleft(deepcopy(event))
-                state["total_rollout_recorded_count"] = int(
-                    state.get("total_rollout_recorded_count", 0) or 0
-                ) + 1
-                state["last_rollout_recorded_at"] = event["recorded_at"]
-                self._store_state(state)
                 self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": "terminus_snn_language_readout_rollout_evidence_ledger_record",
@@ -433,7 +438,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "recorded_event": event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": "recorded" if not duplicate else "duplicate_already_recorded",
                     "eligible_for_rollout_replay_memory": True,
@@ -505,24 +511,22 @@ class SNNLanguageReadoutEvidenceLedger:
             if not accepted:
                 return self._blocked_emission_review(before_revision, required_evidence)
 
-            state = self._normalized_state()
             event = self._emission_review_event(
                 emission=emission,
                 operator_id=str(operator_id).strip(),
                 state_revision=before_revision,
             )
-            existing_hashes = {
-                str(item.get("emission_review_hash") or "")
-                for item in state["emission_review_events"]
-            }
-            duplicate = event["emission_review_hash"] in existing_hashes
+            duplicate, ledger_summary, source_window = (
+                self._append_record_family_window(
+                    field="emission_review_events",
+                    event=event,
+                    duplicate_key="emission_review_hash",
+                    total_count_key="total_emission_review_count",
+                    timestamp_key="last_emission_reviewed_at",
+                    timestamp_value=event["reviewed_at"],
+                )
+            )
             if not duplicate:
-                state["emission_review_events"].appendleft(deepcopy(event))
-                state["total_emission_review_count"] = int(
-                    state.get("total_emission_review_count", 0) or 0
-                ) + 1
-                state["last_emission_reviewed_at"] = event["reviewed_at"]
-                self._store_state(state)
                 self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": "terminus_snn_language_readout_emission_review_record",
@@ -543,7 +547,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "recorded_event": event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": "recorded" if not duplicate else "duplicate_already_recorded",
                     "eligible_for_operator_display_history": True,
@@ -636,25 +641,23 @@ class SNNLanguageReadoutEvidenceLedger:
                     required_evidence,
                 )
 
-            state = self._normalized_state()
             event = self._dense_label_candidate_event(
                 review=review,
                 operator_id=str(operator_id).strip(),
                 state_revision=before_revision,
                 labels=labels,
             )
-            existing_hashes = {
-                str(item.get("dense_label_candidate_evidence_hash") or "")
-                for item in state["dense_label_candidate_events"]
-            }
-            duplicate = event["dense_label_candidate_evidence_hash"] in existing_hashes
+            duplicate, ledger_summary, source_window = (
+                self._append_record_family_window(
+                    field="dense_label_candidate_events",
+                    event=event,
+                    duplicate_key="dense_label_candidate_evidence_hash",
+                    total_count_key="total_dense_label_candidate_count",
+                    timestamp_key="last_dense_label_candidate_recorded_at",
+                    timestamp_value=event["recorded_at"],
+                )
+            )
             if not duplicate:
-                state["dense_label_candidate_events"].appendleft(deepcopy(event))
-                state["total_dense_label_candidate_count"] = int(
-                    state.get("total_dense_label_candidate_count", 0) or 0
-                ) + 1
-                state["last_dense_label_candidate_recorded_at"] = event["recorded_at"]
-                self._store_state(state)
                 self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": "terminus_snn_language_dense_readout_label_candidate_evidence_record",
@@ -678,7 +681,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "recorded_event": event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": ledger_summary,
                 "promotion_gate": {
                     "status": "recorded" if not duplicate else "duplicate_already_recorded",
                     "eligible_for_dense_label_candidate_history": True,
@@ -38065,6 +38069,12 @@ class SNNLanguageReadoutEvidenceLedger:
         raw_value = state.get(name) or []
         if isinstance(raw_value, (str, bytes, Mapping)):
             return []
+        if isinstance(raw_value, (list, tuple)):
+            return [
+                deepcopy(dict(item))
+                for item in raw_value[: self._limit]
+                if isinstance(item, Mapping)
+            ]
         return [
             deepcopy(dict(item))
             for item in islice(raw_value, self._limit)
@@ -38083,6 +38093,138 @@ class SNNLanguageReadoutEvidenceLedger:
             return int(len(raw_value))
         except TypeError:
             return None
+
+    def _record_family_source_window_report(
+        self,
+        *,
+        field: str,
+        source_count: int | None,
+        source_window_count: int,
+        duplicate_key: str,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "bounded_snn_readout_ledger_record_family_source_window.v1",
+            "policy": SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
+            "source": f"snn_readout_ledger.{field}",
+            "event_family": field,
+            "selection_criteria": [
+                "single_record_family_only",
+                "bounded_source_window_before_duplicate_check",
+            ],
+            "duplicate_key": duplicate_key,
+            "source_window_limit": int(self._limit),
+            "source_window_count": int(source_window_count),
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > int(source_window_count))
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - int(source_window_count))
+                if source_count is not None
+                else None
+            ),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+
+    def _record_family_ledger_summary(
+        self,
+        *,
+        field: str,
+        window_event_count: int,
+        total_count_key: str,
+        total_count: int,
+        timestamp_key: str,
+        timestamp_value: Any,
+        source_window: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        count_key_by_field = {
+            "events": "event_count",
+            "rollout_events": "rollout_event_count",
+            "emission_review_events": "emission_review_event_count",
+            "dense_label_candidate_events": "dense_label_candidate_event_count",
+        }
+        summary = {
+            "source_window_policy": source_window.get("policy"),
+            "record_family": field,
+            "record_family_source_window": dict(source_window),
+            total_count_key: int(total_count),
+            timestamp_key: timestamp_value,
+        }
+        summary[count_key_by_field.get(field, f"{field}_count")] = int(
+            window_event_count
+        )
+        return summary
+
+    def _append_record_family_window(
+        self,
+        *,
+        field: str,
+        event: Mapping[str, Any],
+        duplicate_key: str,
+        total_count_key: str,
+        timestamp_key: str,
+        timestamp_value: Any,
+    ) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(state, field)
+        source_count = self._source_record_count(state, field)
+        source_window = self._record_family_source_window_report(
+            field=field,
+            source_count=source_count,
+            source_window_count=len(events),
+            duplicate_key=duplicate_key,
+        )
+        event_hash = str(event.get(duplicate_key) or "")
+        existing_hashes = {str(item.get(duplicate_key) or "") for item in events}
+        duplicate = bool(event_hash) and event_hash in existing_hashes
+        total_count = int(
+            state.get(
+                total_count_key,
+                source_count if source_count is not None else len(events),
+            )
+            or 0
+        )
+        stored_events = list(events)
+        last_value = state.get(timestamp_key)
+        if not duplicate:
+            stored_events = [deepcopy(dict(event)), *stored_events]
+            total_count += 1
+            last_value = timestamp_value
+            state[field] = [
+                deepcopy(dict(item))
+                for item in stored_events[: self._limit]
+                if isinstance(item, Mapping)
+            ]
+            state[total_count_key] = total_count
+            state[timestamp_key] = timestamp_value
+        summary = self._record_family_ledger_summary(
+            field=field,
+            window_event_count=min(int(len(stored_events)), int(self._limit)),
+            total_count_key=total_count_key,
+            total_count=total_count,
+            timestamp_key=timestamp_key,
+            timestamp_value=last_value,
+            source_window=source_window,
+        )
+        return duplicate, summary, source_window
 
     def _normalization_source_window_report(
         self,
@@ -38859,8 +39001,23 @@ class SNNLanguageReadoutEvidenceLedger:
 
     def _store_state(self, normalized: Mapping[str, Any]) -> None:
         state = self._ledger_state()
+        limit = int(self._limit)
         for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
-            state[name] = self._bounded_mapping_list_from_state(normalized, name)
+            raw_value = normalized.get(name) or []
+            if isinstance(raw_value, (str, bytes, Mapping)):
+                state[name] = []
+            elif isinstance(raw_value, (list, tuple)):
+                state[name] = [
+                    deepcopy(dict(item))
+                    for item in raw_value[:limit]
+                    if isinstance(item, Mapping)
+                ]
+            else:
+                state[name] = [
+                    deepcopy(dict(item))
+                    for item in islice(raw_value, limit)
+                    if isinstance(item, Mapping)
+                ]
         for name in SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS:
             value = normalized.get(name)
             state[name] = deepcopy(dict(value)) if isinstance(value, Mapping) else {}

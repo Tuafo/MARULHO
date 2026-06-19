@@ -28,7 +28,11 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
+    SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS,
+    SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+    SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS,
+    SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNNLanguageReadoutEvidenceLedger,
 )
@@ -136,6 +140,13 @@ def _legacy_full_materialized_store_state(
             for item in raw_rows[: max(1, int(limit))]
             if isinstance(item, Mapping)
         ]
+    for field in SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS:
+        value = normalized.get(field)
+        state[field] = deepcopy(dict(value)) if isinstance(value, Mapping) else {}
+    for field in SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS:
+        state[field] = int(normalized.get(field, 0) or 0)
+    for field in SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS:
+        state[field] = normalized.get(field)
     return state
 
 
@@ -146,10 +157,7 @@ def _bounded_store_state(
 ) -> dict[str, Any]:
     target.clear()
     ledger._store_state(normalized)  # noqa: SLF001
-    return {
-        field: list(target.get(field) or [])
-        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
-    }
+    return target
 
 
 def _bounded_known_hash_lookup(
@@ -513,10 +521,89 @@ def _broad_normalized_autonomous_confidence_use_lookup(
     }
 
 
-def _timed_runs(*, runs: int, fn: Any) -> tuple[dict[str, Any], list[float]]:
+def _record_append_event() -> dict[str, Any]:
+    return {
+        "readout_evidence_hash": "record-family-append-readout-hash",
+        "recorded_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 0,
+        "labels": ["record-family-append"],
+    }
+
+
+def _reset_state(target: dict[str, Any], seed: Mapping[str, Any]) -> None:
+    target.clear()
+    target.update(deepcopy(dict(seed)))
+
+
+def _bounded_record_family_append(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    event = _record_append_event()
+    duplicate, summary, source_window = ledger._append_record_family_window(  # noqa: SLF001
+        field="events",
+        event=event,
+        duplicate_key="readout_evidence_hash",
+        total_count_key="total_recorded_count",
+        timestamp_key="last_recorded_at",
+        timestamp_value=event["recorded_at"],
+    )
+    events = list(ledger._ledger_state().get("events") or [])  # noqa: SLF001
+    latest = dict(events[0]) if events and isinstance(events[0], Mapping) else {}
+    return {
+        "duplicate": duplicate,
+        "latest_hash": str(latest.get("readout_evidence_hash") or ""),
+        "total_recorded_count": int(summary.get("total_recorded_count", 0) or 0),
+        "event_count": int(summary.get("event_count", 0) or 0),
+        "source_window": source_window,
+    }
+
+
+def _broad_normalized_record_family_append(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    event = _record_append_event()
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    source_window = dict(normalized.get("_normalization_source_window") or {})
+    events = normalized["events"]
+    existing_hashes = {
+        str(item.get("readout_evidence_hash") or "") for item in list(events)
+    }
+    duplicate = event["readout_evidence_hash"] in existing_hashes
+    if not duplicate:
+        events.appendleft(deepcopy(event))
+        normalized["total_recorded_count"] = int(
+            normalized.get("total_recorded_count", 0) or 0
+        ) + 1
+        normalized["last_recorded_at"] = event["recorded_at"]
+        ledger._store_state(normalized)  # noqa: SLF001
+    stored_events = list(ledger._ledger_state().get("events") or [])  # noqa: SLF001
+    latest = (
+        dict(stored_events[0])
+        if stored_events and isinstance(stored_events[0], Mapping)
+        else {}
+    )
+    return {
+        "duplicate": duplicate,
+        "latest_hash": str(latest.get("readout_evidence_hash") or ""),
+        "total_recorded_count": int(
+            ledger._ledger_state().get("total_recorded_count", 0) or 0  # noqa: SLF001
+        ),
+        "event_count": int(len(stored_events)),
+        "normalization_source_window": source_window,
+    }
+
+
+def _timed_runs(
+    *,
+    runs: int,
+    fn: Any,
+    setup: Any | None = None,
+) -> tuple[dict[str, Any], list[float]]:
     samples: list[float] = []
     last: dict[str, Any] | None = None
     for _ in range(max(1, int(runs))):
+        if setup is not None:
+            setup()
         started = time.perf_counter()
         last = fn()
         samples.append((time.perf_counter() - started) * 1000.0)
@@ -679,6 +766,31 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             fn=lambda: _broad_normalized_autonomous_confidence_use_lookup(ledger),
         )
     )
+    record_seed_state = _seed_ledger_state(retention_count=retention_count)
+    record_state: dict[str, Any] = {}
+    broad_record_state: dict[str, Any] = {}
+    record_ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: record_state,
+        limit=ledger_limit,
+    )
+    broad_record_ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: broad_record_state,
+        limit=ledger_limit,
+    )
+    record_append, record_append_samples = _timed_runs(
+        runs=runs,
+        setup=lambda: _reset_state(record_state, record_seed_state),
+        fn=lambda: _bounded_record_family_append(record_ledger),
+    )
+    broad_record_append, broad_record_append_samples = _timed_runs(
+        runs=runs,
+        setup=lambda: _reset_state(broad_record_state, record_seed_state),
+        fn=lambda: _broad_normalized_record_family_append(broad_record_ledger),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -767,6 +879,18 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         ).get("source_window_count_total", 0)
         or 0
     )
+    record_append_source_window = dict(record_append.get("source_window") or {})
+    record_append_mean = statistics.fmean(record_append_samples)
+    broad_record_append_mean = statistics.fmean(broad_record_append_samples)
+    record_append_rows = int(
+        record_append_source_window.get("source_window_count", 0) or 0
+    )
+    broad_record_append_rows = int(
+        dict(
+            broad_record_append.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
     pass_checks = {
         "surface_present": source_window.get("surface")
         == "bounded_snn_readout_ledger_normalization_source_window.v1",
@@ -788,7 +912,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "legacy_recent_loss_detected": legacy_rate < bounded_rate,
         "bounded_less_work": bounded_rows < legacy_rows,
         "store_source_limit_respected": all(
-            len(list(value or [])) <= ledger_limit for value in bounded_store.values()
+            len(list(bounded_store.get(field) or [])) <= ledger_limit
+            for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
         ),
         "store_recent_rows_preserved": bounded_store_rate == 1.0,
         "store_matches_legacy_window": (
@@ -886,6 +1011,27 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "autonomous_confidence_use_latency_not_slower_than_broad_normalization": (
             autonomous_confidence_use_mean
             <= broad_autonomous_confidence_use_mean * 1.1
+        ),
+        "record_append_surface_present": (
+            record_append_source_window.get("surface")
+            == "bounded_snn_readout_ledger_record_family_source_window.v1"
+        ),
+        "record_append_policy_present": (
+            record_append_source_window.get("policy")
+            == SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY
+        ),
+        "record_append_latest_hash_parity": (
+            record_append.get("latest_hash") == broad_record_append.get("latest_hash")
+        ),
+        "record_append_total_count_parity": (
+            record_append.get("total_recorded_count")
+            == broad_record_append.get("total_recorded_count")
+        ),
+        "record_append_bounded_less_work": (
+            record_append_rows < broad_record_append_rows
+        ),
+        "record_append_latency_not_slower_than_broad_normalization": (
+            record_append_mean <= broad_record_append_mean * 1.1
         ),
     }
     return {
@@ -1207,6 +1353,60 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "write_device": "cpu",
             "gpu_used": False,
         },
+        "record_family_append_boundary": {
+            "surface": "bounded_snn_readout_ledger_record_family_source_window.v1",
+            "policy": SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.events",
+            "selection_criteria": [
+                "single_record_family_only",
+                "bounded_source_window_before_duplicate_check",
+            ],
+            "quality": {
+                "metric": "record_family_append_latest_hash_and_total_count_parity",
+                "latest_hash_parity": record_append.get("latest_hash")
+                == broad_record_append.get("latest_hash"),
+                "total_count_parity": record_append.get("total_recorded_count")
+                == broad_record_append.get("total_recorded_count"),
+                "latest_hash": record_append.get("latest_hash"),
+                "total_recorded_count": int(
+                    record_append.get("total_recorded_count", 0) or 0
+                ),
+                "window_event_count": int(record_append.get("event_count", 0) or 0),
+            },
+            "latency": {
+                "bounded": _latency_summary(record_append_samples),
+                "broad_normalized": _latency_summary(broad_record_append_samples),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_record_append_mean / max(record_append_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_single_family"
+                    "_record_append"
+                ),
+                "bounded_checked_record_count": record_append_rows,
+                "old_checked_record_count": broad_record_append_rows,
+                "record_work_reduction": round(
+                    broad_record_append_rows / max(1, record_append_rows),
+                    6,
+                ),
+            },
+            "source_window": record_append_source_window,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": True,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -1243,7 +1443,9 @@ def main() -> None:
         "dense_label_update_bounded_mean_ms={dense_label_update_bounded:.6f} "
         "dense_label_update_broad_mean_ms={dense_label_update_broad:.6f} "
         "autonomous_confidence_use_bounded_mean_ms={confidence_use_bounded:.6f} "
-        "autonomous_confidence_use_broad_mean_ms={confidence_use_broad:.6f}".format(
+        "autonomous_confidence_use_broad_mean_ms={confidence_use_broad:.6f} "
+        "record_append_bounded_mean_ms={record_append_bounded:.6f} "
+        "record_append_broad_mean_ms={record_append_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -1286,6 +1488,12 @@ def main() -> None:
             confidence_use_broad=report[
                 "autonomous_confidence_use_boundary"
             ]["latency"]["broad_normalized"]["mean_ms"],
+            record_append_bounded=report["record_family_append_boundary"][
+                "latency"
+            ]["bounded"]["mean_ms"],
+            record_append_broad=report["record_family_append_boundary"][
+                "latency"
+            ]["broad_normalized"]["mean_ms"],
         )
     )
 

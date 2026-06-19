@@ -54,6 +54,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-update-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-confidence-use-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-confidence-use-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-record-family-append.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -3989,6 +3991,22 @@ velocity sampler reported no observed contention, CPU max `29%`, GPU max `15%`,
 GPU memory-util max `19%`, and RTX 3060 memory moved `2045->2047 MiB`. This is
 same-band throughput protection for a slow confidence-use ledger helper, not a
 speed promotion.
+
+The readout-ledger record-family append source-window protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-record-family-append.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 300 --sample-interval-seconds 0.02`
+
+It processed `524288` tokens at `5966.765 tokens/sec`, with
+`train_compute=0.136141 ms/token`, `prepare_training=0.007153 ms/token`,
+`finalize_total=0.006368 ms/token`, and `tick_duration_ms.p95=22.420`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported no observed contention, CPU max `22%`, GPU max `13%`,
+GPU memory-util max `18%`, and RTX 3060 memory moved `2046->2043 MiB`. This is
+same-band throughput protection for the slow readout-ledger record append
+cleanup, not a speed promotion.
 
 ## Strong-Capture Admission Cadence
 

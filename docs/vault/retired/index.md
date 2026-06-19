@@ -16,4 +16,5 @@ related_benchmarks: []
 - [Direct Route Vote Fusion](direct-route-vote-fusion.md)
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
+- [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
