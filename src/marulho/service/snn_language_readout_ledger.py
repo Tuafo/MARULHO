@@ -12,6 +12,10 @@ from typing import Any, Callable, Mapping, Sequence
 import torch
 
 from marulho.service.runtime_state import RuntimeState
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    bounded_application_synapse_window,
+)
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
@@ -83,6 +87,37 @@ class SNNLanguageReadoutEvidenceLedger:
         self._runtime_state = runtime_state
         self._ledger_state = ledger_state
         self._limit = max(1, int(limit))
+
+    @staticmethod
+    def _rollout_candidate_source_window(
+        raw_value: Any,
+        *,
+        source: str,
+        surface: str,
+        field_name: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return bounded_application_synapse_window(
+            raw_value,
+            source=source,
+            surface=surface,
+            field_name=field_name,
+        )
+
+    @staticmethod
+    def _rollout_candidate_source_window_bounded(
+        source_window: Mapping[str, Any],
+        *,
+        surface: str,
+    ) -> bool:
+        return (
+            source_window.get("surface") == surface
+            and int(source_window.get("source_window_count", 0) or 0)
+            <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+            and int(source_window.get("source_mapping_count", 0) or 0)
+            == int(source_window.get("source_window_count", 0) or 0)
+            and bool(source_window.get("global_candidate_scan")) is False
+            and bool(source_window.get("global_score_scan")) is False
+        )
 
     def record_readout_draft(
         self,
@@ -33842,11 +33877,20 @@ class SNNLanguageReadoutEvidenceLedger:
             for item in list(experiment.get("trace") or [])
             if isinstance(item, Mapping)
         ]
-        sparse_transition_candidates = [
-            dict(item)
-            for item in list(experiment.get("sparse_transition_candidates") or [])
-            if isinstance(item, Mapping)
-        ][:64]
+        source_window_surface = (
+            "bounded_snn_rollout_consolidation_design_sparse_candidate_window.v1"
+        )
+        sparse_transition_candidates, sparse_candidate_source_window = (
+            self._rollout_candidate_source_window(
+                experiment.get("sparse_transition_candidates"),
+                source=(
+                    "service.snn_language_readout_ledger."
+                    "rollout_consolidation_design_sparse_transition_candidates"
+                ),
+                surface=source_window_surface,
+                field_name="ephemeral_experiment.sparse_transition_candidates",
+            )
+        )
         step_hashes = [
             str(item.get("matching_step_hash_count") or "")
             for item in cycle_trace
@@ -33899,11 +33943,24 @@ class SNNLanguageReadoutEvidenceLedger:
             "stable_cycles_available": bool(cycle_trace)
             and bool(summary.get("stable"))
             and minimum_stability >= 0.95,
+            "sparse_candidate_source_window_bounded": (
+                self._rollout_candidate_source_window_bounded(
+                    sparse_candidate_source_window,
+                    surface=source_window_surface,
+                )
+            ),
+            "sparse_candidate_payload_not_truncated": not bool(
+                sparse_candidate_source_window.get("source_payload_truncated")
+            ),
             "candidate_synapses_available": bool(candidate_synapses),
             "local_only_policy": local_only,
             "normalization_enabled": normalization,
             "rollback_policy_available": bool(rollback.get("available")),
             "rollback_snapshot_available": bool(str(rollback.get("snapshot_id") or "")),
+        }
+        required_evidence = {
+            **required,
+            "sparse_candidate_source_window": dict(sparse_candidate_source_window),
         }
         ready = all(required.values())
         design_material = {
@@ -33921,6 +33978,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "rollback_snapshot_id": rollback.get("snapshot_id"),
             "candidate_synapses": candidate_synapses,
             "sparse_transition_candidates": sparse_transition_candidates,
+            "sparse_candidate_source_window": dict(sparse_candidate_source_window),
         }
         design_hash = self._sha256_json(design_material)
         return {
@@ -33940,6 +33998,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "rollout_rehearsal_experiment_surface": report.get("surface"),
             "rollout_consolidation_design_hash": design_hash,
             "rollout_consolidation_design_material": design_material,
+            "sparse_candidate_source_window": dict(sparse_candidate_source_window),
             "rollout_consolidation_design": {
                 "candidate_synapse_count": len(candidate_synapses),
                 "candidate_synapses": candidate_synapses,
@@ -33970,7 +34029,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "next_gate": "operator_review_snn_readout_rollout_consolidation_design"
                 if ready
                 else "collect_stable_rollout_rehearsal_experiment_evidence",
-                "required_evidence": required,
+                "required_evidence": required_evidence,
             },
         }
 
@@ -33996,11 +34055,18 @@ class SNNLanguageReadoutEvidenceLedger:
             not requested_device.startswith("cuda")
             or tensor_device.type == "cuda"
         )
-        candidates = [
-            dict(item)
-            for item in list(design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ][:64]
+        source_window_surface = (
+            "bounded_snn_rollout_consolidation_shadow_delta_candidate_window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_candidate_source_window(
+            design.get("candidate_synapses"),
+            source=(
+                "service.snn_language_readout_ledger."
+                "rollout_consolidation_shadow_delta_candidate_synapses"
+            ),
+            surface=source_window_surface,
+            field_name="rollout_consolidation_design.candidate_synapses",
+        )
         delta_tensor = torch.zeros(
             (_LANGUAGE_NEURON_COUNT, _LANGUAGE_NEURON_COUNT),
             device=tensor_device,
@@ -34064,6 +34130,15 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
             "plasticity_application_absent": not bool(report.get("applies_plasticity")),
+            "candidate_source_window_bounded": (
+                self._rollout_candidate_source_window_bounded(
+                    candidate_source_window,
+                    surface=source_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "candidate_synapses_available": bool(candidates),
             "shadow_synapses_available": bool(bounded_synapses) and nonzero_count > 0,
             "shadow_delta_within_bound": max_abs_delta <= max_weight_delta,
@@ -34078,6 +34153,10 @@ class SNNLanguageReadoutEvidenceLedger:
             "requested_cuda_honored": requested_cuda_honored,
             "silent_device_fallback_absent": requested_device == str(tensor_device)
             or (requested_device.startswith("cuda") and requested_cuda_honored),
+        }
+        required_evidence = {
+            **required,
+            "candidate_source_window": dict(candidate_source_window),
         }
         ready = all(required.values())
         return {
@@ -34098,6 +34177,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "rollout_consolidation_design_hash": report.get("rollout_consolidation_design_hash"),
             "rollout_consolidation_shadow_delta_hash": delta_hash,
             "rollback_snapshot_id": design.get("rollback_snapshot_id"),
+            "candidate_source_window": dict(candidate_source_window),
             "affected_synapse_count": len(bounded_synapses),
             "max_abs_delta": float(max_abs_delta),
             "bounded_synapses": bounded_synapses,
@@ -34133,7 +34213,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "next_gate": "operator_review_snn_readout_rollout_consolidation_shadow_delta"
                 if ready
                 else "collect_rollout_consolidation_design_evidence",
-                "required_evidence": required,
+                "required_evidence": required_evidence,
             },
         }
 
@@ -34483,15 +34563,18 @@ class SNNLanguageReadoutEvidenceLedger:
         sparse_edge_budget = int(language_capacity["sparse_edge_budget"])
         transition_memory_snapshot_hash = self._sha256_json(weights)
         runtime_snapshot = self._runtime_state.snapshot()
-        raw_candidates = [
-            dict(item)
-            for item in list(design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ]
-        candidates = [
-            dict(item)
-            for item in raw_candidates[: _MAX_STRUCTURAL_EDGES_PER_EVENT]
-        ]
+        source_window_surface = (
+            "bounded_snn_rollout_developmental_plasticity_candidate_window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_candidate_source_window(
+            design.get("candidate_synapses"),
+            source=(
+                "service.snn_language_readout_ledger."
+                "rollout_developmental_plasticity_candidate_synapses"
+            ),
+            surface=source_window_surface,
+            field_name="rollout_consolidation_design.candidate_synapses",
+        )
         growth_candidates: list[dict[str, Any]] = []
         parsed_candidates: list[tuple[int, int, float]] = []
         max_weight_delta = float(design.get("max_weight_delta", 0.0) or 0.0)
@@ -34606,7 +34689,15 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             if isinstance(preflight.get("preflight_summary"), Mapping)
             else False,
-            "candidate_payload_not_truncated": len(raw_candidates) == len(candidates),
+            "candidate_source_window_bounded": (
+                self._rollout_candidate_source_window_bounded(
+                    candidate_source_window,
+                    surface=source_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "candidate_payload_well_formed": len(parsed_candidates) == len(candidates),
             "candidate_ids_unique": bool(synapse_ids)
             and all(synapse_ids)
@@ -34680,6 +34771,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "transition_memory_snapshot_hash": transition_memory_snapshot_hash,
                 "growth_candidates": growth_candidates,
+                "candidate_source_window": dict(candidate_source_window),
             }
         )
         required = {
@@ -34742,6 +34834,7 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "rollout_developmental_plasticity_review_hash": review_hash,
             "integrity_evidence": integrity_evidence,
+            "candidate_source_window": dict(candidate_source_window),
             "runtime_memory_evidence": runtime_memory_evidence,
             "growth_classification": growth_classification,
             "topology_budget_evidence": topology_budget_evidence,
@@ -34814,13 +34907,20 @@ class SNNLanguageReadoutEvidenceLedger:
         language_capacity = self._language_capacity_state(runtime_memory)
         language_neuron_count = int(language_capacity["language_neuron_count"])
         sparse_edge_budget = int(language_capacity["sparse_edge_budget"])
-        raw_candidates = [
-            dict(item)
-            for item in list(developmental.get("growth_candidates") or [])
-            if isinstance(item, Mapping)
-        ]
+        source_window_surface = (
+            "bounded_snn_rollout_regeneration_adapter_growth_candidate_window.v1"
+        )
+        raw_candidates, growth_candidate_source_window = self._rollout_candidate_source_window(
+            developmental.get("growth_candidates"),
+            source=(
+                "service.snn_language_readout_ledger."
+                "rollout_regeneration_adapter_growth_candidates"
+            ),
+            surface=source_window_surface,
+            field_name="developmental_plasticity_review.growth_candidates",
+        )
         candidates: list[dict[str, Any]] = []
-        for item in raw_candidates[: _MAX_STRUCTURAL_EDGES_PER_EVENT]:
+        for item in raw_candidates:
             try:
                 pre_index = int(item.get("pre_index"))
                 post_index = int(item.get("post_index"))
@@ -34857,6 +34957,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "mismatch_score": 0.0,
             "candidate_count": len(candidates),
             "candidate_synapses": candidates,
+            "growth_candidate_source_window": dict(growth_candidate_source_window),
         }
         recomputed_review_hash = self._sha256_json(
             {
@@ -34870,6 +34971,11 @@ class SNNLanguageReadoutEvidenceLedger:
                     "transition_memory_snapshot_hash"
                 ),
                 "growth_candidates": raw_candidates,
+                "candidate_source_window": dict(
+                    review.get("candidate_source_window")
+                    if isinstance(review.get("candidate_source_window"), Mapping)
+                    else {}
+                ),
             }
         )
         adapter_hash = self._sha256_json(
@@ -34946,7 +35052,18 @@ class SNNLanguageReadoutEvidenceLedger:
             "growth_candidate_count_matches_review": len(candidates)
             == int(developmental.get("growth_candidate_count", 0) or 0),
             "all_candidates_are_growth": bool(growth.get("all_candidates_are_growth")),
-            "candidate_payload_not_truncated": len(raw_candidates) == len(candidates),
+            "growth_candidate_source_window_bounded": (
+                self._rollout_candidate_source_window_bounded(
+                    growth_candidate_source_window,
+                    surface=source_window_surface,
+                )
+            ),
+            "growth_candidate_payload_not_truncated": not bool(
+                growth_candidate_source_window.get("source_payload_truncated")
+            ),
+            "candidate_payload_not_truncated": not bool(
+                growth_candidate_source_window.get("source_payload_truncated")
+            ),
             "candidate_payload_well_formed": len(candidates) == len(raw_candidates),
             "candidate_ids_unique": bool(candidate_ids)
             and all(candidate_ids)
@@ -35034,6 +35151,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "rollout_developmental_plasticity_review_hash"
             ),
             "rollout_regeneration_proposal_adapter_hash": adapter_hash,
+            "growth_candidate_source_window": dict(growth_candidate_source_window),
             "integrity_evidence": required,
             "rollout_growth_evidence": rollout_growth_evidence,
             "language_capacity": language_capacity,
@@ -35087,11 +35205,20 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(adapter.get("regeneration_design"), Mapping)
             else {}
         )
-        candidates = [
-            dict(item)
-            for item in list(design.get("candidate_synapses") or [])
-            if isinstance(item, Mapping)
-        ]
+        source_window_surface = (
+            "bounded_snn_rollout_regeneration_replay_artifact_review_candidate_window.v1"
+        )
+        candidates, candidate_source_window = self._rollout_candidate_source_window(
+            design.get("candidate_synapses"),
+            source=(
+                "service.snn_language_readout_ledger."
+                "rollout_regeneration_replay_artifact_review_candidate_synapses"
+            ),
+            surface=source_window_surface,
+            field_name="regeneration_design.candidate_synapses",
+        )
+        bounded_design = dict(design)
+        bounded_design["candidate_synapses"] = candidates
         language_capacity = self._language_capacity_state(adapter)
         language_neuron_count = int(language_capacity["language_neuron_count"])
         blocked_replay = (
@@ -35109,7 +35236,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "rollout_developmental_plasticity_review_hash": adapter.get(
                     "rollout_developmental_plasticity_review_hash"
                 ),
-                "regeneration_design": design,
+                "regeneration_design": bounded_design,
             }
         )
         replay_material = {
@@ -35139,7 +35266,7 @@ class SNNLanguageReadoutEvidenceLedger:
             0.0,
             min(1.0, float(replay_material.get("pressure_score", 0.0) or 0.0)),
         )
-        replay_bound_design = deepcopy(design)
+        replay_bound_design = dict(bounded_design)
         replay_bound_design["mismatch_score"] = replay_mismatch_score
         design_hash = self._sha256_json(replay_bound_design)
         review_hash = self._sha256_json(
@@ -35175,8 +35302,17 @@ class SNNLanguageReadoutEvidenceLedger:
             and bool(executor_bypass.get("checkpoint_executor_required"))
             and bool(executor_bypass.get("direct_executor_submission_expected_to_block")),
             "regeneration_design_available": bool(design),
+            "candidate_source_window_bounded": (
+                self._rollout_candidate_source_window_bounded(
+                    candidate_source_window,
+                    surface=source_window_surface,
+                )
+            ),
+            "candidate_payload_not_truncated": not bool(
+                candidate_source_window.get("source_payload_truncated")
+            ),
             "regeneration_design_candidate_count_matches": len(candidates)
-            == int(design.get("candidate_count", 0) or 0),
+            == int(bounded_design.get("candidate_count", 0) or 0),
             "regeneration_design_candidate_count_bounded": 0 < len(candidates)
             <= _MAX_STRUCTURAL_EDGES_PER_EVENT,
             "regeneration_design_indices_canonical": all(
@@ -35234,6 +35370,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "snn_transition_memory_replay_artifact_hash": replay.get("evidence_hash"),
             "regeneration_design_hash": design_hash,
             "rollout_regeneration_replay_artifact_review_hash": review_hash,
+            "candidate_source_window": dict(candidate_source_window),
             "language_capacity": language_capacity,
             "regeneration_design": deepcopy(replay_bound_design),
             "replay_mismatch_evidence": {

@@ -419,6 +419,75 @@ def _regeneration_candidates(count: int) -> list[dict[str, object]]:
     return [_regeneration_candidate(index) for index in range(count)]
 
 
+def _rollout_sparse_transition_candidate(index: int) -> dict[str, object]:
+    source_index = index % 32
+    target_index = source_index + 1
+    return {
+        "source_index": source_index,
+        "target_index": target_index,
+        "source_trace_index": index,
+        "source_step_index": index,
+        "target_step_index": index + 1,
+        "source_active_indices_hash": _sha256_json([source_index]),
+        "target_active_indices_hash": _sha256_json([target_index]),
+    }
+
+
+def _rollout_sparse_transition_candidates(count: int) -> list[dict[str, object]]:
+    return [_rollout_sparse_transition_candidate(index) for index in range(count)]
+
+
+def _rollout_design_candidate(index: int) -> dict[str, object]:
+    source_index = index % 32
+    target_index = source_index + 1
+    return {
+        "synapse_id": f"snn-rollout-local:{source_index}:{target_index}:{index}",
+        "source_step_index": source_index,
+        "target_step_index": target_index,
+        "source_neuron_index": source_index,
+        "target_neuron_index": target_index,
+        "source_trace_index": index,
+        "source_rollout_step_index": index,
+        "target_rollout_step_index": index + 1,
+        "source_active_indices_hash": _sha256_json([source_index]),
+        "target_active_indices_hash": _sha256_json([target_index]),
+        "local_only": True,
+        "proposed_weight_delta": 0.02,
+        "homeostatic_decay": 0.0,
+        "normalization": True,
+        "applied_to_runtime": False,
+    }
+
+
+def _rollout_design_candidates(count: int) -> list[dict[str, object]]:
+    return [_rollout_design_candidate(index) for index in range(count)]
+
+
+def _rollout_growth_candidate(index: int) -> dict[str, object]:
+    pre_index = index % 32
+    post_index = pre_index + 1
+    return {
+        "synapse": f"{pre_index}:{post_index}",
+        "pre_index": pre_index,
+        "post_index": post_index,
+        "initial_weight": 0.02,
+        "locality_distance": abs(post_index - pre_index),
+        "source_synapse_id": f"snn-rollout-local:{pre_index}:{post_index}:{index}",
+        "source_trace_index": index,
+        "source_rollout_step_index": index,
+        "target_rollout_step_index": index + 1,
+        "source_active_indices_hash": _sha256_json([pre_index]),
+        "target_active_indices_hash": _sha256_json([post_index]),
+        "local_only": True,
+        "normalization": True,
+        "applied_to_runtime": False,
+    }
+
+
+def _rollout_growth_candidates(count: int) -> list[dict[str, object]]:
+    return [_rollout_growth_candidate(index) for index in range(count)]
+
+
 def test_readout_ledger_records_ready_provenance_bound_draft_once() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -10893,6 +10962,23 @@ def test_readout_ledger_rollout_consolidation_design_proposes_bounded_local_upda
         rollback_policy={"available": True, "snapshot_id": "rollout-snapshot-1"},
     )
     blocked = ledger.rollout_consolidation_design(experiment)
+    oversized_experiment = deepcopy(experiment)
+    oversized_experiment["ephemeral_experiment"]["sparse_transition_candidates"] = (
+        _rollout_sparse_transition_candidates(
+            SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+        )
+    )
+    oversized_design = ledger.rollout_consolidation_design(
+        oversized_experiment,
+        consolidation_policy={
+            "learning_rate": 0.02,
+            "max_weight_delta": 0.04,
+            "homeostatic_decay": 0.01,
+            "local_only": True,
+            "normalization": True,
+        },
+        rollback_policy={"available": True, "snapshot_id": "rollout-snapshot-1"},
+    )
     after = runtime_state.snapshot()
 
     assert before == after
@@ -10921,11 +11007,30 @@ def test_readout_ledger_rollout_consolidation_design_proposes_bounded_local_upda
     assert proposal["weights_persisted"] is False
     assert proposal["checkpoint_written"] is False
     assert proposal["structural_write_applied"] is False
+    assert design["sparse_candidate_source_window"]["surface"] == (
+        "bounded_snn_rollout_consolidation_design_sparse_candidate_window.v1"
+    )
+    assert design["sparse_candidate_source_window"]["source_window_count"] == 1
+    assert design["promotion_gate"]["required_evidence"]["sparse_candidate_source_window_bounded"] is True
+    assert design["promotion_gate"]["required_evidence"]["sparse_candidate_payload_not_truncated"] is True
     assert design["promotion_gate"]["eligible_for_operator_rollout_consolidation_design_review"] is True
     assert design["promotion_gate"]["eligible_for_structural_write"] is False
     assert design["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert blocked["promotion_gate"]["required_evidence"]["rollback_policy_available"] is False
     assert blocked["promotion_gate"]["eligible_for_operator_rollout_consolidation_design_review"] is False
+    assert oversized_design["promotion_gate"]["required_evidence"][
+        "sparse_candidate_source_window_bounded"
+    ] is True
+    assert oversized_design["promotion_gate"]["required_evidence"][
+        "sparse_candidate_payload_not_truncated"
+    ] is False
+    assert oversized_design["sparse_candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert oversized_design["sparse_candidate_source_window"]["source_payload_truncated"] is True
+    assert oversized_design["promotion_gate"][
+        "eligible_for_operator_rollout_consolidation_design_review"
+    ] is False
 
 
 def test_rollout_sparse_transition_candidates_use_neuron_indices_not_step_numbers() -> None:
@@ -11002,6 +11107,17 @@ def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemera
         invalid_design,
         device_evidence={"device": "cpu", "source": "test"},
     )
+    oversized_design = deepcopy(design)
+    oversized_design["rollout_consolidation_design"]["candidate_synapses"] = (
+        _rollout_design_candidates(SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1)
+    )
+    oversized_design["rollout_consolidation_design"]["candidate_synapse_count"] = (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+    )
+    oversized_shadow = ledger.rollout_consolidation_shadow_delta(
+        oversized_design,
+        device_evidence={"device": "cpu", "source": "test"},
+    )
     after = runtime_state.snapshot()
 
     assert before == after
@@ -11022,6 +11138,12 @@ def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemera
     assert shadow["shadow_delta"]["weights_persisted"] is False
     assert shadow["shadow_delta"]["checkpoint_written"] is False
     assert shadow["shadow_delta"]["structural_write_applied"] is False
+    assert shadow["candidate_source_window"]["surface"] == (
+        "bounded_snn_rollout_consolidation_shadow_delta_candidate_window.v1"
+    )
+    assert shadow["candidate_source_window"]["source_window_count"] == 1
+    assert shadow["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert shadow["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is True
     assert shadow["promotion_gate"]["eligible_for_operator_rollout_consolidation_shadow_review"] is True
     assert shadow["promotion_gate"]["eligible_for_shadow_application"] is False
     assert shadow["promotion_gate"]["eligible_for_plasticity_application"] is False
@@ -11029,6 +11151,19 @@ def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemera
         "candidate_coordinates_canonical"
     ] is False
     assert invalid_coordinate["promotion_gate"][
+        "eligible_for_operator_rollout_consolidation_shadow_review"
+    ] is False
+    assert oversized_shadow["affected_synapse_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert oversized_shadow["promotion_gate"]["required_evidence"][
+        "candidate_source_window_bounded"
+    ] is True
+    assert oversized_shadow["promotion_gate"]["required_evidence"][
+        "candidate_payload_not_truncated"
+    ] is False
+    assert oversized_shadow["candidate_source_window"]["source_payload_truncated"] is True
+    assert oversized_shadow["promotion_gate"][
         "eligible_for_operator_rollout_consolidation_shadow_review"
     ] is False
     if cuda_fallback["device_evidence"]["tensor_device"] == "cpu":
@@ -11320,6 +11455,20 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "language_capacity": expanded_capacity,
         },
     )
+    oversized_design = deepcopy(design)
+    oversized_design["rollout_consolidation_design"]["candidate_synapses"] = (
+        _rollout_design_candidates(SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1)
+    )
+    oversized_review = ledger.rollout_developmental_plasticity_review(
+        oversized_design,
+        growth_preflight,
+        transition_memory_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_marulho": True,
+            "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
+        },
+    )
     after = runtime_state.snapshot()
 
     assert before == after
@@ -11347,6 +11496,12 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
     assert review["developmental_plasticity_review"]["structural_pruning_applied"] is False
     assert review["integrity_evidence"]["design_hash_recomputed_match"] is True
     assert review["integrity_evidence"]["preflight_hash_recomputed_match"] is True
+    assert review["candidate_source_window"]["surface"] == (
+        "bounded_snn_rollout_developmental_plasticity_candidate_window.v1"
+    )
+    assert review["candidate_source_window"]["source_window_count"] == 1
+    assert review["integrity_evidence"]["candidate_source_window_bounded"] is True
+    assert review["integrity_evidence"]["candidate_payload_not_truncated"] is True
     assert review["integrity_evidence"]["candidate_rollout_step_provenance_available"] is True
     assert review["integrity_evidence"]["candidate_active_hash_provenance_available"] is True
     assert review["runtime_memory_evidence"]["candidate_synapses_absent_from_runtime"] is True
@@ -11374,6 +11529,15 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         "candidate_active_hash_provenance_available"
     ] is False
     assert missing_hash["promotion_gate"][
+        "eligible_for_operator_rollout_developmental_plasticity_review"
+    ] is False
+    assert oversized_review["integrity_evidence"]["candidate_source_window_bounded"] is True
+    assert oversized_review["integrity_evidence"]["candidate_payload_not_truncated"] is False
+    assert oversized_review["candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert oversized_review["candidate_source_window"]["source_payload_truncated"] is True
+    assert oversized_review["promotion_gate"][
         "eligible_for_operator_rollout_developmental_plasticity_review"
     ] is False
 
@@ -11433,6 +11597,14 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     adapter = ledger.rollout_regeneration_proposal_adapter(review)
     repeat = ledger.rollout_regeneration_proposal_adapter(review)
     blocked = ledger.rollout_regeneration_proposal_adapter(blocked_review)
+    oversized_review = deepcopy(review)
+    oversized_review["developmental_plasticity_review"]["growth_candidate_count"] = (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+    )
+    oversized_review["developmental_plasticity_review"]["growth_candidates"] = (
+        _rollout_growth_candidates(SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1)
+    )
+    oversized_adapter = ledger.rollout_regeneration_proposal_adapter(oversized_review)
     checkpoint_calls = []
     language_state = {"sparse_transition_weights": {}}
     executor = SNNLanguagePlasticityApplicationExecutor(
@@ -11467,6 +11639,13 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     assert adapter["regeneration_design"]["mismatch_score"] == 0.0
     assert adapter["regeneration_design"]["candidate_count"] == 1
     assert adapter["regeneration_design"]["candidate_synapses"][0]["synapse"] == _first_rollout_synapse(design)
+    assert adapter["growth_candidate_source_window"]["surface"] == (
+        "bounded_snn_rollout_regeneration_adapter_growth_candidate_window.v1"
+    )
+    assert adapter["growth_candidate_source_window"]["source_window_count"] == 1
+    assert adapter["regeneration_design"]["growth_candidate_source_window"] == (
+        adapter["growth_candidate_source_window"]
+    )
     adapter_candidate = adapter["regeneration_design"]["candidate_synapses"][0]
     assert adapter_candidate["source_rollout_step_index"] == 0
     assert adapter_candidate["target_rollout_step_index"] == 1
@@ -11474,6 +11653,9 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     assert adapter_candidate["target_active_indices_hash"] == _sha256_json([2, 3, 4])
     assert adapter["integrity_evidence"]["candidate_rollout_step_provenance_available"] is True
     assert adapter["integrity_evidence"]["candidate_active_hash_provenance_available"] is True
+    assert adapter["integrity_evidence"]["growth_candidate_source_window_bounded"] is True
+    assert adapter["integrity_evidence"]["growth_candidate_payload_not_truncated"] is True
+    assert adapter["integrity_evidence"]["candidate_payload_not_truncated"] is True
     assert adapter["blocked_replay_evidence"]["ready"] is False
     assert adapter["blocked_replay_evidence"]["permit_id"] is None
     assert adapter["executor_bypass_evidence"]["is_transition_memory_regeneration_proposal"] is False
@@ -11488,6 +11670,16 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     assert "permit_id" not in adapter
     assert blocked["promotion_gate"]["required_evidence"]["review_gate_ready"] is False
     assert blocked["promotion_gate"]["eligible_for_operator_rollout_regeneration_adapter_review"] is False
+    assert oversized_adapter["integrity_evidence"]["growth_candidate_source_window_bounded"] is True
+    assert oversized_adapter["integrity_evidence"]["growth_candidate_payload_not_truncated"] is False
+    assert oversized_adapter["integrity_evidence"]["candidate_payload_not_truncated"] is False
+    assert oversized_adapter["growth_candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert oversized_adapter["growth_candidate_source_window"]["source_payload_truncated"] is True
+    assert oversized_adapter["promotion_gate"][
+        "eligible_for_operator_rollout_regeneration_adapter_review"
+    ] is False
 
 
 def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices() -> None:
@@ -11524,6 +11716,7 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
             ),
             "transition_memory_snapshot_hash": transition_memory_snapshot_hash,
             "growth_candidates": [growth_candidate],
+            "candidate_source_window": {},
         }
     )
     review = {
@@ -11537,6 +11730,7 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
             "preflight-hash-1"
         ),
         "rollout_developmental_plasticity_review_hash": review_hash,
+        "candidate_source_window": {},
         "developmental_plasticity_review": {
             "growth_candidate_count": 1,
             "structural_growth_applied": False,
@@ -11613,6 +11807,8 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
     assert replay_review["promotion_gate"]["eligible_for_operator_rollout_regeneration_replay_artifact_review"] is True
     replay_required = replay_review["promotion_gate"]["required_evidence"]
     assert replay_required["regeneration_design_indices_canonical"] is True
+    assert replay_required["candidate_source_window_bounded"] is True
+    assert replay_required["candidate_payload_not_truncated"] is True
     assert replay_required["language_capacity_state_available"] is True
     assert replay_required["language_capacity_state_dynamic_limits_applied"] is True
     assert replay_review["language_capacity"]["language_neuron_count"] == 128
@@ -11703,6 +11899,20 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
     review = ledger.rollout_regeneration_replay_artifact_review(adapter, replay_artifact)
     repeat = ledger.rollout_regeneration_replay_artifact_review(adapter, replay_artifact)
     blocked = ledger.rollout_regeneration_replay_artifact_review(adapter, tampered)
+    oversized_adapter = deepcopy(adapter)
+    oversized_adapter["regeneration_design"]["candidate_count"] = (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+    )
+    oversized_adapter["regeneration_design"]["max_new_synapses"] = (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1
+    )
+    oversized_adapter["regeneration_design"]["candidate_synapses"] = (
+        _rollout_growth_candidates(SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1)
+    )
+    oversized = ledger.rollout_regeneration_replay_artifact_review(
+        oversized_adapter,
+        replay_artifact,
+    )
     after = runtime_state.snapshot()
 
     assert before == after
@@ -11715,6 +11925,12 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
     assert review["executor_ready"] is False
     assert review["regeneration_design"]["mismatch_score"] == 0.9
     assert review["replay_mismatch_evidence"]["mismatch_score"] == 0.9
+    assert review["candidate_source_window"]["surface"] == (
+        "bounded_snn_rollout_regeneration_replay_artifact_review_candidate_window.v1"
+    )
+    assert review["candidate_source_window"]["source_window_count"] == 1
+    assert review["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert review["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is True
     assert review["promotion_gate"]["required_evidence"]["replay_mismatch_score_high"] is True
     assert review["permit_request_preview"]["replay_artifact_id"] == "artifact-1"
     assert review["permit_request_preview"]["regeneration_design"]["mismatch_score"] == 0.9
@@ -11725,6 +11941,14 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
     assert blocked["promotion_gate"]["required_evidence"]["replay_artifact_hash_recomputed_match"] is False
     assert blocked["promotion_gate"]["required_evidence"]["replay_readout_evidence_available"] is False
     assert blocked["promotion_gate"]["eligible_for_regeneration_permit_request"] is False
+    assert oversized["promotion_gate"]["required_evidence"]["candidate_source_window_bounded"] is True
+    assert oversized["promotion_gate"]["required_evidence"]["candidate_payload_not_truncated"] is False
+    assert oversized["candidate_source_window"]["source_window_count"] == (
+        SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    )
+    assert oversized["candidate_source_window"]["source_payload_truncated"] is True
+    assert oversized["permit_request_preview"]["regeneration_design"] is None
+    assert oversized["promotion_gate"]["eligible_for_regeneration_permit_request"] is False
 
 
 def test_rollout_regeneration_permit_request_uses_replay_controller_without_synapse_mutation() -> None:

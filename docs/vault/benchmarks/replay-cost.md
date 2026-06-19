@@ -15,6 +15,7 @@ related_code:
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/language_application_synapse_window_benchmark.py
   - ../../../src/marulho/evaluation/dense_readout_training_transition_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
   - ../../../src/marulho/service/status_read_model.py
@@ -84,6 +85,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/language-application-synapse-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-application-synapse-window.json
   - reports/bounded_replay_window_20260619/dense-readout-training-transition-window.json
+  - reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-readout-training-transition-window.json
   - reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json
@@ -1349,6 +1352,40 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 GPU max `15%`, GPU memory-util max `18%`, and RTX 3060 memory `2029->2028 MiB`.
 This retires the caller-sized checkpointed training side path while preserving
 the maintained 6k-ish live-tick band.
+
+The readout-ledger rollout consolidation/regeneration chain now uses that same
+single application-synapse source-window operator before every structural
+candidate review step. `rollout_consolidation_design(...)`,
+`rollout_consolidation_shadow_delta(...)`,
+`rollout_developmental_plasticity_review(...)`,
+`rollout_regeneration_proposal_adapter(...)`,
+`rollout_regeneration_replay_artifact_review(...)`, and direct Replay
+Controller regeneration-design normalization all cap candidate inputs at
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32` and require untruncated
+source payloads before permit-preview or permit hashing. The old full-list
+ledger/controller materialization path is retired, not kept as a side
+implementation.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.readout_ledger_rollout_candidate_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-ledger-rollout-candidate-window.json`
+
+It passed with exact-window rollout evidence reaching the permit-preview gate
+with `32/32` candidates, while oversized design, shadow, developmental,
+adapter, replay-artifact review, and direct replay-controller normalization
+all blocked at `32/2048`. The report records no global candidate/score scan,
+no raw text payload, no hidden language reasoning, no live tick, no every-token
+cadence, CPU archival/source-window/gate placement, `64x` projected source-work
+reduction, `0.0 MiB` CUDA allocation/reservation, and `9.073439 MiB` traced
+Python peak allocation.
+
+The matching clean hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json`
+processed `524288` tokens at `6075.293 tokens/sec` with
+`train_compute=0.134312 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, GPU memory `2031->2043 MiB`,
+and zero graph/native sequence failures. That keeps the slow-path candidate
+window out of the live tick while preserving the maintained sustained band.
 
 The rollout-regeneration facade now uses the same single candidate-window
 operator before permit issuance, application preflight, and checkpoint-backed

@@ -17,6 +17,9 @@ from marulho.service.living_loop_replay import (
     build_replay_plan,
     replay_candidate_safety_flags,
 )
+from marulho.service.snn_language_plasticity_executor import (
+    bounded_application_synapse_window,
+)
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_REPLAY_REGENERATION_PERMITS = 64
@@ -4837,10 +4840,23 @@ class ReplayController:
         initial_weight = float(design.get("initial_weight", 0.0) or 0.0)
         max_new_synapses = int(design.get("max_new_synapses", 0) or 0)
         mismatch_score = float(design.get("mismatch_score", 0.0) or 0.0)
+        candidate_source_window_surface = (
+            "bounded_snn_replay_controller_regeneration_design_candidate_window.v1"
+        )
+        raw_candidates, candidate_source_window = bounded_application_synapse_window(
+            design.get("candidate_synapses"),
+            source="service.replay_runtime.regeneration_design_candidate_synapses",
+            surface=candidate_source_window_surface,
+            field_name="regeneration_design.candidate_synapses",
+        )
+        if bool(candidate_source_window.get("source_payload_truncated")):
+            raise ValueError("Regeneration design candidate count must be bounded.")
+        if int(candidate_source_window.get("source_mapping_count", 0) or 0) != int(
+            candidate_source_window.get("source_window_count", 0) or 0
+        ):
+            raise ValueError("Regeneration design candidates must be mappings.")
         candidates = []
-        for item in list(design.get("candidate_synapses") or []):
-            if not isinstance(item, Mapping):
-                raise ValueError("Regeneration design candidates must be mappings.")
+        for item in raw_candidates:
             pre_index = int(item.get("pre_index", -1))
             post_index = int(item.get("post_index", -1))
             weight = float(item.get("initial_weight", 0.0) or 0.0)
@@ -4874,6 +4890,7 @@ class ReplayController:
             "mismatch_score": mismatch_score,
             "candidate_count": len(candidates),
             "candidate_synapses": candidates,
+            "candidate_source_window": dict(candidate_source_window),
         }
 
     @staticmethod

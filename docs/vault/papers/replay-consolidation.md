@@ -13,6 +13,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -77,6 +78,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
+  - reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
 ---
 
 # Replay/consolidation
@@ -1051,6 +1054,29 @@ bounded `12/65536` route rows, flat `2031 MiB` GPU memory, zero graph/native
 failures, and sampled GPU contention. The old facade full-list route is now a
 retired projection, not an implementation kept beside the selected path.
 
+The readout-ledger rollout consolidation and regeneration-review chain now
+shares that single bounded candidate path before the facade sees a permit
+preview. Modern Hopfield-style association remains local to a selected window,
+and CLS/continual replay/STC/sparse replay evidence rejects materializing every
+candidate synapse during slow-path review. The ledger now applies
+`bounded_application_synapse_window(...)` to sparse transition candidates,
+design candidate synapses, developmental growth candidates, regeneration-design
+candidate synapses, and Replay Controller regeneration-design normalization.
+`reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json`
+passed with exact `32/32` rollout evidence reaching permit preview while
+oversized design, shadow, developmental, adapter, replay-artifact review, and
+direct controller payloads blocked at `32/2048`. The report records CPU
+archival/source/gate placement, no global candidate/score scan, no raw text
+payload, no hidden language reasoning, no live tick, no every-token cadence,
+`64x` projected source-work reduction, `9.073439 MiB` traced Python peak, and
+`0.0 MiB` CUDA allocation/reservation. The clean hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json`
+processed `524288` tokens at `6075.293 tokens/sec` with bounded `12/65536`
+route rows, `65526` cached rows, no observed contention, GPU memory
+`2031->2043 MiB`, and zero graph/native sequence failures. This retires the
+readout-ledger and controller full-list materialization path rather than
+keeping a second review implementation.
+
 The dense-readout training executor now applies the same local-window rule to
 checkpointed training transitions. The old path copied every caller-supplied
 `training_transitions` record and each caller-sized `pre_indices`/`post_indices`
@@ -1116,6 +1142,7 @@ bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
+bounded readout-ledger rollout candidate windows,
 bounded dense-readout training transition windows,
 strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
@@ -1126,6 +1153,8 @@ readout-ledger full-materialization normalization, every-strong slow-memory
 admission, caller-supplied full-payload readout replay materialization,
 caller-supplied checkpointed application synapse materialization,
 runtime-facade rollout-regeneration full-payload candidate materialization,
+readout-ledger rollout full-payload candidate materialization,
+replay-controller regeneration-design full-payload normalization,
 caller-supplied checkpointed dense-readout training transition materialization,
 plus the all-anchor HF replay-query source pass and full hot-bucket candidate
 source materialization;

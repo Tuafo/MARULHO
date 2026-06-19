@@ -14,6 +14,9 @@ from marulho.service.replay_runtime import (
     ReplayController,
     ReplayControllerDependencies,
 )
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+)
 
 
 @dataclass
@@ -1892,6 +1895,41 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 4)
         manager._runtime_state.state_revision += 1
         self.assertFalse(controller.verify_regeneration_permit(proposal))
+
+    def test_regeneration_permit_rejects_oversized_candidate_source_window_before_mutation(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
+        before_dirty_calls = manager._runtime_state.dirty_without_revision_calls
+        before_permit_count = len(controller.regeneration_permits)
+        oversized_candidates = [
+            {
+                "pre_index": index % 31,
+                "post_index": (index % 31) + 1,
+                "initial_weight": 0.02,
+            }
+            for index in range(SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 1)
+        ]
+
+        with self.assertRaisesRegex(ValueError, "candidate count must be bounded"):
+            controller.issue_regeneration_permit(
+                replay_artifact_id=str(artifact["replay_artifact_id"]),
+                regeneration_design={
+                    "locality_radius": 2,
+                    "initial_weight": 0.02,
+                    "max_new_synapses": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+                    "mismatch_score": 0.9,
+                    "candidate_synapses": oversized_candidates,
+                },
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+        self.assertEqual(len(controller.regeneration_permits), before_permit_count)
+        self.assertEqual(
+            manager._runtime_state.dirty_without_revision_calls,
+            before_dirty_calls,
+        )
 
     def test_evaluated_replay_artifact_and_permit_preserve_emission_lineage(self) -> None:
         manager = _FakeReplayManager()

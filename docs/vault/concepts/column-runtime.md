@@ -12,6 +12,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
@@ -997,6 +998,24 @@ long rerun stayed in band at `6121.143 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, zero graph/native failures, and
 flat `2031 MiB` GPU memory under sampled GPU contention. The old full-list
 facade route is retired rather than preserved as side code.
+
+The upstream readout-ledger rollout consolidation/regeneration reviews now use
+the same source-window boundary before a permit preview can exist. Consolidation
+design, shadow delta, developmental plasticity review, regeneration proposal
+adapter, regeneration replay-artifact review, and Replay Controller
+regeneration-design normalization all cap structural candidates at `32` through
+the shared application-synapse window helper and require untruncated payloads.
+The benchmark
+`reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json`
+blocked oversized review/controller payloads at `32/2048`, kept exact `32`
+candidate evidence on the single permit-preview path, and reported CPU
+archival/source/gate placement, no global candidate/score scan, no hidden
+language reasoning, `runs_live_tick=false`, and `runs_every_token=false`.
+The clean `524288`-token hot-path run stayed in band at
+`6075.293 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, GPU memory `2031->2043 MiB`, and zero
+graph/native sequence failures. This keeps rollout consolidation a selected
+slow-path review, not an always-on column tick or a second mutation route.
 
 Dense-readout training now shares that single-window rule instead of preserving
 an old caller-sized training side path. The design, schema, preflight, and

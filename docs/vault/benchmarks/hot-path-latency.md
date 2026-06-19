@@ -14,6 +14,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
@@ -40,6 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
+  - reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -4005,6 +4008,44 @@ all `0`. The environment sampler observed light GPU contention at `23%`, CPU
 max `36%`, GPU memory-util max `23%`, and flat RTX 3060 memory at `2031 MiB`.
 This is accepted hot-path protection evidence under contention, not a clean
 speed-ceiling claim.
+
+## Readout Ledger Rollout Candidate Windows
+
+The upstream readout-ledger rollout chain now refuses caller-sized structural
+candidate payloads before permit preview or Replay Controller permit hashing.
+Consolidation design, shadow delta, developmental plasticity review,
+regeneration adapter, regeneration replay-artifact review, and direct
+Replay Controller normalization all use the shared
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32` source-window operator and
+require untruncated source payloads.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.readout_ledger_rollout_candidate_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-ledger-rollout-candidate-window.json`
+
+Result: `pass=true`, exact rollout evidence reached permit preview with
+`32/32` candidates; oversized design, shadow, developmental, adapter,
+replay-artifact review, and direct Replay Controller normalization all blocked
+at `32/2048`; projected source work fell `64x`; traced Python peak allocation
+was `9.073439 MiB`; CUDA allocation/reservation stayed `0.0 MiB`; archival
+storage, source-window selection, and review gates stayed CPU-resident; and
+the reports state no global candidate/score scan, no raw text payload, no
+hidden language reasoning, no live tick, and no every-token cadence.
+
+Hot-path protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `86.298389 s`,
+`6075.293 tokens/sec`, `train_compute=0.134312 ms/token`,
+`prepare_training=0.006819 ms/token`, and `finalize_total=0.006250 ms/token`.
+Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
+output candidates, with `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, `route_vote_rows_run_all_columns=false`,
+and zero route-vote/native sequence failures. Contention was not observed
+(`cpu max=35%`, `gpu max=15%`); the live runtime used CUDA on the RTX 3060,
+while the candidate-window benchmark kept archival/source/review work on CPU.
+GPU memory moved from `2031 MiB` to `2043 MiB`.
 
 ## Dense Readout Training Transition Windows
 
