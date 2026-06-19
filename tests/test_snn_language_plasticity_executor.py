@@ -9,6 +9,8 @@ import torch
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT,
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
     SNNLanguagePlasticityApplicationExecutor,
 )
 
@@ -131,7 +133,9 @@ def _dense_readout_training_loop_preflight() -> dict[str, object]:
             "validation_transition_count": 2,
             "learning_rate": 0.02,
             "max_delta_norm": 0.05,
-            "transition_budget": 128,
+            "transition_budget": (
+                SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+            ),
             "requires_cuda": False,
         },
         "promotion_gate": {
@@ -1302,6 +1306,37 @@ def test_dense_readout_training_loop_updates_dense_and_sparse_checkpointed_state
     assert result["generates_text"] is False
     assert result["returns_trained_weights"] is False
     assert result["writes_checkpoint"] is True
+    assert result["memory_budget"] == {
+        "max_training_transition_records": (
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+        ),
+        "max_pre_indices_per_transition": (
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+        ),
+        "max_post_indices_per_transition": (
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+        ),
+    }
+    assert result["training_transition_source_window"]["source_window_count"] == 1
+    assert (
+        result["training_transition_source_window"]["source_payload_truncated"]
+        is False
+    )
+    assert (
+        result["training_transition_index_source_window"][
+            "max_pre_index_window_count"
+        ]
+        == 2
+    )
+    assert (
+        result["training_transition_index_source_window"][
+            "source_payload_truncated"
+        ]
+        is False
+    )
+    assert result["dense_readout_training"][
+        "training_transition_source_window"
+    ] == result["training_transition_source_window"]
     assert runtime_state.state_revision == 1
     assert snapshot["dense_readout_tensor"]["available"] is True
     assert snapshot["dense_readout_tensor"]["nonzero_count"] == 4
@@ -1312,6 +1347,111 @@ def test_dense_readout_training_loop_updates_dense_and_sparse_checkpointed_state
         "2:4",
     }
     assert snapshot["dense_readout_training"]["training_count"] == 1
+
+
+def test_dense_readout_training_loop_blocks_oversized_transition_window_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((128, 128), dtype=torch.float32),
+        "sparse_transition_weights": {},
+    }
+    checkpoint_calls = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "dense-training.pt")},
+        checkpoint_path=lambda: tmp_path / "dense-training.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+    transitions = [
+        {"transition_id": f"t{index}", "pre_indices": [1], "post_indices": [2]}
+        for index in range(
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT + 1
+        )
+    ]
+
+    result = executor.apply_dense_readout_training_loop(
+        dense_readout_training_loop_preflight=_dense_readout_training_loop_preflight(),
+        training_transitions=transitions,
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-training.pt"),
+    )
+
+    required = result["promotion_gate"]["required_evidence"]
+    source_window = required["training_transition_source_window"]
+    assert result["accepted"] is False
+    assert required["training_transition_payload_not_truncated"] is False
+    assert source_window["source_window_count"] == (
+        SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+    )
+    assert source_window["source_payload_truncated"] is True
+    assert checkpoint_calls == []
+    assert torch.count_nonzero(language_state["dense_readout_weights"]).item() == 0
+    assert language_state["sparse_transition_weights"] == {}
+    assert runtime_state.state_revision == 0
+
+
+def test_dense_readout_training_loop_blocks_oversized_index_window_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((128, 128), dtype=torch.float32),
+        "sparse_transition_weights": {},
+    }
+    checkpoint_calls = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "dense-training.pt")},
+        checkpoint_path=lambda: tmp_path / "dense-training.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_training_loop(
+        dense_readout_training_loop_preflight=_dense_readout_training_loop_preflight(),
+        training_transitions=[
+            {
+                "transition_id": "oversized-index-window",
+                "pre_indices": list(
+                    range(
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                        + 1
+                    )
+                ),
+                "post_indices": [2],
+            }
+        ],
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-training.pt"),
+    )
+
+    required = result["promotion_gate"]["required_evidence"]
+    index_window = required["training_transition_index_source_window"]
+    first_transition = index_window["per_transition_windows"][0]
+    assert result["accepted"] is False
+    assert required["training_transition_index_payload_not_truncated"] is False
+    assert index_window["source_payload_truncated"] is True
+    assert first_transition["pre_indices"]["source_window_count"] == (
+        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+    )
+    assert first_transition["pre_indices"]["source_payload_truncated"] is True
+    assert checkpoint_calls == []
+    assert torch.count_nonzero(language_state["dense_readout_weights"]).item() == 0
+    assert language_state["sparse_transition_weights"] == {}
+    assert runtime_state.state_revision == 0
 
 
 def test_dense_readout_training_loop_blocks_stale_revision_before_checkpoint(

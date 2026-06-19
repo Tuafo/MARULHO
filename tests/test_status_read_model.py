@@ -25,6 +25,10 @@ import torch
 from marulho.config.model_config import MarulhoConfig
 from marulho.semantics import build_spike_language_decoder_probe
 from marulho.service.runtime_state import RuntimeState
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+)
 from marulho.service.status_read_model import (
     SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
     StatusReadModel,
@@ -5537,6 +5541,14 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(ready["mutates_runtime_state"])
         self.assertFalse(ready["writes_checkpoint"])
         self.assertFalse(ready["generates_text"])
+        self.assertEqual(
+            ready["training_design"]["transition_budget"],
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            ready["training_design"]["transition_window_policy"],
+            SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+        )
         self.assertTrue(
             ready["promotion_gate"][
                 "eligible_for_dense_readout_training_loop_preflight"

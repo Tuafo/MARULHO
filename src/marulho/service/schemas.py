@@ -4,6 +4,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+)
 from marulho.semantics.spike_language_neurons import (
     SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
 )
@@ -1568,7 +1571,11 @@ class SNNLanguageDenseReadoutTrainingLoopPreflightRequest(BaseModel):
 
 class SNNLanguageDenseReadoutTrainingRequest(BaseModel):
     dense_readout_training_loop_preflight: dict[str, Any] = Field(..., min_length=1)
-    training_transitions: list[dict[str, Any]] = Field(..., min_length=1, max_length=8192)
+    training_transitions: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        max_length=SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+    )
     expected_state_revision: int = Field(..., ge=0)
     operator_id: str = Field(..., min_length=1, max_length=160)
     confirmation: bool = False

@@ -13,7 +13,10 @@ related_code:
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/language_application_synapse_window_benchmark.py
+  - ../../../src/marulho/evaluation/dense_readout_training_transition_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
+  - ../../../src/marulho/service/snn_language_plasticity_executor.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
@@ -78,6 +81,10 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
+  - reports/bounded_replay_window_20260619/language-application-synapse-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-application-synapse-window.json
+  - reports/bounded_replay_window_20260619/dense-readout-training-transition-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-readout-training-transition-window.json
   - reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence-rerun.json
@@ -1301,6 +1308,47 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 GPU max `16%`, GPU memory-util max `19%`, and RTX 3060 memory `2020->2034 MiB`.
 This is throughput protection for a checkpointed slow-path boundary, not a new
 live-tick replay operator.
+
+The dense-readout training transition boundary now uses the same single
+bounded slow-path contract. `apply_dense_readout_training_loop(...)` no longer
+copies every caller-supplied training transition or every caller-sized
+`pre_indices`/`post_indices` list before slicing. Instead, design, schema,
+preflight, and executor all share
+`SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT=32` and
+`SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT=32`. Oversized
+transition or sparse-index payloads are blocked before checkpoint writes or
+runtime mutation.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.dense_readout_training_transition_window_benchmark --payload-count 2048 --index-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\dense-readout-training-transition-window.json`
+
+It passed with oversized transition payloads blocked at `32/2048`, oversized
+index payloads blocked at `32/2048`, zero checkpoint calls, zero state mutation,
+no global candidate/score scan, no raw text payload, and no hidden language
+reasoning. Exact-window training still committed `32` dense/sparse updates
+through two checkpoint calls. Mean latencies were `43.082416 ms` for oversized
+transition blocking, `6.215512 ms` for oversized index blocking, and
+`115.425860 ms` for exact-window checkpointed training. Archival storage and
+source-window selection stayed CPU-resident, active benchmark training stayed on
+CPU, traced Python peak allocation was `5.696876 MiB`, CUDA
+allocation/reservation stayed `0.0 MiB`, and the retired full-payload transition
+work is projected from source counts only (`64x` source-work reduction).
+
+Clean long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-dense-readout-training-transition-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+It processed `524288` tokens at `6028.820 tokens/sec`, with
+`train_compute=0.135088 ms/token`, `prepare_training=0.007078 ms/token`,
+`finalize_total=0.006280 ms/token`, and `tick_duration_ms.p95=21.702`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+`0`. `velocity_environment.v1` reported no observed contention, CPU max `54%`,
+GPU max `15%`, GPU memory-util max `18%`, and RTX 3060 memory `2029->2028 MiB`.
+This retires the caller-sized checkpointed training side path while preserving
+the maintained 6k-ish live-tick band.
 
 The strong-capture admission cadence follow-up closes the remaining
 every-strong slow-memory write shape. Strong-event evidence can still be

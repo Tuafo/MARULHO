@@ -33,6 +33,10 @@ _SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
 _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
 
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+)
 from marulho.semantics import (
     attach_cognitive_signal_language_surface,
     build_binding_growth_trial_design,
@@ -6447,7 +6451,9 @@ class StatusReadModel:
                 or str(device.get("device") or "").startswith("cuda")
             )
             bounded_shape = len(shape) == 2 and shape[0] > 0 and shape[1] > 0
-            transition_budget = max(1, min(shape[0] if shape else 128, 8192))
+            transition_budget = (
+                SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+            )
             required = {
                 "readiness_surface_available": readiness.get("surface")
                 == "snn_language_dense_readout_training_readiness.v1",
@@ -6511,6 +6517,10 @@ class StatusReadModel:
                     "target_min_weight_sparsity": target_min_sparsity,
                     "max_delta_norm": max_delta_norm,
                     "transition_budget": transition_budget,
+                    "transition_window_limit": transition_budget,
+                    "transition_window_policy": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY
+                    ),
                     "requires_cuda": requires_cuda,
                 },
                 "tensor_summary": dict(tensor_summary),

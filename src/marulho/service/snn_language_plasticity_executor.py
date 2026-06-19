@@ -19,6 +19,15 @@ SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT = _MAX_STRUCTURAL_EDGES_PER_EVENT
 SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY = (
     "bounded_checkpointed_application_synapse_window_v1"
 )
+SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT = (
+    _MAX_STRUCTURAL_EDGES_PER_EVENT
+)
+SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT = (
+    _MAX_STRUCTURAL_EDGES_PER_EVENT
+)
+SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY = (
+    "bounded_checkpointed_dense_readout_training_transition_window_v1"
+)
 _MAX_OUTGOING_FANOUT = 16
 _MAX_SPARSE_TRANSITION_EDGES = 256
 _MAX_OUTGOING_ROW_MASS = 1.0
@@ -26,18 +35,19 @@ _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
 
 
-def _bounded_application_synapse_window(
+def _bounded_mapping_source_window(
     raw_value: Any,
     *,
     source: str,
     surface: str,
     field_name: str,
-    limit: int = SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    policy: str,
+    selection_criteria: list[str],
+    memory_budget_key: str,
+    limit: int,
+    max_limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    source_limit = max(
-        0,
-        min(int(limit), SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT),
-    )
+    source_limit = max(0, min(int(limit), int(max_limit)))
     if raw_value is None or isinstance(raw_value, (str, bytes, Mapping)):
         raw_iterable: Any = ()
         source_total_count: int | None = 0
@@ -77,15 +87,11 @@ def _bounded_application_synapse_window(
     )
     report = {
         "surface": surface,
-        "policy": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
-        "window_policy": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
+        "policy": policy,
+        "window_policy": policy,
         "source": source,
         "field_name": field_name,
-        "selection_criteria": [
-            "caller_supplied_synapse_order",
-            "bounded_source_window_before_topology_validation",
-            "checkpoint_mutation_after_preflight_only",
-        ],
+        "selection_criteria": list(selection_criteria),
         "source_window_limit": int(source_limit),
         "source_window_count": int(inspected_count),
         "source_probe_count": int(inspected_count + int(sentinel_seen)),
@@ -116,11 +122,150 @@ def _bounded_application_synapse_window(
             "active_application": "cpu",
         },
         "memory_budget": {
-            "max_synapse_records": int(source_limit),
+            memory_budget_key: int(source_limit),
             "requires_untruncated_source_payload": True,
         },
     }
     return selected, report
+
+
+def _bounded_application_synapse_window(
+    raw_value: Any,
+    *,
+    source: str,
+    surface: str,
+    field_name: str,
+    limit: int = SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    return _bounded_mapping_source_window(
+        raw_value,
+        source=source,
+        surface=surface,
+        field_name=field_name,
+        policy=SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
+        selection_criteria=[
+            "caller_supplied_synapse_order",
+            "bounded_source_window_before_topology_validation",
+            "checkpoint_mutation_after_preflight_only",
+        ],
+        memory_budget_key="max_synapse_records",
+        limit=limit,
+        max_limit=SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    )
+
+
+def _bounded_dense_readout_training_transition_window(
+    raw_value: Any,
+    *,
+    source: str,
+    surface: str,
+    field_name: str,
+    limit: int = SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    return _bounded_mapping_source_window(
+        raw_value,
+        source=source,
+        surface=surface,
+        field_name=field_name,
+        policy=SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+        selection_criteria=[
+            "caller_supplied_transition_order",
+            "bounded_source_window_before_index_canonicalization",
+            "checkpoint_mutation_after_preflight_only",
+        ],
+        memory_budget_key="max_training_transition_records",
+        limit=limit,
+        max_limit=SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+    )
+
+
+def _bounded_dense_readout_training_index_window(
+    raw_value: Any,
+    *,
+    source: str,
+    field_name: str,
+    limit: int = SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT,
+) -> tuple[list[int], dict[str, Any]]:
+    source_limit = max(
+        0,
+        min(int(limit), SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT),
+    )
+    if raw_value is None or isinstance(raw_value, (str, bytes, Mapping)):
+        raw_iterable: Any = ()
+        source_total_count: int | None = 0
+    else:
+        raw_iterable = raw_value
+        try:
+            source_total_count = int(len(raw_value))
+        except TypeError:
+            source_total_count = None
+
+    selected: list[int] = []
+    inspected_count = 0
+    sentinel_seen = False
+    parse_error = False
+    try:
+        for item in islice(raw_iterable, source_limit + 1):
+            if inspected_count >= source_limit:
+                sentinel_seen = True
+                break
+            inspected_count += 1
+            selected.append(int(item))
+    except (TypeError, ValueError):
+        parse_error = True
+        selected = []
+
+    source_payload_truncated = (
+        bool(int(source_total_count) > source_limit)
+        if source_total_count is not None
+        else bool(sentinel_seen)
+    )
+    source_truncated_count = (
+        max(0, int(source_total_count) - source_limit)
+        if source_total_count is not None
+        else None
+    )
+    return selected, {
+        "surface": "bounded_snn_dense_readout_training_transition_index_window.v1",
+        "policy": SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+        "window_policy": SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
+        "source": source,
+        "field_name": field_name,
+        "selection_criteria": [
+            "caller_supplied_sparse_index_order",
+            "bounded_index_window_before_dense_cell_update",
+            "checkpoint_mutation_after_preflight_only",
+        ],
+        "source_window_limit": int(source_limit),
+        "source_window_count": int(inspected_count),
+        "source_probe_count": int(inspected_count + int(sentinel_seen)),
+        "source_total_count": source_total_count,
+        "source_total_count_known": source_total_count is not None,
+        "source_payload_truncated": bool(source_payload_truncated),
+        "source_truncated_count": source_truncated_count,
+        "source_parse_error": bool(parse_error),
+        "index_count_returned": int(len(selected)),
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "hidden_language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "source_window_selection_device": "cpu",
+        "gpu_resident_archival_metadata": False,
+        "device_placement": {
+            "archival_storage": "cpu",
+            "source_window_selection": "cpu",
+            "active_training": "runtime_dense_readout_tensor_device",
+        },
+        "memory_budget": {
+            "max_sparse_indices": int(source_limit),
+            "requires_untruncated_source_payload": True,
+        },
+    }
 
 
 class SNNLanguagePlasticityApplicationExecutor:
@@ -2827,36 +2972,146 @@ class SNNLanguagePlasticityApplicationExecutor:
             learning_rate = float(design.get("learning_rate", 0.0) or 0.0)
             max_delta_norm = float(design.get("max_delta_norm", 0.0) or 0.0)
             transition_budget = int(design.get("transition_budget", 0) or 0)
-            transitions = [
-                dict(item) for item in list(training_transitions or []) if isinstance(item, Mapping)
-            ]
+            transitions, transition_source_window = (
+                _bounded_dense_readout_training_transition_window(
+                    training_transitions,
+                    source=(
+                        "service.snn_language_plasticity_executor."
+                        "dense_readout_training_transitions"
+                    ),
+                    surface=(
+                        "bounded_snn_dense_readout_training_transition_"
+                        "source_window.v1"
+                    ),
+                    field_name="training_transitions",
+                )
+            )
             state = self._language_plasticity_state()
             tensor = state.get("dense_readout_weights")
             tensor_available = isinstance(tensor, torch.Tensor)
             tensor_shape = [int(item) for item in list(tensor.shape)] if tensor_available else []
             parsed: list[dict[str, Any]] = []
+            index_windows: list[dict[str, Any]] = []
             for index, transition in enumerate(transitions):
-                try:
-                    pre_indices = [
-                        int(value)
-                        for value in list(transition.get("pre_indices") or [])
-                    ]
-                    post_indices = [
-                        int(value)
-                        for value in list(transition.get("post_indices") or [])
-                    ]
-                except (TypeError, ValueError):
-                    pre_indices = []
-                    post_indices = []
-                parsed.append(
+                transition_id = str(
+                    transition.get("transition_id") or f"dense_training_{index}"
+                )
+                pre_indices, pre_window = _bounded_dense_readout_training_index_window(
+                    transition.get("pre_indices"),
+                    source=(
+                        "service.snn_language_plasticity_executor."
+                        "dense_readout_training_pre_indices"
+                    ),
+                    field_name=(
+                        f"training_transitions[{index}].pre_indices"
+                    ),
+                )
+                post_indices, post_window = _bounded_dense_readout_training_index_window(
+                    transition.get("post_indices"),
+                    source=(
+                        "service.snn_language_plasticity_executor."
+                        "dense_readout_training_post_indices"
+                    ),
+                    field_name=(
+                        f"training_transitions[{index}].post_indices"
+                    ),
+                )
+                index_windows.append(
                     {
-                        "transition_id": str(
-                            transition.get("transition_id") or f"dense_training_{index}"
-                        ),
-                        "pre_indices": pre_indices[:32],
-                        "post_indices": post_indices[:32],
+                        "transition_id": transition_id,
+                        "pre_indices": pre_window,
+                        "post_indices": post_window,
                     }
                 )
+                parsed.append(
+                    {
+                        "transition_id": transition_id,
+                        "pre_indices": pre_indices,
+                        "post_indices": post_indices,
+                    }
+                )
+            index_source_window = {
+                "surface": (
+                    "bounded_snn_dense_readout_training_transition_index_"
+                    "window.v1"
+                ),
+                "policy": (
+                    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY
+                ),
+                "window_policy": (
+                    SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY
+                ),
+                "source": (
+                    "service.snn_language_plasticity_executor."
+                    "dense_readout_training_sparse_indices"
+                ),
+                "selection_criteria": [
+                    "caller_supplied_sparse_index_order",
+                    "bounded_pre_post_index_windows_before_dense_cell_update",
+                    "checkpoint_mutation_after_preflight_only",
+                ],
+                "transition_window_count": int(len(index_windows)),
+                "source_window_limit": (
+                    SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                ),
+                "max_pre_index_window_count": max(
+                    [
+                        int(
+                            item["pre_indices"].get("source_window_count", 0)
+                            or 0
+                        )
+                        for item in index_windows
+                    ]
+                    or [0]
+                ),
+                "max_post_index_window_count": max(
+                    [
+                        int(
+                            item["post_indices"].get("source_window_count", 0)
+                            or 0
+                        )
+                        for item in index_windows
+                    ]
+                    or [0]
+                ),
+                "source_payload_truncated": any(
+                    bool(item["pre_indices"].get("source_payload_truncated"))
+                    or bool(item["post_indices"].get("source_payload_truncated"))
+                    for item in index_windows
+                ),
+                "source_parse_error": any(
+                    bool(item["pre_indices"].get("source_parse_error"))
+                    or bool(item["post_indices"].get("source_parse_error"))
+                    for item in index_windows
+                ),
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "raw_text_payload_loaded": False,
+                "hidden_language_reasoning": False,
+                "language_reasoning": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "source_window_selection_device": "cpu",
+                "gpu_resident_archival_metadata": False,
+                "device_placement": {
+                    "archival_storage": "cpu",
+                    "source_window_selection": "cpu",
+                    "active_training": "runtime_dense_readout_tensor_device",
+                },
+                "memory_budget": {
+                    "max_pre_indices_per_transition": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    ),
+                    "max_post_indices_per_transition": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    ),
+                    "requires_untruncated_source_payload": True,
+                },
+                "per_transition_windows": deepcopy(index_windows),
+            }
             canonical_indices = bool(
                 tensor_available
                 and parsed
@@ -2897,19 +3152,89 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "dense_tensor_available": tensor_available,
                 "dense_tensor_shape_matches_preflight": tensor_shape == expected_shape,
                 "training_transitions_available": bool(parsed),
+                "training_transition_budget_matches_window": (
+                    0
+                    < transition_budget
+                    <= SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+                ),
                 "training_transition_count_bounded": bool(transition_budget)
-                and 0 < len(parsed) <= transition_budget,
+                and 0 < len(parsed) <= transition_budget
+                and len(parsed)
+                <= SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
+                "training_transition_source_window_bounded": (
+                    transition_source_window.get("surface")
+                    == (
+                        "bounded_snn_dense_readout_training_transition_"
+                        "source_window.v1"
+                    )
+                    and int(
+                        transition_source_window.get(
+                            "source_window_count", 0
+                        )
+                        or 0
+                    )
+                    <= SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+                    and bool(
+                        transition_source_window.get("global_candidate_scan")
+                    )
+                    is False
+                    and bool(transition_source_window.get("global_score_scan"))
+                    is False
+                ),
+                "training_transition_payload_not_truncated": not bool(
+                    transition_source_window.get("source_payload_truncated")
+                ),
+                "training_transition_index_windows_bounded": (
+                    index_source_window.get("surface")
+                    == (
+                        "bounded_snn_dense_readout_training_transition_index_"
+                        "window.v1"
+                    )
+                    and int(
+                        index_source_window.get(
+                            "max_pre_index_window_count", 0
+                        )
+                        or 0
+                    )
+                    <= SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    and int(
+                        index_source_window.get(
+                            "max_post_index_window_count", 0
+                        )
+                        or 0
+                    )
+                    <= SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    and bool(index_source_window.get("global_candidate_scan"))
+                    is False
+                    and bool(index_source_window.get("global_score_scan"))
+                    is False
+                ),
+                "training_transition_index_payload_not_truncated": not bool(
+                    index_source_window.get("source_payload_truncated")
+                ),
+                "training_transition_indices_parseable": not bool(
+                    index_source_window.get("source_parse_error")
+                ),
                 "training_transition_indices_canonical": canonical_indices,
                 "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
                 "delta_norm_bounded": 0.0 < max_delta_norm <= 0.25,
                 "no_text_generation": not bool(preflight.get("generates_text")),
                 "no_external_checkpoint": not bool(preflight.get("loads_external_checkpoint")),
             }
+            required_evidence = {
+                **required,
+                "training_transition_source_window": dict(
+                    transition_source_window
+                ),
+                "training_transition_index_source_window": dict(
+                    index_source_window
+                ),
+            }
             if not all(required.values()):
                 return self._blocked_dense_readout_training(
                     reason="blocked_missing_dense_readout_training_evidence",
                     before_revision=before_revision,
-                    required_evidence=required,
+                    required_evidence=required_evidence,
                 )
 
             checkpoint_state = deepcopy(state)
@@ -2929,6 +3254,12 @@ class SNNLanguagePlasticityApplicationExecutor:
                     before_revision=before_revision,
                     required_evidence={
                         **required,
+                        "training_transition_source_window": dict(
+                            transition_source_window
+                        ),
+                        "training_transition_index_source_window": dict(
+                            index_source_window
+                        ),
                         "pre_training_checkpoint_saved": checkpoint_file.exists(),
                         "pre_training_checkpoint_restore_verified": checkpoint_verified,
                     },
@@ -2997,9 +3328,17 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "committed_checkpoint_path": str(committed_checkpoint_file),
                 "preflight_hash": preflight.get("preflight_hash"),
                 "training_transition_count": len(parsed),
+                "training_transition_source_window": deepcopy(
+                    transition_source_window
+                ),
+                "training_transition_index_source_window": deepcopy(
+                    index_source_window
+                ),
                 "updated_cell_count": len(applied_cells),
                 "learning_rate": learning_rate,
                 "max_delta_norm": max_delta_norm,
+                "active_training_device": str(trained.device),
+                "tensor_is_cuda": bool(trained.is_cuda),
                 "returns_trained_weights": False,
                 "generates_text": False,
             }
@@ -3050,6 +3389,23 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "restore_verified": checkpoint_verified,
                 },
                 "dense_readout_training": deepcopy(event),
+                "training_transition_source_window": deepcopy(
+                    transition_source_window
+                ),
+                "training_transition_index_source_window": deepcopy(
+                    index_source_window
+                ),
+                "memory_budget": {
+                    "max_training_transition_records": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT
+                    ),
+                    "max_pre_indices_per_transition": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    ),
+                    "max_post_indices_per_transition": (
+                        SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT
+                    ),
+                },
                 "dense_readout_tensor": self._dense_tensor_summary(trained),
                 "updated_cell_count": len(applied_cells),
                 "applied_cell_summaries": list(applied_cells.values())[:16],

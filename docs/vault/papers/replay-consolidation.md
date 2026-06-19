@@ -1030,6 +1030,31 @@ text payload, and `64x` projected source-work reduction. The clean
 failures. This retires the downstream caller-sized application side path rather
 than keeping it as a second implementation.
 
+The dense-readout training executor now applies the same local-window rule to
+checkpointed training transitions. The old path copied every caller-supplied
+`training_transitions` record and each caller-sized `pre_indices`/`post_indices`
+list before slicing, while service schema/read-model budgets still advertised a
+larger side entrance. `apply_dense_readout_training_loop(...)` now shares
+`SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT=32` and
+`SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT=32` with the schema,
+design, and preflight surfaces, emits
+`bounded_snn_dense_readout_training_transition_source_window.v1` and
+`bounded_snn_dense_readout_training_transition_index_window.v1`, and requires
+untruncated transition and sparse-index windows before checkpoint mutation. The
+benchmark
+`reports/bounded_replay_window_20260619/dense-readout-training-transition-window.json`
+blocked oversized transition and index payloads at `32/2048` with zero
+checkpoint calls and zero state mutation, while exact-window training still
+committed `32` dense/sparse transition updates through checkpoints. It recorded
+CPU archival/source/training placement, `5.696876 MiB` traced Python peak,
+`0.0 MiB` CUDA allocation/reservation, no global candidate/score scan, no raw
+text payload, no hidden language reasoning, and `64x` projected transition-work
+reduction. The clean `524288`-token hot-path run stayed in band at
+`6028.820 tokens/sec`, bounded `12/65536` route rows, no observed contention,
+and zero graph/native sequence failures. This retires the caller-sized
+checkpointed training side path instead of keeping it beside the selected
+replay/application path.
+
 Strong-capture slow-memory admission now follows the same selected replay rule.
 Synaptic tagging/capture motivates retaining unusually strong traces for later
 stabilization, but it does not justify an immediate archive write for every
@@ -1069,6 +1094,7 @@ bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
+bounded dense-readout training transition windows,
 strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
@@ -1076,9 +1102,10 @@ replay-plan construction, linear replay-artifact provenance lookups, and
 source-bank wrapper APIs, retained-ledger replay-path status scans,
 readout-ledger full-materialization normalization, every-strong slow-memory
 admission, caller-supplied full-payload readout replay materialization,
-caller-supplied checkpointed application synapse materialization, plus the
-all-anchor HF replay-query source pass and full hot-bucket candidate source
-materialization;
+caller-supplied checkpointed application synapse materialization,
+caller-supplied checkpointed dense-readout training transition materialization,
+plus the all-anchor HF replay-query source pass and full hot-bucket candidate
+source materialization;
 future larger replay windows still require repeated long-run hot-path and
 grounding checks
 

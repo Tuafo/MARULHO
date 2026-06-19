@@ -980,6 +980,22 @@ transition rows, no observed contention, and zero graph/native failures. This
 keeps structural writes slow-path, operator/checkpoint gated, and bounded
 without putting replay/application work into the live tick.
 
+Dense-readout training now shares that single-window rule instead of preserving
+an old caller-sized training side path. The design, schema, preflight, and
+executor all use `SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT=32`
+and `SNN_LANGUAGE_DENSE_READOUT_TRAINING_INDEX_WINDOW_LIMIT=32`. The executor
+emits `bounded_snn_dense_readout_training_transition_source_window.v1` and
+`bounded_snn_dense_readout_training_transition_index_window.v1`, requires both
+windows to be untruncated before checkpoint writes, and blocks oversized
+payloads before runtime mutation. The benchmark
+`reports/bounded_replay_window_20260619/dense-readout-training-transition-window.json`
+blocked transition and index payloads at `32/2048` with zero checkpoint calls,
+while an exact `32`-transition window still produced `32` dense/sparse updates.
+The paired `524288`-token protection run stayed in band at
+`6028.820 tokens/sec`, with bounded `12/65536` route rows, `65526` cached rows,
+no observed contention, GPU memory `2029->2028 MiB`, and zero graph/native
+failures.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)
