@@ -80,6 +80,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1020,7 +1022,21 @@ protection rerun
 stayed in band at `6044.412 tokens/sec`, with bounded `12/65536` route rows, no
 observed contention, GPU memory `2029->2032 MiB`, and zero graph/native sequence
 failures. This retires broad retained-ledger copy shapes without promoting
-ledger normalization or checkpoint-style persistence into live replay.
+ledger normalization or checkpoint-style persistence into live replay. The
+remaining replay-provenance helper that checks known readout evidence hashes now
+uses a single `events` source window instead of calling the all-family
+normalizer. The same benchmark report records
+`bounded_snn_readout_known_evidence_hash_source_window.v1`, preserves known-hash
+set parity, checks `128` `events` rows instead of `2944` normalized ledger rows
+(`23x` less source work), and reduces mean lookup latency from `156.192384 ms`
+to `6.792628 ms` (`22.994397x`) with CPU lookup placement, `6.538644 MiB`
+traced Python peak, and no CUDA allocation/reservation. The paired 65536-column
+`524288`-token rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json`
+stayed in the same sustained band at `5938.461 tokens/sec` with bounded
+`12/65536` route rows, `65526` cached transition rows, no observed contention,
+GPU memory `2032->2031 MiB`, and zero graph/native sequence failures. This is
+throughput protection for a slow replay/readout gate, not a speed promotion.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

@@ -25,6 +25,7 @@ from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_readout_ledger import (
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+    SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNNLanguageReadoutEvidenceLedger,
 )
 
@@ -107,6 +108,33 @@ def _bounded_store_state(
     return {
         field: list(target.get(field) or [])
         for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+
+
+def _bounded_known_hash_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    hashes, report = ledger._known_readout_evidence_hashes_with_report()  # noqa: SLF001
+    return {
+        "hashes": sorted(hashes),
+        "report": report,
+    }
+
+
+def _broad_normalized_known_hash_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    hashes = {
+        str(item.get("readout_evidence_hash") or "")
+        for item in list(normalized.get("events") or [])
+        if isinstance(item, Mapping) and item.get("readout_evidence_hash")
+    }
+    return {
+        "hashes": sorted(hashes),
+        "normalization_source_window": dict(
+            normalized.get("_normalization_source_window") or {}
+        ),
     }
 
 
@@ -222,6 +250,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             limit=ledger_limit,
         ),
     )
+    known_hash, known_hash_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_known_hash_lookup(ledger),
+    )
+    broad_known_hash, broad_known_hash_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _broad_normalized_known_hash_lookup(ledger),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -240,6 +276,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     legacy_store_mean = statistics.fmean(legacy_store_samples)
     bounded_store_first_ordinals = _first_ordinals(bounded_store)
     legacy_store_first_ordinals = _first_ordinals(legacy_store)
+    known_hash_report = dict(known_hash.get("report") or {})
+    known_hash_mean = statistics.fmean(known_hash_samples)
+    broad_known_hash_mean = statistics.fmean(broad_known_hash_samples)
+    known_hash_rows = int(known_hash_report.get("source_window_count", 0) or 0)
+    broad_known_hash_rows = int(
+        dict(
+            broad_known_hash.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
     pass_checks = {
         "surface_present": source_window.get("surface")
         == "bounded_snn_readout_ledger_normalization_source_window.v1",
@@ -270,6 +316,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "store_bounded_less_work": bounded_store_rows < legacy_store_rows,
         "store_latency_not_slower_than_legacy": (
             bounded_store_mean <= legacy_store_mean * 1.1
+        ),
+        "known_hash_surface_present": known_hash_report.get("surface")
+        == "bounded_snn_readout_known_evidence_hash_source_window.v1",
+        "known_hash_policy_present": known_hash_report.get("policy")
+        == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+        "known_hash_set_parity": known_hash.get("hashes")
+        == broad_known_hash.get("hashes"),
+        "known_hash_bounded_less_work": known_hash_rows < broad_known_hash_rows,
+        "known_hash_latency_not_slower_than_broad_normalization": (
+            known_hash_mean <= broad_known_hash_mean * 1.1
         ),
     }
     return {
@@ -358,6 +414,39 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "max_records_total": int(bounded_store_rows),
             },
         },
+        "known_evidence_hash_boundary": {
+            "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+            "policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.events",
+            "selection_criteria": [
+                "internal_readout_evidence_events_only",
+                "bounded source window before replay provenance lookup",
+            ],
+            "quality": {
+                "metric": "known_readout_evidence_hash_set_parity",
+                "hash_set_parity": known_hash.get("hashes")
+                == broad_known_hash.get("hashes"),
+                "hash_count": int(len(known_hash.get("hashes") or [])),
+            },
+            "latency": {
+                "bounded": _latency_summary(known_hash_samples),
+                "broad_normalized": _latency_summary(broad_known_hash_samples),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_known_hash_mean / max(known_hash_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": "normalize_all_ledger_event_fields_before_known_hash_lookup",
+                "bounded_checked_record_count": known_hash_rows,
+                "old_checked_record_count": broad_known_hash_rows,
+                "record_work_reduction": round(
+                    broad_known_hash_rows / max(1, known_hash_rows),
+                    6,
+                ),
+            },
+            "source_window": known_hash_report,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -387,7 +476,8 @@ def main() -> None:
         "pass={passed} bounded_mean_ms={bounded:.6f} legacy_mean_ms={legacy:.6f} "
         "work_reduction={work:.6f} bounded_recent={bounded_recent:.6f} "
         "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
-        "store_legacy_mean_ms={store_legacy:.6f}".format(
+        "store_legacy_mean_ms={store_legacy:.6f} known_hash_bounded_mean_ms={known_hash_bounded:.6f} "
+        "known_hash_broad_mean_ms={known_hash_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -400,6 +490,12 @@ def main() -> None:
             store_legacy=report["store_state_boundary"]["latency"]["legacy"][
                 "mean_ms"
             ],
+            known_hash_bounded=report["known_evidence_hash_boundary"]["latency"][
+                "bounded"
+            ]["mean_ms"],
+            known_hash_broad=report["known_evidence_hash_boundary"]["latency"][
+                "broad_normalized"
+            ]["mean_ms"],
         )
     )
 

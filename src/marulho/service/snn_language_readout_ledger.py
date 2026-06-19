@@ -22,6 +22,9 @@ DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
 SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
     "recent_ledger_event_field_source_window_v1"
 )
+SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY = (
+    "recent_readout_evidence_hash_source_window_v1"
+)
 SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "events",
     "rollout_events",
@@ -38226,12 +38229,63 @@ class SNNLanguageReadoutEvidenceLedger:
         }
 
     def _known_readout_evidence_hashes(self) -> set[str]:
-        normalized = self._normalized_state()
-        return {
+        hashes, _report = self._known_readout_evidence_hashes_with_report()
+        return hashes
+
+    def _known_readout_evidence_hashes_with_report(
+        self,
+    ) -> tuple[set[str], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(state, "events")
+        source_count = self._source_record_count(state, "events")
+        hashes = {
             str(item.get("readout_evidence_hash") or "")
-            for item in list(normalized.get("events") or [])
-            if isinstance(item, Mapping) and item.get("readout_evidence_hash")
+            for item in events
+            if item.get("readout_evidence_hash")
         }
+        source_window_count = int(len(events))
+        report = {
+            "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+            "policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.events",
+            "selection_criteria": [
+                "internal_readout_evidence_events_only",
+                "bounded_source_window_before_replay_provenance_lookup",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "hash_count": int(len(hashes)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "max_hash_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return hashes, report
 
     def known_readout_evidence_hashes(self) -> set[str]:
         """Expose current internal ledger identities for controller verification."""

@@ -16,6 +16,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+    SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
     SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
@@ -13076,6 +13077,78 @@ def test_readout_ledger_store_state_uses_bounded_event_field_windows() -> None:
     assert ledger_state["current_text_surface_commit"] == {"surface": "current.v1"}
     assert ledger_state["total_recorded_count"] == source_count
     assert ledger_state["last_recorded_at"] == "2026-06-19T00:00:00+00:00"
+
+
+def test_known_readout_evidence_hashes_uses_events_only_source_window() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "readout_evidence_hash": f"{self.field}:readout:{index}",
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    ledger_state: dict[str, object] = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    hashes, report = ledger._known_readout_evidence_hashes_with_report()  # noqa: SLF001
+
+    assert hashes == {
+        f"events:readout:{index}"
+        for index in range(ledger_limit)
+    }
+    assert report["surface"] == (
+        "bounded_snn_readout_known_evidence_hash_source_window.v1"
+    )
+    assert report["policy"] == SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
+    assert report["source"] == "snn_readout_ledger.events"
+    assert report["source_window_limit"] == ledger_limit
+    assert report["source_window_count"] == ledger_limit
+    assert report["source_record_count"] == source_count
+    assert report["source_payload_truncated"] is True
+    assert report["source_truncated_count"] == source_count - ledger_limit
+    assert report["hash_count"] == ledger_limit
+    assert report["global_candidate_scan"] is False
+    assert report["global_score_scan"] is False
+    assert report["raw_text_payload_loaded"] is False
+    assert report["language_reasoning"] is False
+    assert report["runs_live_tick"] is False
+    assert report["runs_every_token"] is False
+    assert report["mutates_runtime_state"] is False
+    assert report["applies_plasticity"] is False
+    assert report["archival_storage_device"] == "cpu"
+    assert report["lookup_device"] == "cpu"
+    assert report["gpu_used"] is False
+    assert report["memory_budget"]["max_source_records"] == ledger_limit
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        source = ledger_state[field]
+        assert isinstance(source, CountedRows)
+        if field == "events":
+            assert source.iterated == ledger_limit
+        else:
+            assert source.iterated == 0
 
 
 def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:
