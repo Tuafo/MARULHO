@@ -12,6 +12,7 @@ related_code:
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
+  - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
@@ -75,6 +76,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
+  - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
   - reports/bounded_replay_window_20260618/strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-strong-capture-admission-cadence-rerun.json
@@ -1215,6 +1218,47 @@ were `0`; `velocity_environment.v1` reported no observed contention, CPU max
 `31%`, GPU max `13%`, GPU memory-util max `18%`, and RTX 3060 memory
 `2020->2018 MiB`. This is same-band hot-path protection for a slow/control-plane
 replay cleanup, not a live-tick replay promotion.
+
+The exported SNN language plasticity replay functions now carry the same
+runtime-boundary rule instead of relying only on API schema limits.
+`evaluate_spike_language_plasticity_replay(...)`,
+`run_spike_language_plasticity_replay_experiment(...)`, and
+`build_spike_language_plasticity_shadow_delta(...)` cap caller-supplied replay
+records at `32`; the shadow-delta path also caps `pre_indices`,
+`post_indices`, and fallback `active_indices` to `16` per side before the
+`pre x post` sparse pair loop. The focused benchmark was:
+
+`python -m marulho.evaluation.language_plasticity_replay_window_benchmark --payload-count 2048 --index-count 256 --runs 25 --output reports\bounded_replay_window_20260619\language-plasticity-replay-window.json`
+
+It passed with replay evaluation `32/2048`, replay experiment `32/2048`, and
+shadow-delta pair checks `8192/134217728`, a `64x` record-work reduction and
+`16384x` pair-work reduction versus the retired full-payload projection. Mean
+latencies were `11.024580 ms` for replay evaluation, `8.622980 ms` for replay
+experiment, and `297.890092 ms` for shadow delta. Archival storage, source
+selection, and active replay computation stayed CPU-resident, traced Python peak
+allocation was `14.474813 MiB`, CUDA allocation/reservation stayed `0.0 MiB`,
+and the reports state no global candidate/score scan, no live tick, no
+every-token cadence, no raw replay text, no hidden language reasoning, and no
+runtime mutation. The API schemas now reuse
+`SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT` so the validation cap and semantics
+runtime cap have one named budget.
+
+The longer protection rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `5999.398 tokens/sec`, with
+`train_compute=0.135445 ms/token`, `prepare_training=0.007140 ms/token`,
+`finalize_total=0.006422 ms/token`, and `tick_duration_ms.p95=22.016`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+all `0`. The sampler reported GPU-side contention at the threshold
+(`max_gpu_utilization_percent=22`, memory-util max `23`), CPU max `38%`, and
+RTX 3060 memory `2018->2023 MiB`, so this is same-band protection evidence under
+observed contention rather than a clean speed-ceiling run. The preceding same
+command without the `-rerun` suffix also succeeded at `6025.620 tokens/sec` and
+was likewise marked GPU-contended.
 
 The strong-capture admission cadence follow-up closes the remaining
 every-strong slow-memory write shape. Strong-event evidence can still be

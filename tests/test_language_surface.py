@@ -5,6 +5,8 @@ import json
 import unittest
 
 from marulho.semantics import (
+    SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+    SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
     build_binding_growth_trial_design,
     build_snn_language_readiness_surface,
     build_snn_language_evaluation_surface,
@@ -1762,6 +1764,49 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(replay["promotion_gate"]["eligible_for_replay_promotion"])
         self.assertTrue(replay["promotion_gate"]["eligible_for_operator_replay_review"])
 
+    def test_spike_language_plasticity_replay_evaluation_bounds_untrusted_window(self) -> None:
+        oversized_count = SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT + 17
+        trial = {
+            "available": True,
+            "owned_by_marulho": True,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "returns_trained_weights": False,
+            "trial_summary": {
+                "pre_pressure_score": 0.9,
+                "post_pressure_score": 0.7,
+                "expected_pressure_reduction": 0.2,
+            },
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        }
+        replay = evaluate_spike_language_plasticity_replay(
+            trial,
+            replay_window=[
+                {"case_id": f"sequence-replay-{index}", "grounded": True}
+                for index in range(oversized_count)
+            ],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(
+            replay["replay_evidence"]["replay_window_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            replay["replay_window"]["source_window_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(replay["replay_window"]["source_total_count"], oversized_count)
+        self.assertEqual(
+            replay["replay_window"]["source_truncated_count"],
+            oversized_count - SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertFalse(replay["replay_window"]["global_candidate_scan"])
+        self.assertFalse(replay["replay_window"]["global_score_scan"])
+        self.assertFalse(replay["runtime_truth"]["runs_live_tick"])
+        self.assertFalse(replay["runtime_truth"]["runs_every_token"])
+
     def test_spike_language_plasticity_replay_experiment_stays_ephemeral(self) -> None:
         prediction = predict_spike_language_sequence(
             [
@@ -1816,6 +1861,50 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(experiment["promotion_gate"]["eligible_for_plasticity_application"])
         self.assertFalse(experiment["promotion_gate"]["eligible_for_replay_promotion"])
         self.assertTrue(experiment["promotion_gate"]["eligible_for_operator_application_review"])
+
+    def test_spike_language_plasticity_replay_experiment_bounds_untrusted_sequences(self) -> None:
+        oversized_count = SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT + 19
+        replay_evaluation = {
+            "available": True,
+            "owned_by_marulho": True,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "replay_evidence": {
+                "pre_pressure_score": 0.9,
+                "post_pressure_score": 0.7,
+                "expected_pressure_reduction": 0.2,
+            },
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        }
+        experiment = run_spike_language_plasticity_replay_experiment(
+            replay_evaluation,
+            replay_sequences=[
+                {"sequence_id": f"sequence-replay-{index}", "grounded": True}
+                for index in range(oversized_count)
+            ],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(
+            experiment["replay_experiment"]["replay_sequence_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            len(experiment["ephemeral_replay"]["trace"]),
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            experiment["replay_sequence_window"]["source_window_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(experiment["replay_sequence_window"]["source_total_count"], oversized_count)
+        self.assertEqual(
+            experiment["replay_sequence_window"]["source_truncated_count"],
+            oversized_count - SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertFalse(experiment["runtime_truth"]["runs_live_tick"])
+        self.assertFalse(experiment["runtime_truth"]["hidden_language_reasoning"])
 
     def test_spike_language_plasticity_application_design_does_not_apply_learning(self) -> None:
         prediction = predict_spike_language_sequence(
@@ -2111,6 +2200,72 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         )
         self.assertFalse(shadow_without_device["promotion_gate"]["required_evidence"]["device_evidence_available"])
         self.assertFalse(shadow_without_device["promotion_gate"]["eligible_for_operator_live_application_review"])
+
+    def test_spike_language_plasticity_shadow_delta_bounds_records_and_sparse_indices(self) -> None:
+        oversized_sequence_count = SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT + 11
+        oversized_index_count = SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT + 23
+        application_design = {
+            "available": True,
+            "owned_by_marulho": True,
+            "device_evidence": {"device": "cpu", "source": "shadow_delta_bound_fixture"},
+            "application_design": {
+                "learning_rate": 0.03,
+                "max_weight_delta": 0.04,
+                "locality_radius": 4,
+                "grounded_replay_coverage": 0.8,
+            },
+        }
+        delta = build_spike_language_plasticity_shadow_delta(
+            application_design,
+            [
+                {
+                    "sequence_id": f"sequence-replay-{sequence_index}",
+                    "pre_indices": list(range(oversized_index_count)),
+                    "post_indices": list(range(1, oversized_index_count + 1)),
+                    "active_indices": list(range(oversized_index_count)),
+                    "grounded": True,
+                    "readout_evidence_hash": f"readout-{sequence_index}",
+                }
+                for sequence_index in range(oversized_sequence_count)
+            ],
+            device_evidence={"device": "cpu", "source": "shadow_delta_bound_fixture"},
+        )
+
+        self.assertEqual(
+            delta["replay_sequence_window"]["source_window_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(delta["replay_sequence_window"]["source_total_count"], oversized_sequence_count)
+        self.assertEqual(
+            delta["replay_sequence_window"]["source_truncated_count"],
+            oversized_sequence_count - SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            delta["sparse_index_window"]["pair_check_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT
+            * SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+            * SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+        )
+        first_index_window = delta["sparse_index_window"]["index_window_reports"][0]
+        self.assertEqual(
+            first_index_window["pre_indices"]["source_window_count"],
+            SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+        )
+        self.assertEqual(first_index_window["pre_indices"]["source_total_count"], oversized_index_count)
+        self.assertEqual(
+            first_index_window["pre_indices"]["source_truncated_count"],
+            oversized_index_count - SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+        )
+        self.assertLessEqual(
+            max(len(item["source_pre_indices"]) for item in delta["bounded_synapses"]),
+            SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+        )
+        self.assertLessEqual(
+            max(len(item["source_post_indices"]) for item in delta["bounded_synapses"]),
+            SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+        )
+        self.assertFalse(delta["applies_plasticity"])
+        self.assertFalse(delta["mutates_runtime_state"])
 
 
 class SubcorticalSelfRepairSurfaceTests(unittest.TestCase):

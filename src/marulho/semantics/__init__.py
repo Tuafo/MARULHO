@@ -25,6 +25,9 @@ from .language_surface import (
 from .provenance import Provenance
 from .spike_language_decoder import SpikeLanguageDecoderProbe, build_spike_language_decoder_probe
 from .spike_language_neurons import (
+    SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+    SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+    SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY,
     SpikeLanguageNeuronAdapter,
     build_spike_language_plasticity_application_design,
     build_spike_language_plasticity_pressure,
@@ -64,6 +67,9 @@ __all__ = [
     "GeometricCuriosityController",
     "Provenance",
     "SpikeLanguageDecoderProbe",
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT",
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT",
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY",
     "SpikeLanguageNeuronAdapter",
     "ReadoutMode",
     "DeliberationDepth",

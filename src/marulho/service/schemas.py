@@ -4,6 +4,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from marulho.semantics.spike_language_neurons import (
+    SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+)
+
 
 class JsonPathPredicateAssertion(BaseModel):
     path: str = Field(..., min_length=1)
@@ -1404,14 +1408,20 @@ class SNNLanguagePlasticityTrialRequest(BaseModel):
 
 class SNNLanguagePlasticityReplayEvaluationRequest(BaseModel):
     trial_report: dict[str, Any] = Field(..., min_length=1)
-    replay_window: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    replay_window: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+    )
     runtime_truth_delta: dict[str, Any] | None = None
     rollback_policy: dict[str, Any] | None = None
 
 
 class SNNLanguagePlasticityReplayExperimentRequest(BaseModel):
     replay_evaluation: dict[str, Any] = Field(..., min_length=1)
-    replay_sequences: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    replay_sequences: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+    )
     runtime_truth_delta: dict[str, Any] | None = None
     rollback_policy: dict[str, Any] | None = None
 
@@ -1434,7 +1444,11 @@ class SNNLanguagePlasticityShadowApplicationRequest(BaseModel):
 
 class SNNLanguagePlasticityShadowDeltaRequest(BaseModel):
     application_design: dict[str, Any] = Field(..., min_length=1)
-    replay_sequences: list[dict[str, Any]] = Field(..., min_length=1, max_length=32)
+    replay_sequences: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        max_length=SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+    )
     device_evidence: dict[str, Any] | None = None
 
 

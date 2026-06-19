@@ -11,6 +11,7 @@ related_code:
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
+  - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
@@ -943,6 +944,22 @@ run stayed in band at `6109.000 tokens/sec` with bounded `12/65536` route rows,
 `65526` cached transition rows, no observed contention, and zero graph/native
 sequence failures. The old full-payload shape is a retired projection in the
 benchmark, not a side implementation path.
+
+The exported language-plasticity replay semantics now share that single replay
+budget instead of depending on callers to stay inside the API schema. Replay
+evaluation and replay experiment inspect at most `32` caller records, and the
+shadow-delta builder also caps each sparse side to `16` indices before local
+pair scoring. Their bounded reports state CPU archival/source placement, CPU
+active replay computation for the benchmark, no global candidate/score scan, no
+raw replay text, no hidden language reasoning, `runs_live_tick=false`,
+`runs_every_token=false`, and no runtime mutation. The benchmark
+`reports/bounded_replay_window_20260619/language-plasticity-replay-window.json`
+reduced replay records from `2048` to `32` and shadow pair checks from
+`134217728` projected pairs to `8192`, while the longer `524288`-token protection
+rerun stayed in the maintained band at `5999.398 tokens/sec` with bounded
+`12/65536` route rows, `65526` cached transition rows, and zero graph/native
+sequence failures. Because the sampler observed GPU-side contention, this is
+protection evidence for the slow path, not a clean speed-ceiling claim.
 
 ## Links
 

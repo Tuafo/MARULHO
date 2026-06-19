@@ -12,6 +12,7 @@ related_code:
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
+  - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -74,6 +75,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
+  - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
 ---
 
 # Replay/consolidation
@@ -980,6 +983,30 @@ cached transition rows, no observed contention, GPU memory `2020->2018 MiB`,
 and zero graph/native sequence failures. This retires caller-supplied
 full-payload replay materialization without adding a second implementation
 path.
+
+The same replay/consolidation boundary now applies inside the exported SNN
+language plasticity semantics path, not only the readout-ledger adapter. A
+modern-Hopfield-style association is acceptable only after a local replay window
+exists; CLS, continual replay, synaptic tagging/capture, latent replay, and
+sparse replay do not justify caller-sized replay records or sparse-index lists
+inside the plasticity review surface. MARULHO therefore bounds
+`evaluate_spike_language_plasticity_replay(...)`,
+`run_spike_language_plasticity_replay_experiment(...)`, and
+`build_spike_language_plasticity_shadow_delta(...)` with
+`SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT=32`; shadow delta additionally caps
+each sparse side at `16` indices before pair scoring. The benchmark
+`reports/bounded_replay_window_20260619/language-plasticity-replay-window.json`
+passed with replay evaluation `32/2048`, replay experiment `32/2048`, shadow
+pair checks `8192/134217728`, `64x` record-work reduction, `16384x` pair-work
+reduction, CPU archival/source/replay placement, `14.474813 MiB` traced Python
+peak allocation, and `0.0 MiB` CUDA allocation/reservation. The matching
+`524288`-token rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json`
+stayed in the maintained band at `5999.398 tokens/sec`, bounded `12/65536`
+route rows, `65526` cached transition rows, and zero graph/native sequence
+failures, but `velocity_environment.v1` marked GPU contention at `22%`; treat it
+as protection evidence, not clean top-speed evidence. The old full-payload
+semantics behavior is retired rather than left as a side implementation.
 
 Strong-capture slow-memory admission now follows the same selected replay rule.
 Synaptic tagging/capture motivates retaining unusually strong traces for later

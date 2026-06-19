@@ -7,12 +7,143 @@ bounded neuron-dynamics evidence. It is intentionally not a generator.
 from __future__ import annotations
 
 import hashlib
+from itertools import islice
 import json
 from typing import Any, Mapping, Sequence
 
 import torch
 
 from marulho.semantics.spike_language_decoder import build_spike_language_decoder_probe
+
+SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT = 32
+SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT = 16
+SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY = (
+    "bounded_semantics_language_plasticity_replay_window_v1"
+)
+
+
+def _bounded_plasticity_replay_window(
+    raw_value: Any,
+    *,
+    source: str,
+    surface: str,
+    active_replay_computation_device: str = "cpu",
+    limit: int = SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    source_limit = max(0, min(int(limit), SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT))
+    source_total_count: int | None
+    if raw_value is None or isinstance(raw_value, (str, bytes, Mapping)):
+        raw_iterable: Any = ()
+        source_total_count = 0
+    else:
+        raw_iterable = raw_value
+        try:
+            source_total_count = int(len(raw_value))
+        except TypeError:
+            source_total_count = None
+
+    selected: list[dict[str, Any]] = []
+    inspected_count = 0
+    try:
+        bounded_source = islice(raw_iterable, source_limit)
+        for item in bounded_source:
+            inspected_count += 1
+            if isinstance(item, Mapping):
+                selected.append(dict(item))
+    except TypeError:
+        source_total_count = 0
+        inspected_count = 0
+        selected = []
+
+    truncated_count = (
+        max(0, int(source_total_count) - inspected_count)
+        if source_total_count is not None
+        else None
+    )
+    report = {
+        "surface": surface,
+        "policy": SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY,
+        "window_policy": SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY,
+        "source": source,
+        "selection_criteria": [
+            "caller_supplied_replay_payload_order",
+            "bounded_source_window_before_replay_materialization",
+            "sparse_indices_bounded_before_pair_scoring",
+        ],
+        "source_window_limit": int(source_limit),
+        "source_window_count": int(inspected_count),
+        "source_mapping_count": int(len(selected)),
+        "source_total_count": source_total_count,
+        "source_total_count_known": source_total_count is not None,
+        "source_truncated_count": truncated_count,
+        "candidate_count_before_limit": source_total_count,
+        "candidate_count_returned": int(len(selected)),
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "source_window_selection_device": "cpu",
+        "active_replay_computation_device": str(active_replay_computation_device),
+        "score_device": str(active_replay_computation_device),
+        "gpu_resident_archival_metadata": False,
+        "device_placement": {
+            "archival_storage": "cpu",
+            "source_window_selection": "cpu",
+            "active_replay_computation": str(active_replay_computation_device),
+        },
+        "gpu_used_for_archival_metadata": False,
+        "memory_budget": {
+            "max_source_records": int(source_limit),
+            "max_sparse_indices_per_side": SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+            "max_sparse_pair_checks_per_record": (
+                SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+                * SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+            ),
+        },
+    }
+    return selected, report
+
+
+def _bounded_sparse_indices(raw_value: Any) -> tuple[list[int], dict[str, Any]]:
+    source_limit = SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+    if raw_value is None or isinstance(raw_value, (str, bytes, Mapping)):
+        raw_iterable: Any = ()
+        source_total_count: int | None = 0
+    else:
+        raw_iterable = raw_value
+        try:
+            source_total_count = int(len(raw_value))
+        except TypeError:
+            source_total_count = None
+
+    values: list[int] = []
+    inspected_count = 0
+    try:
+        for value in islice(raw_iterable, source_limit):
+            inspected_count += 1
+            if isinstance(value, int):
+                values.append(int(value))
+    except TypeError:
+        inspected_count = 0
+        source_total_count = 0
+        values = []
+    truncated_count = (
+        max(0, int(source_total_count) - inspected_count)
+        if source_total_count is not None
+        else None
+    )
+    return values, {
+        "source_window_limit": int(source_limit),
+        "source_window_count": int(inspected_count),
+        "source_index_count": int(len(values)),
+        "source_total_count": source_total_count,
+        "source_truncated_count": truncated_count,
+    }
 
 
 class SpikeLanguageNeuronAdapter:
@@ -2402,7 +2533,12 @@ def evaluate_spike_language_plasticity_replay(
     gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
     truth_delta = dict(runtime_truth_delta or {})
     rollback = dict(rollback_policy or {})
-    replay_items = [dict(item) for item in list(replay_window or []) if isinstance(item, Mapping)]
+    replay_items, replay_window_report = _bounded_plasticity_replay_window(
+        replay_window,
+        source="semantics.spike_language_neurons.plasticity_replay_evaluation",
+        surface="bounded_snn_language_plasticity_replay_evaluation_window.v1",
+        active_replay_computation_device="cpu",
+    )
     pre_pressure = _float(summary.get("pre_pressure_score"), 1.0)
     post_pressure = _float(summary.get("post_pressure_score"), pre_pressure)
     reduction = _float(summary.get("expected_pressure_reduction"), 0.0)
@@ -2440,10 +2576,24 @@ def evaluate_spike_language_plasticity_replay(
         "trial_surface": report.get("surface"),
         "replay_evidence": {
             "replay_window_count": len(replay_items),
+            "replay_window_source_count": replay_window_report.get("source_total_count"),
+            "replay_window_truncated_count": replay_window_report.get("source_truncated_count"),
+            "replay_window_policy": replay_window_report.get("window_policy"),
             "pre_pressure_score": float(pre_pressure),
             "post_pressure_score": float(post_pressure),
             "expected_pressure_reduction": float(reduction),
             "pressure_non_worsening": bool(non_worsening),
+        },
+        "replay_window": replay_window_report,
+        "runtime_truth": {
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "hidden_language_reasoning": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
         },
         "runtime_truth_delta": truth_delta,
         "rollback_evidence": {
@@ -2481,9 +2631,14 @@ def run_spike_language_plasticity_replay_experiment(
     report = dict(replay_evaluation)
     gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
     evidence = report.get("replay_evidence") if isinstance(report.get("replay_evidence"), Mapping) else {}
-    sequences = [dict(item) for item in list(replay_sequences or []) if isinstance(item, Mapping)]
     truth_delta = dict(runtime_truth_delta or {})
     rollback = dict(rollback_policy or {})
+    sequences, replay_sequence_window = _bounded_plasticity_replay_window(
+        replay_sequences,
+        source="semantics.spike_language_neurons.plasticity_replay_experiment",
+        surface="bounded_snn_language_plasticity_replay_experiment_sequence_window.v1",
+        active_replay_computation_device="cpu",
+    )
     replay_count = len(sequences)
     grounded_count = sum(1 for item in sequences if bool(item.get("grounded", True)))
     coverage = grounded_count / replay_count if replay_count else 0.0
@@ -2534,6 +2689,9 @@ def run_spike_language_plasticity_replay_experiment(
         "replay_evaluation_surface": report.get("surface"),
         "replay_experiment": {
             "replay_sequence_count": replay_count,
+            "replay_sequence_source_count": replay_sequence_window.get("source_total_count"),
+            "replay_sequence_truncated_count": replay_sequence_window.get("source_truncated_count"),
+            "replay_sequence_window_policy": replay_sequence_window.get("window_policy"),
             "grounded_replay_sequence_count": grounded_count,
             "grounded_replay_coverage": float(coverage),
             "pre_pressure_score": float(pre_pressure),
@@ -2544,9 +2702,21 @@ def run_spike_language_plasticity_replay_experiment(
         },
         "ephemeral_replay": {
             "trace": trace,
+            "replay_sequence_window": replay_sequence_window,
             "weights_persisted": False,
             "runtime_update_applied": False,
             "runtime_state_mutated": False,
+        },
+        "replay_sequence_window": replay_sequence_window,
+        "runtime_truth": {
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "hidden_language_reasoning": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
         },
         "runtime_truth_delta": truth_delta,
         "rollback_evidence": {
@@ -2795,20 +2965,37 @@ def build_spike_language_plasticity_shadow_delta(
     max_weight_delta = _float(design.get("max_weight_delta"), 0.0)
     learning_rate = _float(design.get("learning_rate"), 0.0)
     locality_radius = max(int(_float(design.get("locality_radius"), 1.0)), 1)
+    sequences, replay_sequence_window = _bounded_plasticity_replay_window(
+        replay_sequences,
+        source="semantics.spike_language_neurons.plasticity_shadow_delta",
+        surface="bounded_snn_language_plasticity_shadow_delta_sequence_window.v1",
+        active_replay_computation_device=selected_device,
+    )
     rows: list[int] = []
     cols: list[int] = []
     provenance_by_synapse: dict[tuple[int, int], dict[str, Any]] = {}
-    for item in replay_sequences:
-        if not isinstance(item, Mapping):
-            continue
-        pre_indices = [int(value) for value in list(item.get("pre_indices") or []) if isinstance(value, int)]
-        post_indices = [int(value) for value in list(item.get("post_indices") or []) if isinstance(value, int)]
+    index_window_reports: list[dict[str, Any]] = []
+    pair_check_count = 0
+    for sequence_index, item in enumerate(sequences):
+        pre_indices, pre_report = _bounded_sparse_indices(item.get("pre_indices"))
+        post_indices, post_report = _bounded_sparse_indices(item.get("post_indices"))
         if not pre_indices:
-            pre_indices = [int(value) for value in list(item.get("active_indices") or []) if isinstance(value, int)]
+            pre_indices, pre_report = _bounded_sparse_indices(item.get("active_indices"))
         if not post_indices:
-            post_indices = [int(value) for value in list(item.get("target_indices") or []) if isinstance(value, int)]
+            post_indices, post_report = _bounded_sparse_indices(item.get("target_indices"))
+        active_indices, active_report = _bounded_sparse_indices(item.get("active_indices"))
+        index_window_reports.append(
+            {
+                "sequence_index": sequence_index,
+                "sequence_id": item.get("sequence_id"),
+                "pre_indices": pre_report,
+                "post_indices": post_report,
+                "active_indices": active_report,
+            }
+        )
         for pre in pre_indices:
             for post in post_indices:
+                pair_check_count += 1
                 if abs(int(post) - int(pre)) <= locality_radius:
                     rows.append(int(pre))
                     cols.append(int(post))
@@ -2827,11 +3014,7 @@ def build_spike_language_plasticity_shadow_delta(
                             ),
                             "source_pre_indices": pre_indices,
                             "source_post_indices": post_indices,
-                            "source_active_indices": [
-                                int(value)
-                                for value in list(item.get("active_indices") or [])
-                                if isinstance(value, int)
-                            ],
+                            "source_active_indices": active_indices,
                         },
                     )
     affected = len(set(zip(rows, cols)))
@@ -2868,6 +3051,25 @@ def build_spike_language_plasticity_shadow_delta(
         "max_abs_weight_delta": float(delta_tensor.item()),
         "affected_synapse_count": affected,
         "bounded_synapses": bounded_synapses,
+        "replay_sequence_window": replay_sequence_window,
+        "sparse_index_window": {
+            "surface": "bounded_snn_language_plasticity_shadow_delta_sparse_index_window.v1",
+            "policy": SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY,
+            "max_indices_per_side": SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT,
+            "sequence_window_count": int(replay_sequence_window.get("source_window_count", 0) or 0),
+            "sequence_mapping_count": len(sequences),
+            "index_window_reports": index_window_reports,
+            "pair_check_count": pair_check_count,
+            "max_pair_check_budget": (
+                len(sequences)
+                * SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+                * SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT
+            ),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+        },
         "locality_radius": locality_radius,
         "pressure_before": float(pressure_before),
         "pressure_after": float(pressure_after),
@@ -3450,6 +3652,9 @@ def _mismatch_band(value: float) -> str:
 
 
 __all__ = [
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_INDEX_LIMIT",
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_LIMIT",
+    "SNN_LANGUAGE_PLASTICITY_REPLAY_WINDOW_POLICY",
     "SpikeLanguageNeuronAdapter",
     "build_spike_language_plasticity_application_design",
     "build_spike_language_neuron_adapter",
