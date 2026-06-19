@@ -28,6 +28,9 @@ SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY = (
 SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY = (
     "recent_dense_label_candidate_calibration_source_window_v1"
 )
+SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY = (
+    "recent_dense_label_calibration_evaluation_source_window_v1"
+)
 SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "events",
     "rollout_events",
@@ -1554,15 +1557,19 @@ class SNNLanguageReadoutEvidenceLedger:
             for label in list(heldout.get("labels") or heldout.get("heldout_labels") or [])
             if str(label).strip()
         }
-        state = self._normalized_state()
         candidate_hashes = {
             str(value)
             for value in list(preflight.get("selected_candidate_hashes") or [])
             if str(value)
         }
+        source_events, source_window = (
+            self._dense_label_candidate_evaluation_source_window_with_report(
+                candidate_hashes=candidate_hashes,
+            )
+        )
         evaluated_events = [
             dict(event)
-            for event in list(state["dense_label_candidate_events"])
+            for event in list(source_events)
             if str(event.get("dense_label_candidate_evidence_hash") or "")
             in candidate_hashes
         ][: max(1, min(int(preflight.get("selected_candidate_count", 1) or 1), 8))]
@@ -1655,6 +1662,17 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "heldout_labels_available": bool(heldout_labels),
             "candidate_events_available": bool(samples),
+            "dense_label_candidate_evaluation_source_window_bounded": bool(
+                source_window.get("surface")
+                == (
+                    "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+                )
+                and not bool(source_window.get("global_candidate_scan"))
+                and not bool(source_window.get("global_score_scan"))
+            ),
+            "preflight_selected_candidates_within_source_window": bool(
+                source_window.get("selected_candidates_within_source_window")
+            ),
             "bin_count_bounded": 2 <= bins <= 16,
             "runtime_mutation_absent": not bool(preflight.get("mutates_runtime_state")),
             "training_absent": not bool(preflight.get("trains_runtime_model")),
@@ -1701,6 +1719,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "evaluation_hash": evaluation_hash,
             "preflight_hash": preflight.get("preflight_hash"),
+            "source_window": source_window,
             "sample_count": len(samples) if ready else 0,
             "metrics": {
                 "expected_calibration_error": round(ece, 6) if ready else None,
@@ -38363,6 +38382,53 @@ class SNNLanguageReadoutEvidenceLedger:
                 "max_source_records": int(self._limit),
                 "archival_storage_device": "cpu",
             },
+        }
+        return events, report
+
+    def _dense_label_candidate_evaluation_source_window_with_report(
+        self,
+        *,
+        candidate_hashes: set[str],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        events, report = self._dense_label_candidate_source_window_with_report()
+        selected_hashes = {
+            str(value)
+            for value in set(candidate_hashes or set())
+            if str(value)
+        }
+        matched_count = sum(
+            1
+            for event in events
+            if str(event.get("dense_label_candidate_evidence_hash") or "")
+            in selected_hashes
+        )
+        selected_count = int(len(selected_hashes))
+        report = dict(report)
+        report.update(
+            {
+                "surface": (
+                    "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+                ),
+                "policy": SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
+                "window_policy": SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
+                "selection_criteria": [
+                    "preflight_selected_dense_label_candidate_hashes_only",
+                    "bounded_source_window_before_calibration_evaluation",
+                ],
+                "preflight_selected_hash_count": selected_count,
+                "matched_candidate_event_count": int(matched_count),
+                "selected_candidates_within_source_window": (
+                    selected_count > 0 and matched_count == selected_count
+                ),
+                "quality_metric": (
+                    "preflight_selected_dense_label_candidate_hash_resolution"
+                ),
+                "evaluation_device": "cpu",
+            }
+        )
+        report["memory_budget"] = {
+            **dict(report.get("memory_budget") or {}),
+            "max_selected_hashes": int(self._limit),
         }
         return events, report
 

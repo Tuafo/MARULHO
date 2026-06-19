@@ -84,6 +84,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1054,6 +1057,24 @@ paired `524288`-token protection run
 stayed in band at `6018.915 tokens/sec`, with bounded `12/65536` route rows,
 `65526` cached transition rows, no observed contention, GPU memory
 `2030->2029 MiB`, and zero graph/native sequence failures.
+The evaluation gate is closed over the same one-family evidence: after preflight
+selection, `bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1`
+resolves only the selected dense-label hashes from
+`dense_label_candidate_events`, keeps CPU archival/lookup/evaluation placement,
+and reports no global scan, no raw text payload, no hidden language reasoning,
+no live tick, no every-token cadence, no mutation/plasticity, and no CUDA
+archive. The report
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json`
+preserved sample-hash and calibration-metric parity for `8` selected samples
+while checking `128` dense-label rows instead of `2944` normalized ledger rows
+(`23x` less source work), reducing mean evaluation latency from
+`225.545020 ms` to `12.673884 ms` (`17.796046x`) with `9.320584 MiB` traced
+Python peak and no CUDA allocation/reservation. The first `524288`-token run at
+`5906.886 tokens/sec` is retained as below-band variance evidence; the rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json`
+stayed in band at `6116.710 tokens/sec`, `train_compute=0.133135 ms/token`,
+bounded `12/65536` route rows, no observed contention, GPU memory
+`2030->2030 MiB`, and zero graph/native sequence failures.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

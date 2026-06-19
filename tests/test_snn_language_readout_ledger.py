@@ -14,6 +14,7 @@ from marulho.service.snn_language_plasticity_executor import (
 )
 from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
+    SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
@@ -1159,6 +1160,15 @@ def test_readout_ledger_dense_label_calibration_evaluation_computes_metrics_with
     assert ready["applies_plasticity"] is False
     assert ready["mutates_runtime_state"] is False
     assert ready["sample_count"] == 1
+    assert ready["source_window"]["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+    )
+    assert (
+        ready["source_window"]["policy"]
+        == SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY
+    )
+    assert ready["source_window"]["runs_live_tick"] is False
+    assert ready["source_window"]["runs_every_token"] is False
     assert ready["metrics"]["expected_calibration_error"] is not None
     assert ready["metrics"]["coverage_gap"] == 0.0
     assert len(ready["reliability_bins"]) == 5
@@ -1166,12 +1176,146 @@ def test_readout_ledger_dense_label_calibration_evaluation_computes_metrics_with
     assert ready["promotion_gate"][
         "eligible_for_dense_label_calibration_evaluation_review"
     ] is True
+    assert ready["promotion_gate"]["required_evidence"][
+        "dense_label_candidate_evaluation_source_window_bounded"
+    ] is True
+    assert ready["promotion_gate"]["required_evidence"][
+        "preflight_selected_candidates_within_source_window"
+    ] is True
     assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
     assert ready["promotion_gate"]["eligible_for_language_generation"] is False
     assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
     assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert ready["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_dense_label_calibration_evaluation_uses_selected_source_window_only() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                label_slot = index % 4
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "dense_label_candidate_evidence_hash": f"{index + 1:064x}",
+                    "dense_label_candidate_evidence_id": (
+                        f"dense-label-candidate:{index}"
+                    ),
+                    "review_hash": f"{index + 1001:064x}",
+                    "source_execution_hash": f"{index + 2001:064x}",
+                    "label_hash": f"{label_slot + 3001:064x}",
+                    "labels": [f"label-{label_slot}", f"focus-{index % 2}"],
+                    "tensor_device": "cpu",
+                    "active_count": (index % 16) + 1,
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    ledger_state: dict[str, object] = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state["total_dense_label_candidate_count"] = source_count
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+    selected_hashes = [f"{index + 1:064x}" for index in range(4)]
+    preflight = {
+        "surface": "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+        "ready": True,
+        "preflight_hash": _sha256_json({"preflight": "dense-label-eval-window"}),
+        "selected_candidate_hashes": selected_hashes,
+        "selected_candidate_count": len(selected_hashes),
+        "mutates_runtime_state": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "generates_text": False,
+        "promotion_gate": {
+            "eligible_for_dense_label_calibration_evaluation_executor": True,
+            "required_evidence": {
+                "expected_revision_current": True,
+                "executor_capability_available": True,
+            },
+        },
+    }
+
+    evaluation = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight=preflight,
+        heldout_label_evidence={"labels": ["label-0", "focus-0", "label-1"]},
+        bin_count=5,
+    )
+    outside_window = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight={
+            **preflight,
+            "selected_candidate_hashes": [f"{source_count:064x}"],
+            "selected_candidate_count": 1,
+        },
+        heldout_label_evidence={"labels": ["label-0", "focus-0", "label-1"]},
+        bin_count=5,
+    )
+
+    source_window = evaluation["source_window"]
+    assert evaluation["ready"] is True
+    assert evaluation["sample_count"] == 4
+    assert source_window["surface"] == (
+        "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+    )
+    assert (
+        source_window["policy"]
+        == SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY
+    )
+    assert source_window["source_window_count"] == ledger_limit
+    assert source_window["source_record_count"] == source_count
+    assert source_window["source_payload_truncated"] is True
+    assert source_window["preflight_selected_hash_count"] == 4
+    assert source_window["matched_candidate_event_count"] == 4
+    assert source_window["selected_candidates_within_source_window"] is True
+    assert source_window["global_candidate_scan"] is False
+    assert source_window["global_score_scan"] is False
+    assert source_window["raw_text_payload_loaded"] is False
+    assert source_window["language_reasoning"] is False
+    assert source_window["runs_live_tick"] is False
+    assert source_window["runs_every_token"] is False
+    assert source_window["archival_storage_device"] == "cpu"
+    assert source_window["lookup_device"] == "cpu"
+    assert source_window["evaluation_device"] == "cpu"
+    assert source_window["gpu_used"] is False
+    assert evaluation["promotion_gate"]["required_evidence"][
+        "dense_label_candidate_evaluation_source_window_bounded"
+    ] is True
+    assert evaluation["promotion_gate"]["required_evidence"][
+        "preflight_selected_candidates_within_source_window"
+    ] is True
+    assert outside_window["ready"] is False
+    assert outside_window["source_window"][
+        "selected_candidates_within_source_window"
+    ] is False
+    assert outside_window["promotion_gate"]["required_evidence"][
+        "preflight_selected_candidates_within_source_window"
+    ] is False
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        source = ledger_state[field]
+        assert isinstance(source, CountedRows)
+        if field == "dense_label_candidate_events":
+            assert source.iterated == ledger_limit * 2
+        else:
+            assert source.iterated == 0
 
 
 def test_readout_ledger_dense_label_calibration_evaluation_review_gates_metrics_without_mutation() -> None:

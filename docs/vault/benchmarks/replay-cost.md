@@ -88,6 +88,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -145,6 +148,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-source-window.json`
 - SNN readout-ledger dense-label calibration source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json`
+- SNN readout-ledger dense-label evaluation source window:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json`
 - SNN readout replay target payload windows:
   `PYTHONPATH=src python -m marulho.evaluation.readout_replay_target_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\readout-replay-target-window.json`
 - Strong-capture slow-memory admission cadence:
@@ -179,6 +184,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for SNN readout dense-label calibration source window:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for SNN readout dense-label evaluation source window:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for SNN readout replay target payload windows:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for capped query collection:
@@ -1347,6 +1354,40 @@ It processed `524288` tokens at `6018.915 tokens/sec`, with
 sequence failures were all `0`; `velocity_environment.v1` reported no observed
 contention, CPU max `64%`, GPU max `16%`, GPU memory-util max `20%`, and RTX
 3060 memory `2030->2029 MiB`.
+
+Dense-label calibration evaluation now resolves only preflight-selected
+candidate hashes through the same dense-label event family. The active path
+emits
+`bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1`,
+reports CPU archival/lookup/evaluation placement, no global candidate/score
+scan, no raw text payload, no hidden language reasoning, no live tick, no
+every-token cadence, no mutation/plasticity, and no CUDA archive. The focused
+benchmark was:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json`
+
+It preserved sample-hash and metric parity with the retired broad-normalized
+evaluation path, evaluated `8` selected samples, checked `128` dense-label rows
+instead of `2944` normalized ledger rows (`23x` less source work), and reduced
+mean evaluation latency from `225.545020 ms` to `12.673884 ms`
+(`17.796046x`). Python traced peak allocation was `9.320584 MiB`; CUDA
+allocation/reservation stayed `0.0 MiB` on RTX 3060.
+
+The first same-shape `524288`-token protection run reached
+`5906.886 tokens/sec`, so it is retained as below-band variance evidence. The
+accepted rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6116.710 tokens/sec`, with
+`train_compute=0.133135 ms/token`, `prepare_training=0.006912 ms/token`,
+`finalize_total=0.006197 ms/token`, `tick_duration_ms.p95=21.705`, bounded
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; `velocity_environment.v1` reported no observed
+contention, CPU max `41%`, GPU max `13%`, GPU memory-util max `18%`, and RTX
+3060 memory `2030->2030 MiB`.
 
 The SNN readout replay dry-run/preflight/bridge path now bounds caller-supplied
 payloads before tensor materialization. `replay_dry_run(...)` windows

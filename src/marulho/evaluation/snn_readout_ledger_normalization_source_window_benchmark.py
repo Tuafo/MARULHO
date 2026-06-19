@@ -23,6 +23,7 @@ import torch
 
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_readout_ledger import (
+    SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
@@ -235,6 +236,180 @@ def _broad_normalized_dense_label_calibration(
     }
 
 
+def _dense_label_evaluation_preflight(*, limit: int) -> dict[str, Any]:
+    selected_count = max(1, min(int(limit), 8))
+    selected_hashes = [f"{index + 1:064x}" for index in range(selected_count)]
+    return {
+        "surface": "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+        "ready": True,
+        "preflight_hash": "benchmark-dense-label-calibration-evaluation",
+        "selected_candidate_hashes": selected_hashes,
+        "selected_candidate_count": selected_count,
+        "mutates_runtime_state": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "generates_text": False,
+        "promotion_gate": {
+            "eligible_for_dense_label_calibration_evaluation_executor": True,
+            "required_evidence": {
+                "expected_revision_current": True,
+                "executor_capability_available": True,
+            },
+        },
+    }
+
+
+def _heldout_label_evidence(*, limit: int) -> dict[str, Any]:
+    selected_count = max(1, min(int(limit), 8))
+    return {
+        "labels": [
+            f"dense_label_candidate_events:label:{index}"
+            for index in range(selected_count)
+        ],
+    }
+
+
+def _dense_label_evaluation_metrics(
+    events: list[dict[str, Any]],
+    heldout_labels: set[str],
+    *,
+    bin_count: int,
+) -> dict[str, Any]:
+    bins = max(2, min(int(bin_count or 5), 16))
+    samples: list[dict[str, Any]] = []
+    for event in events:
+        labels = [
+            str(label).strip()
+            for label in list(event.get("labels") or [])
+            if str(label).strip()
+        ][:8]
+        active_count = int(event.get("active_count", 0) or 0)
+        confidence = min(1.0, max(0.0, active_count / 16.0))
+        matches = sum(1 for label in labels if label in heldout_labels)
+        accuracy = matches / max(1, len(labels))
+        bin_index = min(bins - 1, int(confidence * bins))
+        samples.append(
+            {
+                "dense_label_candidate_evidence_hash": event.get(
+                    "dense_label_candidate_evidence_hash"
+                ),
+                "label_hash": event.get("label_hash"),
+                "labels": labels,
+                "label_count": len(labels),
+                "heldout_match_count": matches,
+                "confidence": round(confidence, 6),
+                "accuracy": round(accuracy, 6),
+                "calibration_gap": round(abs(confidence - accuracy), 6),
+                "bin_index": bin_index,
+                "tensor_device": event.get("tensor_device"),
+                "active_count": active_count,
+            }
+        )
+    total = max(1, len(samples))
+    ece = 0.0
+    for bin_index in range(bins):
+        row_samples = [
+            sample
+            for sample in samples
+            if int(sample.get("bin_index", -1)) == bin_index
+        ]
+        if row_samples:
+            avg_confidence = sum(
+                float(sample.get("confidence", 0.0) or 0.0)
+                for sample in row_samples
+            ) / len(row_samples)
+            avg_accuracy = sum(
+                float(sample.get("accuracy", 0.0) or 0.0)
+                for sample in row_samples
+            ) / len(row_samples)
+        else:
+            avg_confidence = 0.0
+            avg_accuracy = 0.0
+        ece += (len(row_samples) / total) * abs(avg_confidence - avg_accuracy)
+    coverage = len(
+        {
+            label
+            for sample in samples
+            for label in list(sample.get("labels") or [])
+            if str(label) in heldout_labels
+        }
+    ) / max(1, len(heldout_labels))
+    label_hashes = {
+        str(sample.get("label_hash") or "")
+        for sample in samples
+        if str(sample.get("label_hash") or "")
+    }
+    stability = 1.0 if len(label_hashes) <= 1 and samples else 1.0 / max(1, len(label_hashes))
+    return {
+        "sample_hashes": [
+            str(sample.get("dense_label_candidate_evidence_hash") or "")
+            for sample in samples
+        ],
+        "metrics": {
+            "expected_calibration_error": round(ece, 6),
+            "coverage_gap": round(1.0 - coverage, 6),
+            "label_set_stability": round(stability, 6),
+            "bin_count": bins,
+        },
+    }
+
+
+def _bounded_dense_label_evaluation(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    preflight = _dense_label_evaluation_preflight(limit=limit)
+    heldout = _heldout_label_evidence(limit=limit)
+    evaluation = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight=preflight,
+        heldout_label_evidence=heldout,
+        bin_count=5,
+    )
+    return {
+        "ready": bool(evaluation.get("ready")),
+        "sample_hashes": [
+            str(sample.get("dense_label_candidate_evidence_hash") or "")
+            for sample in list(evaluation.get("evaluated_samples") or [])
+        ],
+        "metrics": dict(evaluation.get("metrics") or {}),
+        "source_window": dict(evaluation.get("source_window") or {}),
+    }
+
+
+def _broad_normalized_dense_label_evaluation(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    preflight = _dense_label_evaluation_preflight(limit=limit)
+    heldout = _heldout_label_evidence(limit=limit)
+    heldout_labels = {str(label) for label in list(heldout.get("labels") or [])}
+    candidate_hashes = {
+        str(value)
+        for value in list(preflight.get("selected_candidate_hashes") or [])
+        if str(value)
+    }
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    source_window = dict(normalized.get("_normalization_source_window") or {})
+    events = [
+        dict(event)
+        for event in list(normalized.get("dense_label_candidate_events") or [])
+        if str(event.get("dense_label_candidate_evidence_hash") or "")
+        in candidate_hashes
+    ][: max(1, min(int(preflight.get("selected_candidate_count", 1) or 1), 8))]
+    metrics = _dense_label_evaluation_metrics(
+        events,
+        heldout_labels,
+        bin_count=5,
+    )
+    return {
+        **metrics,
+        "normalization_source_window": source_window,
+    }
+
+
 def _timed_runs(*, runs: int, fn: Any) -> tuple[dict[str, Any], list[float]]:
     samples: list[float] = []
     last: dict[str, Any] | None = None
@@ -369,6 +544,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             limit=ledger_limit,
         ),
     )
+    dense_label_evaluation, dense_label_evaluation_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_dense_label_evaluation(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
+    broad_dense_label_evaluation, broad_dense_label_evaluation_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _broad_normalized_dense_label_evaluation(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -404,6 +593,22 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     broad_dense_label_rows = int(
         dict(
             broad_dense_label.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
+    dense_label_evaluation_source_window = dict(
+        dense_label_evaluation.get("source_window") or {}
+    )
+    dense_label_evaluation_mean = statistics.fmean(dense_label_evaluation_samples)
+    broad_dense_label_evaluation_mean = statistics.fmean(
+        broad_dense_label_evaluation_samples
+    )
+    dense_label_evaluation_rows = int(
+        dense_label_evaluation_source_window.get("source_window_count", 0) or 0
+    )
+    broad_dense_label_evaluation_rows = int(
+        dict(
+            broad_dense_label_evaluation.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
     )
@@ -461,6 +666,30 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "dense_label_bounded_less_work": dense_label_rows < broad_dense_label_rows,
         "dense_label_latency_not_slower_than_broad_normalization": (
             dense_label_mean <= broad_dense_label_mean * 1.1
+        ),
+        "dense_label_evaluation_surface_present": (
+            dense_label_evaluation_source_window.get("surface")
+            == (
+                "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+            )
+        ),
+        "dense_label_evaluation_policy_present": (
+            dense_label_evaluation_source_window.get("policy")
+            == SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY
+        ),
+        "dense_label_evaluation_sample_hash_parity": (
+            dense_label_evaluation.get("sample_hashes")
+            == broad_dense_label_evaluation.get("sample_hashes")
+        ),
+        "dense_label_evaluation_metric_parity": (
+            dense_label_evaluation.get("metrics")
+            == broad_dense_label_evaluation.get("metrics")
+        ),
+        "dense_label_evaluation_bounded_less_work": (
+            dense_label_evaluation_rows < broad_dense_label_evaluation_rows
+        ),
+        "dense_label_evaluation_latency_not_slower_than_broad_normalization": (
+            dense_label_evaluation_mean <= broad_dense_label_evaluation_mean * 1.1
         ),
     }
     return {
@@ -624,6 +853,53 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             },
             "source_window": dense_label_source_window,
         },
+        "dense_label_evaluation_boundary": {
+            "surface": (
+                "bounded_snn_dense_label_candidate_calibration_evaluation_source_window.v1"
+            ),
+            "policy": SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.dense_label_candidate_events",
+            "selection_criteria": [
+                "preflight_selected_dense_label_candidate_hashes_only",
+                "bounded source window before calibration evaluation",
+            ],
+            "quality": {
+                "metric": "dense_label_calibration_evaluation_sample_and_metric_parity",
+                "ready": bool(dense_label_evaluation.get("ready")),
+                "sample_hash_parity": dense_label_evaluation.get("sample_hashes")
+                == broad_dense_label_evaluation.get("sample_hashes"),
+                "metric_parity": dense_label_evaluation.get("metrics")
+                == broad_dense_label_evaluation.get("metrics"),
+                "sample_count": int(
+                    len(dense_label_evaluation.get("sample_hashes") or [])
+                ),
+            },
+            "latency": {
+                "bounded": _latency_summary(dense_label_evaluation_samples),
+                "broad_normalized": _latency_summary(
+                    broad_dense_label_evaluation_samples
+                ),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_dense_label_evaluation_mean
+                    / max(dense_label_evaluation_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_preflight_selected"
+                    "_dense_label_calibration_evaluation"
+                ),
+                "bounded_checked_record_count": dense_label_evaluation_rows,
+                "old_checked_record_count": broad_dense_label_evaluation_rows,
+                "record_work_reduction": round(
+                    broad_dense_label_evaluation_rows
+                    / max(1, dense_label_evaluation_rows),
+                    6,
+                ),
+            },
+            "source_window": dense_label_evaluation_source_window,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -655,7 +931,8 @@ def main() -> None:
         "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
         "store_legacy_mean_ms={store_legacy:.6f} known_hash_bounded_mean_ms={known_hash_bounded:.6f} "
         "known_hash_broad_mean_ms={known_hash_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
-        "dense_label_broad_mean_ms={dense_label_broad:.6f}".format(
+        "dense_label_broad_mean_ms={dense_label_broad:.6f} dense_label_eval_bounded_mean_ms={dense_label_eval_bounded:.6f} "
+        "dense_label_eval_broad_mean_ms={dense_label_eval_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -678,6 +955,12 @@ def main() -> None:
                 "latency"
             ]["bounded"]["mean_ms"],
             dense_label_broad=report["dense_label_calibration_boundary"][
+                "latency"
+            ]["broad_normalized"]["mean_ms"],
+            dense_label_eval_bounded=report["dense_label_evaluation_boundary"][
+                "latency"
+            ]["bounded"]["mean_ms"],
+            dense_label_eval_broad=report["dense_label_evaluation_boundary"][
                 "latency"
             ]["broad_normalized"]["mean_ms"],
         )
