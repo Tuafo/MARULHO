@@ -16,6 +16,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
     SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
+    SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
@@ -34,6 +35,35 @@ def _sha256_json(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def _assert_dense_label_calibration_update_source_window(
+    window: dict[str, object],
+    *,
+    expected_count: int | None = None,
+) -> None:
+    assert window["surface"] == (
+        "bounded_snn_dense_label_calibration_update_source_window.v1"
+    )
+    assert window["policy"] == SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY
+    assert window["selection_criteria"] == [
+        "applied_dense_label_calibration_updates_only",
+        "bounded_source_window_before_update_application_or_review",
+    ]
+    if expected_count is not None:
+        assert window["source_window_count"] == expected_count
+    assert window["global_candidate_scan"] is False
+    assert window["global_score_scan"] is False
+    assert window["raw_text_payload_loaded"] is False
+    assert window["language_reasoning"] is False
+    assert window["runs_live_tick"] is False
+    assert window["runs_every_token"] is False
+    assert window["mutates_runtime_state"] is False
+    assert window["applies_plasticity"] is False
+    assert window["archival_storage_device"] == "cpu"
+    assert window["lookup_device"] == "cpu"
+    assert window["write_device"] == "cpu"
+    assert window["gpu_used"] is False
 
 
 def _terminal_newborn_learning_review() -> dict[str, object]:
@@ -925,6 +955,144 @@ def test_dense_label_candidate_history_and_policy_use_dense_source_window_only()
             assert source.iterated == ledger_limit * 2
         else:
             assert source.iterated == 0
+
+
+def test_dense_label_calibration_update_application_uses_update_source_window_only() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "applied_calibration_update_hash": f"{index + 1:064x}",
+                    "applied_at": "2026-06-19T00:00:00+00:00",
+                    "state_revision": index,
+                    "method": "bounded_temperature_scaling",
+                    "runtime_update_applied": True,
+                    "weights_persisted": False,
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    counted_sources = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state: dict[str, object] = dict(counted_sources)
+    ledger_state.update(
+        {
+            "total_recorded_count": source_count,
+            "total_dense_label_calibration_update_count": source_count,
+            "last_dense_label_calibration_update_applied_at": (
+                "2026-06-19T00:00:00+00:00"
+            ),
+            "current_text_surface_commit": {"surface": "preserve-current.v1"},
+        }
+    )
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+    before_revision = runtime_state.state_revision
+    preflight = {
+        "surface": "snn_language_dense_label_candidate_calibration_update_preflight.v1",
+        "ready": True,
+        "observed_state_revision": before_revision,
+        "expected_state_revision": before_revision,
+        "preflight_hash": "1" * 64,
+        "design_hash": "2" * 64,
+        "review_hash": "3" * 64,
+        "evaluation_hash": "4" * 64,
+        "mutates_runtime_state": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "generates_text": False,
+        "calibration_update_preflight": {
+            "method": "bounded_temperature_scaling",
+            "base_temperature": 1.0,
+            "target_temperature": 1.1,
+            "max_temperature_delta": 0.25,
+            "checkpoint_path": "checkpoints/dense-label-calibration.json",
+            "rollback_policy": {"available": True, "snapshot_id": "rollback-1"},
+            "bounded_post_hoc_update": True,
+            "runtime_update_applied": False,
+            "weights_persisted": False,
+        },
+        "device_preflight": {
+            "requested_device": "cpu",
+            "cuda_requirement_satisfied": True,
+            "executor_capability_available": True,
+        },
+        "promotion_gate": {
+            "eligible_for_dense_label_calibration_update_executor": True
+        },
+    }
+
+    applied = ledger.apply_dense_label_candidate_calibration_update(
+        dense_label_candidate_calibration_update_preflight=preflight,
+        expected_state_revision=before_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    review = ledger.dense_label_candidate_calibration_update_application_review(
+        dense_label_candidate_calibration_update_application=applied,
+        expected_state_revision=runtime_state.state_revision,
+    )
+
+    assert applied["accepted"] is True
+    assert review["ready"] is True
+    _assert_dense_label_calibration_update_source_window(
+        applied["source_window"],
+        expected_count=ledger_limit,
+    )
+    assert applied["source_window"]["source_record_count"] == source_count
+    assert applied["source_window"]["source_payload_truncated"] is True
+    assert applied["source_window"]["total_dense_label_calibration_update_count"] == (
+        source_count
+    )
+    assert applied["ledger_summary"]["total_dense_label_calibration_update_count"] == (
+        source_count + 1
+    )
+    assert applied["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
+    _assert_dense_label_calibration_update_source_window(
+        review["source_window"],
+        expected_count=ledger_limit,
+    )
+    assert review["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
+    stored_updates = ledger_state["dense_label_calibration_update_events"]
+    assert isinstance(stored_updates, list)
+    assert len(stored_updates) == ledger_limit
+    assert stored_updates[0]["applied_calibration_update_hash"] == (
+        applied["applied_calibration_update"]["applied_calibration_update_hash"]
+    )
+    assert ledger_state["current_text_surface_commit"] == {
+        "surface": "preserve-current.v1"
+    }
+    assert ledger_state["total_recorded_count"] == source_count
+    for field, source in counted_sources.items():
+        if field == "dense_label_calibration_update_events":
+            assert source.iterated == ledger_limit
+        else:
+            assert source.iterated == 0
+            assert ledger_state[field] is source
 
 
 def test_readout_ledger_dense_label_calibration_evaluation_design_is_read_only() -> None:
@@ -1978,6 +2146,13 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     assert applied_update["weights_persisted"] is False
     assert applied["ledger_summary"]["dense_label_calibration_update_event_count"] == 1
     assert applied["ledger_summary"]["total_dense_label_calibration_update_count"] == 1
+    _assert_dense_label_calibration_update_source_window(
+        applied["source_window"],
+        expected_count=0,
+    )
+    assert applied["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
     assert applied["promotion_gate"][
         "eligible_for_dense_label_calibration_application_review"
     ] is True
@@ -2016,6 +2191,16 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     assert application_review["current_dense_label_calibration_update_hash"] == (
         applied_update["applied_calibration_update_hash"]
     )
+    _assert_dense_label_calibration_update_source_window(
+        application_review["source_window"],
+        expected_count=1,
+    )
+    assert application_review["source_window"][
+        "current_dense_label_calibration_update_hash"
+    ] == applied_update["applied_calibration_update_hash"]
+    assert application_review["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
     assert application_review["applied_calibration_review"][
         "runtime_update_applied"
     ] is True
@@ -2543,6 +2728,16 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     assert autonomous_recalibration_executor["ledger_summary"][
         "dense_label_calibration_update_event_count"
     ] == 2
+    _assert_dense_label_calibration_update_source_window(
+        autonomous_recalibration_executor["source_window"],
+        expected_count=1,
+    )
+    assert autonomous_recalibration_executor["source_window"][
+        "current_dense_label_calibration_update_hash"
+    ] == applied_update["applied_calibration_update_hash"]
+    assert autonomous_recalibration_executor["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
     assert autonomous_recalibration_executor["promotion_gate"][
         "eligible_for_autonomous_confidence_recalibration_application_review"
     ] is True
@@ -2608,6 +2803,16 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     assert autonomous_application_review[
         "current_dense_label_calibration_update_hash"
     ] == autonomous_update["applied_calibration_update_hash"]
+    _assert_dense_label_calibration_update_source_window(
+        autonomous_application_review["source_window"],
+        expected_count=2,
+    )
+    assert autonomous_application_review["source_window"][
+        "current_dense_label_calibration_update_hash"
+    ] == autonomous_update["applied_calibration_update_hash"]
+    assert autonomous_application_review["promotion_gate"]["required_evidence"][
+        "dense_label_calibration_update_source_window_bounded"
+    ] is True
     reviewed_autonomous_update = autonomous_application_review[
         "autonomous_recalibration_application_review"
     ]

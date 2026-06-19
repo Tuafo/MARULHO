@@ -87,6 +87,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-update-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-update-source-window.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1076,6 +1078,29 @@ stayed in band at `6116.710 tokens/sec`, `train_compute=0.133135 ms/token`,
 bounded `12/65536` route rows, no observed contention, GPU memory
 `2030->2030 MiB`, and zero graph/native sequence failures.
 
+Dense-label calibration update application and application-review now share the
+same one-family rule. Operator and autonomous update executors, plus their
+read-only application reviews, read only
+`dense_label_calibration_update_events` through
+`bounded_snn_dense_label_calibration_update_source_window.v1` before duplicate
+or current-update lineage checks. The mutation side stores only that update
+event family, current update, total count, and last-applied timestamp, so
+unrelated ledger families are not rewritten through `_store_state(...)`. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-update-source-window.json`
+preserved event-hash and current-hash parity while checking `128` update rows
+instead of `2944` normalized ledger rows (`23x` less source work), reducing
+mean lookup latency from `245.671760 ms` to `11.647260 ms` (`21.092666x`),
+with CPU archival/lookup/write placement, `9.329722 MiB` traced Python peak,
+CUDA available but unused, no raw text payload, no hidden language reasoning,
+no live tick, and no every-token cadence. The paired long protection run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-update-source-window.json`
+processed `524288` tokens at `6009.497 tokens/sec`,
+`train_compute=0.134959 ms/token`, bounded `12/65536` route rows, GPU memory
+`2045->2046 MiB`, and zero graph/native sequence failures. Its velocity sample
+reported GPU-side contention at `21%`, so this is same-band protection
+evidence, not a new speed claim.
+
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active
 path caps caller-supplied `selected_replay_targets`, dry-run
@@ -1253,6 +1278,7 @@ bounded emission replay-context review windows,
 bounded generic replay-context observed-slot windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization/store-state source windows,
+bounded dense-label calibration update source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
@@ -1268,6 +1294,7 @@ admission, caller-supplied full-payload readout replay materialization,
 caller-supplied checkpointed application synapse materialization,
 runtime-facade rollout-regeneration full-payload candidate materialization,
 readout-ledger rollout full-payload candidate materialization,
+broad-normalized dense-label calibration update lookup/write,
 replay-controller regeneration-design full-payload normalization,
 caller-supplied emission replay-context full-payload bridge,
 caller-supplied generic replay-context full-payload observed-slot bridge,

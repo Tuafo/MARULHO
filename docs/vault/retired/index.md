@@ -11,6 +11,7 @@ related_benchmarks: []
 
         - [Compiled Column Kernel Benchmark](compiled-column-kernel-benchmark.md)
 - [Compiled Predictive Dense Transition](compiled-predictive-dense-transition.md)
+- [Dense Label Calibration Update Broad Ledger Normalization](dense-label-calibration-update-broad-ledger-normalization.md)
 - [Direct Route Vote Fusion](direct-route-vote-fusion.md)
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)

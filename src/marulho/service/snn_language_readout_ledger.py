@@ -31,6 +31,9 @@ SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY = (
 SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY = (
     "recent_dense_label_calibration_evaluation_source_window_v1"
 )
+SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY = (
+    "recent_dense_label_calibration_update_source_window_v1"
+)
 SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "events",
     "rollout_events",
@@ -2350,7 +2353,62 @@ class SNNLanguageReadoutEvidenceLedger:
                     },
                 }
 
-            state = self._normalized_state()
+            update_events, current_update, source_window = (
+                self._dense_label_calibration_update_source_window_with_report()
+            )
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_dense_label_calibration_update_source_window.v1"
+                and source_window.get("policy")
+                == SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
+            application_required = dict(required)
+            application_required[
+                "dense_label_calibration_update_source_window_bounded"
+            ] = source_window_ready
+            if not source_window_ready:
+                return {
+                    "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_application",
+                    "surface": "snn_language_dense_label_candidate_calibration_update_application.v1",
+                    "accepted": False,
+                    "duplicate": False,
+                    "owned_by_marulho": True,
+                    "external_dependency": False,
+                    "loads_external_checkpoint": False,
+                    "records_ledger_event": False,
+                    "runs_replay": False,
+                    "runs_calibration_update": False,
+                    "writes_checkpoint": False,
+                    "generates_text": False,
+                    "decodes_text": False,
+                    "trains_runtime_model": False,
+                    "applies_plasticity": False,
+                    "mutates_runtime_state": False,
+                    "before": {"state_revision": before_revision},
+                    "after": self._runtime_state.mutation_summary(),
+                    "source_window": source_window,
+                    "promotion_gate": {
+                        "status": "blocked_unbounded_dense_label_calibration_update_source_window",
+                        "eligible_for_dense_label_calibration_application_review": False,
+                        "eligible_for_dense_readout_training": False,
+                        "eligible_for_language_generation": False,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                        "required_evidence": application_required,
+                    },
+                }
             applied_event = {
                 "applied_calibration_update_id": (
                     f"snn-dense-label-calibration-update:{str(preflight.get('preflight_hash'))[:16]}"
@@ -2386,23 +2444,34 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             existing_hashes = {
                 str(item.get("applied_calibration_update_hash") or "")
-                for item in state["dense_label_calibration_update_events"]
+                for item in update_events
             }
             duplicate = (
                 applied_event["applied_calibration_update_hash"] in existing_hashes
             )
+            total_count = int(
+                source_window.get(
+                    "total_dense_label_calibration_update_count",
+                    len(update_events),
+                )
+                or 0
+            )
+            stored_events = list(update_events)
+            summary_current = dict(current_update)
+            last_applied_at = source_window.get(
+                "last_dense_label_calibration_update_applied_at"
+            )
             if not duplicate:
-                state["dense_label_calibration_update_events"].appendleft(
-                    deepcopy(applied_event)
+                stored_events = [deepcopy(applied_event), *stored_events]
+                total_count += 1
+                summary_current = deepcopy(applied_event)
+                last_applied_at = applied_event["applied_at"]
+                self._store_dense_label_calibration_update_window(
+                    update_events=stored_events,
+                    current_update=applied_event,
+                    total_count=total_count,
+                    last_applied_at=last_applied_at,
                 )
-                state["total_dense_label_calibration_update_count"] = int(
-                    state.get("total_dense_label_calibration_update_count", 0) or 0
-                ) + 1
-                state["last_dense_label_calibration_update_applied_at"] = (
-                    applied_event["applied_at"]
-                )
-                state["current_dense_label_calibration_update"] = deepcopy(applied_event)
-                self._store_state(state)
                 self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_application",
@@ -2425,7 +2494,19 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "applied_calibration_update": applied_event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": {
+                    "source_window_policy": source_window.get("policy"),
+                    "total_dense_label_calibration_update_count": total_count,
+                    "dense_label_calibration_update_event_count": min(
+                        int(len(stored_events)),
+                        int(self._limit),
+                    ),
+                    "current_dense_label_calibration_update_hash": str(
+                        summary_current.get("applied_calibration_update_hash") or ""
+                    ),
+                    "last_dense_label_calibration_update_applied_at": last_applied_at,
+                },
                 "promotion_gate": {
                     "status": (
                         "dense_label_calibration_update_applied"
@@ -2442,7 +2523,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_cognition_substrate": False,
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                 },
             }
 
@@ -2456,7 +2537,9 @@ class SNNLanguageReadoutEvidenceLedger:
         """Review applied dense label calibration lineage without mutating state."""
 
         with self._lock:
-            state = self._normalized_state()
+            _update_events, current, source_window = (
+                self._dense_label_calibration_update_source_window_with_report()
+            )
             before_revision = int(self._runtime_state.state_revision)
             application = dict(dense_label_candidate_calibration_update_application or {})
             gate = (
@@ -2467,11 +2550,6 @@ class SNNLanguageReadoutEvidenceLedger:
             applied = (
                 application.get("applied_calibration_update")
                 if isinstance(application.get("applied_calibration_update"), Mapping)
-                else {}
-            )
-            current = (
-                state.get("current_dense_label_calibration_update")
-                if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
                 else {}
             )
             rollback = (
@@ -2493,9 +2571,23 @@ class SNNLanguageReadoutEvidenceLedger:
             target_temperature = float(applied.get("target_temperature", 0.0) or 0.0)
             applied_hash = str(applied.get("applied_calibration_update_hash") or "")
             current_hash = str(current.get("applied_calibration_update_hash") or "")
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_dense_label_calibration_update_source_window.v1"
+                and source_window.get("policy")
+                == SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
             required = {
                 "application_surface_available": application.get("surface")
                 == "snn_language_dense_label_candidate_calibration_update_application.v1",
+                "dense_label_calibration_update_source_window_bounded": source_window_ready,
                 "application_accepted": bool(application.get("accepted")),
                 "application_not_duplicate": not bool(application.get("duplicate")),
                 "application_review_gate_available": bool(
@@ -2543,6 +2635,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "expected_state_revision": int(expected_state_revision),
                     "observed_state_revision": before_revision,
                     "max_temperature_delta": max_temperature_delta,
+                    "source_window_policy": source_window.get("policy"),
                     "required": required,
                 }
             )
@@ -2571,6 +2664,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "review_hash": review_hash,
                 "applied_calibration_update_hash": applied_hash,
                 "current_dense_label_calibration_update_hash": current_hash,
+                "source_window": source_window,
                 "expected_state_revision": int(expected_state_revision),
                 "observed_state_revision": before_revision,
                 "applied_calibration_review": {
@@ -5013,7 +5107,66 @@ class SNNLanguageReadoutEvidenceLedger:
                     },
                 }
 
-            state = self._normalized_state()
+            update_events, current_update, source_window = (
+                self._dense_label_calibration_update_source_window_with_report()
+            )
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_dense_label_calibration_update_source_window.v1"
+                and source_window.get("policy")
+                == SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
+            application_required = dict(required)
+            application_required[
+                "dense_label_calibration_update_source_window_bounded"
+            ] = source_window_ready
+            if not source_window_ready:
+                return {
+                    "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor",
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                    "accepted": False,
+                    "duplicate": False,
+                    "requires_operator_approval": False,
+                    "owned_by_marulho": True,
+                    "external_dependency": False,
+                    "loads_external_checkpoint": False,
+                    "records_ledger_event": False,
+                    "runs_replay": False,
+                    "runs_live_replay": False,
+                    "runs_recalibration": False,
+                    "runs_calibration_update": False,
+                    "writes_checkpoint": False,
+                    "generates_text": False,
+                    "decodes_text": False,
+                    "freeform_language_generation": False,
+                    "trains_runtime_model": False,
+                    "applies_plasticity": False,
+                    "mutates_runtime_state": False,
+                    "before": {"state_revision": before_revision},
+                    "after": self._runtime_state.mutation_summary(),
+                    "source_window": source_window,
+                    "promotion_gate": {
+                        "status": "blocked_unbounded_dense_label_calibration_update_source_window",
+                        "eligible_for_autonomous_confidence_recalibration_application_review": False,
+                        "eligible_for_language_generation": False,
+                        "eligible_for_dense_readout_training": False,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                        "required_evidence": application_required,
+                    },
+                }
             target_temperature = round(1.0 + proposed_temperature_delta, 6)
             applied_event = {
                 "applied_calibration_update_id": (
@@ -5055,13 +5208,10 @@ class SNNLanguageReadoutEvidenceLedger:
                             "recalibration_design_hash"
                         ),
                         "previous_dense_label_calibration_update_hash": (
-                            state.get("current_dense_label_calibration_update", {}).get(
+                            current_update.get(
                                 "applied_calibration_update_hash"
                             )
-                            if isinstance(
-                                state.get("current_dense_label_calibration_update"),
-                                Mapping,
-                            )
+                            if isinstance(current_update, Mapping)
                             else ""
                         ),
                     }
@@ -5094,25 +5244,34 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             existing_hashes = {
                 str(item.get("applied_calibration_update_hash") or "")
-                for item in state["dense_label_calibration_update_events"]
+                for item in update_events
             }
             duplicate = (
                 applied_event["applied_calibration_update_hash"] in existing_hashes
             )
+            total_count = int(
+                source_window.get(
+                    "total_dense_label_calibration_update_count",
+                    len(update_events),
+                )
+                or 0
+            )
+            stored_events = list(update_events)
+            summary_current = dict(current_update)
+            last_applied_at = source_window.get(
+                "last_dense_label_calibration_update_applied_at"
+            )
             if not duplicate:
-                state["dense_label_calibration_update_events"].appendleft(
-                    deepcopy(applied_event)
+                stored_events = [deepcopy(applied_event), *stored_events]
+                total_count += 1
+                summary_current = deepcopy(applied_event)
+                last_applied_at = applied_event["applied_at"]
+                self._store_dense_label_calibration_update_window(
+                    update_events=stored_events,
+                    current_update=applied_event,
+                    total_count=total_count,
+                    last_applied_at=last_applied_at,
                 )
-                state["total_dense_label_calibration_update_count"] = int(
-                    state.get("total_dense_label_calibration_update_count", 0) or 0
-                ) + 1
-                state["last_dense_label_calibration_update_applied_at"] = (
-                    applied_event["applied_at"]
-                )
-                state["current_dense_label_calibration_update"] = deepcopy(
-                    applied_event
-                )
-                self._store_state(state)
                 self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor",
@@ -5138,7 +5297,19 @@ class SNNLanguageReadoutEvidenceLedger:
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
                 "applied_calibration_update": applied_event,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": {
+                    "source_window_policy": source_window.get("policy"),
+                    "total_dense_label_calibration_update_count": total_count,
+                    "dense_label_calibration_update_event_count": min(
+                        int(len(stored_events)),
+                        int(self._limit),
+                    ),
+                    "current_dense_label_calibration_update_hash": str(
+                        summary_current.get("applied_calibration_update_hash") or ""
+                    ),
+                    "last_dense_label_calibration_update_applied_at": last_applied_at,
+                },
                 "promotion_gate": {
                     "status": (
                         "autonomous_confidence_recalibration_applied"
@@ -5155,7 +5326,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_cognition_substrate": False,
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                 },
             }
 
@@ -5169,7 +5340,9 @@ class SNNLanguageReadoutEvidenceLedger:
         """Review autonomous confidence recalibration lineage without mutation."""
 
         with self._lock:
-            state = self._normalized_state()
+            _update_events, current, source_window = (
+                self._dense_label_calibration_update_source_window_with_report()
+            )
             before_revision = int(self._runtime_state.state_revision)
             application = dict(
                 calibrated_dense_label_confidence_autonomous_recalibration_executor
@@ -5183,11 +5356,6 @@ class SNNLanguageReadoutEvidenceLedger:
             applied = (
                 application.get("applied_calibration_update")
                 if isinstance(application.get("applied_calibration_update"), Mapping)
-                else {}
-            )
-            current = (
-                state.get("current_dense_label_calibration_update")
-                if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
                 else {}
             )
             device = (
@@ -5217,6 +5385,19 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             applied_hash = str(applied.get("applied_calibration_update_hash") or "")
             current_hash = str(current.get("applied_calibration_update_hash") or "")
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_dense_label_calibration_update_source_window.v1"
+                and source_window.get("policy")
+                == SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
             selected_hashes = [
                 str(value)
                 for value in list(applied.get("selected_hashes") or [])
@@ -5225,6 +5406,7 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "application_surface_available": application.get("surface")
                 == "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                "dense_label_calibration_update_source_window_bounded": source_window_ready,
                 "application_accepted": bool(application.get("accepted")),
                 "application_not_duplicate": not bool(application.get("duplicate")),
                 "application_review_gate_available": bool(
@@ -5305,6 +5487,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "observed_state_revision": before_revision,
                     "max_temperature_delta": max_temperature_delta,
                     "max_confidence_rescale_delta": max_confidence_rescale_delta,
+                    "source_window_policy": source_window.get("policy"),
                     "required": required,
                 }
             )
@@ -5336,6 +5519,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "application_review_hash": application_review_hash,
                 "applied_calibration_update_hash": applied_hash,
                 "current_dense_label_calibration_update_hash": current_hash,
+                "source_window": source_window,
                 "expected_state_revision": int(expected_state_revision),
                 "observed_state_revision": before_revision,
                 "autonomous_recalibration_application_review": {
@@ -22513,7 +22697,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if accepted
                         else "collect_snn_language_thought_surface_execution_evidence"
                     ),
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                 },
             }
 
@@ -22784,7 +22968,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                     "autonomous_snn_language_thought_surface_event_review": review,
                 }
             )
@@ -22851,7 +23035,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if ready
                         else "collect_snn_language_thought_surface_event_evidence"
                     ),
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                 },
             }
 
@@ -23860,7 +24044,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if accepted
                         else "collect_snn_language_thought_memory_execution_evidence"
                     ),
-                    "required_evidence": required,
+                    "required_evidence": application_required,
                 },
             }
 
@@ -38432,11 +38616,105 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return events, report
 
+    def _dense_label_calibration_update_source_window_with_report(
+        self,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(
+            state,
+            "dense_label_calibration_update_events",
+        )
+        current_value = state.get("current_dense_label_calibration_update")
+        current = (
+            deepcopy(dict(current_value)) if isinstance(current_value, Mapping) else {}
+        )
+        source_count = self._source_record_count(
+            state,
+            "dense_label_calibration_update_events",
+        )
+        source_window_count = int(len(events))
+        total_count = int(
+            state.get(
+                "total_dense_label_calibration_update_count",
+                source_count if source_count is not None else source_window_count,
+            )
+            or 0
+        )
+        current_hash = str(current.get("applied_calibration_update_hash") or "")
+        report = {
+            "surface": "bounded_snn_dense_label_calibration_update_source_window.v1",
+            "policy": SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.dense_label_calibration_update_events",
+            "selection_criteria": [
+                "applied_dense_label_calibration_updates_only",
+                "bounded_source_window_before_update_application_or_review",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "total_dense_label_calibration_update_count": total_count,
+            "last_dense_label_calibration_update_applied_at": state.get(
+                "last_dense_label_calibration_update_applied_at"
+            ),
+            "current_dense_label_calibration_update_hash": current_hash,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return events, current, report
+
     def known_readout_evidence_hashes(self) -> set[str]:
         """Expose current internal ledger identities for controller verification."""
 
         with self._lock:
             return set(self._known_readout_evidence_hashes())
+
+    def _store_dense_label_calibration_update_window(
+        self,
+        *,
+        update_events: Sequence[Mapping[str, Any]],
+        current_update: Mapping[str, Any],
+        total_count: int,
+        last_applied_at: Any,
+    ) -> None:
+        state = self._ledger_state()
+        state["dense_label_calibration_update_events"] = [
+            deepcopy(dict(item))
+            for item in list(update_events)[: self._limit]
+            if isinstance(item, Mapping)
+        ]
+        state["current_dense_label_calibration_update"] = (
+            deepcopy(dict(current_update))
+            if isinstance(current_update, Mapping)
+            else {}
+        )
+        state["total_dense_label_calibration_update_count"] = int(total_count)
+        state["last_dense_label_calibration_update_applied_at"] = last_applied_at
 
     def _store_state(self, normalized: Mapping[str, Any]) -> None:
         state = self._ledger_state()
