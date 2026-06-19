@@ -34,6 +34,9 @@ SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY = (
 SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY = (
     "recent_dense_label_calibration_update_source_window_v1"
 )
+SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY = (
+    "recent_autonomous_confidence_use_source_window_v1"
+)
 SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "events",
     "rollout_events",
@@ -6585,25 +6588,54 @@ class SNNLanguageReadoutEvidenceLedger:
                     **event,
                 }
             )
+            use_events, source_window = (
+                self._autonomous_confidence_use_source_window_with_report()
+            )
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_autonomous_confidence_use_source_window.v1"
+                and source_window.get("policy")
+                == SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
+            execution_required = dict(required)
+            execution_required[
+                "autonomous_confidence_use_source_window_bounded"
+            ] = source_window_ready
+            accepted = accepted and source_window_ready
             duplicate = False
+            total_count = int(
+                source_window.get(
+                    "total_autonomous_confidence_use_count",
+                    len(use_events),
+                )
+                or 0
+            )
+            stored_events = list(use_events)
+            last_used_at = source_window.get("last_autonomous_confidence_used_at")
             if accepted:
-                state = self._normalized_state()
                 existing_hashes = {
                     str(item.get("autonomous_confidence_use_event_hash") or "")
-                    for item in state["autonomous_confidence_use_events"]
+                    for item in use_events
                 }
                 duplicate = (
                     event["autonomous_confidence_use_event_hash"] in existing_hashes
                 )
                 if not duplicate:
-                    state["autonomous_confidence_use_events"].appendleft(
-                        deepcopy(event)
+                    stored_events = [deepcopy(event), *stored_events]
+                    total_count += 1
+                    last_used_at = event["used_at"]
+                    self._store_autonomous_confidence_use_window(
+                        events=stored_events,
+                        total_count=total_count,
+                        last_used_at=last_used_at,
                     )
-                    state["total_autonomous_confidence_use_count"] = int(
-                        state.get("total_autonomous_confidence_use_count", 0) or 0
-                    ) + 1
-                    state["last_autonomous_confidence_used_at"] = event["used_at"]
-                    self._store_state(state)
                     self._runtime_state.mark_mutated()
             return {
                 "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_use_executor",
@@ -6638,7 +6670,16 @@ class SNNLanguageReadoutEvidenceLedger:
                     "autonomous_confidence_use_event_hash"
                 ],
                 "autonomous_confidence_use_event": event if accepted else None,
-                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "source_window": source_window,
+                "ledger_summary": {
+                    "source_window_policy": source_window.get("policy"),
+                    "total_autonomous_confidence_use_count": total_count,
+                    "autonomous_confidence_use_event_count": min(
+                        int(len(stored_events)),
+                        int(self._limit),
+                    ),
+                    "last_autonomous_confidence_used_at": last_used_at,
+                },
                 "promotion_gate": {
                     "status": (
                         "autonomous_calibrated_confidence_use_recorded"
@@ -6664,7 +6705,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if accepted
                         else "collect_preflight_matched_autonomous_candidate_evidence"
                     ),
-                    "required_evidence": required,
+                    "required_evidence": execution_required,
                 },
             }
 
@@ -6709,14 +6750,6 @@ class SNNLanguageReadoutEvidenceLedger:
                 if isinstance(item, Mapping)
             ]
             event_hash = str(event.get("autonomous_confidence_use_event_hash") or "")
-            state = self._normalized_state()
-            matching_events = [
-                dict(item)
-                for item in list(state["autonomous_confidence_use_events"])
-                if str(item.get("autonomous_confidence_use_event_hash") or "")
-                == event_hash
-            ]
-            ledger_event = matching_events[0] if matching_events else {}
             event_revision = int(event.get("state_revision", -1))
             selected_hashes = [
                 str(item.get("dense_label_candidate_evidence_hash") or "")
@@ -6739,9 +6772,33 @@ class SNNLanguageReadoutEvidenceLedger:
                 for item in selected_refs + ranked_refs
             )
             abstained = bool(event.get("abstained"))
+            use_events, source_window = (
+                self._autonomous_confidence_use_source_window_with_report()
+            )
+            source_window_ready = (
+                source_window.get("surface")
+                == "bounded_snn_autonomous_confidence_use_source_window.v1"
+                and source_window.get("policy")
+                == SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY
+                and int(source_window.get("source_window_count", 0) or 0)
+                <= int(self._limit)
+                and not bool(source_window.get("runs_live_tick"))
+                and not bool(source_window.get("runs_every_token"))
+                and not bool(source_window.get("raw_text_payload_loaded"))
+                and not bool(source_window.get("language_reasoning"))
+                and str(source_window.get("archival_storage_device") or "") == "cpu"
+            )
+            matching_events = [
+                dict(item)
+                for item in use_events
+                if str(item.get("autonomous_confidence_use_event_hash") or "")
+                == event_hash
+            ]
+            ledger_event = matching_events[0] if matching_events else {}
             required = {
                 "executor_surface_available": execution.get("surface")
                 == "snn_language_calibrated_dense_label_confidence_autonomous_use_executor.v1",
+                "autonomous_confidence_use_source_window_bounded": source_window_ready,
                 "executor_accepted": bool(execution.get("accepted"))
                 and bool(
                     gate.get("eligible_for_autonomous_confidence_use_event_review")
@@ -6801,6 +6858,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "observed_state_revision": before_revision,
                     "selected_candidate_hashes": selected_hashes,
                     "abstained": abstained,
+                    "source_window_policy": source_window.get("policy"),
                 }
             )
             return {
@@ -6830,6 +6888,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "review_hash": review_hash,
                 "autonomous_confidence_use_event_hash": event_hash,
+                "source_window": source_window,
                 "expected_state_revision": int(expected_state_revision),
                 "observed_state_revision": before_revision,
                 "autonomous_confidence_use_event_review": {
@@ -22697,7 +22756,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if accepted
                         else "collect_snn_language_thought_surface_execution_evidence"
                     ),
-                    "required_evidence": application_required,
+                    "required_evidence": required,
                 },
             }
 
@@ -22968,7 +23027,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
-                    "required_evidence": application_required,
+                    "required_evidence": required,
                     "autonomous_snn_language_thought_surface_event_review": review,
                 }
             )
@@ -23035,7 +23094,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if ready
                         else "collect_snn_language_thought_surface_event_evidence"
                     ),
-                    "required_evidence": application_required,
+                    "required_evidence": required,
                 },
             }
 
@@ -24044,7 +24103,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         if accepted
                         else "collect_snn_language_thought_memory_execution_evidence"
                     ),
-                    "required_evidence": application_required,
+                    "required_evidence": required,
                 },
             }
 
@@ -38688,6 +38747,72 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return events, current, report
 
+    def _autonomous_confidence_use_source_window_with_report(
+        self,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(
+            state,
+            "autonomous_confidence_use_events",
+        )
+        source_count = self._source_record_count(
+            state,
+            "autonomous_confidence_use_events",
+        )
+        source_window_count = int(len(events))
+        total_count = int(
+            state.get(
+                "total_autonomous_confidence_use_count",
+                source_count if source_count is not None else source_window_count,
+            )
+            or 0
+        )
+        report = {
+            "surface": "bounded_snn_autonomous_confidence_use_source_window.v1",
+            "policy": SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.autonomous_confidence_use_events",
+            "selection_criteria": [
+                "recorded_autonomous_confidence_use_events_only",
+                "bounded_source_window_before_hash_only_use_review",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "total_autonomous_confidence_use_count": total_count,
+            "last_autonomous_confidence_used_at": state.get(
+                "last_autonomous_confidence_used_at"
+            ),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return events, report
+
     def known_readout_evidence_hashes(self) -> set[str]:
         """Expose current internal ledger identities for controller verification."""
 
@@ -38715,6 +38840,22 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         state["total_dense_label_calibration_update_count"] = int(total_count)
         state["last_dense_label_calibration_update_applied_at"] = last_applied_at
+
+    def _store_autonomous_confidence_use_window(
+        self,
+        *,
+        events: Sequence[Mapping[str, Any]],
+        total_count: int,
+        last_used_at: Any,
+    ) -> None:
+        state = self._ledger_state()
+        state["autonomous_confidence_use_events"] = [
+            deepcopy(dict(item))
+            for item in list(events)[: self._limit]
+            if isinstance(item, Mapping)
+        ]
+        state["total_autonomous_confidence_use_count"] = int(total_count)
+        state["last_autonomous_confidence_used_at"] = last_used_at
 
     def _store_state(self, normalized: Mapping[str, Any]) -> None:
         state = self._ledger_state()

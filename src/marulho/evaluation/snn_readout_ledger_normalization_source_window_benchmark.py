@@ -23,6 +23,7 @@ import torch
 
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.snn_language_readout_ledger import (
+    SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
@@ -63,6 +64,17 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                     "applied_at": "2026-06-18T00:00:00+00:00",
                     "runtime_update_applied": True,
                     "weights_persisted": False,
+                    "autonomous_confidence_use_event_hash": f"{index + 6001:064x}",
+                    "used_at": "2026-06-18T00:00:00+00:00",
+                    "output_is_label_hash_only": True,
+                    "selected_candidate_count": 1,
+                    "selected_candidate_refs": [
+                        {
+                            "dense_label_candidate_evidence_hash": f"{index + 1:064x}",
+                            "label_hash": f"{(index % 8) + 3001:064x}",
+                            "calibrated_confidence": 0.75,
+                        }
+                    ],
                 }
             )
         state[field] = rows
@@ -73,11 +85,15 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_emission_review_count": count,
             "total_dense_label_candidate_count": count,
             "total_dense_label_calibration_update_count": count,
+            "total_autonomous_confidence_use_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
             "last_dense_label_candidate_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_dense_label_calibration_update_applied_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_confidence_used_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -463,6 +479,40 @@ def _broad_normalized_dense_label_calibration_update_lookup(
     }
 
 
+def _bounded_autonomous_confidence_use_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    events, source_window = (
+        ledger._autonomous_confidence_use_source_window_with_report()  # noqa: SLF001
+    )
+    return {
+        "event_hashes": [
+            str(item.get("autonomous_confidence_use_event_hash") or "")
+            for item in events
+        ],
+        "source_window": source_window,
+    }
+
+
+def _broad_normalized_autonomous_confidence_use_lookup(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    source_window = dict(normalized.get("_normalization_source_window") or {})
+    events = [
+        dict(item)
+        for item in list(normalized.get("autonomous_confidence_use_events") or [])
+        if isinstance(item, Mapping)
+    ]
+    return {
+        "event_hashes": [
+            str(item.get("autonomous_confidence_use_event_hash") or "")
+            for item in events
+        ],
+        "normalization_source_window": source_window,
+    }
+
+
 def _timed_runs(*, runs: int, fn: Any) -> tuple[dict[str, Any], list[float]]:
     samples: list[float] = []
     last: dict[str, Any] | None = None
@@ -619,6 +669,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=runs,
         fn=lambda: _broad_normalized_dense_label_calibration_update_lookup(ledger),
     )
+    autonomous_confidence_use, autonomous_confidence_use_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_autonomous_confidence_use_lookup(ledger),
+    )
+    broad_autonomous_confidence_use, broad_autonomous_confidence_use_samples = (
+        _timed_runs(
+            runs=runs,
+            fn=lambda: _broad_normalized_autonomous_confidence_use_lookup(ledger),
+        )
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -686,6 +746,24 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     broad_dense_label_update_rows = int(
         dict(
             broad_dense_label_update.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
+    autonomous_confidence_use_source_window = dict(
+        autonomous_confidence_use.get("source_window") or {}
+    )
+    autonomous_confidence_use_mean = statistics.fmean(
+        autonomous_confidence_use_samples
+    )
+    broad_autonomous_confidence_use_mean = statistics.fmean(
+        broad_autonomous_confidence_use_samples
+    )
+    autonomous_confidence_use_rows = int(
+        autonomous_confidence_use_source_window.get("source_window_count", 0) or 0
+    )
+    broad_autonomous_confidence_use_rows = int(
+        dict(
+            broad_autonomous_confidence_use.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
     )
@@ -789,6 +867,25 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "dense_label_update_latency_not_slower_than_broad_normalization": (
             dense_label_update_mean <= broad_dense_label_update_mean * 1.1
+        ),
+        "autonomous_confidence_use_surface_present": (
+            autonomous_confidence_use_source_window.get("surface")
+            == "bounded_snn_autonomous_confidence_use_source_window.v1"
+        ),
+        "autonomous_confidence_use_policy_present": (
+            autonomous_confidence_use_source_window.get("policy")
+            == SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY
+        ),
+        "autonomous_confidence_use_event_hash_parity": (
+            autonomous_confidence_use.get("event_hashes")
+            == broad_autonomous_confidence_use.get("event_hashes")
+        ),
+        "autonomous_confidence_use_bounded_less_work": (
+            autonomous_confidence_use_rows < broad_autonomous_confidence_use_rows
+        ),
+        "autonomous_confidence_use_latency_not_slower_than_broad_normalization": (
+            autonomous_confidence_use_mean
+            <= broad_autonomous_confidence_use_mean * 1.1
         ),
     }
     return {
@@ -1056,6 +1153,60 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "write_device": "cpu",
             "gpu_used": False,
         },
+        "autonomous_confidence_use_boundary": {
+            "surface": "bounded_snn_autonomous_confidence_use_source_window.v1",
+            "policy": SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.autonomous_confidence_use_events",
+            "selection_criteria": [
+                "recorded_autonomous_confidence_use_events_only",
+                "bounded_source_window_before_hash_only_use_review",
+            ],
+            "quality": {
+                "metric": "autonomous_confidence_use_event_hash_parity",
+                "event_hash_parity": autonomous_confidence_use.get("event_hashes")
+                == broad_autonomous_confidence_use.get("event_hashes"),
+                "event_hash_count": int(
+                    len(autonomous_confidence_use.get("event_hashes") or [])
+                ),
+            },
+            "latency": {
+                "bounded": _latency_summary(autonomous_confidence_use_samples),
+                "broad_normalized": _latency_summary(
+                    broad_autonomous_confidence_use_samples
+                ),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_autonomous_confidence_use_mean
+                    / max(autonomous_confidence_use_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_autonomous"
+                    "_confidence_use_duplicate_or_review_lookup"
+                ),
+                "bounded_checked_record_count": autonomous_confidence_use_rows,
+                "old_checked_record_count": broad_autonomous_confidence_use_rows,
+                "record_work_reduction": round(
+                    broad_autonomous_confidence_use_rows
+                    / max(1, autonomous_confidence_use_rows),
+                    6,
+                ),
+            },
+            "source_window": autonomous_confidence_use_source_window,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "write_device": "cpu",
+            "gpu_used": False,
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -1090,7 +1241,9 @@ def main() -> None:
         "dense_label_broad_mean_ms={dense_label_broad:.6f} dense_label_eval_bounded_mean_ms={dense_label_eval_bounded:.6f} "
         "dense_label_eval_broad_mean_ms={dense_label_eval_broad:.6f} "
         "dense_label_update_bounded_mean_ms={dense_label_update_bounded:.6f} "
-        "dense_label_update_broad_mean_ms={dense_label_update_broad:.6f}".format(
+        "dense_label_update_broad_mean_ms={dense_label_update_broad:.6f} "
+        "autonomous_confidence_use_bounded_mean_ms={confidence_use_bounded:.6f} "
+        "autonomous_confidence_use_broad_mean_ms={confidence_use_broad:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
@@ -1126,6 +1279,12 @@ def main() -> None:
             ]["latency"]["bounded"]["mean_ms"],
             dense_label_update_broad=report[
                 "dense_label_calibration_update_boundary"
+            ]["latency"]["broad_normalized"]["mean_ms"],
+            confidence_use_bounded=report[
+                "autonomous_confidence_use_boundary"
+            ]["latency"]["bounded"]["mean_ms"],
+            confidence_use_broad=report[
+                "autonomous_confidence_use_boundary"
             ]["latency"]["broad_normalized"]["mean_ms"],
         )
     )

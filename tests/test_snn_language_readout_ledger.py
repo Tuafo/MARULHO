@@ -13,6 +13,7 @@ from marulho.service.snn_language_plasticity_executor import (
     SNNLanguagePlasticityApplicationExecutor,
 )
 from marulho.service.snn_language_readout_ledger import (
+    SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
     SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
@@ -49,6 +50,33 @@ def _assert_dense_label_calibration_update_source_window(
     assert window["selection_criteria"] == [
         "applied_dense_label_calibration_updates_only",
         "bounded_source_window_before_update_application_or_review",
+    ]
+    if expected_count is not None:
+        assert window["source_window_count"] == expected_count
+    assert window["global_candidate_scan"] is False
+    assert window["global_score_scan"] is False
+    assert window["raw_text_payload_loaded"] is False
+    assert window["language_reasoning"] is False
+    assert window["runs_live_tick"] is False
+    assert window["runs_every_token"] is False
+    assert window["mutates_runtime_state"] is False
+    assert window["applies_plasticity"] is False
+    assert window["archival_storage_device"] == "cpu"
+    assert window["lookup_device"] == "cpu"
+    assert window["write_device"] == "cpu"
+    assert window["gpu_used"] is False
+
+
+def _assert_autonomous_confidence_use_source_window(
+    window: dict[str, object],
+    *,
+    expected_count: int | None = None,
+) -> None:
+    assert window["surface"] == "bounded_snn_autonomous_confidence_use_source_window.v1"
+    assert window["policy"] == SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY
+    assert window["selection_criteria"] == [
+        "recorded_autonomous_confidence_use_events_only",
+        "bounded_source_window_before_hash_only_use_review",
     ]
     if expected_count is not None:
         assert window["source_window_count"] == expected_count
@@ -1089,6 +1117,145 @@ def test_dense_label_calibration_update_application_uses_update_source_window_on
     assert ledger_state["total_recorded_count"] == source_count
     for field, source in counted_sources.items():
         if field == "dense_label_calibration_update_events":
+            assert source.iterated == ledger_limit
+        else:
+            assert source.iterated == 0
+            assert ledger_state[field] is source
+
+
+def test_autonomous_confidence_use_uses_confidence_source_window_only() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "autonomous_confidence_use_event_hash": f"{index + 1:064x}",
+                    "used_at": "2026-06-19T00:00:00+00:00",
+                    "state_revision": index,
+                    "output_is_label_hash_only": True,
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    candidate_hash = "a" * 64
+    counted_sources = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state: dict[str, object] = dict(counted_sources)
+    ledger_state.update(
+        {
+            "total_recorded_count": source_count,
+            "total_autonomous_confidence_use_count": source_count,
+            "last_autonomous_confidence_used_at": "2026-06-19T00:00:00+00:00",
+            "current_text_surface_commit": {"surface": "preserve-current.v1"},
+        }
+    )
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+    before_revision = runtime_state.state_revision
+    preflight = {
+        "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1",
+        "ready": True,
+        "requires_operator_approval": False,
+        "observed_state_revision": before_revision,
+        "expected_state_revision": before_revision,
+        "autonomous_confidence_use_preflight_hash": "1" * 64,
+        "autonomous_confidence_use_design_hash": "2" * 64,
+        "mutates_runtime_state": False,
+        "runs_recalibration": False,
+        "runs_calibration_update": False,
+        "trains_runtime_model": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "candidate_preflight": {
+            "use_mode": "threshold_and_abstain",
+            "min_confidence_threshold": 0.6,
+            "max_candidates": 1,
+            "candidate_count": 1,
+            "candidate_hashes": [candidate_hash],
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_calibrated_confidence_use_executor": True
+        },
+    }
+
+    execution = ledger.execute_autonomous_calibrated_dense_label_confidence_use(
+        calibrated_dense_label_confidence_autonomous_use_preflight=preflight,
+        expected_state_revision=before_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": "b" * 64,
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        execution_policy={"max_selected_candidates": 1},
+    )
+    review = ledger.autonomous_calibrated_dense_label_confidence_use_event_review(
+        calibrated_dense_label_confidence_autonomous_use_executor=execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={"min_selected_candidates": 1, "max_selected_candidates": 2},
+    )
+
+    assert execution["accepted"] is True
+    assert review["ready"] is True
+    _assert_autonomous_confidence_use_source_window(
+        execution["source_window"],
+        expected_count=ledger_limit,
+    )
+    assert execution["source_window"]["source_record_count"] == source_count
+    assert execution["source_window"]["source_payload_truncated"] is True
+    assert execution["source_window"]["total_autonomous_confidence_use_count"] == (
+        source_count
+    )
+    assert execution["ledger_summary"]["total_autonomous_confidence_use_count"] == (
+        source_count + 1
+    )
+    assert execution["promotion_gate"]["required_evidence"][
+        "autonomous_confidence_use_source_window_bounded"
+    ] is True
+    _assert_autonomous_confidence_use_source_window(
+        review["source_window"],
+        expected_count=ledger_limit,
+    )
+    assert review["promotion_gate"]["required_evidence"][
+        "autonomous_confidence_use_source_window_bounded"
+    ] is True
+    stored_events = ledger_state["autonomous_confidence_use_events"]
+    assert isinstance(stored_events, list)
+    assert len(stored_events) == ledger_limit
+    assert stored_events[0]["autonomous_confidence_use_event_hash"] == (
+        execution["autonomous_confidence_use_event_hash"]
+    )
+    assert ledger_state["current_text_surface_commit"] == {
+        "surface": "preserve-current.v1"
+    }
+    assert ledger_state["total_recorded_count"] == source_count
+    for field, source in counted_sources.items():
+        if field == "autonomous_confidence_use_events":
             assert source.iterated == ledger_limit
         else:
             assert source.iterated == 0
@@ -3355,6 +3522,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         "dense_label_candidate_evidence_hash"
     ] == candidate_hash
     assert execution["ledger_summary"]["total_autonomous_confidence_use_count"] == 1
+    _assert_autonomous_confidence_use_source_window(
+        execution["source_window"],
+        expected_count=0,
+    )
+    assert execution["promotion_gate"]["required_evidence"][
+        "autonomous_confidence_use_source_window_bounded"
+    ] is True
     assert execution["promotion_gate"][
         "eligible_for_autonomous_confidence_use_event_review"
     ] is True
@@ -3419,6 +3593,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert event_review["event_recorded_in_ledger"] is True
     assert event_review["selected_candidate_count"] == 1
     assert event_review["selected_candidate_hashes"] == [candidate_hash]
+    _assert_autonomous_confidence_use_source_window(
+        review["source_window"],
+        expected_count=1,
+    )
+    assert review["promotion_gate"]["required_evidence"][
+        "autonomous_confidence_use_source_window_bounded"
+    ] is True
     assert event_review["output_is_label_hash_only"] is True
     assert event_review["operator_approval_required"] is False
     assert event_review["mutation_allowed"] is False

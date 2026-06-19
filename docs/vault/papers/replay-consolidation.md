@@ -89,6 +89,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-evaluation-source-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-update-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-update-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-confidence-use-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-confidence-use-source-window.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1101,6 +1103,26 @@ processed `524288` tokens at `6009.497 tokens/sec`,
 reported GPU-side contention at `21%`, so this is same-band protection
 evidence, not a new speed claim.
 
+Autonomous calibrated confidence-use now follows the same one-family rule. The
+hash-only executor and its read-only event review read only
+`autonomous_confidence_use_events` through
+`bounded_snn_autonomous_confidence_use_source_window.v1`; the mutation side
+stores only that event family, total use count, and last-used timestamp. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-confidence-use-source-window.json`
+preserved event-hash parity while checking `128` confidence-use rows instead of
+`2944` normalized ledger rows (`23x` less source work), reducing mean lookup
+latency from `350.647280 ms` to `13.261960 ms` (`26.439331x`). The report keeps
+archival/lookup/write placement on CPU, uses no CUDA archive, loads no raw text,
+does no hidden language reasoning, and does not run in the live tick or every
+token. The paired `524288`-token protection run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-confidence-use-source-window.json`
+processed `524288` tokens at `5965.377 tokens/sec`,
+`train_compute=0.136087 ms/token`, bounded `12/65536` route rows, GPU memory
+`2045->2047 MiB`, no observed contention, and zero graph/native sequence
+failures. The old broad-normalized duplicate/review lookup is retired as
+benchmark-only evidence.
+
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active
 path caps caller-supplied `selected_replay_targets`, dry-run
@@ -1279,6 +1301,7 @@ bounded generic replay-context observed-slot windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization/store-state source windows,
 bounded dense-label calibration update source windows,
+bounded autonomous confidence-use source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
@@ -1295,6 +1318,7 @@ caller-supplied checkpointed application synapse materialization,
 runtime-facade rollout-regeneration full-payload candidate materialization,
 readout-ledger rollout full-payload candidate materialization,
 broad-normalized dense-label calibration update lookup/write,
+broad-normalized autonomous confidence-use lookup/write,
 replay-controller regeneration-design full-payload normalization,
 caller-supplied emission replay-context full-payload bridge,
 caller-supplied generic replay-context full-payload observed-slot bridge,
