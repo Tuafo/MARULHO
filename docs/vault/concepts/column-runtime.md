@@ -60,21 +60,28 @@ Awake-ripple replay tagging now consumes the same scheduler boundary. `DualMemor
 
 Sleep replay now has the same bounded-window accounting. `DualMemoryStore.select_replay_window(...)` reports `bounded_replay_window_selection.v1` before any replay mutation. Deep sleep passes checkpointed `column_anchors` as candidate bucket ids, so a positive-pressure replay window scores only entries reachable through the memory store's bucket-to-entry index. That bucket-indexed path now caps candidates before scoring by recent round-robin across anchor buckets and records `candidate_window_policy=recent_bucket_round_robin_candidate_pool`, `candidate_window_limit`, `candidate_index_available_count`, and scored `candidate_index_count`; a hot bucket can make more entries available, but it cannot make the selector score every stored entry. `DualMemoryStore.recall_replay_window(...)` reports `bounded_replay_window_recall.v1` as a non-mutating slow-path operator over the selected entries: routing-key and input-pattern recall stay CPU-resident, `runs_live_tick=false`, and no plasticity is applied. The report records candidate bucket ids/count, candidate entries scored, selected count, CPU archival/score placement, and whether the lower-level selector used `bucket_indexed_candidate_window` or blocked unscoped selection with `bucket_index_scope_required`. There is no runtime diagnostic global score/candidate branch. Production deep replay no longer mutates from the unscoped global scorer: no-anchor and zero-pressure bucket cases record `unscoped_global_fallback_retired=true` and apply `0` replay updates. The former list-only replay/SFA helpers are now removed: callers use `select_replay_window(...)` and `sample_for_sfa_with_report(...)` so bounded reports are retained; unscoped SFA now reports `selected_replay_window_required`. The capped-window long run processed `262144` tokens at `6148.125 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 
-SNN readout-ledger normalization is also bounded control-plane work. The
-Readout Evidence Ledger no longer materializes every retained event family
-before capping a snapshot or replay/review helper. It reports
-`bounded_snn_readout_ledger_normalization_source_window.v1`, reads the newest
-`128` records per retained event family, keeps archival/normalization placement
-on CPU, and states no live tick, no every-token cadence, no global score scan,
-and no hidden language reasoning. The benchmark
-`reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json`
+SNN readout-ledger normalization and store-state persistence are also bounded
+control-plane work. The Readout Evidence Ledger no longer materializes every
+retained event family before capping a snapshot, replay/review helper, or
+checkpoint-style persistence copy. Both paths now use the same bounded
+newest-first event-field helper: normalization reports
+`bounded_snn_readout_ledger_normalization_source_window.v1`, while the store
+boundary is measured as `bounded_snn_readout_ledger_store_state_source_window.v1`.
+They read at most `128` records per retained event family, keep
+archival/normalization/store placement on CPU, and state no live tick, no
+every-token cadence, no global score scan, and no hidden language reasoning. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json`
 used `23` event families with `2048` rows each, read `2944` rows instead of
-`47104`, preserved newest-first retention, and reduced mean normalization
-latency from `2383.787392 ms` to `162.825800 ms`; the paired `524288`-token
-protection run stayed in band at `6151.219 tokens/sec` with bounded
-`12/65536` route rows and no observed contention. This is not a column wake
-decision or replay execution path; it keeps replay/readout evidence summaries
-from becoming archive scans.
+`47104`, preserved newest-first normalization retention, preserved store-window
+parity with the retired list-slice shape, reduced mean normalization latency
+from `2415.385992 ms` to `159.388156 ms`, and measured store latency
+`159.156636 ms` versus `169.042904 ms`. The 65536-column `524288`-token
+no-profile protection rerun stayed in band at `6044.412 tokens/sec`, with
+bounded `12/65536` route rows, no observed contention, GPU memory
+`2029->2032 MiB`, and zero graph/native sequence failures. This is not a column
+wake decision or replay execution path; it keeps replay/readout evidence
+summaries and persistence copies from becoming archive scans.
 
 Replay query collection now uses the same bounded window. `DualMemoryStore.collect_replay_query_indices(...)` reports `bounded_replay_query_collection.v1` for HF replay recall and returns recent bucket-indexed query indices up to `max_queries` instead of walking `slow_bucket_ids` until enough anchor hits are found. The report records candidate buckets, available versus collected index counts, query indices, skipped missing input-pattern payloads, `score_count=0`, no global score/candidate scan, CPU archival placement, and `runs_live_tick=false`. The HF query-collection report at `reports/bounded_replay_window_20260617/hf-recall-capped-query-collection/summary.json` kept recall and consolidation gates passing, collected `3` Task-A anchor queries through a `candidate_window_limit=16`, accepted `6` guarded repairs, and kept after-consolidation input-pattern recall exact. The matching long hot-path run processed `262144` tokens at `6221.949 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 

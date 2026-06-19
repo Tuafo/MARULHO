@@ -41,8 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
-  - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
-  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -3875,21 +3875,23 @@ measurement (`27%` max GPU utilization, `26%` memory utilization), so this is
 same-band throughput protection evidence rather than contention-free hardware
 evidence.
 
-The SNN readout-ledger normalization no-profile protection run was:
+The SNN readout-ledger normalization/store-state no-profile protection rerun was:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 
-It processed `524288` tokens at `6151.219 tokens/sec`, with
-`train_compute=0.132544 ms/token`, `prepare_training=0.006809 ms/token`,
-`finalize_total=0.006340 ms/token`, and `tick_duration_ms.p95=20.938`.
+It processed `524288` tokens at `6044.412 tokens/sec`, with
+`train_compute=0.134651 ms/token`, `prepare_training=0.007100 ms/token`,
+`finalize_total=0.006343 ms/token`, and `tick_duration_ms.p95=21.680`.
 Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 `route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
 `state_transition_runs_all_columns=false`. Graph, native burst, and native
 sequence failures were all `0`; conditional-WHILE q16 remained active. The
-velocity sampler reported no observed contention, CPU max `42%`, GPU max `12%`,
-GPU memory-util max `18%`, and RTX 3060 memory stayed flat at `2162 MiB`. This
-is same-band throughput protection for the ledger-normalization cleanup, not a
-new top-speed claim.
+velocity sampler reported no observed contention, CPU max `25%`, GPU max `13%`,
+GPU memory-util max `18%`, and RTX 3060 memory moved `2029->2032 MiB`. The
+profiled companion run succeeded but reached `5953.828 tokens/sec`, so it is
+stage-profile evidence rather than the primary throughput gate. This is
+same-band throughput protection for the ledger normalization/store cleanup, not
+a new top-speed claim.
 
 ## Strong-Capture Admission Cadence
 

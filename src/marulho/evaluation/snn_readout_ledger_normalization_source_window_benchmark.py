@@ -81,6 +81,35 @@ def _legacy_full_materialized_normalized_state(
     return normalized
 
 
+def _legacy_full_materialized_store_state(
+    normalized: Mapping[str, Any],
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {}
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        raw_rows = list(normalized.get(field) or [])
+        state[field] = [
+            deepcopy(dict(item))
+            for item in raw_rows[: max(1, int(limit))]
+            if isinstance(item, Mapping)
+        ]
+    return state
+
+
+def _bounded_store_state(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    target: dict[str, Any],
+    normalized: Mapping[str, Any],
+) -> dict[str, Any]:
+    target.clear()
+    ledger._store_state(normalized)  # noqa: SLF001
+    return {
+        field: list(target.get(field) or [])
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+
+
 def _timed_runs(*, runs: int, fn: Any) -> tuple[dict[str, Any], list[float]]:
     samples: list[float] = []
     last: dict[str, Any] | None = None
@@ -171,16 +200,46 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             limit=ledger_limit,
         ),
     )
+    bounded_store_target: dict[str, Any] = {}
+    bounded_store_ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: bounded_store_target,
+        limit=ledger_limit,
+    )
+    bounded_store, bounded_store_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_store_state(
+            bounded_store_ledger,
+            bounded_store_target,
+            state,
+        ),
+    )
+    legacy_store, legacy_store_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _legacy_full_materialized_store_state(
+            state,
+            limit=ledger_limit,
+        ),
+    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     source_window = dict(bounded.get("_normalization_source_window") or {})
     bounded_rate = _recent_retention_rate(bounded)
     legacy_rate = _recent_retention_rate(legacy)
+    bounded_store_rate = _recent_retention_rate(bounded_store)
+    legacy_store_rate = _recent_retention_rate(legacy_store)
     bounded_rows = int(source_window.get("source_window_count_total", 0) or 0)
     legacy_rows = int(retention_count * len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS))
+    bounded_store_rows = int(ledger_limit * len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS))
+    legacy_store_rows = legacy_rows
     bounded_mean = statistics.fmean(bounded_samples)
     legacy_mean = statistics.fmean(legacy_samples)
+    bounded_store_mean = statistics.fmean(bounded_store_samples)
+    legacy_store_mean = statistics.fmean(legacy_store_samples)
+    bounded_store_first_ordinals = _first_ordinals(bounded_store)
+    legacy_store_first_ordinals = _first_ordinals(legacy_store)
     pass_checks = {
         "surface_present": source_window.get("surface")
         == "bounded_snn_readout_ledger_normalization_source_window.v1",
@@ -201,6 +260,17 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "recent_rows_preserved": bounded_rate == 1.0,
         "legacy_recent_loss_detected": legacy_rate < bounded_rate,
         "bounded_less_work": bounded_rows < legacy_rows,
+        "store_source_limit_respected": all(
+            len(list(value or [])) <= ledger_limit for value in bounded_store.values()
+        ),
+        "store_recent_rows_preserved": bounded_store_rate == 1.0,
+        "store_matches_legacy_window": (
+            bounded_store_first_ordinals == legacy_store_first_ordinals
+        ),
+        "store_bounded_less_work": bounded_store_rows < legacy_store_rows,
+        "store_latency_not_slower_than_legacy": (
+            bounded_store_mean <= legacy_store_mean * 1.1
+        ),
     }
     return {
         "surface": "bounded_snn_readout_ledger_normalization_source_window_benchmark.v1",
@@ -235,6 +305,59 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "record_work_reduction": round(legacy_rows / max(1, bounded_rows), 6),
         },
         "normalization_source_window": source_window,
+        "store_state_boundary": {
+            "surface": "bounded_snn_readout_ledger_store_state_source_window.v1",
+            "policy": SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+            "source": "checkpoint_reload_and_record_persistence_event_fields",
+            "selection_criteria": [
+                "newest-first ledger event field order",
+                "bounded source window before persistence copy",
+                "single event-field helper shared with normalization",
+            ],
+            "quality": {
+                "metric": "newest_first_store_window_parity",
+                "bounded_recent_retention_rate": round(bounded_store_rate, 6),
+                "legacy_recent_retention_rate": round(legacy_store_rate, 6),
+                "bounded_first_ordinals": bounded_store_first_ordinals,
+                "legacy_first_ordinals": legacy_store_first_ordinals,
+            },
+            "latency": {
+                "bounded": _latency_summary(bounded_store_samples),
+                "legacy": _latency_summary(legacy_store_samples),
+                "bounded_speedup_vs_legacy": round(
+                    legacy_store_mean / max(bounded_store_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": "full_materialize_each_ledger_event_field_then_cap_before_store",
+                "bounded_checked_record_count": bounded_store_rows,
+                "old_checked_record_count": legacy_store_rows,
+                "record_work_reduction": round(
+                    legacy_store_rows / max(1, bounded_store_rows),
+                    6,
+                ),
+            },
+            "source_window_limit_per_field": int(ledger_limit),
+            "source_window_count_total": int(bounded_store_rows),
+            "source_record_count_total_known": int(legacy_store_rows),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": True,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "store_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_fields": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+                "max_records_per_field": int(ledger_limit),
+                "max_records_total": int(bounded_store_rows),
+            },
+        },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(current / (1024 * 1024), 6),
             "python_tracemalloc_peak_mib": round(peak / (1024 * 1024), 6),
@@ -263,13 +386,20 @@ def main() -> None:
     print(
         "pass={passed} bounded_mean_ms={bounded:.6f} legacy_mean_ms={legacy:.6f} "
         "work_reduction={work:.6f} bounded_recent={bounded_recent:.6f} "
-        "legacy_recent={legacy_recent:.6f}".format(
+        "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
+        "store_legacy_mean_ms={store_legacy:.6f}".format(
             passed=report["pass"],
             bounded=report["latency"]["bounded"]["mean_ms"],
             legacy=report["latency"]["legacy"]["mean_ms"],
             work=report["retired_path_comparison"]["record_work_reduction"],
             bounded_recent=report["quality"]["bounded_recent_retention_rate"],
             legacy_recent=report["quality"]["legacy_recent_retention_rate"],
+            store_bounded=report["store_state_boundary"]["latency"]["bounded"][
+                "mean_ms"
+            ],
+            store_legacy=report["store_state_boundary"]["latency"]["legacy"][
+                "mean_ms"
+            ],
         )
     )
 

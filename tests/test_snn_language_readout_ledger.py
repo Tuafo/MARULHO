@@ -13024,6 +13024,60 @@ def test_readout_ledger_snapshot_normalizes_retained_histories_from_source_windo
     assert source_window["language_reasoning"] is False
 
 
+def test_readout_ledger_store_state_uses_bounded_event_field_windows() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "readout_evidence_hash": f"{self.field}:readout:{index}",
+                }
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger_limit = 8
+    source_count = 256
+    normalized = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    normalized.update(
+        {
+            "current_text_surface_commit": {"surface": "current.v1"},
+            "total_recorded_count": source_count,
+            "last_recorded_at": "2026-06-19T00:00:00+00:00",
+        }
+    )
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    ledger._store_state(normalized)  # noqa: SLF001
+
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        stored = ledger_state[field]
+        source = normalized[field]
+        assert isinstance(stored, list)
+        assert len(stored) == ledger_limit
+        assert stored[0]["ordinal"] == 0
+        assert stored[-1]["ordinal"] == ledger_limit - 1
+        assert source.iterated == ledger_limit
+    assert ledger_state["current_text_surface_commit"] == {"surface": "current.v1"}
+    assert ledger_state["total_recorded_count"] == source_count
+    assert ledger_state["last_recorded_at"] == "2026-06-19T00:00:00+00:00"
+
+
 def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)

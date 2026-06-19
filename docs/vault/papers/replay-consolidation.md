@@ -78,8 +78,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
-  - reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json
-  - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -998,25 +998,29 @@ newest `128` records per retained event family before deepcopy/review, reports
 `recent_ledger_event_field_source_window_v1`, CPU archival/normalization
 placement, `max_records_total=2944`, no global candidate/score scan, no live
 tick, no every-token cadence, no hidden language reasoning, and no CUDA archive.
-The benchmark
-`reports/bounded_replay_window_20260618/snn-readout-ledger-normalization-source-window.json`
-used `23` event families with `2048` records each: the bounded normalizer read
-`2944` source rows instead of `47104`, preserved newest-first recall
+The refreshed benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json`
+uses the same `23` event families with `2048` records each and now covers both
+normalization and store-state persistence. The bounded normalizer read `2944`
+source rows instead of `47104`, preserved newest-first recall
 (`bounded_recent_retention_rate=1.0` versus `0.0` for the retired
 full-materialize-then-maxlen shape), and reduced mean normalization latency from
-`2383.787392 ms` to `162.825800 ms` (`14.640109x`) with `3.938222 MiB` traced
-peak Python allocation and `0.0 MiB` CUDA allocation/reservation. A follow-up
-readout-priority benchmark still matched the full-retained top candidate while
-scoring `32/2048` events at `1.253520 ms`, and rollout rehearsal still matched
-top quality while scoring `16/2048` events at `2.705792 ms`. The paired
-`524288`-token hot-path run
-`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-ledger-normalization-source-window.json`
-stayed in the maintained band at `6151.219 tokens/sec`,
-`train_compute=0.132544 ms/token`, `prepare_training=0.006809 ms/token`,
-`finalize_total=0.006340 ms/token`, bounded `12/65536` route rows, `65526`
-cached transition rows, flat `2162 MiB` GPU memory, no observed contention, and
-zero graph/native/sequence failures. This retires a broad retained-ledger copy
-shape without promoting ledger normalization into live replay.
+`2415.385992 ms` to `159.388156 ms`. The remaining hand-written `_store_state`
+copy path is also retired: `bounded_snn_readout_ledger_store_state_source_window.v1`
+uses the same event-field helper, reads `2944` rows instead of `47104`, preserves
+newest-first store-window parity with the retired list-slice shape, and measured
+`159.156636 ms` versus `169.042904 ms` (`1.062117x`). The report used
+`6.514462 MiB` traced Python peak allocation and `0.0 MiB` CUDA
+allocation/reservation on RTX 3060. A follow-up readout-priority benchmark still
+matched the full-retained top candidate while scoring `32/2048` events at
+`1.253520 ms`, and rollout rehearsal still matched top quality while scoring
+`16/2048` events at `2.705792 ms`. The 65536-column `524288`-token no-profile
+protection rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json`
+stayed in band at `6044.412 tokens/sec`, with bounded `12/65536` route rows, no
+observed contention, GPU memory `2029->2032 MiB`, and zero graph/native sequence
+failures. This retires broad retained-ledger copy shapes without promoting
+ledger normalization or checkpoint-style persistence into live replay.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active
@@ -1194,7 +1198,7 @@ bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded emission replay-context review windows,
 bounded generic replay-context observed-slot windows,
 bounded status replay-path projections,
-bounded readout-ledger normalization source windows,
+bounded readout-ledger normalization/store-state source windows,
 bounded readout replay target/sequence windows,
 bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,

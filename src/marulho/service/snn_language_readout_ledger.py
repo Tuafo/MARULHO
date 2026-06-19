@@ -47,6 +47,61 @@ SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "autonomous_snn_language_thought_consolidation_events",
     "autonomous_snn_language_thought_structural_plasticity_events",
 )
+SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS = (
+    "current_text_surface_commit",
+    "current_text_surface_materialization",
+    "current_bounded_language_surface_commit",
+    "current_dense_label_calibration_update",
+)
+SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS = (
+    "total_recorded_count",
+    "total_rollout_recorded_count",
+    "total_emission_review_count",
+    "total_dense_label_candidate_count",
+    "total_dense_label_calibration_update_count",
+    "total_autonomous_confidence_use_count",
+    "total_autonomous_hash_readout_binding_count",
+    "total_autonomous_bound_readout_observation_count",
+    "total_autonomous_readout_training_window_count",
+    "total_autonomous_decoder_probe_count",
+    "total_autonomous_language_output_count",
+    "total_autonomous_decoded_output_count",
+    "total_autonomous_bounded_text_emission_count",
+    "total_autonomous_text_surface_commit_count",
+    "total_autonomous_text_surface_materialization_count",
+    "total_autonomous_bounded_language_surface_commit_count",
+    "total_autonomous_bounded_language_surface_use_count",
+    "total_autonomous_snn_language_generation_count",
+    "total_autonomous_snn_language_decoding_count",
+    "total_autonomous_snn_language_thought_surface_count",
+    "total_autonomous_snn_language_thought_memory_count",
+    "total_autonomous_snn_language_thought_consolidation_count",
+    "total_autonomous_snn_language_thought_structural_plasticity_count",
+)
+SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
+    "last_recorded_at",
+    "last_rollout_recorded_at",
+    "last_emission_reviewed_at",
+    "last_dense_label_candidate_recorded_at",
+    "last_dense_label_calibration_update_applied_at",
+    "last_autonomous_confidence_used_at",
+    "last_autonomous_hash_readout_bound_at",
+    "last_autonomous_bound_readout_observed_at",
+    "last_autonomous_readout_training_window_trained_at",
+    "last_autonomous_decoder_probed_at",
+    "last_autonomous_language_output_emitted_at",
+    "last_autonomous_decoded_output_at",
+    "last_autonomous_bounded_text_emitted_at",
+    "last_autonomous_text_surface_committed_at",
+    "last_autonomous_text_surface_materialized_at",
+    "last_autonomous_bounded_language_surface_committed_at",
+    "last_autonomous_bounded_language_surface_used_at",
+    "last_autonomous_snn_language_generated_at",
+    "last_autonomous_snn_language_thought_surface_recorded_at",
+    "last_autonomous_snn_language_thought_memory_recorded_at",
+    "last_autonomous_snn_language_thought_consolidated_at",
+    "last_autonomous_snn_language_thought_structural_plasticity_applied_at",
+)
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
     "recent_readout_event_source_window_v1"
@@ -37723,6 +37778,20 @@ class SNNLanguageReadoutEvidenceLedger:
             maxlen=self._limit,
         )
 
+    def _bounded_mapping_list_from_state(
+        self,
+        state: Mapping[str, Any],
+        name: str,
+    ) -> list[dict[str, Any]]:
+        raw_value = state.get(name) or []
+        if isinstance(raw_value, (str, bytes, Mapping)):
+            return []
+        return [
+            deepcopy(dict(item))
+            for item in islice(raw_value, self._limit)
+            if isinstance(item, Mapping)
+        ]
+
     def _source_record_count(
         self,
         state: Mapping[str, Any],
@@ -38172,325 +38241,15 @@ class SNNLanguageReadoutEvidenceLedger:
 
     def _store_state(self, normalized: Mapping[str, Any]) -> None:
         state = self._ledger_state()
-        state["events"] = [deepcopy(item) for item in list(normalized.get("events") or [])[: self._limit]]
-        state["rollout_events"] = [
-            deepcopy(item)
-            for item in list(normalized.get("rollout_events") or [])[: self._limit]
-        ]
-        state["emission_review_events"] = [
-            deepcopy(item)
-            for item in list(normalized.get("emission_review_events") or [])[: self._limit]
-        ]
-        state["dense_label_candidate_events"] = [
-            deepcopy(item)
-            for item in list(normalized.get("dense_label_candidate_events") or [])[
-                : self._limit
-            ]
-        ]
-        state["dense_label_calibration_update_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("dense_label_calibration_update_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_confidence_use_events"] = [
-            deepcopy(item)
-            for item in list(normalized.get("autonomous_confidence_use_events") or [])[
-                : self._limit
-            ]
-        ]
-        state["autonomous_hash_readout_binding_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_hash_readout_binding_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_bound_readout_observation_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_bound_readout_observation_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_readout_training_window_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_readout_training_window_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_decoder_probe_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_decoder_probe_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_language_output_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_language_output_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_decoded_output_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_decoded_output_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_bounded_text_emission_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_bounded_text_emission_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_text_surface_commit_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_text_surface_commit_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_text_surface_materialization_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_text_surface_materialization_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_bounded_language_surface_commit_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get(
-                    "autonomous_bounded_language_surface_commit_events"
-                )
-                or []
-            )[: self._limit]
-        ]
-        state["autonomous_bounded_language_surface_use_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_bounded_language_surface_use_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_generation_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_snn_language_generation_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_decoding_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_snn_language_decoding_events") or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_thought_surface_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_snn_language_thought_surface_events")
-                or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_thought_memory_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get("autonomous_snn_language_thought_memory_events")
-                or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_thought_consolidation_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get(
-                    "autonomous_snn_language_thought_consolidation_events"
-                )
-                or []
-            )[: self._limit]
-        ]
-        state["autonomous_snn_language_thought_structural_plasticity_events"] = [
-            deepcopy(item)
-            for item in list(
-                normalized.get(
-                    "autonomous_snn_language_thought_structural_plasticity_events"
-                )
-                or []
-            )[: self._limit]
-        ]
-        state["current_text_surface_commit"] = deepcopy(
-            dict(normalized.get("current_text_surface_commit") or {})
-        )
-        state["current_text_surface_materialization"] = deepcopy(
-            dict(normalized.get("current_text_surface_materialization") or {})
-        )
-        state["current_bounded_language_surface_commit"] = deepcopy(
-            dict(normalized.get("current_bounded_language_surface_commit") or {})
-        )
-        state["current_dense_label_calibration_update"] = deepcopy(
-            dict(normalized.get("current_dense_label_calibration_update") or {})
-        )
-        state["total_recorded_count"] = int(normalized.get("total_recorded_count", 0) or 0)
-        state["total_rollout_recorded_count"] = int(
-            normalized.get("total_rollout_recorded_count", 0) or 0
-        )
-        state["total_emission_review_count"] = int(
-            normalized.get("total_emission_review_count", 0) or 0
-        )
-        state["total_dense_label_candidate_count"] = int(
-            normalized.get("total_dense_label_candidate_count", 0) or 0
-        )
-        state["total_dense_label_calibration_update_count"] = int(
-            normalized.get("total_dense_label_calibration_update_count", 0) or 0
-        )
-        state["total_autonomous_confidence_use_count"] = int(
-            normalized.get("total_autonomous_confidence_use_count", 0) or 0
-        )
-        state["total_autonomous_hash_readout_binding_count"] = int(
-            normalized.get("total_autonomous_hash_readout_binding_count", 0) or 0
-        )
-        state["total_autonomous_bound_readout_observation_count"] = int(
-            normalized.get("total_autonomous_bound_readout_observation_count", 0) or 0
-        )
-        state["total_autonomous_readout_training_window_count"] = int(
-            normalized.get("total_autonomous_readout_training_window_count", 0) or 0
-        )
-        state["total_autonomous_decoder_probe_count"] = int(
-            normalized.get("total_autonomous_decoder_probe_count", 0) or 0
-        )
-        state["total_autonomous_language_output_count"] = int(
-            normalized.get("total_autonomous_language_output_count", 0) or 0
-        )
-        state["total_autonomous_decoded_output_count"] = int(
-            normalized.get("total_autonomous_decoded_output_count", 0) or 0
-        )
-        state["total_autonomous_bounded_text_emission_count"] = int(
-            normalized.get("total_autonomous_bounded_text_emission_count", 0) or 0
-        )
-        state["total_autonomous_text_surface_commit_count"] = int(
-            normalized.get("total_autonomous_text_surface_commit_count", 0) or 0
-        )
-        state["total_autonomous_text_surface_materialization_count"] = int(
-            normalized.get(
-                "total_autonomous_text_surface_materialization_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_bounded_language_surface_commit_count"] = int(
-            normalized.get(
-                "total_autonomous_bounded_language_surface_commit_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_bounded_language_surface_use_count"] = int(
-            normalized.get(
-                "total_autonomous_bounded_language_surface_use_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_snn_language_generation_count"] = int(
-            normalized.get(
-                "total_autonomous_snn_language_generation_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_snn_language_decoding_count"] = int(
-            normalized.get(
-                "total_autonomous_snn_language_decoding_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_snn_language_thought_surface_count"] = int(
-            normalized.get(
-                "total_autonomous_snn_language_thought_surface_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_snn_language_thought_memory_count"] = int(
-            normalized.get(
-                "total_autonomous_snn_language_thought_memory_count",
-                0,
-            )
-            or 0
-        )
-        state["total_autonomous_snn_language_thought_consolidation_count"] = int(
-            normalized.get(
-                "total_autonomous_snn_language_thought_consolidation_count",
-                0,
-            )
-            or 0
-        )
-        state[
-            "total_autonomous_snn_language_thought_structural_plasticity_count"
-        ] = int(
-            normalized.get(
-                "total_autonomous_snn_language_thought_structural_plasticity_count",
-                0,
-            )
-            or 0
-        )
-        state["last_recorded_at"] = normalized.get("last_recorded_at")
-        state["last_rollout_recorded_at"] = normalized.get("last_rollout_recorded_at")
-        state["last_emission_reviewed_at"] = normalized.get("last_emission_reviewed_at")
-        state["last_dense_label_candidate_recorded_at"] = normalized.get(
-            "last_dense_label_candidate_recorded_at"
-        )
-        state["last_dense_label_calibration_update_applied_at"] = normalized.get(
-            "last_dense_label_calibration_update_applied_at"
-        )
-        state["last_autonomous_confidence_used_at"] = normalized.get(
-            "last_autonomous_confidence_used_at"
-        )
-        state["last_autonomous_hash_readout_bound_at"] = normalized.get(
-            "last_autonomous_hash_readout_bound_at"
-        )
-        state["last_autonomous_bound_readout_observed_at"] = normalized.get(
-            "last_autonomous_bound_readout_observed_at"
-        )
-        state["last_autonomous_readout_training_window_trained_at"] = normalized.get(
-            "last_autonomous_readout_training_window_trained_at"
-        )
-        state["last_autonomous_decoder_probed_at"] = normalized.get(
-            "last_autonomous_decoder_probed_at"
-        )
-        state["last_autonomous_language_output_emitted_at"] = normalized.get(
-            "last_autonomous_language_output_emitted_at"
-        )
-        state["last_autonomous_decoded_output_at"] = normalized.get(
-            "last_autonomous_decoded_output_at"
-        )
-        state["last_autonomous_bounded_text_emitted_at"] = normalized.get(
-            "last_autonomous_bounded_text_emitted_at"
-        )
-        state["last_autonomous_text_surface_committed_at"] = normalized.get(
-            "last_autonomous_text_surface_committed_at"
-        )
-        state["last_autonomous_text_surface_materialized_at"] = normalized.get(
-            "last_autonomous_text_surface_materialized_at"
-        )
-        state["last_autonomous_bounded_language_surface_committed_at"] = (
-            normalized.get("last_autonomous_bounded_language_surface_committed_at")
-        )
-        state["last_autonomous_bounded_language_surface_used_at"] = normalized.get(
-            "last_autonomous_bounded_language_surface_used_at"
-        )
-        state["last_autonomous_snn_language_generated_at"] = normalized.get(
-            "last_autonomous_snn_language_generated_at"
-        )
-        state["last_autonomous_snn_language_thought_surface_recorded_at"] = (
-            normalized.get("last_autonomous_snn_language_thought_surface_recorded_at")
-        )
-        state["last_autonomous_snn_language_thought_memory_recorded_at"] = (
-            normalized.get("last_autonomous_snn_language_thought_memory_recorded_at")
-        )
-        state["last_autonomous_snn_language_thought_consolidated_at"] = (
-            normalized.get("last_autonomous_snn_language_thought_consolidated_at")
-        )
-        state[
-            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
-        ] = normalized.get(
-            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
-        )
+        for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+            state[name] = self._bounded_mapping_list_from_state(normalized, name)
+        for name in SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS:
+            value = normalized.get(name)
+            state[name] = deepcopy(dict(value)) if isinstance(value, Mapping) else {}
+        for name in SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS:
+            state[name] = int(normalized.get(name, 0) or 0)
+        for name in SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS:
+            state[name] = normalized.get(name)
 
     @staticmethod
     def _sha256_json(value: Any) -> str:
