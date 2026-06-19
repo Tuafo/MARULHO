@@ -95,6 +95,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-autonomous-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-training-probe-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1169,6 +1171,29 @@ processed `524288` tokens at `6272.156 tokens/sec`,
 transition rows, no observed contention, GPU memory `2044->2045 MiB`, and zero
 graph/native sequence failures. The old broad-normalized binding/observation
 append and review shape is retired as benchmark-only evidence.
+
+The downstream autonomous training-window and decoder-probe chain now shares
+that same one-family rule instead of reopening the whole ledger after
+observation review. Training execution/review read only
+`autonomous_readout_training_window_events`; decoder-probe execution/review read
+only `autonomous_decoder_probe_events`. The expanded report
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-training-probe-chain.json`
+preserved binding, observation, training, and decoder hash/review/count parity
+while checking `1024` target-family rows instead of `23552` normalized rows
+(`23x` less source work), reducing mean chain latency from `4927.213200 ms` to
+`197.573467 ms` (`24.938638x`). It keeps archival/lookup/write placement on
+CPU, uses no CUDA archive (`0 MiB` allocation/reservation despite RTX 3060
+availability), loads no raw text, performs no hidden language reasoning, and
+does not run in the live tick or every token. The paired `524288`-token
+hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json`
+processed `524288` tokens at `6057.953 tokens/sec`,
+`train_compute=0.134322 ms/token`, bounded `12/65536` route rows, `65526` cached
+transition rows, GPU memory `2046->2064 MiB`, and zero graph/native sequence
+failures. GPU-side contention was observed at `24%`, so this is throughput
+protection evidence under contention, not a clean speed ceiling. The old
+broad-normalized autonomous training/probe append and review shape is retired
+as benchmark-only evidence.
 
 SNN readout replay dry-run and plasticity bridge payloads now obey the same
 bounded-source rule after replay design has selected candidates. The active

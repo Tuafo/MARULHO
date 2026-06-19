@@ -58,6 +58,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-record-family-append.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-autonomous-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-autonomous-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-training-probe-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -4025,6 +4027,23 @@ velocity sampler reported no observed contention, CPU max `7%`, GPU max `17%`,
 GPU memory-util max `20%`, and RTX 3060 memory moved `2044->2045 MiB`. This is
 same-band throughput protection for the slow autonomous hash-readout ledger
 cleanup, not a speed promotion.
+
+The autonomous training-window/decoder-probe source-window protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports/column_scheduler_20260618/checkpoints/active-pressure-scheduler-65536-seeded.pt --output reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-training-probe-chain.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 300 --sample-interval-seconds 0.02`
+
+It processed `524288` tokens at `6057.953 tokens/sec`, with
+`train_compute=0.134322 ms/token`, `prepare_training=0.006849 ms/token`,
+`finalize_total=0.006282 ms/token`, and `tick_duration_ms.p95=21.917`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported GPU-side contention (`24%` max GPU utilization), CPU
+max `46%`, GPU memory-util max `20%`, and RTX 3060 memory moved
+`2046->2064 MiB`. This is same-band throughput protection for the slow
+autonomous training/probe ledger cleanup under contention, not a speed
+promotion or clean ceiling.
 
 ## Strong-Capture Admission Cadence
 

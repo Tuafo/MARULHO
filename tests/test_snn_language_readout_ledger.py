@@ -4376,6 +4376,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert training_execution["ledger_summary"][
         "total_autonomous_readout_training_window_count"
     ] == 1
+    _assert_record_family_source_window(
+        training_execution["source_window"],
+        field="autonomous_readout_training_window_events",
+        expected_count=0,
+    )
     assert training_execution["promotion_gate"][
         "eligible_for_autonomous_readout_training_window_event_review"
     ] is True
@@ -4453,6 +4458,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert training_review_body["observed_spike_sparsity"] == 0.74
     assert training_review_body["operator_approval_required"] is False
     assert training_review_body["mutation_allowed"] is False
+    _assert_record_family_source_window(
+        training_event_review["source_window"],
+        field="autonomous_readout_training_window_events",
+        expected_count=1,
+    )
     assert training_event_review["promotion_gate"][
         "eligible_for_autonomous_decoder_probe_design"
     ] is True
@@ -4645,6 +4655,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert probe_event["mean_spike_sparsity"] == 0.73
     assert probe_event["max_slot_drift"] == 0.04
     assert probe_execution["ledger_summary"]["total_autonomous_decoder_probe_count"] == 1
+    _assert_record_family_source_window(
+        probe_execution["source_window"],
+        field="autonomous_decoder_probe_events",
+        expected_count=0,
+    )
     assert probe_execution["promotion_gate"][
         "eligible_for_autonomous_decoder_probe_event_review"
     ] is True
@@ -4718,6 +4733,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert probe_event_review_body["output_is_hash_probe_only"] is True
     assert probe_event_review_body["operator_approval_required"] is False
     assert probe_event_review_body["mutation_allowed"] is False
+    _assert_record_family_source_window(
+        probe_event_review["source_window"],
+        field="autonomous_decoder_probe_events",
+        expected_count=1,
+    )
     assert probe_event_review["promotion_gate"][
         "eligible_for_autonomous_language_output_design"
     ] is True

@@ -92,6 +92,8 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_confidence_use_count": count,
             "total_autonomous_hash_readout_binding_count": count,
             "total_autonomous_bound_readout_observation_count": count,
+            "total_autonomous_readout_training_window_count": count,
+            "total_autonomous_decoder_probe_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -106,6 +108,12 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_bound_readout_observed_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_readout_training_window_trained_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_decoder_probed_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -637,6 +645,76 @@ def _autonomous_observation_event() -> dict[str, Any]:
     }
 
 
+def _autonomous_training_window_event() -> dict[str, Any]:
+    return {
+        "autonomous_readout_training_window_event_hash": "c" * 64,
+        "autonomous_readout_training_window_event_id": "benchmark-training-window",
+        "trained_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 2,
+        "autonomous_bound_readout_observation_event_hash": "b" * 64,
+        "target_hashes": ["3" * 64],
+        "sample_hashes": ["4" * 64, "5" * 64, "6" * 64, "7" * 64],
+        "training_window_steps": 4,
+        "truncated_bptt_steps": 2,
+        "micro_batch_size": 2,
+        "learning_rule": "local_surrogate_gradient",
+        "learning_rate": 0.0002,
+        "loss_before": 0.42,
+        "loss_after": 0.38,
+        "mean_gradient_norm": 1.2,
+        "max_weight_delta": 0.01,
+        "observed_spike_sparsity": 0.74,
+        "weight_update_hash": "8" * 64,
+        "gradient_update_hash": "9" * 64,
+        "optimizer_state_hash": "d" * 64,
+        "device_trace_hash": "e" * 64,
+        "runtime_weights_updated": True,
+        "trains_runtime_model": True,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+    }
+
+
+def _autonomous_decoder_probe_event() -> dict[str, Any]:
+    return {
+        "autonomous_decoder_probe_event_hash": "f" * 64,
+        "autonomous_decoder_probe_event_id": "benchmark-decoder-probe",
+        "probed_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 3,
+        "autonomous_readout_training_window_event_hash": "c" * 64,
+        "probe_mode": "hash_rank_probe",
+        "max_probe_steps": 4,
+        "top_k": 1,
+        "probe_result_count": 1,
+        "probe_target_hashes": ["8" * 64],
+        "output_hashes": ["9" * 64],
+        "rank_hashes": ["a" * 64, "b" * 64],
+        "mean_top_score": 0.82,
+        "mean_spike_sparsity": 0.73,
+        "max_slot_drift": 0.04,
+        "probe_results": [
+            {
+                "probe_target_hash": "8" * 64,
+                "output_hash": "9" * 64,
+                "rank_hashes": ["a" * 64, "b" * 64],
+                "top_score": 0.82,
+                "spike_sparsity": 0.73,
+                "slot_drift": 0.04,
+            }
+        ],
+        "output_is_hash_probe_only": True,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+    }
+
+
 def _bounded_autonomous_readout_event_family_chain(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
@@ -688,13 +766,62 @@ def _bounded_autonomous_readout_event_family_chain(
         for item in observation_events
     )
 
+    training_event = _autonomous_training_window_event()
+    training_duplicate, training_summary, training_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_readout_training_window_events",
+            event=training_event,
+            duplicate_key="autonomous_readout_training_window_event_hash",
+            total_count_key="total_autonomous_readout_training_window_count",
+            timestamp_key="last_autonomous_readout_training_window_trained_at",
+            timestamp_value=training_event["trained_at"],
+        )
+    )
+    training_events, training_review_window = ledger._record_family_window_with_report(  # noqa: SLF001
+        field="autonomous_readout_training_window_events",
+        duplicate_key="autonomous_readout_training_window_event_hash",
+    )
+    training_hash = training_event["autonomous_readout_training_window_event_hash"]
+    training_review_match = any(
+        str(item.get("autonomous_readout_training_window_event_hash") or "")
+        == training_hash
+        for item in training_events
+    )
+
+    decoder_event = _autonomous_decoder_probe_event()
+    decoder_duplicate, decoder_summary, decoder_append_window = (
+        ledger._append_record_family_window(  # noqa: SLF001
+            field="autonomous_decoder_probe_events",
+            event=decoder_event,
+            duplicate_key="autonomous_decoder_probe_event_hash",
+            total_count_key="total_autonomous_decoder_probe_count",
+            timestamp_key="last_autonomous_decoder_probed_at",
+            timestamp_value=decoder_event["probed_at"],
+        )
+    )
+    decoder_events, decoder_review_window = ledger._record_family_window_with_report(  # noqa: SLF001
+        field="autonomous_decoder_probe_events",
+        duplicate_key="autonomous_decoder_probe_event_hash",
+    )
+    decoder_hash = decoder_event["autonomous_decoder_probe_event_hash"]
+    decoder_review_match = any(
+        str(item.get("autonomous_decoder_probe_event_hash") or "") == decoder_hash
+        for item in decoder_events
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
+        "training_duplicate": training_duplicate,
+        "decoder_duplicate": decoder_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
+        "training_hash": training_hash,
+        "decoder_hash": decoder_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
+        "training_review_match": training_review_match,
+        "decoder_review_match": decoder_review_match,
         "binding_total_count": int(
             binding_summary.get("total_autonomous_hash_readout_binding_count", 0)
             or 0
@@ -706,11 +833,23 @@ def _bounded_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "training_total_count": int(
+            training_summary.get("total_autonomous_readout_training_window_count", 0)
+            or 0
+        ),
+        "decoder_total_count": int(
+            decoder_summary.get("total_autonomous_decoder_probe_count", 0)
+            or 0
+        ),
         "source_windows": {
             "binding_append": binding_append_window,
             "binding_review": binding_review_window,
             "observation_append": observation_append_window,
             "observation_review": observation_review_window,
+            "training_append": training_append_window,
+            "training_review": training_review_window,
+            "decoder_append": decoder_append_window,
+            "decoder_review": decoder_review_window,
         },
     }
 
@@ -778,13 +917,70 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         for item in list(normalized["autonomous_bound_readout_observation_events"])
     )
 
+    training_event = _autonomous_training_window_event()
+    training_hash = training_event["autonomous_readout_training_window_event_hash"]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    training_append_source = dict(normalized.get("_normalization_source_window") or {})
+    training_events = normalized["autonomous_readout_training_window_events"]
+    training_duplicate = training_hash in {
+        str(item.get("autonomous_readout_training_window_event_hash") or "")
+        for item in list(training_events)
+    }
+    if not training_duplicate:
+        training_events.appendleft(deepcopy(training_event))
+        normalized["total_autonomous_readout_training_window_count"] = int(
+            normalized.get("total_autonomous_readout_training_window_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_readout_training_window_trained_at"] = (
+            training_event["trained_at"]
+        )
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    training_review_source = dict(normalized.get("_normalization_source_window") or {})
+    training_review_match = any(
+        str(item.get("autonomous_readout_training_window_event_hash") or "")
+        == training_hash
+        for item in list(normalized["autonomous_readout_training_window_events"])
+    )
+
+    decoder_event = _autonomous_decoder_probe_event()
+    decoder_hash = decoder_event["autonomous_decoder_probe_event_hash"]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    decoder_append_source = dict(normalized.get("_normalization_source_window") or {})
+    decoder_events = normalized["autonomous_decoder_probe_events"]
+    decoder_duplicate = decoder_hash in {
+        str(item.get("autonomous_decoder_probe_event_hash") or "")
+        for item in list(decoder_events)
+    }
+    if not decoder_duplicate:
+        decoder_events.appendleft(deepcopy(decoder_event))
+        normalized["total_autonomous_decoder_probe_count"] = int(
+            normalized.get("total_autonomous_decoder_probe_count", 0) or 0
+        ) + 1
+        normalized["last_autonomous_decoder_probed_at"] = decoder_event["probed_at"]
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    decoder_review_source = dict(normalized.get("_normalization_source_window") or {})
+    decoder_review_match = any(
+        str(item.get("autonomous_decoder_probe_event_hash") or "") == decoder_hash
+        for item in list(normalized["autonomous_decoder_probe_events"])
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
+        "training_duplicate": training_duplicate,
+        "decoder_duplicate": decoder_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
+        "training_hash": training_hash,
+        "decoder_hash": decoder_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
+        "training_review_match": training_review_match,
+        "decoder_review_match": decoder_review_match,
         "binding_total_count": int(
             ledger._ledger_state().get(  # noqa: SLF001
                 "total_autonomous_hash_readout_binding_count",
@@ -799,11 +995,29 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "training_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_readout_training_window_count",
+                0,
+            )
+            or 0
+        ),
+        "decoder_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_decoder_probe_count",
+                0,
+            )
+            or 0
+        ),
         "normalization_source_windows": {
             "binding_append": binding_append_source,
             "binding_review": binding_review_source,
             "observation_append": observation_append_source,
             "observation_review": observation_review_source,
+            "training_append": training_append_source,
+            "training_review": training_review_source,
+            "decoder_append": decoder_append_source,
+            "decoder_review": decoder_review_source,
         },
     }
 
@@ -1330,18 +1544,30 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("binding_hash")
             and autonomous_chain.get("observation_hash")
             == broad_autonomous_chain.get("observation_hash")
+            and autonomous_chain.get("training_hash")
+            == broad_autonomous_chain.get("training_hash")
+            and autonomous_chain.get("decoder_hash")
+            == broad_autonomous_chain.get("decoder_hash")
         ),
         "autonomous_chain_review_match_parity": (
             autonomous_chain.get("binding_review_match")
             == broad_autonomous_chain.get("binding_review_match")
             and autonomous_chain.get("observation_review_match")
             == broad_autonomous_chain.get("observation_review_match")
+            and autonomous_chain.get("training_review_match")
+            == broad_autonomous_chain.get("training_review_match")
+            and autonomous_chain.get("decoder_review_match")
+            == broad_autonomous_chain.get("decoder_review_match")
         ),
         "autonomous_chain_total_count_parity": (
             autonomous_chain.get("binding_total_count")
             == broad_autonomous_chain.get("binding_total_count")
             and autonomous_chain.get("observation_total_count")
             == broad_autonomous_chain.get("observation_total_count")
+            and autonomous_chain.get("training_total_count")
+            == broad_autonomous_chain.get("training_total_count")
+            and autonomous_chain.get("decoder_total_count")
+            == broad_autonomous_chain.get("decoder_total_count")
         ),
         "autonomous_chain_bounded_less_work": (
             autonomous_chain_rows < broad_autonomous_chain_rows
@@ -1729,17 +1955,23 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "source": (
                 "snn_readout_ledger.autonomous_hash_readout_binding_events"
                 "+autonomous_bound_readout_observation_events"
+                "+autonomous_readout_training_window_events"
+                "+autonomous_decoder_probe_events"
             ),
             "selection_criteria": [
-                "binding_and_observation_event_families_only",
+                "binding_observation_training_and_decoder_event_families_only",
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
-                "metric": "autonomous_hash_readout_event_hash_count_and_review_parity",
+                "metric": "autonomous_hash_readout_training_probe_hash_count_and_review_parity",
                 "binding_hash_parity": autonomous_chain.get("binding_hash")
                 == broad_autonomous_chain.get("binding_hash"),
                 "observation_hash_parity": autonomous_chain.get("observation_hash")
                 == broad_autonomous_chain.get("observation_hash"),
+                "training_hash_parity": autonomous_chain.get("training_hash")
+                == broad_autonomous_chain.get("training_hash"),
+                "decoder_hash_parity": autonomous_chain.get("decoder_hash")
+                == broad_autonomous_chain.get("decoder_hash"),
                 "binding_review_match_parity": autonomous_chain.get(
                     "binding_review_match"
                 )
@@ -1748,6 +1980,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "observation_review_match"
                 )
                 == broad_autonomous_chain.get("observation_review_match"),
+                "training_review_match_parity": autonomous_chain.get(
+                    "training_review_match"
+                )
+                == broad_autonomous_chain.get("training_review_match"),
+                "decoder_review_match_parity": autonomous_chain.get(
+                    "decoder_review_match"
+                )
+                == broad_autonomous_chain.get("decoder_review_match"),
                 "binding_total_count_parity": autonomous_chain.get(
                     "binding_total_count"
                 )
@@ -1756,6 +1996,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "observation_total_count"
                 )
                 == broad_autonomous_chain.get("observation_total_count"),
+                "training_total_count_parity": autonomous_chain.get(
+                    "training_total_count"
+                )
+                == broad_autonomous_chain.get("training_total_count"),
+                "decoder_total_count_parity": autonomous_chain.get(
+                    "decoder_total_count"
+                )
+                == broad_autonomous_chain.get("decoder_total_count"),
             },
             "latency": {
                 "bounded": _latency_summary(autonomous_chain_samples),
@@ -1770,7 +2018,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "retired_path_comparison": {
                 "old_policy": (
                     "normalize_all_ledger_event_fields_before_autonomous_hash"
-                    "_readout_binding_or_observation_append_and_review"
+                    "_readout_training_probe_append_or_review"
                 ),
                 "bounded_checked_record_count": autonomous_chain_rows,
                 "old_checked_record_count": broad_autonomous_chain_rows,
