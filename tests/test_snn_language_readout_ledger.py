@@ -8022,6 +8022,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_bounded_language_surface_use_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_bounded_language_surface_use_executor["source_window"],
+        field="autonomous_bounded_language_surface_use_events",
+        expected_count=0,
+    )
     assert bounded_language_surface_use_executor["surface"] == (
         "snn_language_autonomous_bounded_language_surface_use_executor.v1"
     )
@@ -8056,6 +8061,17 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     assert bounded_language_surface_use_executor["text_fragments"] == (
         bounded_text_fragments
+    )
+    _assert_record_family_source_window(
+        bounded_language_surface_use_executor["source_window"],
+        field="autonomous_bounded_language_surface_use_events",
+        expected_count=0,
+    )
+    assert (
+        bounded_language_surface_use_executor["ledger_summary"][
+            "total_autonomous_bounded_language_surface_use_count"
+        ]
+        == 1
     )
     bounded_language_surface_use_event = bounded_language_surface_use_executor[
         "autonomous_bounded_language_surface_use_event"
@@ -8133,6 +8149,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_bounded_language_surface_use_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_bounded_language_surface_use_event_review["source_window"],
+        field="autonomous_bounded_language_surface_use_events",
+        expected_count=1,
+    )
     assert bounded_language_surface_use_event_review["surface"] == (
         "snn_language_autonomous_bounded_language_surface_use_event_review.v1"
     )
@@ -8162,6 +8183,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         is False
     )
     assert bounded_language_surface_use_event_review["applies_plasticity"] is False
+    _assert_record_family_source_window(
+        bounded_language_surface_use_event_review["source_window"],
+        field="autonomous_bounded_language_surface_use_events",
+        expected_count=1,
+    )
     assert bounded_language_surface_use_event_review["rendered_text"] == (
         "\n".join(bounded_text_fragments)
     )
@@ -8346,6 +8372,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_generation_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_generation_executor["source_window"],
+        field="autonomous_snn_language_generation_events",
+        expected_count=0,
+    )
     assert snn_language_generation_executor["surface"] == (
         "snn_language_autonomous_snn_language_generation_executor.v1"
     )
@@ -8373,6 +8404,17 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_generation_executor["generated_text_returned"] is False
     assert snn_language_generation_executor["generated_token_hashes"] == (
         generation_token_hashes
+    )
+    _assert_record_family_source_window(
+        snn_language_generation_executor["source_window"],
+        field="autonomous_snn_language_generation_events",
+        expected_count=0,
+    )
+    assert (
+        snn_language_generation_executor["ledger_summary"][
+            "total_autonomous_snn_language_generation_count"
+        ]
+        == 1
     )
     snn_language_generation_event = snn_language_generation_executor[
         "autonomous_snn_language_generation_event"
@@ -8416,6 +8458,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert blocked_snn_language_generation_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
+    _assert_record_family_source_window(
+        blocked_snn_language_generation_event_review["source_window"],
+        field="autonomous_snn_language_generation_events",
+        expected_count=1,
+    )
     assert snn_language_generation_event_review["surface"] == (
         "snn_language_autonomous_snn_language_generation_event_review.v1"
     )
@@ -8436,6 +8483,11 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_generation_event_review["generated_text_returned"] is False
     assert snn_language_generation_event_review["generated_token_hashes"] == (
         generation_token_hashes
+    )
+    _assert_record_family_source_window(
+        snn_language_generation_event_review["source_window"],
+        field="autonomous_snn_language_generation_events",
+        expected_count=1,
     )
     snn_language_generation_review_body = snn_language_generation_event_review[
         "autonomous_snn_language_generation_event_review"

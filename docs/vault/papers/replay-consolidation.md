@@ -103,6 +103,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-text-surface-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-surface-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-surface-chain.json
+  - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-generation-chain.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-generation-chain.json
   - reports/bounded_replay_window_20260619/readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-replay-target-window.json
   - reports/bounded_replay_window_20260619/language-plasticity-replay-window.json
@@ -1467,6 +1469,22 @@ band at `5994.060 tokens/sec`, with bounded `12/65536` route rows, `65526`
 cached transition rows, zero graph/native sequence failures, CUDA runtime on
 the RTX 3060, and GPU memory `2044->2059 MiB`. The replay/ledger benchmark
 itself kept archival/source/review metadata on CPU, reported no live tick or
+every-token work, and did no hidden language reasoning.
+
+Bounded language-surface use and SNN language-generation now continue that
+chain without adding a second runtime path. The use executor/review read only
+`autonomous_bounded_language_surface_use_events`; the generation executor/review
+read only `autonomous_snn_language_generation_events`. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-generation-chain.json`
+preserved hash, review-match, total-count, and current-pointer parity across
+the expanded autonomous language-generation chain while checking `3072`
+target-family rows instead of `70656` broad-normalized rows (`23x`) and
+reducing mean chain latency from `13505.919533 ms` to `631.221 ms`
+(`21.396499x`). The paired `524288`-token hot-path run stayed in band at
+`6074.417 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, zero graph/native sequence failures, no observed contention,
+CUDA runtime on RTX 3060, and GPU memory `2044->2047 MiB`. The replay/ledger
+benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
 
 ## Links

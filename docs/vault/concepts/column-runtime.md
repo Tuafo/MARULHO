@@ -1266,6 +1266,24 @@ placement on CPU. The paired long run stayed in band at `5994.060 tokens/sec`,
 and zero graph/native sequence failures. RTX 3060 runtime memory moved
 `2044->2059 MiB`.
 
+Bounded language-surface use and SNN language-generation now extend that same
+ledger path. Execution/review reads only
+`autonomous_bounded_language_surface_use_events` or
+`autonomous_snn_language_generation_events`, reports the bounded record-family
+source window, and updates only the target family count/timestamp. The
+benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-language-generation-chain.json`
+kept hash, review, total-count, and current-pointer parity across the expanded
+autonomous language-generation chain while reducing checked rows from `70656`
+to `3072` and mean chain latency from `13505.919533 ms` to `631.221 ms`; CUDA
+was available but unused for ledger metadata, with archival/source/review
+placement on CPU. The paired long run stayed in band at `6074.417 tokens/sec`,
+`tick_duration_ms.p95=21.376`, `train_compute=0.133727 ms/token`,
+`prepare_training=0.007038 ms/token`, `finalize_total=0.006252 ms/token`,
+`route_input_rows_scored=12/65536`, `state_transition_runs_all_columns=false`,
+and zero graph/native sequence failures with no observed contention. RTX 3060
+runtime memory moved `2044->2047 MiB`.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

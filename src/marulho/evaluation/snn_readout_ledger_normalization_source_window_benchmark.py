@@ -100,6 +100,8 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_text_surface_commit_count": count,
             "total_autonomous_text_surface_materialization_count": count,
             "total_autonomous_bounded_language_surface_commit_count": count,
+            "total_autonomous_bounded_language_surface_use_count": count,
+            "total_autonomous_snn_language_generation_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -138,6 +140,12 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_bounded_language_surface_committed_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_bounded_language_surface_used_at": (
+                "2026-06-18T00:00:00+00:00"
+            ),
+            "last_autonomous_snn_language_generated_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -1019,6 +1027,98 @@ def _autonomous_bounded_language_surface_commit_event() -> dict[str, Any]:
     }
 
 
+def _autonomous_bounded_language_surface_use_event() -> dict[str, Any]:
+    return {
+        "autonomous_bounded_language_surface_use_event_hash": "f1" * 32,
+        "autonomous_bounded_language_surface_use_event_id": (
+            "benchmark-bounded-language-surface-use"
+        ),
+        "used_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 10,
+        "bounded_language_surface_use_preflight_hash": "f2" * 32,
+        "use_artifact_review_hash": "f3" * 32,
+        "use_review_hash": "f4" * 32,
+        "commit_event_review_hash": "f5" * 32,
+        "autonomous_bounded_language_surface_commit_event_hash": "b1" * 32,
+        "bounded_language_surface_hash": "b5" * 32,
+        "used_language_surface_hash": "b5" * 32,
+        "committed_language_surface_hash": "b5" * 32,
+        "language_surface_state_chain_hash": "b6" * 32,
+        "language_surface_use_chain_hash": "f6" * 32,
+        "language_use_scope": "bounded_language_evidence",
+        "use_mode": "bounded_language_evidence_observation",
+        "rendered_text_hash": "a6" * 32,
+        "rendered_text": "bounded surface",
+        "text_fragments": ["bounded surface"],
+        "text_fragment_count": 1,
+        "literal_fragment_hashes": ["a7" * 32],
+        "text_fragment_hashes": ["a7" * 32],
+        "decoded_token_hashes": ["d7" * 32],
+        "text_emission_slot_hashes": ["e6" * 32],
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "mean_confidence_score": 0.79,
+        "mean_spike_sparsity": 0.72,
+        "max_slot_drift": 0.02,
+        "literal_text_returned": True,
+        "output_is_bounded_text_surface": True,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
+def _autonomous_snn_language_generation_event() -> dict[str, Any]:
+    return {
+        "autonomous_snn_language_generation_event_hash": "9a" * 32,
+        "autonomous_snn_language_generation_event_id": (
+            "benchmark-snn-language-generation"
+        ),
+        "generated_at": "2026-06-19T00:00:00+00:00",
+        "state_revision": 11,
+        "language_generation_preflight_hash": "9b" * 32,
+        "language_generation_design_hash": "9c" * 32,
+        "generation_plan_hash": "9d" * 32,
+        "generation_projection_hash": "9e" * 32,
+        "use_event_review_hash": "9f" * 32,
+        "autonomous_bounded_language_surface_use_event_hash": "f1" * 32,
+        "bounded_language_surface_hash": "b5" * 32,
+        "language_surface_use_chain_hash": "f6" * 32,
+        "rendered_text_hash": "a6" * 32,
+        "text_surface_schema_hash": "e7" * 32,
+        "text_normalizer_hash": "e8" * 32,
+        "semantic_constraint_hash": "e9" * 32,
+        "generation_mode": "snn_bounded_next_token_projection",
+        "decoding_strategy": "hash_projection_only",
+        "requested_device": "cpu",
+        "requires_cuda": False,
+        "generated_token_hashes": ["11" * 32],
+        "generated_token_count": 1,
+        "spike_projection_hashes": ["12" * 32],
+        "active_neuron_hashes": ["13" * 32],
+        "membrane_state_hashes": ["14" * 32],
+        "output_fragment_hashes": ["15" * 32],
+        "literal_text_returned": False,
+        "generated_text_returned": False,
+        "operator_approval_required": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "writes_checkpoint": False,
+        "runs_replay": False,
+        "applies_plasticity": False,
+        "trains_runtime_model": False,
+        "promotes_fact": False,
+        "executes_action": False,
+    }
+
+
 def _bounded_autonomous_readout_event_family_chain(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
@@ -1301,6 +1401,62 @@ def _bounded_autonomous_readout_event_family_chain(
         == language_surface_commit_event
     )
 
+    language_surface_use_event = _autonomous_bounded_language_surface_use_event()
+    (
+        language_surface_use_duplicate,
+        language_surface_use_summary,
+        language_surface_use_append_window,
+    ) = ledger._append_record_family_window(  # noqa: SLF001
+        field="autonomous_bounded_language_surface_use_events",
+        event=language_surface_use_event,
+        duplicate_key="autonomous_bounded_language_surface_use_event_hash",
+        total_count_key="total_autonomous_bounded_language_surface_use_count",
+        timestamp_key="last_autonomous_bounded_language_surface_used_at",
+        timestamp_value=language_surface_use_event["used_at"],
+    )
+    language_surface_use_events, language_surface_use_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_bounded_language_surface_use_events",
+            duplicate_key="autonomous_bounded_language_surface_use_event_hash",
+        )
+    )
+    language_surface_use_hash = language_surface_use_event[
+        "autonomous_bounded_language_surface_use_event_hash"
+    ]
+    language_surface_use_review_match = any(
+        str(item.get("autonomous_bounded_language_surface_use_event_hash") or "")
+        == language_surface_use_hash
+        for item in language_surface_use_events
+    )
+
+    language_generation_event = _autonomous_snn_language_generation_event()
+    (
+        language_generation_duplicate,
+        language_generation_summary,
+        language_generation_append_window,
+    ) = ledger._append_record_family_window(  # noqa: SLF001
+        field="autonomous_snn_language_generation_events",
+        event=language_generation_event,
+        duplicate_key="autonomous_snn_language_generation_event_hash",
+        total_count_key="total_autonomous_snn_language_generation_count",
+        timestamp_key="last_autonomous_snn_language_generated_at",
+        timestamp_value=language_generation_event["generated_at"],
+    )
+    language_generation_events, language_generation_review_window = (
+        ledger._record_family_window_with_report(  # noqa: SLF001
+            field="autonomous_snn_language_generation_events",
+            duplicate_key="autonomous_snn_language_generation_event_hash",
+        )
+    )
+    language_generation_hash = language_generation_event[
+        "autonomous_snn_language_generation_event_hash"
+    ]
+    language_generation_review_match = any(
+        str(item.get("autonomous_snn_language_generation_event_hash") or "")
+        == language_generation_hash
+        for item in language_generation_events
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
@@ -1312,6 +1468,8 @@ def _bounded_autonomous_readout_event_family_chain(
         "text_commit_duplicate": text_commit_duplicate,
         "materialization_duplicate": materialization_duplicate,
         "language_surface_commit_duplicate": language_surface_commit_duplicate,
+        "language_surface_use_duplicate": language_surface_use_duplicate,
+        "language_generation_duplicate": language_generation_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
@@ -1322,6 +1480,8 @@ def _bounded_autonomous_readout_event_family_chain(
         "text_commit_hash": text_commit_hash,
         "materialization_hash": materialization_hash,
         "language_surface_commit_hash": language_surface_commit_hash,
+        "language_surface_use_hash": language_surface_use_hash,
+        "language_generation_hash": language_generation_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
@@ -1334,6 +1494,8 @@ def _bounded_autonomous_readout_event_family_chain(
         "language_surface_commit_review_match": (
             language_surface_commit_review_match
         ),
+        "language_surface_use_review_match": language_surface_use_review_match,
+        "language_generation_review_match": language_generation_review_match,
         "text_commit_current_match": text_commit_current_match,
         "materialization_current_match": materialization_current_match,
         "language_surface_commit_current_match": (
@@ -1391,6 +1553,20 @@ def _bounded_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "language_surface_use_total_count": int(
+            language_surface_use_summary.get(
+                "total_autonomous_bounded_language_surface_use_count",
+                0,
+            )
+            or 0
+        ),
+        "language_generation_total_count": int(
+            language_generation_summary.get(
+                "total_autonomous_snn_language_generation_count",
+                0,
+            )
+            or 0
+        ),
         "source_windows": {
             "binding_append": binding_append_window,
             "binding_review": binding_review_window,
@@ -1416,6 +1592,10 @@ def _bounded_autonomous_readout_event_family_chain(
             "language_surface_commit_review": (
                 language_surface_commit_review_window
             ),
+            "language_surface_use_append": language_surface_use_append_window,
+            "language_surface_use_review": language_surface_use_review_window,
+            "language_generation_append": language_generation_append_window,
+            "language_generation_review": language_generation_review_window,
         },
     }
 
@@ -1768,6 +1948,84 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         == language_surface_commit_event
     )
 
+    language_surface_use_event = _autonomous_bounded_language_surface_use_event()
+    language_surface_use_hash = language_surface_use_event[
+        "autonomous_bounded_language_surface_use_event_hash"
+    ]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_surface_use_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_surface_use_events = normalized[
+        "autonomous_bounded_language_surface_use_events"
+    ]
+    language_surface_use_duplicate = language_surface_use_hash in {
+        str(item.get("autonomous_bounded_language_surface_use_event_hash") or "")
+        for item in list(language_surface_use_events)
+    }
+    if not language_surface_use_duplicate:
+        language_surface_use_events.appendleft(deepcopy(language_surface_use_event))
+        normalized["total_autonomous_bounded_language_surface_use_count"] = int(
+            normalized.get(
+                "total_autonomous_bounded_language_surface_use_count",
+                0,
+            )
+            or 0
+        ) + 1
+        normalized["last_autonomous_bounded_language_surface_used_at"] = (
+            language_surface_use_event["used_at"]
+        )
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_surface_use_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_surface_use_review_match = any(
+        str(item.get("autonomous_bounded_language_surface_use_event_hash") or "")
+        == language_surface_use_hash
+        for item in list(normalized["autonomous_bounded_language_surface_use_events"])
+    )
+
+    language_generation_event = _autonomous_snn_language_generation_event()
+    language_generation_hash = language_generation_event[
+        "autonomous_snn_language_generation_event_hash"
+    ]
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_generation_append_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_generation_events = normalized[
+        "autonomous_snn_language_generation_events"
+    ]
+    language_generation_duplicate = language_generation_hash in {
+        str(item.get("autonomous_snn_language_generation_event_hash") or "")
+        for item in list(language_generation_events)
+    }
+    if not language_generation_duplicate:
+        language_generation_events.appendleft(deepcopy(language_generation_event))
+        normalized["total_autonomous_snn_language_generation_count"] = int(
+            normalized.get(
+                "total_autonomous_snn_language_generation_count",
+                0,
+            )
+            or 0
+        ) + 1
+        normalized["last_autonomous_snn_language_generated_at"] = (
+            language_generation_event["generated_at"]
+        )
+        ledger._store_state(normalized)  # noqa: SLF001
+
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    language_generation_review_source = dict(
+        normalized.get("_normalization_source_window") or {}
+    )
+    language_generation_review_match = any(
+        str(item.get("autonomous_snn_language_generation_event_hash") or "")
+        == language_generation_hash
+        for item in list(normalized["autonomous_snn_language_generation_events"])
+    )
+
     return {
         "binding_duplicate": binding_duplicate,
         "observation_duplicate": observation_duplicate,
@@ -1779,6 +2037,8 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "text_commit_duplicate": text_commit_duplicate,
         "materialization_duplicate": materialization_duplicate,
         "language_surface_commit_duplicate": language_surface_commit_duplicate,
+        "language_surface_use_duplicate": language_surface_use_duplicate,
+        "language_generation_duplicate": language_generation_duplicate,
         "binding_hash": binding_hash,
         "observation_hash": observation_hash,
         "training_hash": training_hash,
@@ -1789,6 +2049,8 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "text_commit_hash": text_commit_hash,
         "materialization_hash": materialization_hash,
         "language_surface_commit_hash": language_surface_commit_hash,
+        "language_surface_use_hash": language_surface_use_hash,
+        "language_generation_hash": language_generation_hash,
         "binding_review_match": binding_review_match,
         "observation_review_match": observation_review_match,
         "training_review_match": training_review_match,
@@ -1801,6 +2063,8 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         "language_surface_commit_review_match": (
             language_surface_commit_review_match
         ),
+        "language_surface_use_review_match": language_surface_use_review_match,
+        "language_generation_review_match": language_generation_review_match,
         "text_commit_current_match": text_commit_current_match,
         "materialization_current_match": materialization_current_match,
         "language_surface_commit_current_match": (
@@ -1876,6 +2140,20 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             )
             or 0
         ),
+        "language_surface_use_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_bounded_language_surface_use_count",
+                0,
+            )
+            or 0
+        ),
+        "language_generation_total_count": int(
+            ledger._ledger_state().get(  # noqa: SLF001
+                "total_autonomous_snn_language_generation_count",
+                0,
+            )
+            or 0
+        ),
         "normalization_source_windows": {
             "binding_append": binding_append_source,
             "binding_review": binding_review_source,
@@ -1901,6 +2179,10 @@ def _broad_normalized_autonomous_readout_event_family_chain(
             "language_surface_commit_review": (
                 language_surface_commit_review_source
             ),
+            "language_surface_use_append": language_surface_use_append_source,
+            "language_surface_use_review": language_surface_use_review_source,
+            "language_generation_append": language_generation_append_source,
+            "language_generation_review": language_generation_review_source,
         },
     }
 
@@ -2443,6 +2725,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("materialization_hash")
             and autonomous_chain.get("language_surface_commit_hash")
             == broad_autonomous_chain.get("language_surface_commit_hash")
+            and autonomous_chain.get("language_surface_use_hash")
+            == broad_autonomous_chain.get("language_surface_use_hash")
+            and autonomous_chain.get("language_generation_hash")
+            == broad_autonomous_chain.get("language_generation_hash")
         ),
         "autonomous_chain_review_match_parity": (
             autonomous_chain.get("binding_review_match")
@@ -2465,6 +2751,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("materialization_review_match")
             and autonomous_chain.get("language_surface_commit_review_match")
             == broad_autonomous_chain.get("language_surface_commit_review_match")
+            and autonomous_chain.get("language_surface_use_review_match")
+            == broad_autonomous_chain.get("language_surface_use_review_match")
+            and autonomous_chain.get("language_generation_review_match")
+            == broad_autonomous_chain.get("language_generation_review_match")
         ),
         "autonomous_chain_total_count_parity": (
             autonomous_chain.get("binding_total_count")
@@ -2487,6 +2777,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             == broad_autonomous_chain.get("materialization_total_count")
             and autonomous_chain.get("language_surface_commit_total_count")
             == broad_autonomous_chain.get("language_surface_commit_total_count")
+            and autonomous_chain.get("language_surface_use_total_count")
+            == broad_autonomous_chain.get("language_surface_use_total_count")
+            and autonomous_chain.get("language_generation_total_count")
+            == broad_autonomous_chain.get("language_generation_total_count")
         ),
         "autonomous_chain_current_commit_parity": (
             bool(autonomous_chain.get("text_commit_current_match"))
@@ -2894,17 +3188,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_text_surface_commit_events"
                 "+autonomous_text_surface_materialization_events"
                 "+autonomous_bounded_language_surface_commit_events"
+                "+autonomous_bounded_language_surface_use_events"
+                "+autonomous_snn_language_generation_events"
             ),
             "selection_criteria": [
                 (
                     "binding_observation_training_decoder_output_text_commit_"
-                    "materialization_and_language_surface_event_families_only"
+                    "materialization_language_surface_use_and_generation_"
+                    "event_families_only"
                 ),
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
                 "metric": (
-                    "autonomous_hash_readout_language_surface_chain_hash_count"
+                    "autonomous_hash_readout_language_generation_chain_hash_count"
                     "_review_current_pointer_parity"
                 ),
                 "binding_hash_parity": autonomous_chain.get("binding_hash")
@@ -2939,6 +3236,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     "language_surface_commit_hash"
                 )
                 == broad_autonomous_chain.get("language_surface_commit_hash"),
+                "language_surface_use_hash_parity": autonomous_chain.get(
+                    "language_surface_use_hash"
+                )
+                == broad_autonomous_chain.get("language_surface_use_hash"),
+                "language_generation_hash_parity": autonomous_chain.get(
+                    "language_generation_hash"
+                )
+                == broad_autonomous_chain.get("language_generation_hash"),
                 "binding_review_match_parity": autonomous_chain.get(
                     "binding_review_match"
                 )
@@ -2981,6 +3286,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 == broad_autonomous_chain.get(
                     "language_surface_commit_review_match"
                 ),
+                "language_surface_use_review_match_parity": autonomous_chain.get(
+                    "language_surface_use_review_match"
+                )
+                == broad_autonomous_chain.get("language_surface_use_review_match"),
+                "language_generation_review_match_parity": autonomous_chain.get(
+                    "language_generation_review_match"
+                )
+                == broad_autonomous_chain.get("language_generation_review_match"),
                 "binding_total_count_parity": autonomous_chain.get(
                     "binding_total_count"
                 )
@@ -3023,6 +3336,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 == broad_autonomous_chain.get(
                     "language_surface_commit_total_count"
                 ),
+                "language_surface_use_total_count_parity": autonomous_chain.get(
+                    "language_surface_use_total_count"
+                )
+                == broad_autonomous_chain.get("language_surface_use_total_count"),
+                "language_generation_total_count_parity": autonomous_chain.get(
+                    "language_generation_total_count"
+                )
+                == broad_autonomous_chain.get("language_generation_total_count"),
                 "text_commit_current_parity": (
                     bool(autonomous_chain.get("text_commit_current_match"))
                     and bool(broad_autonomous_chain.get("text_commit_current_match"))
@@ -3061,7 +3382,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "retired_path_comparison": {
                 "old_policy": (
                     "normalize_all_ledger_event_fields_before_autonomous_hash"
-                    "_readout_language_surface_chain_append_or_review"
+                    "_readout_language_generation_chain_append_or_review"
                 ),
                 "bounded_checked_record_count": autonomous_chain_rows,
                 "old_checked_record_count": broad_autonomous_chain_rows,
