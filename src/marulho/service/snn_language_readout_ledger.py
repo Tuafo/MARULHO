@@ -37621,7 +37621,7 @@ class SNNLanguageReadoutEvidenceLedger:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         source_limit = max(0, min(int(limit), SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT))
         if isinstance(raw_value, (str, bytes, Mapping)) or raw_value is None:
-            raw_iterable: Any = []
+            raw_iterable: Any = ()
             source_count: int | None = 0
         else:
             raw_iterable = raw_value
@@ -37629,13 +37629,31 @@ class SNNLanguageReadoutEvidenceLedger:
                 source_count = int(len(raw_value))
             except TypeError:
                 source_count = None
-        selected = [
-            deepcopy(dict(item))
-            for item in islice(raw_iterable, source_limit)
-            if isinstance(item, Mapping)
-        ]
+        selected: list[dict[str, Any]] = []
+        inspected_count = 0
+        sentinel_seen = False
+        try:
+            for item in islice(raw_iterable, source_limit + 1):
+                if inspected_count >= source_limit:
+                    sentinel_seen = True
+                    break
+                inspected_count += 1
+                if hasattr(item, "model_dump"):
+                    item = item.model_dump()
+                if isinstance(item, Mapping):
+                    selected.append(deepcopy(dict(item)))
+        except TypeError:
+            source_count = 0
+            inspected_count = 0
+            sentinel_seen = False
+            selected = []
+        source_payload_truncated = (
+            bool(int(source_count) > source_limit)
+            if source_count is not None
+            else bool(sentinel_seen)
+        )
         truncated_count = (
-            max(0, int(source_count) - int(len(selected)))
+            max(0, int(source_count) - int(source_limit))
             if source_count is not None
             else None
         )
@@ -37650,8 +37668,12 @@ class SNNLanguageReadoutEvidenceLedger:
                 "provenance_hashes_revalidated_after_windowing",
             ],
             "source_window_limit": int(source_limit),
-            "source_window_count": int(len(selected)),
+            "source_window_count": int(inspected_count),
+            "source_probe_count": int(inspected_count + int(sentinel_seen)),
+            "source_mapping_count": int(len(selected)),
             "source_total_count": source_count,
+            "source_total_count_known": source_count is not None,
+            "source_payload_truncated": bool(source_payload_truncated),
             "source_truncated_count": truncated_count,
             "candidate_count_before_limit": source_count,
             "candidate_count_returned": int(len(selected)),

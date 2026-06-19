@@ -10427,6 +10427,155 @@ def test_readout_ledger_emission_replay_design_builds_hash_only_replay_context_s
     )
 
 
+def test_runtime_facade_emission_replay_context_review_blocks_oversized_source_windows() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    emission = _ready_emission()
+    binding = emission["emission_binding"]  # type: ignore[index]
+    assert isinstance(binding, dict)
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            str(binding["prediction_hash"]),
+            str(binding["transition_memory_evaluation_hash"]),
+            str(binding["persistent_transition_weights_hash"]),
+            ["memory pressure"],
+        ),
+        expected_state_revision=0,
+        operator_id="operator-readout",
+        confirmation=True,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=emission,
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    policy = ledger.emission_review_replay_evaluation_policy(limit=4)
+    design = ledger.emission_review_replay_evaluation_design(
+        policy,
+        design_policy={"max_candidates": 1, "min_ready_candidates": 1},
+        device_evidence={"device": "cpu", "source": "test_emission_context"},
+    )
+    prediction_report = {
+        "surface": "snn_language_sequence_prediction_probe.v1",
+        "provenance_evidence": {"prediction_hash": str(binding["prediction_hash"])},
+    }
+    observed_slot = {"label": "memory pressure", "pressure_band": "high", "grounded": True}
+    calls = {"mismatch": 0, "pressure": 0, "context": 0}
+
+    class _StatusReadModel:
+        def snn_language_sequence_mismatch_probe(self, **kwargs: object) -> dict[str, object]:
+            calls["mismatch"] += 1
+            return {
+                "surface": "snn_language_sequence_mismatch_probe.v1",
+                "mismatch_hash": "mismatch-hash",
+                "prediction_report": kwargs.get("prediction_report"),
+            }
+
+        def snn_language_plasticity_pressure(self, **kwargs: object) -> dict[str, object]:
+            calls["pressure"] += 1
+            return {
+                "surface": "snn_language_plasticity_pressure.v1",
+                "pressure_hash": "pressure-hash",
+                "mismatch_report": kwargs.get("mismatch_report"),
+            }
+
+    class _ReplayController:
+        def record_snn_replay_evaluation_context(self, **kwargs: object) -> dict[str, object]:
+            calls["context"] += 1
+            runtime_state.mark_dirty_without_revision()
+            source_metadata = kwargs.get("source_metadata")
+            return {
+                "surface": "snn_replay_evaluation_context.v1",
+                "replay_evaluation_context_id": "context-1",
+                "evidence_hash": "context-hash",
+                "source_metadata_hash": _sha256_json(source_metadata),
+                "mismatch_hash": "mismatch-hash",
+                "pressure_hash": "pressure-hash",
+            }
+
+    class _Root:
+        _runtime_state = runtime_state
+        _snn_language_readout_ledger = ledger
+        _status_read_model = _StatusReadModel()
+        _replay_controller = _ReplayController()
+
+    facade = RuntimeFacade(_Root())
+    accepted = facade.snn_language_readout_emission_replay_context_review(
+        emission_replay_evaluation_design=design,
+        prediction_report=prediction_report,
+        observed_readout_slots=[observed_slot],
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    oversized_seed_design = deepcopy(design)
+    seed = dict(design["selected_replay_context_seeds"][0])
+    oversized_seed_design["selected_replay_context_seeds"] = [
+        {**seed, "replay_context_seed_hash": f"seed-{index}"}
+        for index in range(SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT + 1)
+    ]
+    seed_block = facade.snn_language_readout_emission_replay_context_review(
+        emission_replay_evaluation_design=oversized_seed_design,
+        prediction_report=prediction_report,
+        observed_readout_slots=[observed_slot],
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    slot_block = facade.snn_language_readout_emission_replay_context_review(
+        emission_replay_evaluation_design=design,
+        prediction_report=prediction_report,
+        observed_readout_slots=[
+            {**observed_slot, "label": f"memory pressure {index}"}
+            for index in range(SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT + 1)
+        ],
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    assert accepted["accepted"] is True
+    assert accepted["records_replay_context"] is True
+    assert accepted["seed_source_window"]["surface"] == (
+        "bounded_snn_emission_replay_context_review_seed_window.v1"
+    )
+    assert accepted["observed_slot_source_window"]["surface"] == (
+        "bounded_snn_emission_replay_context_review_observed_slot_window.v1"
+    )
+    assert accepted["promotion_gate"]["required_evidence"]["seed_payload_not_truncated"] is True
+    assert (
+        accepted["promotion_gate"]["required_evidence"]["observed_slot_payload_not_truncated"]
+        is True
+    )
+    assert seed_block["accepted"] is False
+    assert seed_block["records_replay_context"] is False
+    assert seed_block["promotion_gate"]["required_evidence"]["seed_source_window_bounded"] is True
+    assert seed_block["promotion_gate"]["required_evidence"]["seed_payload_not_truncated"] is False
+    assert seed_block["seed_source_window"]["source_window_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert seed_block["seed_source_window"]["source_payload_truncated"] is True
+    assert slot_block["accepted"] is False
+    assert slot_block["records_replay_context"] is False
+    assert (
+        slot_block["promotion_gate"]["required_evidence"]["observed_slot_source_window_bounded"]
+        is True
+    )
+    assert (
+        slot_block["promotion_gate"]["required_evidence"]["observed_slot_payload_not_truncated"]
+        is False
+    )
+    assert slot_block["observed_slot_source_window"]["source_window_count"] == (
+        SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT
+    )
+    assert slot_block["observed_slot_source_window"]["source_payload_truncated"] is True
+    assert calls == {"mismatch": 1, "pressure": 1, "context": 1}
+
+
 def test_readout_ledger_blocks_unready_or_unconfirmed_emission_review() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)

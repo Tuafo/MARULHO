@@ -8,6 +8,7 @@ related_code:
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
@@ -819,6 +820,23 @@ rerun stayed in band at `6376.714 tokens/sec`, with
 `train_compute=0.128297 ms/token`, bounded `12/65536` route rows, `65526` cached
 transition rows, GPU memory `2122->2123 MiB`, no observed contention, and zero
 graph/native/sequence failures.
+
+The emission replay-context review bridge now uses the same readout replay
+source-window budget before it can record a Replay Controller context. The
+facade bounds `selected_replay_context_seeds` and `observed_readout_slots` at
+`32`, requires untruncated and well-formed source windows, and blocks oversized
+payloads before mismatch, pressure, or context recording. The benchmark
+`reports/bounded_replay_window_20260619/emission-replay-context-review-window.json`
+recorded one exact `32/32` context and blocked oversized seed/slot payloads at
+`32/2048` with zero blocked mismatch, pressure, or Replay Controller calls,
+CPU source/gate placement, no global candidate/score scan, no hidden language
+reasoning, `runs_live_tick=false`, and `runs_every_token=false`. This keeps
+emission replay-context recording a selected slow/control-plane operation, not
+a caller-sized replay batch or a second context route. The first clean hot-path
+run was below band at `5877.891 tokens/sec`; the rerun stayed in the maintained
+band at `5990.908 tokens/sec`, with bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, GPU memory `2032->2031 MiB`,
+and zero graph/native sequence failures.
 
 Rollout rehearsal promotion now keeps the same slow/control-plane boundary for
 trajectory evidence. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`

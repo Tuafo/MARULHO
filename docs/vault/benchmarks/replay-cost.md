@@ -8,6 +8,7 @@ related_code:
   - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
@@ -70,6 +71,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/snn-readout-replay-priority-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-readout-replay-priority-source-window.json
   - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
+  - reports/bounded_replay_window_20260619/emission-replay-context-review-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/snn-rollout-rehearsal-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-rollout-rehearsal-source-window.json
@@ -295,6 +298,40 @@ route rows, `65526` cached transition rows, GPU memory `2122->2123 MiB`, no
 observed contention, and zero graph/native/sequence failures. A same-code
 no-profile rerun reached `6392.672 tokens/sec`; an earlier profiled run is
 rejected as contended external-load evidence.
+
+The emission replay-context review bridge now keeps that same bounded rule
+between operator-reviewed replay design and Replay Controller context
+recording. `snn_language_readout_emission_replay_context_review(...)` windows
+caller-supplied `selected_replay_context_seeds` and `observed_readout_slots`
+through the shared readout replay source-window budget
+`SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32`, and requires both source payloads
+to be bounded, untruncated, and well formed before mismatch, pressure, or
+context recording can run. The old full-payload facade bridge is retired, not
+kept as a side implementation.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.emission_replay_context_review_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\emission-replay-context-review-window.json`
+
+It passed with exact `32/32` seed and observed-slot windows recording one
+context, while oversized seeds and observed slots both blocked at `32/2048`.
+Blocked payloads made no mismatch, pressure, or Replay Controller calls. The
+report records no global candidate/score scan, no raw text replay payload, no
+hidden language reasoning, no live tick, no every-token cadence, CPU
+archival/source-window/gate placement, `64x` projected source-work reduction,
+`0.0 MiB` CUDA allocation/reservation, and `1.832774 MiB` traced Python peak
+allocation.
+
+The first clean hot-path run for this slice
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window.json`
+finished at `5877.891 tokens/sec`, so it is retained as below-band variance
+evidence. The rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json`
+processed `524288` tokens at `5990.908 tokens/sec` with
+`train_compute=0.135901 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, GPU memory `2032->2031 MiB`,
+and zero graph/native sequence failures. That keeps the bridge out of the live
+tick while preserving the maintained 6k-ish band.
 
 SNN rollout rehearsal promotion is bounded before it can feed rehearsal,
 consolidation, or regeneration review surfaces. `snn_language_readout_rollout_rehearsal_promotion_policy.v1`

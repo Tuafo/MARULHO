@@ -9,6 +9,7 @@ related_code:
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
@@ -41,6 +42,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation-cadenced-rerun.json
   - reports/bounded_replay_window_20260617/synthetic-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260618/snn-emission-review-replay-policy-source-window.json
+  - reports/bounded_replay_window_20260619/emission-replay-context-review-window.json
+  - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json
   - reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-capped-window.json
@@ -364,6 +367,31 @@ rerun, made after rejecting an externally contended run, stayed in band at
 `6376.714 tokens/sec`, `train_compute=0.128297 ms/token`, bounded `12/65536`
 route rows, `65526` cached transition rows, GPU memory `2122->2123 MiB`, no
 observed contention, and zero graph/native/sequence failures.
+
+The emission replay-context bridge now keeps that selected-source boundary
+when a reviewed-emission design becomes a Replay Controller context. Hash-only
+replay-context seeds and observed sparse slots are local replay evidence, not
+a text payload or a caller-sized replay batch. The facade now applies the
+shared readout replay source-window budget
+`SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT=32` to
+`selected_replay_context_seeds` and `observed_readout_slots`, then requires
+both windows to be bounded, untruncated, and well formed before recomputing
+mismatch/pressure or recording a context.
+`reports/bounded_replay_window_20260619/emission-replay-context-review-window.json`
+passed with exact `32/32` seed and observed-slot windows recording one context,
+oversized seeds and observed slots blocked at `32/2048`, and blocked payloads
+making no mismatch, pressure, or Replay Controller calls. The report records
+CPU archival/source/gate placement, no global candidate/score scan, no raw text
+payload, no hidden language reasoning, no live tick, no every-token cadence,
+`64x` projected source-work reduction, `1.832774 MiB` traced Python peak, and
+`0.0 MiB` CUDA allocation/reservation. The first clean hot-path run finished
+below band at `5877.891 tokens/sec`; the rerun
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-replay-context-review-window-rerun.json`
+processed `524288` tokens at `5990.908 tokens/sec` with bounded `12/65536`
+route rows, `65526` cached rows, no observed contention, GPU memory
+`2032->2031 MiB`, and zero graph/native sequence failures. This retires the
+full-payload facade bridge rather than preserving a second context-recording
+route.
 
 The rollout rehearsal promotion policy now applies the same source-window rule
 to sparse trajectory evidence before rehearsal or consolidation review. The
@@ -1137,6 +1165,7 @@ bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
+bounded emission replay-context review windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
@@ -1155,6 +1184,7 @@ caller-supplied checkpointed application synapse materialization,
 runtime-facade rollout-regeneration full-payload candidate materialization,
 readout-ledger rollout full-payload candidate materialization,
 replay-controller regeneration-design full-payload normalization,
+caller-supplied emission replay-context full-payload bridge,
 caller-supplied checkpointed dense-readout training transition materialization,
 plus the all-anchor HF replay-query source pass and full hot-bucket candidate
 source materialization;

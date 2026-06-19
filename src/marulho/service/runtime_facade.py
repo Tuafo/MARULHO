@@ -58,6 +58,26 @@ class RuntimeFacade:
             and bool(source_window.get("global_score_scan")) is False
         )
 
+    @staticmethod
+    def _readout_replay_payload_window_bounded(
+        source_window: Mapping[str, Any],
+        *,
+        surface: str,
+    ) -> bool:
+        return (
+            source_window.get("surface") == surface
+            and int(source_window.get("source_window_count", 0) or 0)
+            <= int(source_window.get("source_window_limit", 0) or 0)
+            and int(source_window.get("source_mapping_count", 0) or 0)
+            == int(source_window.get("source_window_count", 0) or 0)
+            and bool(source_window.get("global_candidate_scan")) is False
+            and bool(source_window.get("global_score_scan")) is False
+            and bool(source_window.get("runs_live_tick")) is False
+            and bool(source_window.get("runs_every_token")) is False
+            and source_window.get("archival_storage_device") == "cpu"
+            and bool(source_window.get("gpu_resident_archival_metadata")) is False
+        )
+
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         return self._root._status_read_model.status(fresh_wait_seconds=fresh_wait_seconds)
 
@@ -781,10 +801,34 @@ class RuntimeFacade:
 
     def snn_language_readout_emission_replay_context_review(self, **kwargs: Any) -> dict[str, Any]:
         design = dict(kwargs.pop("emission_replay_evaluation_design"))
-        observed_slots = [
-            item.model_dump() if hasattr(item, "model_dump") else dict(item)
-            for item in list(kwargs.pop("observed_readout_slots"))
-        ]
+        seed_source_window_surface = (
+            "bounded_snn_emission_replay_context_review_seed_window.v1"
+        )
+        observed_slot_source_window_surface = (
+            "bounded_snn_emission_replay_context_review_observed_slot_window.v1"
+        )
+        seeds, seed_source_window = (
+            self._root._snn_language_readout_ledger._bounded_replay_payload_window(
+                design.get("selected_replay_context_seeds"),
+                source=(
+                    "runtime_facade.snn_language_readout_emission_replay_context_review."
+                    "selected_replay_context_seeds"
+                ),
+                surface=seed_source_window_surface,
+                active_replay_computation_device="cpu",
+            )
+        )
+        observed_slots, observed_slot_source_window = (
+            self._root._snn_language_readout_ledger._bounded_replay_payload_window(
+                kwargs.pop("observed_readout_slots"),
+                source=(
+                    "runtime_facade.snn_language_readout_emission_replay_context_review."
+                    "observed_readout_slots"
+                ),
+                surface=observed_slot_source_window_surface,
+                active_replay_computation_device="cpu",
+            )
+        )
         prediction_report = dict(kwargs.pop("prediction_report"))
         operator_id = str(kwargs.pop("operator_id", "") or "").strip()
         confirmation = bool(kwargs.pop("confirmation", False))
@@ -793,11 +837,6 @@ class RuntimeFacade:
             if isinstance(design.get("promotion_gate"), Mapping)
             else {}
         )
-        seeds = [
-            dict(seed)
-            for seed in list(design.get("selected_replay_context_seeds") or [])
-            if isinstance(seed, Mapping)
-        ]
         provenance = (
             prediction_report.get("provenance_evidence")
             if isinstance(prediction_report.get("provenance_evidence"), Mapping)
@@ -828,6 +867,30 @@ class RuntimeFacade:
                 design.get("records_ledger_event") is False
                 and bool(design_payload.get("records_replay_context")) is False
             ),
+            "seed_source_window_bounded": self._readout_replay_payload_window_bounded(
+                seed_source_window,
+                surface=seed_source_window_surface,
+            ),
+            "seed_payload_not_truncated": not bool(
+                seed_source_window.get("source_payload_truncated")
+            ),
+            "seed_payload_well_formed": int(
+                seed_source_window.get("source_mapping_count", 0) or 0
+            )
+            == int(seed_source_window.get("source_window_count", 0) or 0),
+            "observed_slot_source_window_bounded": (
+                self._readout_replay_payload_window_bounded(
+                    observed_slot_source_window,
+                    surface=observed_slot_source_window_surface,
+                )
+            ),
+            "observed_slot_payload_not_truncated": not bool(
+                observed_slot_source_window.get("source_payload_truncated")
+            ),
+            "observed_slot_payload_well_formed": int(
+                observed_slot_source_window.get("source_mapping_count", 0) or 0
+            )
+            == int(observed_slot_source_window.get("source_window_count", 0) or 0),
             "prediction_report_surface_available": prediction_report.get("surface")
             == "snn_language_sequence_prediction_probe.v1",
             "prediction_hash_available": bool(prediction_hash),
@@ -875,6 +938,8 @@ class RuntimeFacade:
                     "replay_evaluation_context_id": None,
                     "replay_evaluation_context_hash": None,
                 },
+                "seed_source_window": dict(seed_source_window),
+                "observed_slot_source_window": dict(observed_slot_source_window),
                 "promotion_gate": {
                     "status": "blocked_missing_emission_replay_context_review_evidence",
                     "eligible_for_replay_context_recording": False,
@@ -976,6 +1041,8 @@ class RuntimeFacade:
                 "mismatch_hash": context.get("mismatch_hash"),
                 "pressure_hash": context.get("pressure_hash"),
             },
+            "seed_source_window": dict(seed_source_window),
+            "observed_slot_source_window": dict(observed_slot_source_window),
             "promotion_gate": {
                 "status": "replay_evaluation_context_recorded_for_operator_review",
                 "eligible_for_replay_context_recording": False,
