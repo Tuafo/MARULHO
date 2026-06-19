@@ -15,6 +15,7 @@ from marulho.service.snn_language_plasticity_executor import (
 from marulho.service.snn_language_readout_ledger import (
     SNN_AUTONOMOUS_CONFIDENCE_USE_SOURCE_WINDOW_POLICY,
     SNN_EMISSION_REVIEW_REPLAY_POLICY_SOURCE_WINDOW_LIMIT,
+    SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
@@ -3344,6 +3345,23 @@ def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surf
     assert history["exposes_reviewed_bounded_text"] is True
     assert history["summary"]["emission_review_event_count"] == 1
     assert history["summary"]["returned_emission_review_event_count"] == 1
+    assert history["source_window"]["surface"] == (
+        "bounded_snn_emission_review_history_source_window.v1"
+    )
+    assert history["source_window"][
+        "policy"
+    ] == SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY
+    assert history["source_window"]["source_window_count"] == 1
+    assert history["source_window"]["global_candidate_scan"] is False
+    assert history["source_window"]["global_score_scan"] is False
+    assert history["source_window"]["raw_text_payload_loaded"] is True
+    assert history["source_window"]["language_reasoning"] is False
+    assert history["source_window"]["runs_live_tick"] is False
+    assert history["source_window"]["runs_every_token"] is False
+    assert history["source_window"]["archival_storage_device"] == "cpu"
+    assert history["source_window"]["lookup_device"] == "cpu"
+    assert history["source_window"]["gpu_used"] is False
+    assert history["summary"]["source_window"] == history["source_window"]
     assert len(history["emission_review_events"]) == 1
     reviewed = history["emission_review_events"][0]
     assert reviewed["text"] == "memory pressure"
@@ -3358,6 +3376,9 @@ def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surf
     assert history["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert history["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert history["promotion_gate"]["eligible_for_action"] is False
+    assert history["promotion_gate"]["required_evidence"][
+        "source_window_bounded"
+    ] is True
     assert "events" not in history
     assert "rollout_events" not in history
     assert "prediction_report" not in reviewed
@@ -3365,6 +3386,90 @@ def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surf
     assert empty["summary"]["returned_emission_review_event_count"] == 0
     assert empty["emission_review_events"] == []
     assert empty["promotion_gate"]["eligible_for_operator_display_history_inspection"] is False
+
+
+def test_readout_ledger_emission_review_history_uses_review_source_window_only() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "emission_review_hash": f"{self.field}:review:{index}",
+                    "emission_hash": f"{self.field}:emission:{index}",
+                    "trajectory_hash": f"{self.field}:trajectory:{index}",
+                    "persistent_transition_weights_hash": (
+                        f"{self.field}:weights:{index}"
+                    ),
+                    "text": f"{self.field}:text:{index}",
+                    "labels": [f"{self.field}:label:{index}"],
+                }
+
+        def __len__(self) -> int:
+            return self.count
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    source_count = 256
+    ledger_state: dict[str, object] = {
+        field: CountedRows(field, source_count)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state["total_emission_review_count"] = source_count
+    ledger_state["last_emission_reviewed_at"] = "2026-06-19T00:00:00+00:00"
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    history = ledger.emission_review_history(limit=2)
+
+    assert history["source_window"]["surface"] == (
+        "bounded_snn_emission_review_history_source_window.v1"
+    )
+    assert history["source_window"][
+        "policy"
+    ] == SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY
+    assert history["source_window"]["source_window_limit"] == ledger_limit
+    assert history["source_window"]["source_window_count"] == ledger_limit
+    assert history["source_window"]["source_record_count"] == source_count
+    assert history["source_window"]["source_payload_truncated"] is True
+    assert history["source_window"]["source_truncated_count"] == (
+        source_count - ledger_limit
+    )
+    assert history["summary"]["emission_review_event_count"] == ledger_limit
+    assert history["summary"]["returned_emission_review_event_count"] == 2
+    assert history["summary"]["total_emission_review_count"] == source_count
+    assert history["summary"]["last_emission_reviewed_at"] == (
+        "2026-06-19T00:00:00+00:00"
+    )
+    history_hashes = [
+        item["emission_review_hash"]
+        for item in history["emission_review_events"]
+    ]
+    assert history_hashes == [
+        "emission_review_events:review:0",
+        "emission_review_events:review:1",
+    ]
+    assert history["promotion_gate"]["required_evidence"][
+        "source_window_bounded"
+    ] is True
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        source = ledger_state[field]
+        assert isinstance(source, CountedRows)
+        if field == "emission_review_events":
+            assert source.iterated == ledger_limit
+        else:
+            assert source.iterated == 0
 
 
 def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_without_execution() -> None:

@@ -1529,6 +1529,24 @@ sequence failures, no observed contention, CUDA runtime on RTX 3060, and GPU
 memory `1980->1976 MiB`. The old broad-normalized audit event-map shape is
 retired; benchmark-local broad comparison remains only evidence.
 
+Emission review history now avoids broad ledger recall while still exposing the
+bounded reviewed text needed for operator display. `emission_review_history(...)`
+uses `bounded_snn_emission_review_history_source_window.v1` over
+`emission_review_events` only, keeps archival/lookup metadata on CPU, and
+reports no replay, no hidden language reasoning, no live-tick work, and no
+every-token cadence. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-emission-history.json`
+preserved review-hash and text-hash parity while checking `128` rows instead of
+`2944` broad-normalized rows (`23x`) and reducing mean display-history latency
+from `345.815600 ms` to `25.503433 ms` (`13.559570x`). The clean `524288`-token
+hot-path run
+`reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-emission-history.json`
+stayed in band at `6051.817 tokens/sec`, with bounded `12/65536` route rows,
+`10` output candidates, `65526` cached transition rows, zero graph/native
+sequence failures, no observed contention, CUDA runtime on RTX 3060, and flat
+GPU memory at `1972 MiB`. The old broad-normalized display-history shape is
+retired; benchmark-local broad comparison remains only evidence.
+
 ## Links
 
 - [Research notes](../../research-living-brain.md)

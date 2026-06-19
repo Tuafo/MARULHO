@@ -1321,6 +1321,23 @@ CPU. The paired long run stayed in band at `5994.111 tokens/sec`,
 and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `1980->1976 MiB`.
 
+Emission review history now follows the same bounded display rule instead of
+normalizing every readout-ledger event family before returning reviewed output.
+`emission_review_history(...)` reads only `emission_review_events` through
+`bounded_snn_emission_review_history_source_window.v1`, exposes reviewed
+bounded text for operator display, and reports no replay, no hidden language
+reasoning, no live-tick work, and no every-token cadence. The benchmark
+`reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-emission-history.json`
+kept review-hash and text-hash parity while reducing checked rows from `2944`
+to `128` (`23x`) and mean display-history latency from `345.815600 ms` to
+`25.503433 ms`. The paired long run stayed in band at
+`6051.817 tokens/sec`, `tick_duration_ms.p95=21.323`,
+`train_compute=0.134300 ms/token`, `prepare_training=0.006972 ms/token`,
+`finalize_total=0.006364 ms/token`, `route_input_rows_scored=12/65536`,
+`state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures with no observed contention. RTX 3060 runtime memory stayed flat at
+`1972 MiB`.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

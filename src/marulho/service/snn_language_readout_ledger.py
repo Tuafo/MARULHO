@@ -28,6 +28,9 @@ SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY = (
 SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY = (
     "recent_readout_evidence_hash_source_window_v1"
 )
+SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY = (
+    "recent_emission_review_history_source_window_v1"
+)
 SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY = (
     "recent_dense_label_candidate_calibration_source_window_v1"
 )
@@ -706,9 +709,11 @@ class SNNLanguageReadoutEvidenceLedger:
         """Inspect reviewed bounded SNN emissions without widening the ledger."""
 
         with self._lock:
-            state = self._normalized_state()
+            source_events, source_window = (
+                self._emission_review_history_source_window_with_report()
+            )
             count = max(0, min(int(limit), self._limit))
-            events = list(state["emission_review_events"])[:count] if count > 0 else []
+            events = list(source_events)[:count] if count > 0 else []
             reviewed_events: list[dict[str, Any]] = []
             unique_emission_hashes: set[str] = set()
             unique_trajectory_hashes: set[str] = set()
@@ -783,20 +788,23 @@ class SNNLanguageReadoutEvidenceLedger:
                 "applies_plasticity": False,
                 "mutates_runtime_state": False,
                 "limit": count,
+                "source_window": source_window,
                 "summary": {
-                    "emission_review_event_count": len(state["emission_review_events"]),
+                    "emission_review_event_count": int(
+                        source_window.get("source_window_count", 0) or 0
+                    ),
                     "returned_emission_review_event_count": len(reviewed_events),
                     "total_emission_review_count": int(
-                        state.get(
-                            "total_emission_review_count",
-                            len(state["emission_review_events"]),
-                        )
+                        source_window.get("total_emission_review_count", 0)
                         or 0
                     ),
                     "unique_emission_count": len(unique_emission_hashes),
                     "unique_trajectory_count": len(unique_trajectory_hashes),
                     "unique_transition_memory_count": len(unique_transition_hashes),
-                    "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+                    "last_emission_reviewed_at": source_window.get(
+                        "last_emission_reviewed_at"
+                    ),
+                    "source_window": source_window,
                 },
                 "emission_review_events": reviewed_events,
                 "promotion_gate": {
@@ -823,6 +831,21 @@ class SNNLanguageReadoutEvidenceLedger:
                         "bounded_display_text_available": any(
                             bool(str(item.get("text") or "").strip())
                             for item in reviewed_events
+                        ),
+                        "source_window_bounded": (
+                            source_window.get("surface")
+                            == "bounded_snn_emission_review_history_source_window.v1"
+                            and source_window.get("policy")
+                            == SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY
+                            and int(source_window.get("source_window_count", 0) or 0)
+                            <= int(source_window.get("source_window_limit", 0) or 0)
+                            and source_window.get("global_candidate_scan") is False
+                            and source_window.get("global_score_scan") is False
+                            and source_window.get("runs_live_tick") is False
+                            and source_window.get("runs_every_token") is False
+                            and source_window.get("archival_storage_device") == "cpu"
+                            and source_window.get("lookup_device") == "cpu"
+                            and source_window.get("gpu_used") is False
                         ),
                         "broader_ledger_events_absent": True,
                         "runtime_mutation_absent": True,
@@ -38934,6 +38957,69 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
         return event_map, report
+
+    def _emission_review_history_source_window_with_report(
+        self,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        state = self._ledger_state()
+        events = self._bounded_mapping_list_from_state(
+            state,
+            "emission_review_events",
+        )
+        source_count = self._source_record_count(
+            state,
+            "emission_review_events",
+        )
+        source_window_count = int(len(events))
+        total_count = int(
+            state.get(
+                "total_emission_review_count",
+                source_count if source_count is not None else source_window_count,
+            )
+            or 0
+        )
+        report = {
+            "surface": "bounded_snn_emission_review_history_source_window.v1",
+            "policy": SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.emission_review_events",
+            "selection_criteria": [
+                "operator_reviewed_bounded_snn_emissions_only",
+                "bounded_source_window_before_display_history",
+            ],
+            "source_window_limit": int(self._limit),
+            "source_window_count": source_window_count,
+            "source_record_count": source_count,
+            "source_record_count_known": source_count is not None,
+            "source_payload_truncated": (
+                bool(int(source_count) > source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "source_truncated_count": (
+                max(0, int(source_count) - source_window_count)
+                if source_count is not None
+                else None
+            ),
+            "total_emission_review_count": total_count,
+            "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": True,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "memory_budget": {
+                "max_source_records": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return events, report
 
     def _dense_label_candidate_source_window_with_report(
         self,

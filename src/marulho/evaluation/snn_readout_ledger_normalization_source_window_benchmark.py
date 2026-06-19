@@ -27,6 +27,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_DENSE_LABEL_CALIBRATION_EVALUATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
+    SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS,
@@ -81,6 +82,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
                     "review_hash": f"{index + 1001:064x}",
                     "source_execution_hash": f"{index + 2001:064x}",
                     "label_hash": f"{(index % 8) + 3001:064x}",
+                    "text": f"{field}:text:{index}",
                     "labels": [f"{field}:label:{index}"],
                     "label_grounding": [True],
                     "tensor_device": "cpu",
@@ -317,6 +319,63 @@ def _broad_normalized_readout_evidence_event_map_lookup(
         "normalization_source_window": dict(
             normalized.get("_normalization_source_window") or {}
         ),
+    }
+
+
+def _bounded_emission_review_history(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    history = ledger.emission_review_history(limit=limit)
+    return {
+        "review_hashes": [
+            str(item.get("emission_review_hash") or "")
+            for item in list(history.get("emission_review_events") or [])
+        ],
+        "text_hashes": [
+            str(item.get("text_hash") or "")
+            for item in list(history.get("emission_review_events") or [])
+        ],
+        "summary": dict(history.get("summary") or {}),
+        "source_window": dict(history.get("source_window") or {}),
+    }
+
+
+def _broad_normalized_emission_review_history(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    normalized = ledger._normalized_state()  # noqa: SLF001
+    source_window = dict(normalized.get("_normalization_source_window") or {})
+    normalized_events = list(normalized.get("emission_review_events") or [])
+    count = max(0, min(int(limit), len(normalized_events)))
+    events = [
+        dict(item)
+        for item in normalized_events[:count]
+        if isinstance(item, Mapping)
+    ]
+    text_hashes = [
+        ledger._sha256_json(  # noqa: SLF001
+            {
+                "text": str(item.get("text") or ""),
+                "labels": [
+                    str(value)
+                    for value in list(item.get("labels") or [])
+                    if str(value)
+                ],
+            }
+        )
+        for item in events
+    ]
+    return {
+        "review_hashes": [
+            str(item.get("emission_review_hash") or "")
+            for item in events
+        ],
+        "text_hashes": text_hashes,
+        "normalization_source_window": source_window,
     }
 
 
@@ -2879,6 +2938,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=runs,
         fn=lambda: _broad_normalized_readout_evidence_event_map_lookup(ledger),
     )
+    emission_history, emission_history_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _bounded_emission_review_history(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
+    broad_emission_history, broad_emission_history_samples = _timed_runs(
+        runs=runs,
+        fn=lambda: _broad_normalized_emission_review_history(
+            ledger,
+            limit=ledger_limit,
+        ),
+    )
     dense_label, dense_label_samples = _timed_runs(
         runs=runs,
         fn=lambda: _bounded_dense_label_calibration(
@@ -3020,6 +3093,22 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     broad_event_map_rows = int(
         dict(
             broad_event_map.get("normalization_source_window") or {}
+        ).get("source_window_count_total", 0)
+        or 0
+    )
+    emission_history_source_window = dict(
+        emission_history.get("source_window") or {}
+    )
+    emission_history_mean = statistics.fmean(emission_history_samples)
+    broad_emission_history_mean = statistics.fmean(
+        broad_emission_history_samples
+    )
+    emission_history_rows = int(
+        emission_history_source_window.get("source_window_count", 0) or 0
+    )
+    broad_emission_history_rows = int(
+        dict(
+            broad_emission_history.get("normalization_source_window") or {}
         ).get("source_window_count_total", 0)
         or 0
     )
@@ -3172,6 +3261,28 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "event_map_bounded_less_work": event_map_rows < broad_event_map_rows,
         "event_map_latency_not_slower_than_broad_normalization": (
             event_map_mean <= broad_event_map_mean * 1.1
+        ),
+        "emission_history_surface_present": emission_history_source_window.get(
+            "surface"
+        )
+        == "bounded_snn_emission_review_history_source_window.v1",
+        "emission_history_policy_present": emission_history_source_window.get(
+            "policy"
+        )
+        == SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+        "emission_history_review_hash_parity": (
+            emission_history.get("review_hashes")
+            == broad_emission_history.get("review_hashes")
+        ),
+        "emission_history_text_hash_parity": (
+            emission_history.get("text_hashes")
+            == broad_emission_history.get("text_hashes")
+        ),
+        "emission_history_bounded_less_work": (
+            emission_history_rows < broad_emission_history_rows
+        ),
+        "emission_history_latency_not_slower_than_broad_normalization": (
+            emission_history_mean <= broad_emission_history_mean * 1.1
         ),
         "dense_label_surface_present": dense_label_source_window.get("surface")
         == "bounded_snn_dense_label_candidate_calibration_source_window.v1",
@@ -3483,6 +3594,61 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "global_candidate_scan": False,
             "global_score_scan": False,
             "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+        },
+        "emission_review_history_boundary": {
+            "surface": "bounded_snn_emission_review_history_source_window.v1",
+            "policy": SNN_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY,
+            "source": "snn_readout_ledger.emission_review_events",
+            "selection_criteria": [
+                "operator_reviewed_bounded_snn_emissions_only",
+                "bounded source window before display history",
+            ],
+            "quality": {
+                "metric": "emission_review_history_hash_and_text_hash_parity",
+                "review_hash_parity": emission_history.get("review_hashes")
+                == broad_emission_history.get("review_hashes"),
+                "text_hash_parity": emission_history.get("text_hashes")
+                == broad_emission_history.get("text_hashes"),
+                "returned_review_count": int(
+                    len(emission_history.get("review_hashes") or [])
+                ),
+            },
+            "latency": {
+                "bounded": _latency_summary(emission_history_samples),
+                "broad_normalized": _latency_summary(
+                    broad_emission_history_samples
+                ),
+                "bounded_speedup_vs_broad_normalized": round(
+                    broad_emission_history_mean
+                    / max(emission_history_mean, 1e-9),
+                    6,
+                ),
+            },
+            "retired_path_comparison": {
+                "old_policy": (
+                    "normalize_all_ledger_event_fields_before_emission"
+                    "_review_display_history"
+                ),
+                "bounded_checked_record_count": emission_history_rows,
+                "old_checked_record_count": broad_emission_history_rows,
+                "record_work_reduction": round(
+                    broad_emission_history_rows
+                    / max(1, emission_history_rows),
+                    6,
+                ),
+            },
+            "source_window": emission_history_source_window,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": True,
             "language_reasoning": False,
             "runs_live_tick": False,
             "runs_every_token": False,
@@ -3903,7 +4069,8 @@ def main() -> None:
         "legacy_recent={legacy_recent:.6f} store_bounded_mean_ms={store_bounded:.6f} "
         "store_legacy_mean_ms={store_legacy:.6f} known_hash_bounded_mean_ms={known_hash_bounded:.6f} "
         "known_hash_broad_mean_ms={known_hash_broad:.6f} event_map_bounded_mean_ms={event_map_bounded:.6f} "
-        "event_map_broad_mean_ms={event_map_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
+        "event_map_broad_mean_ms={event_map_broad:.6f} emission_history_bounded_mean_ms={emission_history_bounded:.6f} "
+        "emission_history_broad_mean_ms={emission_history_broad:.6f} dense_label_bounded_mean_ms={dense_label_bounded:.6f} "
         "dense_label_broad_mean_ms={dense_label_broad:.6f} dense_label_eval_bounded_mean_ms={dense_label_eval_bounded:.6f} "
         "dense_label_eval_broad_mean_ms={dense_label_eval_broad:.6f} "
         "dense_label_update_bounded_mean_ms={dense_label_update_bounded:.6f} "
@@ -3936,6 +4103,12 @@ def main() -> None:
                 "latency"
             ]["bounded"]["mean_ms"],
             event_map_broad=report["readout_evidence_event_map_boundary"][
+                "latency"
+            ]["broad_normalized"]["mean_ms"],
+            emission_history_bounded=report["emission_review_history_boundary"][
+                "latency"
+            ]["bounded"]["mean_ms"],
+            emission_history_broad=report["emission_review_history_boundary"][
                 "latency"
             ]["broad_normalized"]["mean_ms"],
             dense_label_bounded=report["dense_label_calibration_boundary"][
