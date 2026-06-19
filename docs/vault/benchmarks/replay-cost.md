@@ -1260,6 +1260,48 @@ observed contention rather than a clean speed-ceiling run. The preceding same
 command without the `-rerun` suffix also succeeded at `6025.620 tokens/sec` and
 was likewise marked GPU-contended.
 
+The checkpointed language-application boundary now enforces that the final
+mutation payload is itself bounded and untruncated. This closes the downstream
+side entrance after replay/shadow selection: `apply_live_application(...)`
+windows `shadow_delta.bounded_synapses`, and
+`regenerate_transition_memory(...)` windows
+`regeneration_design.candidate_synapses`, both with
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32`. Oversized payloads are
+blocked before checkpoint writes or runtime mutation rather than silently
+truncated into a partial structural write.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.language_application_synapse_window_benchmark --payload-count 2048 --runs 25 --output reports\bounded_replay_window_20260619\language-application-synapse-window.json`
+
+It passed with oversized live-application and transition-regeneration payloads
+blocked at `32/2048`, `source_probe_count=33`, `source_truncated_count=2016`,
+zero checkpoint calls, zero state mutation, no global candidate/score scan, no
+raw text payload, and no hidden language reasoning. Exact-window payloads still
+worked: live application applied `32` synapses and regeneration added `32`
+synapses through two checkpoint calls each. Mean latencies were `1.827460 ms`
+for oversized live blocking, `1.840956 ms` for oversized regeneration blocking,
+`15.976332 ms` for exact live application, and `34.346436 ms` for exact
+regeneration. Archival storage, source-window selection, and active application
+stayed CPU-resident; traced Python peak allocation was `1.982166 MiB`, CUDA
+allocation/reservation stayed `0.0 MiB`, and the retired full-payload work is
+projected from source counts only (`64x` source-work reduction).
+
+Clean long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-language-application-synapse-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6039.734 tokens/sec`, with
+`train_compute=0.134728 ms/token`, `prepare_training=0.006949 ms/token`,
+`finalize_total=0.006436 ms/token`, and `tick_duration_ms.p95=21.511`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+`0`. `velocity_environment.v1` reported no observed contention, CPU max `29%`,
+GPU max `16%`, GPU memory-util max `19%`, and RTX 3060 memory `2020->2034 MiB`.
+This is throughput protection for a checkpointed slow-path boundary, not a new
+live-tick replay operator.
+
 The strong-capture admission cadence follow-up closes the remaining
 every-strong slow-memory write shape. Strong-event evidence can still be
 emitted by the device path on every threshold crossing, but `DualMemoryStore`

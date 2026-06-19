@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+from itertools import islice
 import json
 import math
 from pathlib import Path
@@ -14,11 +15,112 @@ from marulho.service.runtime_state import RuntimeState
 
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_STRUCTURAL_EDGES_PER_EVENT = 32
+SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT = _MAX_STRUCTURAL_EDGES_PER_EVENT
+SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY = (
+    "bounded_checkpointed_application_synapse_window_v1"
+)
 _MAX_OUTGOING_FANOUT = 16
 _MAX_SPARSE_TRANSITION_EDGES = 256
 _MAX_OUTGOING_ROW_MASS = 1.0
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
+
+
+def _bounded_application_synapse_window(
+    raw_value: Any,
+    *,
+    source: str,
+    surface: str,
+    field_name: str,
+    limit: int = SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    source_limit = max(
+        0,
+        min(int(limit), SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT),
+    )
+    if raw_value is None or isinstance(raw_value, (str, bytes, Mapping)):
+        raw_iterable: Any = ()
+        source_total_count: int | None = 0
+    else:
+        raw_iterable = raw_value
+        try:
+            source_total_count = int(len(raw_value))
+        except TypeError:
+            source_total_count = None
+
+    selected: list[dict[str, Any]] = []
+    inspected_count = 0
+    sentinel_seen = False
+    try:
+        for item in islice(raw_iterable, source_limit + 1):
+            if inspected_count >= source_limit:
+                sentinel_seen = True
+                break
+            inspected_count += 1
+            if isinstance(item, Mapping):
+                selected.append(dict(item))
+    except TypeError:
+        source_total_count = 0
+        inspected_count = 0
+        sentinel_seen = False
+        selected = []
+
+    source_payload_truncated = (
+        bool(int(source_total_count) > source_limit)
+        if source_total_count is not None
+        else bool(sentinel_seen)
+    )
+    source_truncated_count = (
+        max(0, int(source_total_count) - source_limit)
+        if source_total_count is not None
+        else None
+    )
+    report = {
+        "surface": surface,
+        "policy": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
+        "window_policy": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_POLICY,
+        "source": source,
+        "field_name": field_name,
+        "selection_criteria": [
+            "caller_supplied_synapse_order",
+            "bounded_source_window_before_topology_validation",
+            "checkpoint_mutation_after_preflight_only",
+        ],
+        "source_window_limit": int(source_limit),
+        "source_window_count": int(inspected_count),
+        "source_probe_count": int(inspected_count + int(sentinel_seen)),
+        "source_mapping_count": int(len(selected)),
+        "source_total_count": source_total_count,
+        "source_total_count_known": source_total_count is not None,
+        "source_payload_truncated": bool(source_payload_truncated),
+        "source_truncated_count": source_truncated_count,
+        "candidate_count_before_limit": source_total_count,
+        "candidate_count_returned": int(len(selected)),
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "hidden_language_reasoning": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "source_window_selection_device": "cpu",
+        "active_application_device": "cpu",
+        "gpu_used": False,
+        "gpu_resident_archival_metadata": False,
+        "device_placement": {
+            "archival_storage": "cpu",
+            "source_window_selection": "cpu",
+            "active_application": "cpu",
+        },
+        "memory_budget": {
+            "max_synapse_records": int(source_limit),
+            "requires_untruncated_source_payload": True,
+        },
+    }
+    return selected, report
 
 
 class SNNLanguagePlasticityApplicationExecutor:
@@ -63,9 +165,25 @@ class SNNLanguagePlasticityApplicationExecutor:
             before_revision = int(self._runtime_state.state_revision)
             readiness = dict(live_application_readiness)
             delta = dict(shadow_delta)
+            synapses, synapse_source_window = _bounded_application_synapse_window(
+                delta.get("bounded_synapses"),
+                source=(
+                    "service.snn_language_plasticity_executor."
+                    "live_application_bounded_synapses"
+                ),
+                surface=(
+                    "bounded_snn_language_plasticity_live_application_"
+                    "synapse_window.v1"
+                ),
+                field_name="shadow_delta.bounded_synapses",
+            )
+            delta["bounded_synapses"] = synapses
+            delta["synapse_source_window"] = synapse_source_window
             preflight = self._preflight(
                 readiness=readiness,
                 delta=delta,
+                synapses=synapses,
+                synapse_source_window=synapse_source_window,
                 before_revision=before_revision,
                 expected_state_revision=expected_state_revision,
                 operator_id=operator_id,
@@ -94,7 +212,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             weights = state.setdefault("sparse_transition_weights", {})
             applied_synapses = []
             delta_value = float(delta.get("max_abs_weight_delta", 0.0) or 0.0)
-            for synapse in list(delta.get("bounded_synapses") or []):
+            for synapse in synapses:
                 if not isinstance(synapse, Mapping):
                     continue
                 pre_index = int(synapse.get("pre_index", 0) or 0)
@@ -165,6 +283,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "after_state_revision": before_revision + 1,
                 "checkpoint_path": str(checkpoint_file),
                 "staged_committed_checkpoint_path": str(committed_checkpoint_file),
+                "synapse_source_window": deepcopy(synapse_source_window),
                 "applied_synapses": deepcopy(applied_synapses),
             }
             live_application["last_application"] = deepcopy(event)
@@ -216,9 +335,17 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "owned_by_marulho": True,
                     "sparse": True,
                     "checkpointed": True,
+                    "synapse_source_window": deepcopy(synapse_source_window),
+                    "source_synapse_count": synapse_source_window.get(
+                        "source_total_count"
+                    ),
+                    "source_synapse_window_count": synapse_source_window.get(
+                        "source_window_count"
+                    ),
                     "applied_synapse_count": len(applied_synapses),
                     "total_synapse_count": len(weights),
                 },
+                "synapse_source_window": deepcopy(synapse_source_window),
                 "live_application_event": deepcopy(event),
                 "applied_synapses": applied_synapses,
                 "before": {"state_revision": before_revision},
@@ -3427,7 +3554,18 @@ class SNNLanguagePlasticityApplicationExecutor:
             gate = proposal.get("promotion_gate") if isinstance(proposal.get("promotion_gate"), Mapping) else {}
             design = proposal.get("regeneration_design") if isinstance(proposal.get("regeneration_design"), Mapping) else {}
             replay = proposal.get("replay_evidence") if isinstance(proposal.get("replay_evidence"), Mapping) else {}
-            candidates = [dict(item) for item in list(design.get("candidate_synapses") or []) if isinstance(item, Mapping)]
+            candidates, candidate_source_window = _bounded_application_synapse_window(
+                design.get("candidate_synapses"),
+                source=(
+                    "service.snn_language_plasticity_executor."
+                    "transition_memory_regeneration_candidate_synapses"
+                ),
+                surface=(
+                    "bounded_snn_transition_memory_regeneration_candidate_"
+                    "synapse_window.v1"
+                ),
+                field_name="regeneration_design.candidate_synapses",
+            )
             row_mass_limit = float(max_outgoing_row_mass)
             state = self._language_plasticity_state()
             capacity = self._language_capacity_state(state)
@@ -3459,15 +3597,30 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "replay_permit_server_verified": bool(self._verify_regeneration_permit(proposal)),
                 "mismatch_score_high": float(design.get("mismatch_score", 0.0) or 0.0) >= 0.66,
                 "candidate_synapses_available": bool(candidates),
+                "candidate_source_window_bounded": (
+                    candidate_source_window.get("surface")
+                    == "bounded_snn_transition_memory_regeneration_candidate_synapse_window.v1"
+                    and int(candidate_source_window.get("source_window_count", 0) or 0)
+                    <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+                    and bool(candidate_source_window.get("global_candidate_scan")) is False
+                    and bool(candidate_source_window.get("global_score_scan")) is False
+                ),
+                "candidate_payload_not_truncated": not bool(
+                    candidate_source_window.get("source_payload_truncated")
+                ),
                 "no_text_generation": not bool(proposal.get("generates_text")),
                 "no_external_checkpoint": not bool(proposal.get("loads_external_checkpoint")),
                 **topology,
+            }
+            required_evidence = {
+                **required,
+                "candidate_source_window": dict(candidate_source_window),
             }
             if not all(required.values()):
                 return self._blocked_regeneration(
                     reason="blocked_missing_regeneration_evidence",
                     before_revision=before_revision,
-                    required_evidence=required,
+                    required_evidence=required_evidence,
                 )
             checkpoint_state = deepcopy(state)
             before_dirty_state = bool(self._runtime_state.dirty_state)
@@ -3479,7 +3632,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     reason="checkpoint_save_missing",
                     before_revision=before_revision,
                     required_evidence={
-                        **required,
+                        **required_evidence,
                         "pre_regeneration_checkpoint_saved": checkpoint_file.exists(),
                         "pre_regeneration_checkpoint_restore_verified": checkpoint_verified,
                     },
@@ -3536,7 +3689,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 return self._blocked_regeneration(
                     reason="blocked_no_regenerable_synapses",
                     before_revision=before_revision,
-                    required_evidence={**required, "regenerable_synapses_available": False},
+                    required_evidence={
+                        **required_evidence,
+                        "regenerable_synapses_available": False,
+                    },
                 )
             ledger = state.setdefault("synapse_regeneration", {})
             ledger["regeneration_count"] = int(ledger.get("regeneration_count", 0) or 0) + 1
@@ -3564,6 +3720,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "operator_id": operator_id,
                 "checkpoint_path": str(checkpoint_file),
+                "candidate_source_window": deepcopy(candidate_source_window),
                 "replay_regeneration_permit": {
                     "permit_id": replay.get("permit_id"),
                     "evidence_hash": replay.get("evidence_hash"),
@@ -3604,7 +3761,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 return self._blocked_regeneration(
                     reason="post_regeneration_checkpoint_commit_failed",
                     before_revision=before_revision,
-                    required_evidence={**required, **commit},
+                    required_evidence={**required_evidence, **commit},
                 )
             return {
                 "artifact_kind": "terminus_snn_language_transition_memory_regeneration",
@@ -3630,6 +3787,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "restore_verified": checkpoint_verified,
                 },
                 "regeneration": deepcopy(event),
+                "candidate_source_window": deepcopy(candidate_source_window),
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
             }
@@ -3639,6 +3797,8 @@ class SNNLanguagePlasticityApplicationExecutor:
         *,
         readiness: Mapping[str, Any],
         delta: Mapping[str, Any],
+        synapses: list[dict[str, Any]],
+        synapse_source_window: Mapping[str, Any],
         before_revision: int,
         expected_state_revision: int,
         operator_id: str,
@@ -3647,7 +3807,6 @@ class SNNLanguagePlasticityApplicationExecutor:
         gate = readiness.get("promotion_gate") if isinstance(readiness.get("promotion_gate"), Mapping) else {}
         rollback = readiness.get("rollback_readiness") if isinstance(readiness.get("rollback_readiness"), Mapping) else {}
         approval = readiness.get("operator_approval") if isinstance(readiness.get("operator_approval"), Mapping) else {}
-        synapses = [item for item in list(delta.get("bounded_synapses") or []) if isinstance(item, Mapping)]
         max_delta = abs(float(delta.get("max_abs_weight_delta", 0.0) or 0.0))
         pressure_before = float(delta.get("pressure_before", 1.0) or 1.0)
         pressure_after = float(delta.get("pressure_after", pressure_before) or pressure_before)
@@ -3673,6 +3832,17 @@ class SNNLanguagePlasticityApplicationExecutor:
             "restore_endpoint_available": bool(rollback.get("restore_endpoint_available")),
             "shadow_delta_available": bool(delta.get("available")),
             "bounded_synapses_available": bool(synapses),
+            "synapse_source_window_bounded": (
+                synapse_source_window.get("surface")
+                == "bounded_snn_language_plasticity_live_application_synapse_window.v1"
+                and int(synapse_source_window.get("source_window_count", 0) or 0)
+                <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+                and bool(synapse_source_window.get("global_candidate_scan")) is False
+                and bool(synapse_source_window.get("global_score_scan")) is False
+            ),
+            "synapse_payload_not_truncated": not bool(
+                synapse_source_window.get("source_payload_truncated")
+            ),
             "max_delta_bounded": 0.0 < max_delta <= 0.25,
             "pressure_non_worsening": pressure_after <= pressure_before,
             "no_text_generation": not bool(readiness.get("generates_text")) and not bool(delta.get("generates_text")),
@@ -3680,13 +3850,17 @@ class SNNLanguagePlasticityApplicationExecutor:
             and not bool(delta.get("loads_external_checkpoint")),
             **topology,
         }
+        required_evidence = {
+            **required,
+            "synapse_source_window": dict(synapse_source_window),
+        }
         if not all(required.values()):
             return self._blocked(
                 reason="blocked_missing_live_application_evidence",
                 before_revision=before_revision,
-                required_evidence=required,
+                required_evidence=required_evidence,
             )
-        return {"accepted": True, "required_evidence": required}
+        return {"accepted": True, "required_evidence": required_evidence}
 
     def _blocked(
         self,

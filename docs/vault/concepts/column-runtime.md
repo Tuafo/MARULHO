@@ -961,6 +961,25 @@ rerun stayed in the maintained band at `5999.398 tokens/sec` with bounded
 sequence failures. Because the sampler observed GPU-side contention, this is
 protection evidence for the slow path, not a clean speed-ceiling claim.
 
+The checkpointed language application executor now enforces the same selected
+window at the mutation boundary. Live application consumes
+`shadow_delta.bounded_synapses` through
+`bounded_snn_language_plasticity_live_application_synapse_window.v1`, and
+transition-memory regeneration consumes
+`regeneration_design.candidate_synapses` through
+`bounded_snn_transition_memory_regeneration_candidate_synapse_window.v1`; both
+windows cap at `32` records and require the source payload to be untruncated
+before checkpoint writes or runtime mutation. The benchmark
+`reports/bounded_replay_window_20260619/language-application-synapse-window.json`
+blocked oversized `2048`-record payloads after reading a bounded `33`-item
+sentinel window, made zero checkpoint calls, and left runtime state unchanged;
+exact-window payloads still applied or regenerated `32` synapses through
+checkpointed paths. The clean `524288`-token protection run stayed in band at
+`6039.734 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, and zero graph/native failures. This
+keeps structural writes slow-path, operator/checkpoint gated, and bounded
+without putting replay/application work into the live tick.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

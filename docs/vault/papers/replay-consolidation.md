@@ -1008,6 +1008,28 @@ failures, but `velocity_environment.v1` marked GPU contention at `22%`; treat it
 as protection evidence, not clean top-speed evidence. The old full-payload
 semantics behavior is retired rather than left as a side implementation.
 
+The checkpointed language application boundary now extends that same local
+selection rule through the final mutation gate. Replay and shadow-delta paths
+may prepare structural evidence, but the executor must still reject caller-sized
+mutation payloads before topology validation or checkpoint writes.
+`SNNLanguagePlasticityApplicationExecutor.apply_live_application(...)` and
+`regenerate_transition_memory(...)` both use
+`SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT=32`, expose
+`bounded_snn_language_plasticity_live_application_synapse_window.v1` and
+`bounded_snn_transition_memory_regeneration_candidate_synapse_window.v1`, and
+require the source payload to be untruncated before mutation. The benchmark
+`reports/bounded_replay_window_20260619/language-application-synapse-window.json`
+blocked oversized live/regeneration payloads at `32/2048` with zero checkpoint
+calls and zero state mutation, while exact-window payloads still applied or
+regenerated `32` synapses through checkpointed paths. The report recorded CPU
+archival/source/application placement, `1.982166 MiB` traced Python peak,
+`0.0 MiB` CUDA allocation/reservation, no global candidate/score scan, no raw
+text payload, and `64x` projected source-work reduction. The clean
+`524288`-token hot-path run stayed in band at `6039.734 tokens/sec`, bounded
+`12/65536` route rows, no observed contention, and zero graph/native sequence
+failures. This retires the downstream caller-sized application side path rather
+than keeping it as a second implementation.
+
 Strong-capture slow-memory admission now follows the same selected replay rule.
 Synaptic tagging/capture motivates retaining unusually strong traces for later
 stabilization, but it does not justify an immediate archive write for every
@@ -1046,13 +1068,15 @@ bounded replay-plan source windows, bounded replay-query anchor-source windows,
 bounded status replay-path projections,
 bounded readout-ledger normalization source windows,
 bounded readout replay target/sequence windows,
+bounded checkpointed application synapse windows,
 strong-capture admission cadence, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and
 source-bank wrapper APIs, retained-ledger replay-path status scans,
 readout-ledger full-materialization normalization, every-strong slow-memory
-admission, caller-supplied full-payload readout replay materialization, plus the
+admission, caller-supplied full-payload readout replay materialization,
+caller-supplied checkpointed application synapse materialization, plus the
 all-anchor HF replay-query source pass and full hot-bucket candidate source
 materialization;
 future larger replay windows still require repeated long-run hot-path and

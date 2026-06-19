@@ -7,7 +7,10 @@ import pytest
 import torch
 
 from marulho.service.runtime_state import RuntimeState
-from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
+from marulho.service.snn_language_plasticity_executor import (
+    SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+    SNNLanguagePlasticityApplicationExecutor,
+)
 
 
 def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
@@ -1618,6 +1621,51 @@ def test_regeneration_blocks_without_operator_confirmation(tmp_path: Path) -> No
     assert runtime_state.state_revision == 0
 
 
+def test_regeneration_blocks_truncated_candidate_payload_before_checkpoint(tmp_path: Path) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {"sparse_transition_weights": {}}
+    checkpoint_calls = []
+    oversized_count = SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 19
+    candidates = [
+        {
+            "pre_index": index,
+            "post_index": index + 1,
+            "initial_weight": 0.01,
+            "locality_distance": 1,
+        }
+        for index in range(oversized_count)
+    ]
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path) or {"path": str(tmp_path / "regeneration.pt")},
+        checkpoint_path=lambda: tmp_path / "regeneration.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        verify_regeneration_permit=lambda proposal: True,
+    )
+    result = executor.regenerate_transition_memory(
+        regeneration_proposal=_regeneration_proposal(*candidates),
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    assert result["accepted"] is False
+    evidence = result["promotion_gate"]["required_evidence"]
+    source_window = evidence["candidate_source_window"]
+    assert evidence["candidate_source_window_bounded"] is True
+    assert evidence["candidate_payload_not_truncated"] is False
+    assert source_window["source_window_count"] == SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    assert source_window["source_total_count"] == oversized_count
+    assert source_window["source_payload_truncated"] is True
+    assert checkpoint_calls == []
+    assert language_state["sparse_transition_weights"] == {}
+    assert runtime_state.state_revision == 0
+
+
 def test_regeneration_blocks_nonlocal_and_modulo_alias_candidates_before_checkpoint(tmp_path: Path) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -1711,6 +1759,56 @@ def test_regeneration_blocks_when_checkpoint_snapshot_does_not_round_trip(tmp_pa
 
     assert result["accepted"] is False
     assert result["promotion_gate"]["required_evidence"]["pre_regeneration_checkpoint_restore_verified"] is False
+    assert language_state["sparse_transition_weights"] == {}
+    assert runtime_state.state_revision == 0
+
+
+def test_live_application_blocks_truncated_synapse_payload_before_checkpoint(tmp_path: Path) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {"sparse_transition_weights": {}}
+    checkpoint_calls = []
+    oversized_count = SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT + 17
+    bounded_synapses = [
+        {"pre_index": index, "post_index": index + 1}
+        for index in range(oversized_count)
+    ]
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path) or {"path": str(tmp_path / "live.pt")},
+        checkpoint_path=lambda: tmp_path / "live.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+    result = executor.apply_live_application(
+        live_application_readiness={
+            "available": True,
+            "promotion_gate": {"status": "ready_for_operator_review"},
+            "rollback_readiness": {"checkpoint_available": True, "restore_endpoint_available": True},
+            "operator_approval": {"approved": True},
+        },
+        shadow_delta={
+            "available": True,
+            "max_abs_weight_delta": 0.01,
+            "pressure_before": 0.9,
+            "pressure_after": 0.8,
+            "bounded_synapses": bounded_synapses,
+        },
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    assert result["accepted"] is False
+    evidence = result["promotion_gate"]["required_evidence"]
+    source_window = evidence["synapse_source_window"]
+    assert evidence["synapse_source_window_bounded"] is True
+    assert evidence["synapse_payload_not_truncated"] is False
+    assert source_window["source_window_count"] == SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+    assert source_window["source_total_count"] == oversized_count
+    assert source_window["source_payload_truncated"] is True
+    assert checkpoint_calls == []
     assert language_state["sparse_transition_weights"] == {}
     assert runtime_state.state_revision == 0
 
