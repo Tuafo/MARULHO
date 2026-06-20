@@ -1,7 +1,7 @@
-"""Benchmark bounded SNN readout-ledger normalization.
+"""Benchmark benchmark-local SNN readout-ledger normalization models.
 
-The production normalizer reads each retained event family through a newest-first
-source window. The diagnostic legacy path below preserves the retired
+Production no longer exposes an all-family normalizer. The bounded model below
+is evidence-only and the diagnostic legacy path preserves the retired
 full-materialize-then-cap shape for latency, work, and recent-row retention
 comparison only.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 from copy import deepcopy
+from itertools import islice
 import json
 from pathlib import Path
 import statistics
@@ -31,13 +32,15 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS,
-    SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS,
     SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNNLanguageReadoutEvidenceLedger,
 )
 
+SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
+    "recent_ledger_event_field_source_window_v1"
+)
 
 _AUTONOMOUS_CHAIN_COMPONENT_NAMES = (
     "binding",
@@ -241,6 +244,132 @@ def _legacy_full_materialized_store_state(
     return state
 
 
+def _benchmark_source_record_count(
+    state: Mapping[str, Any],
+    name: str,
+) -> int | None:
+    raw_value = state.get(name) or []
+    if isinstance(raw_value, (str, bytes, Mapping)):
+        return 0
+    try:
+        return int(len(raw_value))
+    except TypeError:
+        return None
+
+
+def _benchmark_bounded_mapping_deque_from_state(
+    state: Mapping[str, Any],
+    name: str,
+    *,
+    limit: int,
+) -> deque[dict[str, Any]]:
+    source_limit = max(1, int(limit))
+    raw_value = state.get(name) or []
+    if isinstance(raw_value, (str, bytes, Mapping)):
+        return deque(maxlen=source_limit)
+    return deque(
+        (
+            deepcopy(dict(item))
+            for item in islice(raw_value, source_limit)
+            if isinstance(item, Mapping)
+        ),
+        maxlen=source_limit,
+    )
+
+
+def _benchmark_normalization_source_window_report(
+    state: Mapping[str, Any],
+    normalized_event_fields: Mapping[str, deque[dict[str, Any]]],
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    source_limit = max(1, int(limit))
+    field_window_counts = {
+        name: int(len(normalized_event_fields.get(name) or []))
+        for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    source_record_counts = {
+        name: _benchmark_source_record_count(state, name)
+        for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    truncated_source_counts = {
+        name: (
+            max(0, int(source_count) - int(field_window_counts[name]))
+            if source_count is not None
+            else None
+        )
+        for name, source_count in source_record_counts.items()
+    }
+    known_source_record_total = sum(
+        int(value) for value in source_record_counts.values() if value is not None
+    )
+    return {
+        "surface": "bounded_snn_readout_ledger_normalization_source_window.v1",
+        "policy": SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+        "source": "benchmark_local_recent_ledger_event_field_windows",
+        "event_field_count": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+        "source_window_limit_per_field": int(source_limit),
+        "source_window_count_total": int(sum(field_window_counts.values())),
+        "source_record_count_total_known": int(known_source_record_total),
+        "source_record_counts": source_record_counts,
+        "source_window_counts": field_window_counts,
+        "truncated_source_counts": truncated_source_counts,
+        "selection_criteria": (
+            "benchmark-local newest-first ledger event field windows after "
+            "production all-family normalizer retirement"
+        ),
+        "memory_budget": {
+            "max_fields": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+            "max_records_per_field": int(source_limit),
+            "max_records_total": int(
+                len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS) * source_limit
+            ),
+            "archival_storage_device": "cpu",
+        },
+        "archival_storage_device": "cpu",
+        "normalization_device": "cpu",
+        "gpu_used": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "language_reasoning": False,
+        "raw_text_scored": False,
+        "production_callable": False,
+        "benchmark_local_only": True,
+    }
+
+
+def _benchmark_bounded_normalized_state(
+    ledger: SNNLanguageReadoutEvidenceLedger,
+) -> dict[str, Any]:
+    state = ledger._ledger_state()  # noqa: SLF001
+    limit = max(1, int(getattr(ledger, "_limit", 1)))
+    normalized: dict[str, Any] = {
+        name: _benchmark_bounded_mapping_deque_from_state(
+            state,
+            name,
+            limit=limit,
+        )
+        for name in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    normalized["_normalization_source_window"] = (
+        _benchmark_normalization_source_window_report(
+            state,
+            normalized,
+            limit=limit,
+        )
+    )
+    for field in SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS:
+        value = state.get(field)
+        normalized[field] = deepcopy(dict(value)) if isinstance(value, Mapping) else {}
+    for field in SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS:
+        normalized[field] = int(state.get(field, 0) or 0)
+    for field in SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS:
+        normalized[field] = state.get(field)
+    return normalized
+
+
 def _bounded_store_state(
     ledger: SNNLanguageReadoutEvidenceLedger,
     target: dict[str, Any],
@@ -264,7 +393,7 @@ def _bounded_known_hash_lookup(
 def _broad_normalized_known_hash_lookup(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     hashes = {
         str(item.get("readout_evidence_hash") or "")
         for item in list(normalized.get("events") or [])
@@ -304,7 +433,7 @@ def _broad_normalized_readout_evidence_event_map_lookup(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
     target_hashes = _readout_evidence_event_map_target_hashes()
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     event_map = {
         str(item.get("readout_evidence_hash") or ""): dict(item)
         for item in list(normalized.get("events") or [])
@@ -347,7 +476,7 @@ def _broad_normalized_emission_review_history(
     *,
     limit: int,
 ) -> dict[str, Any]:
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     normalized_events = list(normalized.get("emission_review_events") or [])
     count = max(0, min(int(limit), len(normalized_events)))
@@ -445,7 +574,7 @@ def _broad_normalized_dense_label_calibration(
     *,
     limit: int,
 ) -> dict[str, Any]:
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     events = [
         dict(item)
@@ -619,7 +748,7 @@ def _broad_normalized_dense_label_evaluation(
         for value in list(preflight.get("selected_candidate_hashes") or [])
         if str(value)
     }
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     events = [
         dict(event)
@@ -657,7 +786,7 @@ def _bounded_dense_label_calibration_update_lookup(
 def _broad_normalized_dense_label_calibration_update_lookup(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     current = (
         normalized.get("current_dense_label_calibration_update")
@@ -697,7 +826,7 @@ def _bounded_autonomous_confidence_use_lookup(
 def _broad_normalized_autonomous_confidence_use_lookup(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     events = [
         dict(item)
@@ -754,7 +883,7 @@ def _broad_normalized_record_family_append(
     ledger: SNNLanguageReadoutEvidenceLedger,
 ) -> dict[str, Any]:
     event = _record_append_event()
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     source_window = dict(normalized.get("_normalization_source_window") or {})
     events = normalized["events"]
     existing_hashes = {
@@ -1550,7 +1679,7 @@ def _broad_normalized_append_review_record_family(
     timestamp_value: str,
 ) -> dict[str, Any]:
     event_hash = str(event.get(duplicate_key) or "")
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     append_source = dict(normalized.get("_normalization_source_window") or {})
     source_events = normalized[field]
     duplicate = event_hash in {
@@ -1564,7 +1693,7 @@ def _broad_normalized_append_review_record_family(
         normalized[timestamp_key] = timestamp_value
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     review_source = dict(normalized.get("_normalization_source_window") or {})
     return {
         "duplicate": duplicate,
@@ -2173,7 +2302,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
 ) -> dict[str, Any]:
     binding_event = _autonomous_binding_event()
     binding_hash = binding_event["autonomous_hash_readout_binding_event_hash"]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     binding_append_source = dict(normalized.get("_normalization_source_window") or {})
     binding_events = normalized["autonomous_hash_readout_binding_events"]
     binding_duplicate = binding_hash in {
@@ -2190,7 +2319,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         ]
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     binding_review_source = dict(normalized.get("_normalization_source_window") or {})
     binding_review_match = any(
         str(item.get("autonomous_hash_readout_binding_event_hash") or "")
@@ -2202,7 +2331,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     observation_hash = observation_event[
         "autonomous_bound_readout_observation_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     observation_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2221,7 +2350,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         ]
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     observation_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2233,7 +2362,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
 
     training_event = _autonomous_training_window_event()
     training_hash = training_event["autonomous_readout_training_window_event_hash"]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     training_append_source = dict(normalized.get("_normalization_source_window") or {})
     training_events = normalized["autonomous_readout_training_window_events"]
     training_duplicate = training_hash in {
@@ -2250,7 +2379,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     training_review_source = dict(normalized.get("_normalization_source_window") or {})
     training_review_match = any(
         str(item.get("autonomous_readout_training_window_event_hash") or "")
@@ -2260,7 +2389,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
 
     decoder_event = _autonomous_decoder_probe_event()
     decoder_hash = decoder_event["autonomous_decoder_probe_event_hash"]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     decoder_append_source = dict(normalized.get("_normalization_source_window") or {})
     decoder_events = normalized["autonomous_decoder_probe_events"]
     decoder_duplicate = decoder_hash in {
@@ -2275,7 +2404,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         normalized["last_autonomous_decoder_probed_at"] = decoder_event["probed_at"]
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     decoder_review_source = dict(normalized.get("_normalization_source_window") or {})
     decoder_review_match = any(
         str(item.get("autonomous_decoder_probe_event_hash") or "") == decoder_hash
@@ -2286,7 +2415,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     language_output_hash = language_output_event[
         "autonomous_language_output_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_output_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2305,7 +2434,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_output_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2317,7 +2446,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
 
     decoded_output_event = _autonomous_decoded_output_event()
     decoded_output_hash = decoded_output_event["autonomous_decoded_output_event_hash"]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     decoded_output_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2336,7 +2465,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         ]
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     decoded_output_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2350,7 +2479,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     text_emission_hash = text_emission_event[
         "autonomous_bounded_text_emission_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     text_emission_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2369,7 +2498,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         ]
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     text_emission_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2381,7 +2510,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
 
     text_commit_event = _autonomous_text_surface_commit_event()
     text_commit_hash = text_commit_event["autonomous_text_surface_commit_event_hash"]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     text_commit_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2401,7 +2530,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         normalized["current_text_surface_commit"] = deepcopy(text_commit_event)
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     text_commit_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2418,7 +2547,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     materialization_hash = materialization_event[
         "autonomous_text_surface_materialization_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     materialization_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2446,7 +2575,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     materialization_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2468,7 +2597,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     language_surface_commit_hash = language_surface_commit_event[
         "autonomous_bounded_language_surface_commit_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_surface_commit_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2500,7 +2629,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_surface_commit_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2520,7 +2649,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     language_surface_use_hash = language_surface_use_event[
         "autonomous_bounded_language_surface_use_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_surface_use_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2545,7 +2674,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_surface_use_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2559,7 +2688,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
     language_generation_hash = language_generation_event[
         "autonomous_snn_language_generation_event_hash"
     ]
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_generation_append_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2584,7 +2713,7 @@ def _broad_normalized_autonomous_readout_event_family_chain(
         )
         ledger._store_state(normalized)  # noqa: SLF001
 
-    normalized = ledger._normalized_state()  # noqa: SLF001
+    normalized = _benchmark_bounded_normalized_state(ledger)
     language_generation_review_source = dict(
         normalized.get("_normalization_source_window") or {}
     )
@@ -2891,7 +3020,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     tracemalloc.start()
     bounded, bounded_samples = _timed_runs(
         runs=runs,
-        fn=lambda: ledger._normalized_state(),  # noqa: SLF001
+        fn=lambda: _benchmark_bounded_normalized_state(ledger),
     )
     legacy, legacy_samples = _timed_runs(
         runs=runs,
@@ -3210,7 +3339,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "surface_present": source_window.get("surface")
         == "bounded_snn_readout_ledger_normalization_source_window.v1",
         "policy_present": source_window.get("policy")
-        == SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+        == SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
         "source_limit_respected": all(
             int(value) <= ledger_limit
             for value in dict(source_window.get("source_window_counts") or {}).values()
@@ -3463,7 +3592,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "normalization_source_window": source_window,
         "store_state_boundary": {
             "surface": "bounded_snn_readout_ledger_store_state_source_window.v1",
-            "policy": SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+            "policy": SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
             "source": "checkpoint_reload_and_record_persistence_event_fields",
             "selection_criteria": [
                 "newest-first ledger event field order",

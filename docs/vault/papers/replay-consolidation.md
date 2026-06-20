@@ -13,6 +13,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_ledger_snapshot_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
@@ -1069,6 +1070,25 @@ stayed in the same sustained band at `5938.461 tokens/sec` with bounded
 `12/65536` route rows, `65526` cached transition rows, no observed contention,
 GPU memory `2032->2031 MiB`, and zero graph/native sequence failures. This is
 throughput protection for a slow replay/readout gate, not a speed promotion.
+
+The 2026-06-20 follow-up removes the remaining production all-family normalizer
+callable instead of keeping it as dead code. `SNNLanguageReadoutEvidenceLedger`
+no longer exposes `_normalized_state()`, and the normalization policy string is
+owned by benchmark-local retired comparisons only. The report
+`reports/bounded_replay_window_20260620/snn-readout-ledger-normalization-production-normalizer-retired.json`
+marks the all-family comparison `production_callable=false` and
+`benchmark_local_only=true`, passes all quality checks, keeps bounded
+all-family comparison at `2944` rows versus `47104` for the full-materialized
+legacy model (`16x`), preserves newest-first retention, and uses `0.0 MiB`
+CUDA allocation/reservation with CPU archival/normalization placement. The
+matching hot-path run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-readout-ledger-production-normalizer-retired.json`
+stayed in the same sustained band at `6224.717 tokens/sec`, bounded route
+scoring at `12/65536`, cached `65526` transition rows, and zero graph/native
+sequence failures; the `21%` GPU sample is recorded as borderline contention,
+so this is a no-dead-path throughput-protection result rather than a new speed
+claim.
+
 Dense-label history and calibration policy now follow the same one-family rule:
 `bounded_snn_dense_label_candidate_calibration_source_window.v1` reads only
 `dense_label_candidate_events` before operator history or calibration ranking.

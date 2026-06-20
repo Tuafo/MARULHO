@@ -60,6 +60,13 @@ processed `524288` tokens at `6443.960 tokens/sec`, with
 candidates, `65526` cached transition rows, no observed contention, flat RTX
 3060 memory at `1899 MiB`, and zero graph/native sequence failures.
 
+The follow-up
+`reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json`
+confirms the snapshot benchmark no longer calls production `_normalized_state()`.
+The benchmark-local all-family comparison still preserved quality while the
+active snapshot read `260` rows instead of `2944`, reducing mean latency from
+`409.182080 ms` to `71.702280 ms` with `0.0 MiB` CUDA allocation/reservation.
+
 ## Revisit Only If
 
 A future snapshot/status surface proves a stronger measured grounding or review

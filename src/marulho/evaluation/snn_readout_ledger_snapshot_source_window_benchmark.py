@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
+from itertools import islice
 import json
 from pathlib import Path
 import statistics
@@ -21,6 +23,10 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
     SNNLanguageReadoutEvidenceLedger,
+)
+
+SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
+    "recent_ledger_event_field_source_window_v1"
 )
 
 
@@ -118,6 +124,66 @@ def _quality_from_events(
     }
 
 
+def _benchmark_source_record_count(rows: Any) -> int | None:
+    if isinstance(rows, (str, bytes, Mapping)):
+        return 0
+    try:
+        return int(len(rows))
+    except TypeError:
+        return None
+
+
+def _retired_benchmark_bounded_all_family_snapshot_state(
+    state: Mapping[str, Any],
+    *,
+    limit: int,
+) -> dict[str, Any]:
+    source_limit = max(1, int(limit))
+    normalized: dict[str, Any] = {}
+    source_record_counts: dict[str, int | None] = {}
+    source_window_counts: dict[str, int] = {}
+    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
+        raw_rows = state.get(field) or []
+        source_record_counts[field] = _benchmark_source_record_count(raw_rows)
+        normalized[field] = deque(
+            (
+                deepcopy(dict(item))
+                for item in islice(raw_rows, source_limit)
+                if isinstance(item, Mapping)
+            ),
+            maxlen=source_limit,
+        )
+        source_window_counts[field] = int(len(normalized[field]))
+    normalized["_normalization_source_window"] = {
+        "surface": "bounded_snn_readout_ledger_normalization_source_window.v1",
+        "policy": SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+        "source": "benchmark_local_retired_all_family_snapshot_model",
+        "event_field_count": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
+        "source_window_limit_per_field": int(source_limit),
+        "source_window_count_total": int(sum(source_window_counts.values())),
+        "source_record_count_total_known": int(
+            sum(value for value in source_record_counts.values() if value is not None)
+        ),
+        "source_record_counts": source_record_counts,
+        "source_window_counts": source_window_counts,
+        "selection_criteria": (
+            "benchmark-local bounded all-family retired snapshot comparison after "
+            "production normalizer retirement"
+        ),
+        "archival_storage_device": "cpu",
+        "normalization_device": "cpu",
+        "gpu_used": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "language_reasoning": False,
+        "production_callable": False,
+        "benchmark_local_only": True,
+    }
+    return normalized
+
+
 def _bounded_snapshot_once(
     *,
     retention_count: int,
@@ -174,7 +240,10 @@ def _retired_normalized_snapshot_model_once(
         retention_count=retention_count,
         ledger_limit=ledger_limit,
     )
-    normalized = ledger._normalized_state()  # noqa: SLF001 - benchmark-only retired model
+    normalized = _retired_benchmark_bounded_all_family_snapshot_state(
+        ledger._ledger_state(),  # noqa: SLF001
+        limit=ledger_limit,
+    )
     events_by_field = {
         field: [
             deepcopy(dict(item))

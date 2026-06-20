@@ -13,6 +13,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_ledger_snapshot_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/language_application_synapse_window_benchmark.py
@@ -89,6 +90,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/snn-readout-ledger-normalization-production-normalizer-retired.json
+  - reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-readout-ledger-production-normalizer-retired.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-source-window.json
@@ -153,6 +157,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.status_transition_memory_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-transition-memory-source-window.json`
 - SNN readout-ledger normalization/store-state source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-source-window.json`
+- SNN readout-ledger production normalizer retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-normalization-production-normalizer-retired.json`
+- SNN readout-ledger snapshot smoke after production normalizer retirement:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 5 --output reports\bounded_replay_window_20260620\snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json`
 - SNN readout-ledger normalization/store-state/known-hash source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-source-window.json`
 - SNN readout-ledger dense-label calibration source window:
@@ -1300,6 +1308,33 @@ contention, CPU max `25%`, GPU max `13%`, GPU memory-util max `18%`, and RTX
 3060 memory `2029->2032 MiB`. The paired profiled pass succeeded but reached
 `5953.828 tokens/sec`, so it is retained as secondary stage-profile evidence
 rather than the primary throughput gate.
+
+The 2026-06-20 cleanup removes the production all-family normalizer callable
+instead of retaining it as dead code. `SNNLanguageReadoutEvidenceLedger` no
+longer exposes `_normalized_state()`; all-family normalization is now only a
+benchmark-local retired comparison. The focused benchmark was:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-normalization-production-normalizer-retired.json`
+
+It passed all checks, marked the comparison `production_callable=false` and
+`benchmark_local_only=true`, kept bounded all-family source work to `2944` rows
+instead of the full-materialized legacy model's `47104` rows (`16x`), preserved
+newest-first retention, and reduced mean normalization latency from
+`5807.281164 ms` to `379.736352 ms`. The autonomous chain boundary preserved
+hash/review/count/current-pointer parity while checking `4352` target-family
+rows instead of `100096` broad-normalized rows (`23x`) and reducing mean chain
+latency from `18942.731124 ms` to `930.299448 ms` (`20.361972x`). The snapshot
+smoke after deletion preserved quality while reading `260` rows instead of
+`2944` benchmark-local all-family rows and reducing mean snapshot latency from
+`409.182080 ms` to `71.702280 ms`. CUDA allocation/reservation stayed
+`0.0 MiB`; archival/normalization/snapshot placement stayed CPU-resident. The
+paired `524288`-token protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-readout-ledger-production-normalizer-retired.json`
+stayed in band at `6224.717 tokens/sec`, with
+`train_compute=0.130755 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, GPU memory `1988->1987 MiB`, and zero graph/native
+sequence failures. Borderline `21%` GPU contention makes it same-band
+protection, not a speed ceiling.
 
 The known-readout-evidence hash provenance helper now follows the same source
 window instead of invoking all-family ledger normalization before replay design,

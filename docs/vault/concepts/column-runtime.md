@@ -12,6 +12,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_ledger_snapshot_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
@@ -83,6 +84,22 @@ bounded `12/65536` route rows, no observed contention, GPU memory
 `2029->2032 MiB`, and zero graph/native sequence failures. This is not a column
 wake decision or replay execution path; it keeps replay/readout evidence
 summaries and persistence copies from becoming archive scans.
+
+The 2026-06-20 cleanup removes the production all-family normalizer callable
+entirely. `SNNLanguageReadoutEvidenceLedger` no longer exposes
+`_normalized_state()`; all-family normalization remains only in benchmark-local
+retired comparisons that report `production_callable=false` and
+`benchmark_local_only=true`. The replacement is one path per source window:
+snapshot display, record-family append/review, known-hash lookup, dense-label
+calibration/evaluation, emission history, and checkpoint-style store copies all
+keep explicit source budgets. The benchmark
+`reports/bounded_replay_window_20260620/snn-readout-ledger-normalization-production-normalizer-retired.json`
+passed with `2944` bounded all-family rows versus `47104` full-materialized
+legacy rows (`16x`), CPU archival/normalization placement, and `0.0 MiB` CUDA
+allocation/reservation. The paired `524288`-token run stayed in band at
+`6224.717 tokens/sec`, bounded route scoring at `12/65536`, cached `65526`
+transition rows, and recorded zero graph/native sequence failures with
+borderline `21%` GPU contention.
 
 Readout-ledger snapshots now have their own bounded display source window
 instead of reusing all-family normalization. `snapshot(...)` reads only the

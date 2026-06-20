@@ -20,7 +20,6 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_DENSE_LABEL_CANDIDATE_CALIBRATION_SOURCE_WINDOW_POLICY,
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
-    SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
     SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
@@ -29,6 +28,10 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
 )
+
+
+def test_readout_ledger_does_not_expose_all_family_normalizer() -> None:
+    assert not hasattr(SNNLanguageReadoutEvidenceLedger, "_normalized_state")
 
 
 def _ready_draft() -> dict[str, object]:

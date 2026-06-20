@@ -14,6 +14,7 @@ related_code:
   - ../../../src/marulho/evaluation/snn_replay_evaluation_context_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/snn_readout_ledger_snapshot_source_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
@@ -87,6 +88,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/snn-readout-ledger-normalization-production-normalizer-retired.json
+  - reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-readout-ledger-production-normalizer-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -4683,6 +4687,54 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 recorded zero graph/native sequence failures. Contention was `not_observed`
 (`cpu max=19%`, `gpu max=13%`, GPU memory utilization max `18%`). RTX 3060
 memory stayed flat at `1899 MiB`.
+
+## Readout Ledger Production Normalizer Retirement
+
+The remaining production all-family readout-ledger normalizer has been deleted.
+`SNNLanguageReadoutEvidenceLedger` no longer exposes `_normalized_state()`, and
+the all-family comparison policy is benchmark-local only. Production ledger
+paths now route through named snapshot, record-family, known-hash, dense-label,
+emission-history, and store-state source windows.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-normalization-production-normalizer-retired.json`
+
+Result: `pass=true`; the report marks the all-family comparison
+`production_callable=false` and `benchmark_local_only=true`. The benchmark-local
+bounded all-family model read `2944` rows instead of the full-materialized
+legacy model's `47104` rows (`16x` less source work), preserved newest-first
+retention (`1.0` versus `0.0`), and reduced mean normalization latency from
+`5807.281164 ms` to `379.736352 ms`. The autonomous chain boundary preserved
+hash, review-match, total-count, and current-pointer parity while checking
+`4352` target-family rows instead of `100096` broad-normalized rows, reducing
+mean chain latency from `18942.731124 ms` to `930.299448 ms` (`20.361972x`).
+CUDA was available on RTX 3060 but unused: allocation/reservation stayed
+`0.0 MiB`; Python traced peak was `430.391802 MiB`.
+
+Snapshot smoke after the production deletion:
+
+`python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 5 --output reports\bounded_replay_window_20260620\snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json`
+
+Result: `quality_preserved=true`; the bounded snapshot read `260` rows instead
+of `2944` benchmark-local all-family rows (`11.323077x`) and reduced mean
+snapshot latency from `409.182080 ms` to `71.702280 ms` (`5.706682x`) with
+`0.0 MiB` CUDA allocation/reservation.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-readout-ledger-production-normalizer-retired.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `84.226796 s`,
+`6224.717 tokens/sec`, `tick_duration_ms.p95=20.898`,
+`train_compute=0.130755 ms/token`, `prepare_training=0.006849 ms/token`, and
+`finalize_total=0.006249 ms/token`. Prewarm took `276.716 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Velocity reported borderline GPU
+contention (`cpu max=51%`, `gpu max=21%`, GPU memory utilization max `22%`),
+so this is same-band throughput protection rather than a clean ceiling claim.
+RTX 3060 memory moved `1988->1987 MiB`.
 
 ## Status Applied Synapse Provenance Source Window
 
