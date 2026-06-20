@@ -15,7 +15,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
-  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
@@ -1394,6 +1394,33 @@ transition rows, no observed contention, zero graph/native sequence failures,
 and flat RTX 3060 memory at `1936 MiB`. Exact applied-synapse integrity belongs
 in an explicit audit/slow window; status only reports whether its bounded
 source window is complete enough to allow that review.
+
+Transition-memory status projections now share that same source-window rule
+instead of each projection materializing all retained sparse-transition and
+provenance rows. Capacity pressure, dense readout tensor integrity, applied
+synapse provenance, and rollout/server binding all read through a single
+bounded helper: at most `32` sparse-transition weights and `32`
+`synapse_provenance_by_key` rows per projection, CPU archival/lookup placement,
+no replay, no mutation/plasticity, no hidden language reasoning, and no live
+tick or every-token cadence. When the window is truncated, exact resize,
+dense-integrity, audit, and rollout-review readiness are blocked rather than
+computed from partial evidence.
+
+The benchmark
+`reports/bounded_replay_window_20260620/status-transition-memory-source-window.json`
+used `2048` retained sparse weights and provenance rows. The maintained path
+read `256` bounded rows across four projections instead of `10240` rows in the
+benchmark-local retired repeated broad projection (`40x` less source work),
+reduced mean status latency from `89.558896 ms` to `11.162376 ms`
+(`8.023282x`), kept Python peak allocation at `0.065983 MiB` versus
+`1.372842 MiB`, and used `0.0 MiB` CUDA allocation/reservation. This retires
+the broad transition-memory status projection family; exact transition-memory
+integrity belongs in selected slow audit/replay windows, not in routine
+status. The accepted `524288`-token rerun processed `6371.238 tokens/sec`
+with `train_compute=0.128035 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, and zero graph/native sequence failures.
+Velocity still reported borderline GPU contention (`23%`), so this is
+same-band throughput protection rather than a clean speed ceiling.
 
 ## Links
 

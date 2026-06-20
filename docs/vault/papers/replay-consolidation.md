@@ -16,7 +16,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
-  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -80,6 +80,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/status-transition-memory-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
@@ -1634,6 +1637,33 @@ stayed in band at `6350.288 tokens/sec`, with bounded `12/65536` route rows,
 observed contention, and flat RTX 3060 memory at `1936 MiB`. The old broad
 status key scan is retired; benchmark-local broad comparison remains only
 evidence.
+
+Transition-memory status projection now applies the same selected-source rule
+to the broader status family. Modern Hopfield-style associative recall belongs
+inside a selected local memory or replay window; CLS, continual replay,
+synaptic tagging/capture, and sparse replay support salient bounded evidence,
+not routine archive-wide integrity checks in operator status. MARULHO therefore
+routes capacity pressure, dense readout tensor integrity, applied-synapse
+provenance, and rollout/server binding through one bounded transition-memory
+helper. Each status projection reads at most `32` sparse-transition rows and
+`32` provenance rows on CPU and blocks exact readiness when truncated.
+
+The report
+`reports/bounded_replay_window_20260620/status-transition-memory-source-window.json`
+used `2048` retained transition/provenance rows. The maintained path read
+`256` bounded rows across four projections instead of `10240` retired repeated
+broad rows (`40x` less source work), reduced mean latency from `89.558896 ms`
+to `11.162376 ms` (`8.023282x`), preserved retained counts, reported no global
+candidate/score scan, no live tick, no every-token cadence, no replay, no raw
+text or hidden language reasoning, and used `0.0 MiB` CUDA
+allocation/reservation. The old transition-memory status broad projection
+family is retired from production; any exact integrity pass must be an explicit
+slow audit/replay window with its own quality and throughput evidence. The
+accepted `524288`-token rerun processed `6371.238 tokens/sec` with
+`train_compute=0.128035 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, and zero graph/native sequence failures; velocity
+still reported borderline GPU contention (`23%`), so the run is throughput
+protection rather than a clean speed ceiling.
 
 ## Links
 

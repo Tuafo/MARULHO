@@ -5107,8 +5107,22 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertTrue(status_binding["server_transition_memory_available"])
         self.assertEqual(status_binding["server_transition_weight_count"], 2)
         self.assertEqual(status_binding["server_synapse_provenance_count"], 2)
+        self.assertEqual(status_binding["source_server_transition_weight_count"], 2)
+        self.assertEqual(status_binding["source_server_synapse_provenance_count"], 2)
+        self.assertTrue(status_binding["source_window_complete"])
+        self.assertEqual(status_binding["server_transition_memory_hash_scope"], "complete")
+        self.assertEqual(
+            status_binding["source_window"]["surface"],
+            "bounded_snn_status_rollout_server_transition_memory_source_window.v1",
+        )
+        self.assertFalse(status_binding["source_window"]["global_candidate_scan"])
+        self.assertFalse(status_binding["source_window"]["runs_live_tick"])
         self.assertIsInstance(status_binding["server_transition_memory_hash"], str)
         self.assertEqual(len(status_binding["server_transition_memory_hash"]), 64)
+        self.assertEqual(
+            status_binding["server_transition_memory_source_window_hash"],
+            status_binding["server_transition_memory_hash"],
+        )
         self.assertEqual(
             status_binding["promotion_status"],
             "ready_for_server_bound_rollout_review",
@@ -5256,9 +5270,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         rev_before = runtime_state.state_revision
         runtime_state.mark_clean()
 
-        evidence = model.status()["runtime_truth"]["evidence"][
-            "snn_readout_applied_synapse_provenance"
-        ]
+        evidence = model._snn_readout_applied_synapse_provenance()
         source_window = evidence["source_window"]
         required = evidence["promotion_gate"]["required_evidence"]
 
@@ -5319,6 +5331,80 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
         )
 
+    def test_runtime_truth_transition_memory_status_projections_share_bounded_budget(
+        self,
+    ) -> None:
+        entry_count = SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT * 4
+        keys = [f"{index}:{index + 1}" for index in range(entry_count)]
+        sparse_weights = _CountingMapping({key: 0.1 for key in keys})
+        provenance = _CountingMapping(
+            {
+                key: {
+                    "provenance_type": "replay_regeneration",
+                    "source_metadata_hash": f"source-metadata-hash-{index}",
+                    "emission_lineage": {
+                        "emission_hash": f"emission-hash-{index}",
+                        "readout_evidence_hash": f"readout-hash-{index}",
+                        "prediction_hash": f"prediction-hash-{index}",
+                    },
+                    "local_edge_provenance": {
+                        "source_synapse_id": f"snn-rollout-local:{key}:0",
+                        "source_rollout_step_index": index,
+                        "target_rollout_step_index": index + 1,
+                    },
+                }
+                for index, key in enumerate(keys)
+            }
+        )
+        memory_state = {
+            "sparse_transition_weights": sparse_weights,
+            "synapse_provenance_by_key": provenance,
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: memory_state
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        truth = model.status()["runtime_truth"]["evidence"]
+        capacity = truth["snn_language_capacity_pressure"]
+        integrity = truth["snn_language_dense_readout_tensor_integrity"]
+        applied = truth["snn_readout_applied_synapse_provenance"]
+        binding = truth["snn_readout_rollout_server_state_binding"]
+        projection_count = 4
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            sparse_weights.items_yield_count,
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT
+            * projection_count,
+        )
+        self.assertEqual(
+            provenance.items_yield_count,
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT
+            * projection_count,
+        )
+        for evidence in (capacity, integrity, applied, binding):
+            self.assertFalse(evidence["source_window_complete"])
+            self.assertFalse(evidence["source_window"]["global_candidate_scan"])
+            self.assertFalse(evidence["source_window"]["global_score_scan"])
+            self.assertFalse(evidence["source_window"]["runs_live_tick"])
+            self.assertFalse(evidence["source_window"]["runs_every_token"])
+            self.assertFalse(evidence["source_window"]["language_reasoning"])
+            self.assertEqual(evidence["source_window"]["archival_storage_device"], "cpu")
+            self.assertFalse(evidence["source_window"]["gpu_used"])
+        self.assertFalse(capacity["eligible_for_capacity_expansion_design_review"])
+        self.assertFalse(integrity["ready"])
+        self.assertFalse(applied["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(
+            binding["promotion_gate"][
+                "eligible_for_bounded_snn_readout_rollout_review"
+            ]
+        )
+        self.assertIsNone(binding["server_transition_memory_hash"])
+        self.assertIsInstance(binding["server_transition_memory_source_window_hash"], str)
+
     def test_runtime_truth_language_capacity_pressure_reports_fixed_neuron_pressure_without_resize(
         self,
     ) -> None:
@@ -5355,15 +5441,28 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(evidence["configured_sparse_edge_budget"], 256)
         self.assertEqual(evidence["configured_outgoing_fanout_budget"], 16)
         self.assertEqual(evidence["sparse_transition_weight_count"], 224)
+        self.assertEqual(evidence["source_sparse_transition_weight_count"], 32)
+        self.assertEqual(evidence["source_synapse_provenance_count"], 32)
+        self.assertFalse(evidence["source_window_complete"])
+        self.assertEqual(evidence["capacity_count_scope"], "bounded_source_window")
+        self.assertEqual(
+            evidence["source_window"]["surface"],
+            "bounded_snn_status_capacity_pressure_transition_memory_source_window.v1",
+        )
         self.assertEqual(evidence["active_language_neuron_count"], 16)
+        self.assertEqual(
+            evidence["active_language_neuron_count_scope"],
+            "bounded_source_window",
+        )
         self.assertGreater(evidence["sparse_edge_budget_occupancy"], 0.85)
         self.assertEqual(evidence["max_outgoing_fanout"], 16)
-        self.assertEqual(evidence["saturated_source_neuron_count"], 14)
+        self.assertEqual(evidence["outgoing_fanout_scope"], "bounded_source_window")
+        self.assertEqual(evidence["saturated_source_neuron_count"], 2)
         self.assertEqual(evidence["invalid_synapse_key_count"], 0)
         self.assertEqual(evidence["orphan_weight_count"], 0)
         self.assertEqual(evidence["dangling_provenance_count"], 0)
         self.assertTrue(evidence["capacity_pressure_detected"])
-        self.assertTrue(evidence["eligible_for_capacity_expansion_design_review"])
+        self.assertFalse(evidence["eligible_for_capacity_expansion_design_review"])
         self.assertFalse(evidence["eligible_for_network_resize"])
         self.assertFalse(evidence["eligible_for_neuron_growth"])
         self.assertFalse(evidence["eligible_for_layer_growth"])
@@ -5372,11 +5471,19 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(evidence["resizes_network"])
         self.assertEqual(
             evidence["promotion_status"],
-            "ready_for_operator_language_capacity_expansion_design_review",
+            "waiting_for_complete_language_capacity_source_window",
         )
         self.assertTrue(
             evidence["promotion_gate"]["required_evidence"][
                 "capacity_pressure_detected"
+            ]
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"]["source_window_bounded"]
+        )
+        self.assertFalse(
+            evidence["promotion_gate"]["required_evidence"][
+                "source_window_complete_for_exact_status"
             ]
         )
         self.assertTrue(
@@ -5429,13 +5536,16 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertTrue(evidence["language_capacity"]["resizes_network"])
         self.assertTrue(evidence["language_capacity"]["adds_neurons"])
         self.assertEqual(evidence["sparse_transition_weight_count"], 256)
+        self.assertEqual(evidence["source_sparse_transition_weight_count"], 32)
+        self.assertFalse(evidence["source_window_complete"])
+        self.assertEqual(evidence["capacity_count_scope"], "bounded_source_window")
         self.assertEqual(evidence["active_language_neuron_count"], 32)
         self.assertEqual(evidence["sparse_edge_budget_occupancy"], 0.5)
         self.assertEqual(evidence["active_language_neuron_coverage"], 0.25)
         self.assertEqual(evidence["max_outgoing_fanout"], 32)
-        self.assertEqual(evidence["saturated_source_neuron_count"], 8)
+        self.assertEqual(evidence["saturated_source_neuron_count"], 1)
         self.assertTrue(evidence["capacity_pressure_detected"])
-        self.assertTrue(evidence["eligible_for_capacity_expansion_design_review"])
+        self.assertFalse(evidence["eligible_for_capacity_expansion_design_review"])
         self.assertFalse(evidence["eligible_for_network_resize"])
         self.assertFalse(evidence["eligible_for_neuron_growth"])
         self.assertEqual(dense_layout["target_language_neuron_count"], 128)
@@ -5508,6 +5618,14 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(integrity["tensor_summary"]["shape"], [128, 128])
         self.assertEqual(integrity["tensor_summary"]["device"], "cpu")
         self.assertEqual(integrity["tensor_summary"]["nonzero_count"], 2)
+        self.assertTrue(integrity["source_window_complete"])
+        self.assertEqual(integrity["integrity_count_scope"], "complete")
+        self.assertEqual(
+            integrity["source_window"]["surface"],
+            "bounded_snn_status_dense_readout_tensor_transition_memory_source_window.v1",
+        )
+        self.assertFalse(integrity["source_window"]["global_candidate_scan"])
+        self.assertFalse(integrity["source_window"]["runs_live_tick"])
         self.assertTrue(
             integrity["promotion_gate"]["required_evidence"][
                 "sampled_sparse_weights_match_dense_tensor"

@@ -17,7 +17,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
-  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
@@ -84,6 +84,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/status-transition-memory-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -4691,9 +4694,9 @@ exact audit readiness when the source window is truncated. This is status-only
 control-plane evidence; it does not run replay, mutate runtime state, apply
 plasticity, or reason through replay text.
 
-Focused quality and latency benchmark:
+Historical applied-only quality and latency report:
 
-`python -m marulho.evaluation.status_applied_synapse_provenance_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-applied-synapse-provenance-source-window.json`
+`reports\bounded_replay_window_20260620\status-applied-synapse-provenance-source-window.json`
 
 Result: `pass=true`; bounded source reads were `64` rows versus `4096` rows in
 the benchmark-local retired broad scan (`64x` less source work), and mean
@@ -4726,3 +4729,51 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 recorded zero graph/native sequence failures. Contention was `not_observed`
 (`cpu max=25%`, `gpu max=8%`, GPU memory utilization max `9%`), and RTX 3060
 memory stayed flat at `1936 MiB`.
+
+## Status Transition Memory Source Window
+
+Capacity pressure, dense readout tensor integrity, applied-synapse provenance,
+and rollout/server binding status now share one bounded transition-memory
+source-window helper. The status path reads at most `32`
+`sparse_transition_weights` rows and `32` `synapse_provenance_by_key` rows per
+projection, keeps archival metadata and lookup CPU-resident, and blocks exact
+readiness when the source window is truncated. This retires the repeated broad
+transition-memory status projection family; it is not replay execution,
+plasticity, mutation, raw-text processing, hidden language reasoning, live-tick
+work, or every-token slow-memory admission.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.status_transition_memory_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-transition-memory-source-window.json`
+
+Result: `pass=true`; bounded source reads were `256` rows across four status
+projections versus `10240` rows in the benchmark-local retired repeated broad
+projection (`40x` less source work). Mean status latency fell from
+`89.558896 ms` to `11.162376 ms` (`8.023282x`). Python traced peak allocation
+was `0.065983 MiB` versus `1.372842 MiB`; CUDA allocation/reservation stayed
+`0.0 MiB`.
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The first run succeeded but is rejected as primary evidence: `524288` tokens at
+`5278.529 tokens/sec`, `tick_duration_ms.p95=34.919`,
+`train_compute=0.153055 ms/token`, `prepare_training=0.008041 ms/token`, and
+`finalize_total=0.007574 ms/token`. Runtime Truth still kept route scoring at
+`12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, and recorded zero graph/native
+sequence failures, but velocity reported GPU contention at the `20%` threshold.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Accepted rerun: `success=true`, `524288` tokens in `82.289821 s`,
+`6371.238 tokens/sec`, `tick_duration_ms.p95=19.949`,
+`train_compute=0.128035 ms/token`, `prepare_training=0.006444 ms/token`, and
+`finalize_total=0.006113 ms/token`. Prewarm took `268.296 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Velocity still reported
+borderline GPU contention (`cpu max=17%`, `gpu max=23%`, GPU memory utilization
+max `19%`), so this is same-band throughput protection rather than a clean
+ceiling claim. RTX 3060 memory stayed flat at `1986 MiB`.

@@ -3,7 +3,7 @@ type: retired
 status: retired
 related_code:
   - ../../../src/marulho/service/status_read_model.py
-  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
 related_docs:
   - ../../retired-paths.md
   - ../concepts/column-runtime.md

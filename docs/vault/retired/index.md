@@ -28,4 +28,5 @@ related_benchmarks: []
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
 - [Status Applied Synapse Provenance Broad Key Scan](status-applied-synapse-provenance-broad-key-scan.md)
+- [Status Transition Memory Broad Projection](status-transition-memory-broad-projection.md)
 - [Synapse Provenance Broad Event Map Normalization](synapse-provenance-broad-event-map-normalization.md)
