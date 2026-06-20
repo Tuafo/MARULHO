@@ -21,6 +21,7 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_DENSE_LABEL_CALIBRATION_UPDATE_SOURCE_WINDOW_POLICY,
     SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
+    SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
     SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY,
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
@@ -14091,38 +14092,95 @@ def test_readout_ledger_snapshot_normalizes_retained_histories_from_source_windo
     )
 
     snapshot = ledger.snapshot(limit=2)
-    source_window = snapshot["summary"]["normalization_source_window"]
+    source_window = snapshot["summary"]["snapshot_source_window"]
 
     assert snapshot["summary"]["event_count"] == ledger_limit
+    assert snapshot["summary"]["returned_event_count"] == 2
+    assert snapshot["summary"]["unique_count_scope"] == "snapshot_source_window"
     assert len(snapshot["events"]) == 2
     assert snapshot["events"][0]["ordinal"] == 0
     assert snapshot["events"][1]["ordinal"] == 1
     assert source_window["surface"] == (
-        "bounded_snn_readout_ledger_normalization_source_window.v1"
+        "bounded_snn_readout_ledger_snapshot_source_window.v1"
     )
     assert source_window["policy"] == (
-        SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY
+        SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY
     )
-    assert source_window["event_field_count"] == len(
-        SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
-    )
-    assert source_window["source_window_limit_per_field"] == ledger_limit
+    assert snapshot["summary"]["normalization_source_window"] == source_window
+    assert source_window["event_field_count"] == len(source_window["snapshot_event_fields"])
+    assert source_window["requested_source_window_limit_per_field"] == 2
+    assert source_window["source_window_limit_per_field"] == 2
+    assert source_window["retention_limit_per_field"] == ledger_limit
     assert source_window["source_record_counts"]["events"] == source_count
-    assert source_window["source_window_counts"]["events"] == ledger_limit
+    assert source_window["source_window_counts"]["events"] == 2
+    assert source_window["retained_window_counts"]["events"] == ledger_limit
     assert source_window["truncated_source_counts"]["events"] == (
+        source_count - 2
+    )
+    assert source_window["retained_truncated_source_counts"]["events"] == (
         source_count - ledger_limit
     )
     assert source_window["memory_budget"]["max_records_total"] == (
-        len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS) * ledger_limit
+        len(source_window["snapshot_event_fields"]) * 2
     )
     assert source_window["archival_storage_device"] == "cpu"
-    assert source_window["normalization_device"] == "cpu"
+    assert source_window["snapshot_device"] == "cpu"
     assert source_window["gpu_used"] is False
     assert source_window["runs_live_tick"] is False
     assert source_window["runs_every_token"] is False
     assert source_window["global_candidate_scan"] is False
     assert source_window["global_score_scan"] is False
     assert source_window["language_reasoning"] is False
+
+
+def test_readout_ledger_snapshot_reads_only_requested_event_windows() -> None:
+    class CountedRows:
+        def __init__(self, field: str, count: int) -> None:
+            self.field = field
+            self.count = count
+            self.iterated = 0
+
+        def __iter__(self):
+            for index in range(self.count):
+                self.iterated += 1
+                yield {
+                    "field": self.field,
+                    "ordinal": index,
+                    "readout_evidence_hash": f"{self.field}:readout:{index}",
+                }
+
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_limit = 8
+    snapshot_limit = 3
+    rows_by_field = {
+        field: CountedRows(field, 64)
+        for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    }
+    ledger_state: dict[str, object] = dict(rows_by_field)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+        limit=ledger_limit,
+    )
+
+    snapshot = ledger.snapshot(limit=snapshot_limit)
+    source_window = snapshot["summary"]["snapshot_source_window"]
+    snapshot_fields = set(source_window["snapshot_event_fields"])
+
+    assert snapshot["summary"]["event_count"] == snapshot_limit
+    assert snapshot["summary"]["returned_event_count"] == snapshot_limit
+    assert len(snapshot["events"]) == snapshot_limit
+    assert source_window["source_window_limit_per_field"] == snapshot_limit
+    assert source_window["memory_budget"]["max_records_per_field"] == snapshot_limit
+    assert source_window["source_record_counts"]["events"] is None
+    assert source_window["retained_window_counts"]["events"] is None
+    for field, rows in rows_by_field.items():
+        if field in snapshot_fields:
+            assert rows.iterated == snapshot_limit
+        else:
+            assert rows.iterated == 0
 
 
 def test_readout_ledger_store_state_uses_bounded_event_field_windows() -> None:

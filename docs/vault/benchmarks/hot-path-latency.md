@@ -4640,3 +4640,39 @@ graph/native sequence failures. Contention was `not_observed` (`cpu max=30%`,
 `gpu max=15%`, GPU memory utilization max `18%`). RTX 3060 memory moved
 `3554->3541 MiB`. This preserves the current noisy 6k-ish complete-runtime band; it
 does not promote replay-dataset construction into the live tick.
+
+## Readout Ledger Snapshot Source Windows
+
+Service readout-ledger snapshots no longer normalize every retained ledger
+event family before trimming returned rows. The active path emits
+`bounded_snn_readout_ledger_snapshot_source_window.v1`, reads only the snapshot
+event families it returns, and caps each family at `snapshot_limit` and
+`ledger_limit`. Retained summary counts are projected from source counts where
+available; returned rows and unique hashes are scoped to the snapshot window.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-snapshot-source-window.json`
+
+Result: `quality_preserved=true`; newest-first display rows, retained-count
+parity, and source-window policy evidence passed. Source rows fell from `2944`
+in the diagnostic retired normalizer model to `260` in the bounded snapshot
+(`11.323077x`). Mean latency fell from `393.040600 ms` to `67.334088 ms`
+(`5.837171x`). Python traced peak allocation was `0.575356 MiB`; CUDA
+allocation/reservation stayed `0.0 MiB`; archival/source/snapshot placement was
+CPU-only with no live tick, every-token work, global score scan, or hidden
+language reasoning.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `81.361154 s`,
+`6443.960 tokens/sec`, `tick_duration_ms.p95=19.655`,
+`train_compute=0.127084 ms/token`, `prepare_training=0.006251 ms/token`, and
+`finalize_total=0.005922 ms/token`. Prewarm took `245.711 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Contention was `not_observed`
+(`cpu max=19%`, `gpu max=13%`, GPU memory utilization max `18%`). RTX 3060
+memory stayed flat at `1899 MiB`.

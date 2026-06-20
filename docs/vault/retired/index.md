@@ -24,6 +24,7 @@ related_benchmarks: []
 - [Emission Review History Broad Normalization](emission-review-history-broad-normalization.md)
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
+- [Readout Ledger Broad Snapshot Normalization](readout-ledger-broad-snapshot-normalization.md)
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
 - [Synapse Provenance Broad Event Map Normalization](synapse-provenance-broad-event-map-normalization.md)

@@ -83,6 +83,24 @@ bounded `12/65536` route rows, no observed contention, GPU memory
 wake decision or replay execution path; it keeps replay/readout evidence
 summaries and persistence copies from becoming archive scans.
 
+Readout-ledger snapshots now have their own bounded display source window
+instead of reusing all-family normalization. `snapshot(...)` reads only the
+event families it returns through
+`bounded_snn_readout_ledger_snapshot_source_window.v1`, caps each family at the
+requested snapshot limit and ledger retention limit, and keeps the full retained
+summary counts as counters rather than by widening the returned history. The
+snapshot report keeps archival/source/snapshot placement on CPU, reports no
+live tick, no every-token cadence, no global candidate/score scan, no hidden
+language reasoning, and no CUDA archive. The benchmark
+`reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window.json`
+read `260` rows instead of `2944`, preserved newest-first display quality and
+retained-count parity, and reduced mean snapshot latency from `393.040600 ms`
+to `67.334088 ms` (`5.837171x`) with `0.0 MiB` CUDA allocation/reservation.
+The matching `524288`-token protection run stayed in the maintained band at
+`6443.960 tokens/sec`, with `train_compute=0.127084 ms/token`, bounded
+`12/65536` route rows, no observed contention, and flat RTX 3060 memory at
+`1899 MiB`. The broad snapshot-through-normalizer shape is retired.
+
 Known readout-evidence hashes now use the same one-path replay/readout ledger
 boundary. Replay design, dry-run, preflight, and bridge provenance checks call
 the bounded `events` source-window helper directly instead of normalizing every

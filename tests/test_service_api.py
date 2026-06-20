@@ -11330,14 +11330,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(ledger["surface"], "snn_language_readout_evidence_ledger.v1")
         self.assertEqual(ledger["summary"]["event_count"], 1)
         self.assertEqual(ledger["summary"]["rollout_event_count"], 1)
-        ledger_normalization_window = ledger["summary"]["normalization_source_window"]
+        ledger_normalization_window = ledger["summary"]["snapshot_source_window"]
         self.assertEqual(
             ledger_normalization_window["surface"],
-            "bounded_snn_readout_ledger_normalization_source_window.v1",
+            "bounded_snn_readout_ledger_snapshot_source_window.v1",
         )
         self.assertEqual(
             ledger_normalization_window["source_window_limit_per_field"],
-            128,
+            20,
+        )
+        self.assertEqual(
+            ledger["summary"]["normalization_source_window"],
+            ledger_normalization_window,
         )
         self.assertEqual(
             ledger_normalization_window["archival_storage_device"],

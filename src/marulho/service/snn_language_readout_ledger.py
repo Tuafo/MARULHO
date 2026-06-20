@@ -22,6 +22,9 @@ DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
 SNN_LANGUAGE_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
     "recent_ledger_event_field_source_window_v1"
 )
+SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY = (
+    "recent_ledger_snapshot_event_field_source_window_v1"
+)
 SNN_READOUT_LEDGER_RECORD_FAMILY_SOURCE_WINDOW_POLICY = (
     "recent_readout_ledger_record_family_source_window_v1"
 )
@@ -67,6 +70,21 @@ SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "autonomous_snn_language_thought_memory_events",
     "autonomous_snn_language_thought_consolidation_events",
     "autonomous_snn_language_thought_structural_plasticity_events",
+)
+SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS = (
+    "events",
+    "rollout_events",
+    "emission_review_events",
+    "dense_label_candidate_events",
+    "dense_label_calibration_update_events",
+    "autonomous_confidence_use_events",
+    "autonomous_hash_readout_binding_events",
+    "autonomous_bound_readout_observation_events",
+    "autonomous_readout_training_window_events",
+    "autonomous_decoder_probe_events",
+    "autonomous_language_output_events",
+    "autonomous_decoded_output_events",
+    "autonomous_snn_language_decoding_events",
 )
 SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS = (
     "current_text_surface_commit",
@@ -33045,71 +33063,75 @@ class SNNLanguageReadoutEvidenceLedger:
 
     def snapshot(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
-            state = self._normalized_state()
-            count = max(0, int(limit))
-            events = list(state["events"])[:count] if count > 0 else []
-            rollout_events = list(state["rollout_events"])[:count] if count > 0 else []
-            emission_review_events = (
-                list(state["emission_review_events"])[:count] if count > 0 else []
+            state = self._ledger_state()
+            requested_count = max(0, int(limit))
+            source_limit = min(int(self._limit), int(requested_count))
+            snapshot_event_fields = {
+                name: self._bounded_mapping_list_from_state(
+                    state,
+                    name,
+                    limit=source_limit,
+                )
+                for name in SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS
+            }
+            snapshot_source_window = self._snapshot_source_window_report(
+                state,
+                snapshot_event_fields,
+                requested_limit=requested_count,
+                source_limit=source_limit,
             )
-            dense_label_candidate_events = (
-                list(state["dense_label_candidate_events"])[:count]
-                if count > 0
-                else []
+
+            def _retained_count(name: str) -> int:
+                retained_count = snapshot_source_window["retained_window_counts"].get(
+                    name
+                )
+                if retained_count is not None:
+                    return int(retained_count)
+                return int(len(snapshot_event_fields.get(name) or []))
+
+            events = list(snapshot_event_fields["events"])
+            rollout_events = list(snapshot_event_fields["rollout_events"])
+            emission_review_events = list(
+                snapshot_event_fields["emission_review_events"]
             )
-            dense_label_calibration_update_events = (
-                list(state["dense_label_calibration_update_events"])[:count]
-                if count > 0
-                else []
+            dense_label_candidate_events = list(
+                snapshot_event_fields["dense_label_candidate_events"]
             )
-            autonomous_confidence_use_events = (
-                list(state["autonomous_confidence_use_events"])[:count]
-                if count > 0
-                else []
+            dense_label_calibration_update_events = list(
+                snapshot_event_fields["dense_label_calibration_update_events"]
             )
-            autonomous_hash_readout_binding_events = (
-                list(state["autonomous_hash_readout_binding_events"])[:count]
-                if count > 0
-                else []
+            autonomous_confidence_use_events = list(
+                snapshot_event_fields["autonomous_confidence_use_events"]
             )
-            autonomous_bound_readout_observation_events = (
-                list(state["autonomous_bound_readout_observation_events"])[:count]
-                if count > 0
-                else []
+            autonomous_hash_readout_binding_events = list(
+                snapshot_event_fields["autonomous_hash_readout_binding_events"]
             )
-            autonomous_readout_training_window_events = (
-                list(state["autonomous_readout_training_window_events"])[:count]
-                if count > 0
-                else []
+            autonomous_bound_readout_observation_events = list(
+                snapshot_event_fields["autonomous_bound_readout_observation_events"]
             )
-            autonomous_decoder_probe_events = (
-                list(state["autonomous_decoder_probe_events"])[:count]
-                if count > 0
-                else []
+            autonomous_readout_training_window_events = list(
+                snapshot_event_fields["autonomous_readout_training_window_events"]
             )
-            autonomous_language_output_events = (
-                list(state["autonomous_language_output_events"])[:count]
-                if count > 0
-                else []
+            autonomous_decoder_probe_events = list(
+                snapshot_event_fields["autonomous_decoder_probe_events"]
             )
-            autonomous_decoded_output_events = (
-                list(state["autonomous_decoded_output_events"])[:count]
-                if count > 0
-                else []
+            autonomous_language_output_events = list(
+                snapshot_event_fields["autonomous_language_output_events"]
             )
-            autonomous_snn_language_decoding_events = (
-                list(state["autonomous_snn_language_decoding_events"])[:count]
-                if count > 0
-                else []
+            autonomous_decoded_output_events = list(
+                snapshot_event_fields["autonomous_decoded_output_events"]
+            )
+            autonomous_snn_language_decoding_events = list(
+                snapshot_event_fields["autonomous_snn_language_decoding_events"]
             )
             prediction_hashes = {
                 str(item.get("prediction_hash") or "")
-                for item in state["events"]
+                for item in events
                 if str(item.get("prediction_hash") or "")
             }
             transition_memory_hashes = {
                 str(item.get("persistent_transition_weights_hash") or "")
-                for item in state["events"]
+                for item in events
                 if str(item.get("persistent_transition_weights_hash") or "")
             }
             return {
@@ -33122,14 +33144,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 "decodes_text": False,
                 "mutates_runtime_state": False,
                 "summary": {
-                    "event_count": len(state["events"]),
-                    "rollout_event_count": len(state["rollout_events"]),
-                    "emission_review_event_count": len(state["emission_review_events"]),
-                    "dense_label_candidate_event_count": len(
-                        state["dense_label_candidate_events"]
+                    "event_count": _retained_count("events"),
+                    "rollout_event_count": _retained_count("rollout_events"),
+                    "emission_review_event_count": _retained_count(
+                        "emission_review_events"
                     ),
-                    "dense_label_calibration_update_event_count": len(
-                        state["dense_label_calibration_update_events"]
+                    "dense_label_candidate_event_count": _retained_count(
+                        "dense_label_candidate_events"
+                    ),
+                    "dense_label_calibration_update_event_count": _retained_count(
+                        "dense_label_calibration_update_events"
+                    ),
+                    "returned_event_count": len(events),
+                    "returned_rollout_event_count": len(rollout_events),
+                    "returned_emission_review_event_count": len(
+                        emission_review_events
+                    ),
+                    "returned_dense_label_candidate_event_count": len(
+                        dense_label_candidate_events
+                    ),
+                    "returned_dense_label_calibration_update_event_count": len(
+                        dense_label_calibration_update_events
                     ),
                     "total_recorded_count": int(state.get("total_recorded_count", 0) or 0),
                     "total_rollout_recorded_count": int(
@@ -33177,9 +33212,9 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "unique_prediction_count": len(prediction_hashes),
                     "unique_transition_memory_count": len(transition_memory_hashes),
-                    "normalization_source_window": deepcopy(
-                        dict(state.get("_normalization_source_window") or {})
-                    ),
+                    "unique_count_scope": "snapshot_source_window",
+                    "snapshot_source_window": deepcopy(snapshot_source_window),
+                    "normalization_source_window": deepcopy(snapshot_source_window),
                     "last_recorded_at": state.get("last_recorded_at"),
                     "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
                     "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
@@ -38200,19 +38235,24 @@ class SNNLanguageReadoutEvidenceLedger:
         self,
         state: Mapping[str, Any],
         name: str,
+        *,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        source_limit = self._limit if limit is None else max(0, int(limit))
+        if source_limit <= 0:
+            return []
         raw_value = state.get(name) or []
         if isinstance(raw_value, (str, bytes, Mapping)):
             return []
         if isinstance(raw_value, (list, tuple)):
             return [
                 deepcopy(dict(item))
-                for item in raw_value[: self._limit]
+                for item in raw_value[:source_limit]
                 if isinstance(item, Mapping)
             ]
         return [
             deepcopy(dict(item))
-            for item in islice(raw_value, self._limit)
+            for item in islice(raw_value, source_limit)
             if isinstance(item, Mapping)
         ]
 
@@ -38457,6 +38497,100 @@ class SNNLanguageReadoutEvidenceLedger:
             },
             "archival_storage_device": "cpu",
             "normalization_device": "cpu",
+            "gpu_used": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
+            "raw_text_scored": False,
+        }
+
+    def _snapshot_source_window_report(
+        self,
+        state: Mapping[str, Any],
+        snapshot_event_fields: Mapping[str, Sequence[Mapping[str, Any]]],
+        *,
+        requested_limit: int,
+        source_limit: int,
+    ) -> dict[str, Any]:
+        field_window_counts = {
+            name: int(len(snapshot_event_fields.get(name) or []))
+            for name in SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS
+        }
+        source_record_counts = {
+            name: self._source_record_count(state, name)
+            for name in SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS
+        }
+        retained_window_counts = {
+            name: (
+                min(int(source_count), int(self._limit))
+                if source_count is not None
+                else None
+            )
+            for name, source_count in source_record_counts.items()
+        }
+        truncated_source_counts = {
+            name: (
+                max(0, int(source_count) - int(field_window_counts[name]))
+                if source_count is not None
+                else None
+            )
+            for name, source_count in source_record_counts.items()
+        }
+        retained_truncated_source_counts = {
+            name: (
+                max(0, int(source_record_counts[name]) - int(retained_count))
+                if (
+                    source_record_counts[name] is not None
+                    and retained_count is not None
+                )
+                else None
+            )
+            for name, retained_count in retained_window_counts.items()
+        }
+        known_source_record_total = sum(
+            int(value) for value in source_record_counts.values() if value is not None
+        )
+        known_retained_window_total = sum(
+            int(value) for value in retained_window_counts.values() if value is not None
+        )
+        return {
+            "surface": "bounded_snn_readout_ledger_snapshot_source_window.v1",
+            "policy": SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
+            "source": "recent_ledger_snapshot_event_field_windows",
+            "event_field_count": len(SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS),
+            "snapshot_event_fields": list(
+                SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS
+            ),
+            "requested_source_window_limit_per_field": int(requested_limit),
+            "source_window_limit_per_field": int(source_limit),
+            "retention_limit_per_field": int(self._limit),
+            "source_window_count_total": int(sum(field_window_counts.values())),
+            "source_record_count_total_known": int(known_source_record_total),
+            "retained_window_count_total_known": int(known_retained_window_total),
+            "source_record_counts": source_record_counts,
+            "source_window_counts": field_window_counts,
+            "retained_window_counts": retained_window_counts,
+            "truncated_source_counts": truncated_source_counts,
+            "retained_truncated_source_counts": retained_truncated_source_counts,
+            "selection_criteria": (
+                "newest-first snapshot event field order, bounded by requested "
+                "snapshot limit before deepcopy, status projection, or review"
+            ),
+            "memory_budget": {
+                "max_fields": len(SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS),
+                "max_records_per_field": int(source_limit),
+                "max_records_total": int(
+                    len(SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS)
+                    * int(source_limit)
+                ),
+                "retention_records_per_field": int(self._limit),
+                "archival_storage_device": "cpu",
+            },
+            "archival_storage_device": "cpu",
+            "snapshot_device": "cpu",
             "gpu_used": False,
             "runs_live_tick": False,
             "runs_every_token": False,

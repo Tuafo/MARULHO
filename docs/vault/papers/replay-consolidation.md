@@ -1577,6 +1577,33 @@ source work by `4x`, and recorded `2006.587280 ms` mean preview latency,
 and zero graph/native sequence failures. The near-two-second preview cost is
 explicit evidence that this path remains operator/export slow-path only.
 
+SNN readout-ledger service snapshots now follow the same selected-source rule.
+The old snapshot path called `_normalized_state()`, which normalized every
+retained readout-ledger event family, before returning only the requested
+display rows. That was control-plane work rather than live replay, but it left
+a broad source path beside the bounded replay/readout operators. The active
+`snapshot(...)` path emits
+`bounded_snn_readout_ledger_snapshot_source_window.v1`, reads only the snapshot
+event families it returns, caps each family at the requested snapshot limit and
+retention limit, keeps archival/source/snapshot metadata on CPU, and reports no
+global candidate/score scan, no live tick, no every-token cadence, no hidden
+language reasoning, and no CUDA archive. The old all-family normalization model
+is benchmark-local retired evidence only.
+
+The focused report
+`reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window.json`
+used `2048` rows per retained ledger family, `ledger_limit=128`, and
+`snapshot_limit=20`. The bounded snapshot read `260` rows instead of `2944`,
+preserved newest-first returned rows and retained-count parity, and reduced mean
+latency from `393.040600 ms` to `67.334088 ms` (`5.837171x`) with
+`0.575356 MiB` traced Python peak and `0.0 MiB` CUDA allocation/reservation.
+The matching long protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json`
+processed `524288` tokens at `6443.960 tokens/sec`,
+`train_compute=0.127084 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, zero graph/native sequence failures, no observed
+contention, and flat RTX 3060 memory at `1899 MiB`.
+
 ## Links
 
 - [Research notes](../../research-living-brain.md)

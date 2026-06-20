@@ -1673,6 +1673,37 @@ succeeded at `5326.602 tokens/sec`, but included a `12435 ms` max tick outlier
 and observed GPU contention, so it is retained as variance evidence rather
 than promotion evidence.
 
+The readout-ledger snapshot follow-up retires the broad
+snapshot-through-normalizer shape. `SNNLanguageReadoutEvidenceLedger.snapshot`
+now reads only the event families it returns through
+`bounded_snn_readout_ledger_snapshot_source_window.v1`, capping each family at
+the requested snapshot limit and ledger retention limit. The snapshot source
+window reports CPU archival/source/snapshot placement, no global candidate or
+score scan, no live tick, no every-token cadence, no hidden language reasoning,
+and no CUDA archive.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-snapshot-source-window.json`
+
+It preserved newest-first display quality and retained-count parity, read `260`
+rows instead of `2944` in the benchmark-local retired normalizer model
+(`11.323077x` less source work), and reduced mean snapshot latency from
+`393.040600 ms` to `67.334088 ms` (`5.837171x`). Traced Python peak allocation
+was `0.575356 MiB`; CUDA allocation/reservation stayed `0.0 MiB`.
+
+The `524288`-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6443.960 tokens/sec`, with
+`train_compute=0.127084 ms/token`, `prepare_training=0.006251 ms/token`,
+`finalize_total=0.005922 ms/token`, `tick_duration_ms.p95=19.655`, bounded
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`, and
+`state_transition_cached_count=65526`. Graph/native/sequence failures were
+all `0`, no contention was observed, and RTX 3060 memory stayed flat at
+`1899 MiB`.
+
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window/readout-payload proof
 with a larger grounded replay corpus. Do not broaden a schedule or revive
