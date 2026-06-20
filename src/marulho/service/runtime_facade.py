@@ -16,6 +16,68 @@ _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _SNN_LANGUAGE_NEURON_COUNT = 64
 _SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
 _SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
+_ROLLOUT_REGENERATION_SOURCE_WINDOW_FALSE_FLAGS = (
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "hidden_language_reasoning",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+    "gpu_used",
+    "gpu_resident_archival_metadata",
+)
+_READOUT_REPLAY_PAYLOAD_SOURCE_WINDOW_FALSE_FLAGS = (
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+    "gpu_resident_archival_metadata",
+    "gpu_used_for_archival_metadata",
+)
+
+
+def _source_window_int(source_window: Mapping[str, Any], key: str) -> int | None:
+    try:
+        return int(source_window.get(key, -1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_window_counts_bounded(
+    source_window: Mapping[str, Any],
+    *,
+    max_limit: int | None = None,
+    require_mapping_count: bool = False,
+) -> bool:
+    source_window_count = _source_window_int(source_window, "source_window_count")
+    source_window_limit = _source_window_int(source_window, "source_window_limit")
+    if source_window_count is None or source_window_limit is None:
+        return False
+    if source_window_limit <= 0 or source_window_count < 0:
+        return False
+    if source_window_count > source_window_limit:
+        return False
+    if max_limit is not None and source_window_limit > int(max_limit):
+        return False
+    if require_mapping_count:
+        source_mapping_count = _source_window_int(source_window, "source_mapping_count")
+        if source_mapping_count is None or source_mapping_count != source_window_count:
+            return False
+    return True
+
+
+def _source_window_flags_explicit_false(
+    source_window: Mapping[str, Any],
+    flags: tuple[str, ...],
+) -> bool:
+    return all(source_window.get(flag) is False for flag in flags)
 
 
 class RuntimeFacade:
@@ -52,10 +114,17 @@ class RuntimeFacade:
     ) -> bool:
         return (
             source_window.get("surface") == surface
-            and int(source_window.get("source_window_count", 0) or 0)
-            <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
-            and bool(source_window.get("global_candidate_scan")) is False
-            and bool(source_window.get("global_score_scan")) is False
+            and _source_window_counts_bounded(
+                source_window,
+                max_limit=SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+                require_mapping_count=True,
+            )
+            and _source_window_flags_explicit_false(
+                source_window,
+                _ROLLOUT_REGENERATION_SOURCE_WINDOW_FALSE_FLAGS,
+            )
+            and source_window.get("archival_storage_device") == "cpu"
+            and source_window.get("source_window_selection_device") == "cpu"
         )
 
     @staticmethod
@@ -66,16 +135,15 @@ class RuntimeFacade:
     ) -> bool:
         return (
             source_window.get("surface") == surface
-            and int(source_window.get("source_window_count", 0) or 0)
-            <= int(source_window.get("source_window_limit", 0) or 0)
-            and int(source_window.get("source_mapping_count", 0) or 0)
-            == int(source_window.get("source_window_count", 0) or 0)
-            and bool(source_window.get("global_candidate_scan")) is False
-            and bool(source_window.get("global_score_scan")) is False
-            and bool(source_window.get("runs_live_tick")) is False
-            and bool(source_window.get("runs_every_token")) is False
+            and _source_window_counts_bounded(
+                source_window,
+                require_mapping_count=True,
+            )
+            and _source_window_flags_explicit_false(
+                source_window,
+                _READOUT_REPLAY_PAYLOAD_SOURCE_WINDOW_FALSE_FLAGS,
+            )
             and source_window.get("archival_storage_device") == "cpu"
-            and bool(source_window.get("gpu_resident_archival_metadata")) is False
         )
 
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:

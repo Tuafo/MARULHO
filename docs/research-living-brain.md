@@ -28,6 +28,30 @@ This file records research anchors for current architecture work. It is not a pr
   stayed in band at `6007.228 tokens/sec`, with bounded `12/65536` route rows,
   `65526` cached transition rows, and zero graph/native sequence failures,
   though GPU contention was observed.
+- Replay-priority source-window binding note, June 2026: the same research
+  boundary applies to the priority selector itself. Modern Hopfield-style
+  recall remains a local associative operator after a source window is chosen;
+  CLS, continual replay, synaptic tagging/capture, latent replay, and sparse
+  replay all argue that selection evidence must travel with replay artifacts
+  rather than being trusted as a caller-side report. MARULHO therefore retires
+  the readout replay-priority report-dropping artifact shape:
+  `transition_memory_replay_artifact_proposal(...)` now carries
+  `bounded_snn_readout_replay_priority_source_window.v1` and a matching hash,
+  `ReplayController` requires and persists that source window for evaluated
+  transition-memory replay artifacts, and rollout replay-artifact review
+  recomputes artifact hashes with the same optional source-window material.
+  The focused benchmark
+  `reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json`
+  passed with replay-priority source window `1/32`, CPU archival and scoring
+  placement, no global scans, no raw text, no language reasoning, no live-tick
+  or every-token work, CUDA available but unused, `0.0 MiB` CUDA allocation,
+  `0.014385 MiB` traced Python peak, and `0.421992 ms` mean permit-verification
+  latency. The first `524288`-token protection run was rejected as primary
+  evidence at `4662.031 tokens/sec` because GPU contention was observed. The
+  no-contention rerun stayed in the maintained noisy band at
+  `5937.908 tokens/sec`, with `train_compute=0.136165 ms/token`, bounded
+  `12/65536` route rows, `65526` cached transition rows, flat RTX 3060 memory,
+  and zero graph/native sequence failures.
 
 ### Predictive spiking substrate
 

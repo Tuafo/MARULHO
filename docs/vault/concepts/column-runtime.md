@@ -156,6 +156,23 @@ memory under observed GPU contention. This keeps readout replay verification in
 the slow/control-plane window and prevents a hash-only bypass from becoming a
 second runtime path.
 
+Replay-priority selection now has the same binding. The readout-ledger
+transition-memory replay artifact proposal carries
+`bounded_snn_readout_replay_priority_source_window.v1` and a matching hash from
+`replay_priority(...)`; `ReplayController` rejects evaluated replay artifacts
+without that bounded source-window report and includes the hash in artifact and
+rollout-review recomputation. The focused report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json`
+passed with source window `1/32`, CPU archival/scoring placement, no global
+scan, no raw text, no language reasoning, no live tick or every-token work,
+CUDA available but unused, `0.014385 MiB` traced Python peak, and `0.421992 ms`
+mean permit-verification latency. The accepted no-contention `524288`-token
+rerun stayed same-band at `5937.908 tokens/sec`, with bounded `12/65536` route
+rows, `65526` cached transition rows, flat RTX 3060 memory, and zero
+graph/native sequence failures; a first contended run at `4662.031 tokens/sec`
+is rejected as primary evidence. This retires the priority report-dropping
+artifact shape instead of leaving a second replay-selection contract.
+
 Dense-label candidate history and calibration policy also use a single bounded
 source window. `dense_label_candidate_history(...)` and
 `dense_label_candidate_calibration_policy(...)` read only

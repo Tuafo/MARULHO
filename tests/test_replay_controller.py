@@ -13,6 +13,7 @@ from marulho.service.replay_runtime import (
     SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
     ReplayController,
     ReplayControllerDependencies,
+    _snn_replay_priority_source_window_bounded,
 )
 from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
@@ -136,6 +137,77 @@ def _known_readout_evidence_source_window() -> dict[str, object]:
     }
 
 
+def _readout_replay_priority_source_window() -> dict[str, object]:
+    return {
+        "surface": "bounded_snn_readout_replay_priority_source_window.v1",
+        "policy": "recent_readout_event_source_window_v1",
+        "window_policy": "recent_readout_event_source_window_v1",
+        "selection_criteria": [
+            "recent_provenance_bound_readout_events",
+            "label_repetition_within_source_window",
+            "transition_memory_reuse_within_source_window",
+            "recency_within_source_window",
+        ],
+        "source_limits": {
+            "readout_events": 32,
+            "returned_candidates": 1,
+            "ledger_retention": 1,
+        },
+        "source_counts": {
+            "retained_readout_events": 1,
+            "source_readout_events": 1,
+        },
+        "window_counts": {
+            "candidate_count_before_rank": 1,
+            "candidate_count_returned": 1,
+        },
+        "truncated_source_counts": {
+            "readout_events": 0,
+        },
+        "selection_budget": {
+            "source_event_window_limit": 32,
+            "requested_candidate_limit": 1,
+            "returned_candidate_limit": 1,
+            "ledger_retention_limit": 1,
+        },
+        "source_event_retention_count": 1,
+        "source_event_window_limit": 32,
+        "source_event_window_count": 1,
+        "source_event_truncated_count": 0,
+        "candidate_count_before_rank": 1,
+        "candidate_count_returned": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "score_device": "cpu",
+        "device_placement": {
+            "archival_storage": "cpu",
+            "source_window_selection": "cpu",
+            "score": "cpu",
+        },
+        "gpu_used": False,
+    }
+
+
+def _with_replay_priority_source_window(
+    controller: ReplayController,
+    proposal: Mapping[str, object],
+) -> dict[str, object]:
+    source_window = _readout_replay_priority_source_window()
+    payload = dict(proposal)
+    payload["replay_priority_source_window"] = source_window
+    payload["replay_priority_source_window_hash"] = controller._sha256_json(  # noqa: SLF001
+        source_window
+    )
+    return payload
+
+
 class ReplayControllerTests(unittest.TestCase):
     @staticmethod
     def _mismatch_report() -> dict[str, object]:
@@ -227,20 +299,23 @@ class ReplayControllerTests(unittest.TestCase):
         context = ReplayControllerTests._record_replay_evaluation_context(controller)
         ticket = ReplayControllerTests._record_review_ticket(controller, operator_id=operator_id)
         return controller.record_evaluated_snn_transition_memory_replay_artifact(
-            artifact_proposal={
-                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
-                "ready": True,
-                "owned_by_marulho": True,
-                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
-                "mismatch_report": context["mismatch_report"],
-                "pressure_report": context["pressure_report"],
-                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
-                "replay_evaluation_context_hash": context["evidence_hash"],
-                "replay_window": [
-                    {"readout_evidence_hash": "readout-hash-1", "grounded": True}
-                ],
-                "promotion_gate": {"status": "ready_for_operator_recording_review"},
-            },
+            artifact_proposal=_with_replay_priority_source_window(
+                controller,
+                {
+                    "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                    "ready": True,
+                    "owned_by_marulho": True,
+                    "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                    "mismatch_report": context["mismatch_report"],
+                    "pressure_report": context["pressure_report"],
+                    "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                    "replay_evaluation_context_hash": context["evidence_hash"],
+                    "replay_window": [
+                        {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+                    ],
+                    "promotion_gate": {"status": "ready_for_operator_recording_review"},
+                },
+            ),
             known_readout_evidence_hashes={"readout-hash-1"},
             known_readout_evidence_source_window=_known_readout_evidence_source_window(),
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
@@ -443,6 +518,27 @@ class ReplayControllerTests(unittest.TestCase):
         assert verified is not None
         self.assertEqual(verified["review_ticket_id"], ticket_id)
 
+    def test_snn_replay_priority_source_window_validator_requires_explicit_flags(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        self._record_replay_evaluation_context(controller)
+        queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [{"priority_score": 90.0, "all_labels_grounded": True}],
+            },
+            limit=4,
+        )
+        source_window = dict(queue["source_window"])
+
+        self.assertTrue(_snn_replay_priority_source_window_bounded(source_window))
+        missing_flag = dict(source_window)
+        missing_flag.pop("raw_text_payload_loaded")
+        self.assertFalse(_snn_replay_priority_source_window_bounded(missing_flag))
+        wrong_device = dict(source_window)
+        wrong_device["archival_storage_device"] = "cuda"
+        self.assertFalse(_snn_replay_priority_source_window_bounded(wrong_device))
+
     def test_evaluated_replay_artifact_rejects_stale_context(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -451,18 +547,21 @@ class ReplayControllerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "verified server-held evaluation context"):
             controller.record_evaluated_snn_transition_memory_replay_artifact(
-                artifact_proposal={
-                    "surface": "snn_transition_memory_replay_artifact_proposal.v1",
-                    "ready": True,
-                    "owned_by_marulho": True,
-                    "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
-                    "mismatch_report": context["mismatch_report"],
-                    "pressure_report": context["pressure_report"],
-                    "replay_evaluation_context_id": context["replay_evaluation_context_id"],
-                    "replay_evaluation_context_hash": context["evidence_hash"],
-                    "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
-                    "promotion_gate": {"status": "ready_for_operator_recording_review"},
-                },
+                artifact_proposal=_with_replay_priority_source_window(
+                    controller,
+                    {
+                        "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                        "ready": True,
+                        "owned_by_marulho": True,
+                        "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                        "mismatch_report": context["mismatch_report"],
+                        "pressure_report": context["pressure_report"],
+                        "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                        "replay_evaluation_context_hash": context["evidence_hash"],
+                        "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
+                        "promotion_gate": {"status": "ready_for_operator_recording_review"},
+                    },
+                ),
                 known_readout_evidence_hashes={"readout-hash-1"},
                 known_readout_evidence_source_window=_known_readout_evidence_source_window(),
                 replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
@@ -1983,20 +2082,23 @@ class ReplayControllerTests(unittest.TestCase):
             "readout_evidence_hash": source_metadata["readout_evidence_hash"],
             "prediction_hash": source_metadata["prediction_hash"],
         }
-        proposal = {
-            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
-            "ready": True,
-            "owned_by_marulho": True,
-            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
-            "mismatch_report": context["mismatch_report"],
-            "pressure_report": context["pressure_report"],
-            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
-            "replay_evaluation_context_hash": context["evidence_hash"],
-            "source_metadata_hash": context["source_metadata_hash"],
-            "emission_lineage": emission_lineage,
-            "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
-            "promotion_gate": {"status": "ready_for_operator_recording_review"},
-        }
+        proposal = _with_replay_priority_source_window(
+            controller,
+            {
+                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                "ready": True,
+                "owned_by_marulho": True,
+                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                "mismatch_report": context["mismatch_report"],
+                "pressure_report": context["pressure_report"],
+                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                "replay_evaluation_context_hash": context["evidence_hash"],
+                "source_metadata_hash": context["source_metadata_hash"],
+                "emission_lineage": emission_lineage,
+                "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
+                "promotion_gate": {"status": "ready_for_operator_recording_review"},
+            },
+        )
 
         artifact = controller.record_evaluated_snn_transition_memory_replay_artifact(
             artifact_proposal=proposal,
@@ -2012,6 +2114,11 @@ class ReplayControllerTests(unittest.TestCase):
             "bounded_snn_readout_known_evidence_hash_source_window.v1",
         )
         self.assertIn("readout_evidence_source_window_hash", artifact)
+        self.assertEqual(
+            artifact["replay_priority_source_window"]["surface"],
+            "bounded_snn_readout_replay_priority_source_window.v1",
+        )
+        self.assertIn("replay_priority_source_window_hash", artifact)
         permit_design = {
             "locality_radius": 2,
             "initial_weight": 0.02,
@@ -2028,6 +2135,7 @@ class ReplayControllerTests(unittest.TestCase):
 
         self.assertEqual(artifact["source_metadata_hash"], context["source_metadata_hash"])
         self.assertEqual(artifact["emission_lineage"], emission_lineage)
+        self.assertIn("replay_priority_source_window_hash", artifact)
         self.assertEqual(permit["source_metadata_hash"], context["source_metadata_hash"])
         self.assertEqual(permit["emission_lineage"], emission_lineage)
         self.assertTrue(
@@ -2195,20 +2303,23 @@ class ReplayControllerTests(unittest.TestCase):
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
         context = self._record_replay_evaluation_context(controller)
-        proposal = {
-            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
-            "ready": True,
-            "owned_by_marulho": True,
-            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
-            "mismatch_report": context["mismatch_report"],
-            "pressure_report": context["pressure_report"],
-            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
-            "replay_evaluation_context_hash": context["evidence_hash"],
-            "replay_window": [
-                {"readout_evidence_hash": "fabricated-hash", "grounded": True}
-            ],
-            "promotion_gate": {"status": "ready_for_operator_recording_review"},
-        }
+        proposal = _with_replay_priority_source_window(
+            controller,
+            {
+                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                "ready": True,
+                "owned_by_marulho": True,
+                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                "mismatch_report": context["mismatch_report"],
+                "pressure_report": context["pressure_report"],
+                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                "replay_evaluation_context_hash": context["evidence_hash"],
+                "replay_window": [
+                    {"readout_evidence_hash": "fabricated-hash", "grounded": True}
+                ],
+                "promotion_gate": {"status": "ready_for_operator_recording_review"},
+            },
+        )
 
         with self.assertRaisesRegex(ValueError, "current internal-ledger evidence"):
             controller.record_evaluated_snn_transition_memory_replay_artifact(
@@ -2227,20 +2338,23 @@ class ReplayControllerTests(unittest.TestCase):
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
         context = self._record_replay_evaluation_context(controller)
-        proposal = {
-            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
-            "ready": True,
-            "owned_by_marulho": True,
-            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
-            "mismatch_report": context["mismatch_report"],
-            "pressure_report": context["pressure_report"],
-            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
-            "replay_evaluation_context_hash": context["evidence_hash"],
-            "replay_window": [
-                {"readout_evidence_hash": "readout-hash-1", "grounded": True}
-            ],
-            "promotion_gate": {"status": "ready_for_operator_recording_review"},
-        }
+        proposal = _with_replay_priority_source_window(
+            controller,
+            {
+                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                "ready": True,
+                "owned_by_marulho": True,
+                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                "mismatch_report": context["mismatch_report"],
+                "pressure_report": context["pressure_report"],
+                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                "replay_evaluation_context_hash": context["evidence_hash"],
+                "replay_window": [
+                    {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+                ],
+                "promotion_gate": {"status": "ready_for_operator_recording_review"},
+            },
+        )
 
         with self.assertRaisesRegex(
             ValueError,
@@ -2258,6 +2372,79 @@ class ReplayControllerTests(unittest.TestCase):
                 },
                 replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
                 review_ticket_id=str(self._record_review_ticket(controller)["review_ticket_id"]),
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_evaluated_replay_artifact_rejects_missing_replay_priority_source_window(
+        self,
+    ) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        ticket = self._record_review_ticket(controller)
+        proposal = {
+            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+            "ready": True,
+            "owned_by_marulho": True,
+            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+            "mismatch_report": context["mismatch_report"],
+            "pressure_report": context["pressure_report"],
+            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+            "replay_evaluation_context_hash": context["evidence_hash"],
+            "replay_window": [
+                {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+            ],
+            "promotion_gate": {"status": "ready_for_operator_recording_review"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "replay-priority source window"):
+            controller.record_evaluated_snn_transition_memory_replay_artifact(
+                artifact_proposal=proposal,
+                known_readout_evidence_hashes={"readout-hash-1"},
+                known_readout_evidence_source_window=_known_readout_evidence_source_window(),
+                replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+                review_ticket_id=str(ticket["review_ticket_id"]),
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_evaluated_replay_artifact_rejects_tampered_replay_priority_source_window_hash(
+        self,
+    ) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        ticket = self._record_review_ticket(controller)
+        proposal = _with_replay_priority_source_window(
+            controller,
+            {
+                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                "ready": True,
+                "owned_by_marulho": True,
+                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                "mismatch_report": context["mismatch_report"],
+                "pressure_report": context["pressure_report"],
+                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                "replay_evaluation_context_hash": context["evidence_hash"],
+                "replay_window": [
+                    {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+                ],
+                "promotion_gate": {"status": "ready_for_operator_recording_review"},
+            },
+        )
+        proposal["replay_priority_source_window_hash"] = "fabricated"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "matching replay-priority source-window hash",
+        ):
+            controller.record_evaluated_snn_transition_memory_replay_artifact(
+                artifact_proposal=proposal,
+                known_readout_evidence_hashes={"readout-hash-1"},
+                known_readout_evidence_source_window=_known_readout_evidence_source_window(),
+                replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+                review_ticket_id=str(ticket["review_ticket_id"]),
                 operator_id="operator-1",
                 confirmation=True,
             )

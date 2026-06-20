@@ -92,6 +92,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
   - reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-known-readout-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1094,6 +1097,24 @@ stayed in the 6k-ish band at `6007.228 tokens/sec` with bounded `12/65536`
 route rows, `65526` cached transition rows, zero graph/native sequence
 failures, flat RTX 3060 memory, and observed GPU contention. This is deletion
 of a report-dropping path, not a broader replay cadence.
+
+The replay-priority selector now follows the same rule. A transition-memory
+replay artifact proposal may only be treated as operator-review-ready when the
+readout replay-priority report's bounded source window is carried forward and
+hashed. This prevents the artifact chain from trusting a replay window selected
+by `replay_priority(...)` while dropping the selector budget, CPU placement,
+and no-hidden-work evidence. The report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json`
+passed with replay-priority source window `1/32`, persisted
+`replay_priority_source_window_hash`, CPU archival and score placement, no
+global scan, no raw text, no language reasoning, no live-tick/every-token work,
+CUDA available but unused, `0.014385 MiB` traced Python peak, and `0.421992 ms`
+mean permit-verification latency. The first long protection run was rejected at
+`4662.031 tokens/sec` under observed GPU contention; the no-contention rerun
+stayed same-band at `5937.908 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, flat RTX 3060 memory, and zero graph/native
+sequence failures. This retires another report-dropping artifact shape rather
+than adding a second replay-priority path.
 
 The 2026-06-20 follow-up removes the remaining production all-family normalizer
 callable instead of keeping it as dead code. `SNNLanguageReadoutEvidenceLedger`

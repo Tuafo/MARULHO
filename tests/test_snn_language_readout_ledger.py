@@ -14068,6 +14068,97 @@ def test_readout_ledger_replay_priority_caps_source_events_before_rank() -> None
     assert "outside-window" not in candidate_labels
 
 
+def test_readout_ledger_replay_priority_source_window_validator_requires_explicit_flags() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    priority = ledger.replay_priority(limit=1)
+    source_window = dict(priority["source_window"])
+
+    assert ledger._readout_replay_priority_source_window_bounded(source_window) is True
+    missing_flag = dict(source_window)
+    missing_flag.pop("raw_text_payload_loaded")
+    assert ledger._readout_replay_priority_source_window_bounded(missing_flag) is False
+    oversized = dict(source_window)
+    oversized["source_event_window_limit"] = (
+        SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT + 1
+    )
+    assert ledger._readout_replay_priority_source_window_bounded(oversized) is False
+
+
+def test_runtime_facade_source_window_validators_require_explicit_flags() -> None:
+    rollout_surface = "bounded_snn_rollout_regeneration_replay_artifact_review_candidate_window.v1"
+    rollout_window = {
+        "surface": rollout_surface,
+        "source_window_count": 1,
+        "source_window_limit": SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+        "source_mapping_count": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "hidden_language_reasoning": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "gpu_used": False,
+        "gpu_resident_archival_metadata": False,
+        "archival_storage_device": "cpu",
+        "source_window_selection_device": "cpu",
+    }
+    assert RuntimeFacade._rollout_regeneration_candidate_window_bounded(
+        rollout_window,
+        surface=rollout_surface,
+    ) is True
+    missing_rollout_flag = dict(rollout_window)
+    missing_rollout_flag.pop("hidden_language_reasoning")
+    assert RuntimeFacade._rollout_regeneration_candidate_window_bounded(
+        missing_rollout_flag,
+        surface=rollout_surface,
+    ) is False
+
+    readout_surface = "bounded_snn_readout_replay_payload_source_window.v1"
+    readout_window = {
+        "surface": readout_surface,
+        "source_window_count": 1,
+        "source_window_limit": 8,
+        "source_mapping_count": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "gpu_resident_archival_metadata": False,
+        "gpu_used_for_archival_metadata": False,
+        "archival_storage_device": "cpu",
+    }
+    assert RuntimeFacade._readout_replay_payload_window_bounded(
+        readout_window,
+        surface=readout_surface,
+    ) is True
+    wrong_count = dict(readout_window)
+    wrong_count["source_mapping_count"] = 0
+    assert RuntimeFacade._readout_replay_payload_window_bounded(
+        wrong_count,
+        surface=readout_surface,
+    ) is False
+
+
 def test_readout_ledger_snapshot_normalizes_retained_histories_from_source_window() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -14576,6 +14667,18 @@ def test_transition_memory_replay_artifact_proposal_uses_internal_readout_eviden
         "readout_evidence_hash"
     ]
     assert proposal["replay_window"][0]["grounded"] is True
+    assert proposal["replay_priority_source_window"]["surface"] == (
+        "bounded_snn_readout_replay_priority_source_window.v1"
+    )
+    assert ledger._readout_replay_priority_source_window_bounded(
+        proposal["replay_priority_source_window"]
+    ) is True
+    assert proposal["replay_priority_source_window_hash"] == _sha256_json(
+        proposal["replay_priority_source_window"]
+    )
+    assert proposal["promotion_gate"]["required_evidence"][
+        "replay_priority_source_window_bounded"
+    ] is True
     assert proposal["promotion_gate"]["eligible_for_operator_recording_review"] is True
 
 

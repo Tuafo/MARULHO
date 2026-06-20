@@ -143,6 +143,17 @@ SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
     "recent_readout_event_source_window_v1"
 )
+SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS = (
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+    "gpu_used",
+)
 SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT = 16
 SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_POLICY = (
     "recent_rollout_rehearsal_event_source_window_v1"
@@ -201,14 +212,72 @@ class SNNLanguageReadoutEvidenceLedger:
         *,
         surface: str,
     ) -> bool:
+        try:
+            source_window_count = int(source_window.get("source_window_count", -1))
+            source_window_limit = int(source_window.get("source_window_limit", -1))
+            source_mapping_count = int(source_window.get("source_mapping_count", -1))
+        except (TypeError, ValueError):
+            return False
+        explicit_false_flags = (
+            "global_candidate_scan",
+            "global_score_scan",
+            "raw_text_payload_loaded",
+            "hidden_language_reasoning",
+            "language_reasoning",
+            "runs_live_tick",
+            "runs_every_token",
+            "mutates_runtime_state",
+            "applies_plasticity",
+            "gpu_used",
+            "gpu_resident_archival_metadata",
+        )
         return (
             source_window.get("surface") == surface
-            and int(source_window.get("source_window_count", 0) or 0)
-            <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
-            and int(source_window.get("source_mapping_count", 0) or 0)
-            == int(source_window.get("source_window_count", 0) or 0)
-            and bool(source_window.get("global_candidate_scan")) is False
-            and bool(source_window.get("global_score_scan")) is False
+            and 0 <= source_window_count <= source_window_limit
+            and 0 < source_window_limit <= SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT
+            and source_mapping_count == source_window_count
+            and all(source_window.get(flag) is False for flag in explicit_false_flags)
+            and source_window.get("archival_storage_device") == "cpu"
+            and source_window.get("source_window_selection_device") == "cpu"
+        )
+
+    @staticmethod
+    def _readout_replay_priority_source_window_bounded(
+        source_window: Mapping[str, Any],
+    ) -> bool:
+        try:
+            source_event_window_count = int(
+                source_window.get("source_event_window_count", -1)
+            )
+            source_event_window_limit = int(
+                source_window.get("source_event_window_limit", -1)
+            )
+            source_event_retention_count = int(
+                source_window.get("source_event_retention_count", -1)
+            )
+            candidate_count_before_rank = int(
+                source_window.get("candidate_count_before_rank", -1)
+            )
+            candidate_count_returned = int(
+                source_window.get("candidate_count_returned", -1)
+            )
+        except (TypeError, ValueError):
+            return False
+        return (
+            source_window.get("surface")
+            == "bounded_snn_readout_replay_priority_source_window.v1"
+            and 0 < source_event_window_limit
+            <= SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT
+            and 0 <= source_event_window_count <= source_event_window_limit
+            and source_event_window_count <= source_event_retention_count
+            and 0 <= candidate_count_before_rank <= source_event_window_count
+            and 0 <= candidate_count_returned <= candidate_count_before_rank
+            and all(
+                source_window.get(flag) is False
+                for flag in SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS
+            )
+            and source_window.get("archival_storage_device") == "cpu"
+            and source_window.get("score_device") == "cpu"
         )
 
     def record_readout_draft(
@@ -35723,6 +35792,23 @@ class SNNLanguageReadoutEvidenceLedger:
             "review_ticket_hash": replay.get("review_ticket_hash"),
             "readout_evidence_hashes": list(replay.get("readout_evidence_hashes") or []),
         }
+        if replay.get("source_window_hash"):
+            replay_material["source_window_hash"] = replay.get("source_window_hash")
+        if replay.get("readout_evidence_source_window_hash"):
+            replay_material["readout_evidence_source_window_hash"] = replay.get(
+                "readout_evidence_source_window_hash"
+            )
+        if replay.get("replay_priority_source_window_hash"):
+            replay_material["replay_priority_source_window_hash"] = replay.get(
+                "replay_priority_source_window_hash"
+            )
+        if replay.get("source_metadata_hash") or replay.get("emission_lineage"):
+            replay_material["source_metadata_hash"] = replay.get("source_metadata_hash")
+            replay_material["emission_lineage"] = (
+                dict(replay.get("emission_lineage"))
+                if isinstance(replay.get("emission_lineage"), Mapping)
+                else {}
+            )
         recomputed_replay_hash = self._sha256_json(replay_material)
         replay_mismatch_score = max(
             0.0,
@@ -35903,6 +35989,12 @@ class SNNLanguageReadoutEvidenceLedger:
             else {}
         )
         priority = self.replay_priority(limit=max(1, min(int(limit), 32)))
+        priority_source_window = (
+            dict(priority.get("source_window"))
+            if isinstance(priority.get("source_window"), Mapping)
+            else {}
+        )
+        priority_source_window_hash = self._sha256_json(priority_source_window)
         replay_window = [
             {
                 "readout_evidence_hash": item.get("readout_evidence_hash"),
@@ -35926,6 +36018,11 @@ class SNNLanguageReadoutEvidenceLedger:
             "pressure_available": bool(pressure.get("available")),
             "pressure_owned_by_marulho": bool(pressure.get("owned_by_marulho")),
             "pressure_gate_ready": str(pressure_gate.get("status") or "") == "ready_for_operator_review",
+            "replay_priority_source_window_bounded": (
+                self._readout_replay_priority_source_window_bounded(
+                    priority_source_window
+                )
+            ),
             "internal_readout_evidence_available": bool(replay_window),
             "replay_window_grounded": bool(replay_window)
             and all(bool(item.get("grounded")) for item in replay_window),
@@ -35948,6 +36045,8 @@ class SNNLanguageReadoutEvidenceLedger:
             "mismatch_report": mismatch,
             "pressure_report": pressure,
             "replay_window": replay_window,
+            "replay_priority_source_window": priority_source_window,
+            "replay_priority_source_window_hash": priority_source_window_hash,
             "promotion_gate": {
                 "status": "ready_for_operator_recording_review"
                 if ready

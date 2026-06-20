@@ -6,6 +6,7 @@ import argparse
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from threading import RLock
@@ -26,6 +27,16 @@ from marulho.service.replay_runtime import (
 )
 
 
+def _sha256_json(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _known_readout_evidence_source_window() -> dict[str, Any]:
     return {
         "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
@@ -43,6 +54,64 @@ def _known_readout_evidence_source_window() -> dict[str, Any]:
         "mutates_runtime_state": False,
         "applies_plasticity": False,
         "archival_storage_device": "cpu",
+        "gpu_used": False,
+    }
+
+
+def _readout_replay_priority_source_window() -> dict[str, Any]:
+    return {
+        "surface": "bounded_snn_readout_replay_priority_source_window.v1",
+        "policy": "recent_readout_event_source_window_v1",
+        "window_policy": "recent_readout_event_source_window_v1",
+        "selection_criteria": [
+            "recent_provenance_bound_readout_events",
+            "label_repetition_within_source_window",
+            "transition_memory_reuse_within_source_window",
+            "recency_within_source_window",
+        ],
+        "source_limits": {
+            "readout_events": 32,
+            "returned_candidates": 1,
+            "ledger_retention": 1,
+        },
+        "source_counts": {
+            "retained_readout_events": 1,
+            "source_readout_events": 1,
+        },
+        "window_counts": {
+            "candidate_count_before_rank": 1,
+            "candidate_count_returned": 1,
+        },
+        "truncated_source_counts": {
+            "readout_events": 0,
+        },
+        "selection_budget": {
+            "source_event_window_limit": 32,
+            "requested_candidate_limit": 1,
+            "returned_candidate_limit": 1,
+            "ledger_retention_limit": 1,
+        },
+        "source_event_retention_count": 1,
+        "source_event_window_limit": 32,
+        "source_event_window_count": 1,
+        "source_event_truncated_count": 0,
+        "candidate_count_before_rank": 1,
+        "candidate_count_returned": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "score_device": "cpu",
+        "device_placement": {
+            "archival_storage": "cpu",
+            "source_window_selection": "cpu",
+            "score": "cpu",
+        },
         "gpu_used": False,
     }
 
@@ -189,6 +258,7 @@ def _record_artifact_chain(
         else {}
     )
     readout_hash = f"readout-window-{index}"
+    replay_priority_source_window = _readout_replay_priority_source_window()
     artifact = controller.record_evaluated_snn_transition_memory_replay_artifact(
         artifact_proposal={
             "surface": "snn_transition_memory_replay_artifact_proposal.v1",
@@ -202,6 +272,10 @@ def _record_artifact_chain(
             "source_metadata_hash": context.get("source_metadata_hash"),
             "emission_lineage": context_lineage,
             "replay_window": [{"readout_evidence_hash": readout_hash, "grounded": True}],
+            "replay_priority_source_window": replay_priority_source_window,
+            "replay_priority_source_window_hash": _sha256_json(
+                replay_priority_source_window
+            ),
             "promotion_gate": {"status": "ready_for_operator_recording_review"},
         },
         known_readout_evidence_hashes={readout_hash},
@@ -296,6 +370,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         if isinstance(old_chain["artifact"].get("readout_evidence_source_window"), Mapping)
         else {}
     )
+    replay_priority_source_window = (
+        dict(old_chain["artifact"].get("replay_priority_source_window"))
+        if isinstance(old_chain["artifact"].get("replay_priority_source_window"), Mapping)
+        else {}
+    )
     rss_before = _process_rss_mb()
     timings_ms: list[float] = []
     results: list[bool] = []
@@ -383,6 +462,47 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "known_readout_source_window_persisted_hash": bool(
             old_chain["artifact"].get("readout_evidence_source_window_hash")
         ),
+        "replay_priority_source_window_surface_present": (
+            replay_priority_source_window.get("surface")
+            == "bounded_snn_readout_replay_priority_source_window.v1"
+        ),
+        "replay_priority_source_window_bounded": (
+            0
+            <= int(replay_priority_source_window.get("source_event_window_count", -1) or -1)
+            <= int(replay_priority_source_window.get("source_event_window_limit", 0) or 0)
+            <= 32
+            and 0
+            <= int(
+                replay_priority_source_window.get(
+                    "candidate_count_returned",
+                    -1,
+                )
+                or -1
+            )
+            <= int(
+                replay_priority_source_window.get(
+                    "candidate_count_before_rank",
+                    0,
+                )
+                or 0
+            )
+        ),
+        "replay_priority_source_window_cpu_only": (
+            replay_priority_source_window.get("archival_storage_device") == "cpu"
+            and replay_priority_source_window.get("score_device") == "cpu"
+            and replay_priority_source_window.get("gpu_used") is False
+        ),
+        "replay_priority_source_window_no_hidden_work": (
+            replay_priority_source_window.get("global_candidate_scan") is False
+            and replay_priority_source_window.get("global_score_scan") is False
+            and replay_priority_source_window.get("raw_text_payload_loaded") is False
+            and replay_priority_source_window.get("language_reasoning") is False
+            and replay_priority_source_window.get("runs_live_tick") is False
+            and replay_priority_source_window.get("runs_every_token") is False
+        ),
+        "replay_priority_source_window_persisted_hash": bool(
+            old_chain["artifact"].get("replay_priority_source_window_hash")
+        ),
     }
     return {
         "surface": "bounded_snn_replay_artifact_provenance_source_window_benchmark.v1",
@@ -408,6 +528,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "known_readout_evidence_source_window": readout_source_window,
             "known_readout_evidence_source_window_hash": old_chain["artifact"].get(
                 "readout_evidence_source_window_hash"
+            ),
+            "replay_priority_source_window": replay_priority_source_window,
+            "replay_priority_source_window_hash": old_chain["artifact"].get(
+                "replay_priority_source_window_hash"
             ),
         },
         "latency": latency,

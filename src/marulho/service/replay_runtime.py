@@ -37,6 +37,30 @@ SNN_REPLAY_PROVENANCE_SOURCE_WINDOW_POLICY = "indexed_context_ticket_artifact_pe
 SNN_READOUT_KNOWN_EVIDENCE_SOURCE_WINDOW_SURFACE = (
     "bounded_snn_readout_known_evidence_hash_source_window.v1"
 )
+SNN_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS = (
+    "gpu_used",
+    "global_candidate_scan",
+    "global_score_scan",
+    "runs_live_tick",
+    "runs_live_replay",
+    "records_replay_artifact",
+    "raw_text_payload_loaded",
+    "language_reasoning",
+    "mutates_runtime_state",
+    "applies_plasticity",
+)
+SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS = (
+    "gpu_used",
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+)
+SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
@@ -88,6 +112,77 @@ def _known_readout_evidence_source_window_bounded(
         and 0 <= source_window_count <= source_window_limit
         and all(report.get(flag) is False for flag in explicit_false_flags)
         and report.get("archival_storage_device") == "cpu"
+    )
+
+
+def _snn_replay_priority_source_window_bounded(
+    source_window: Mapping[str, Any],
+) -> bool:
+    try:
+        recent_count = int(source_window.get("recent_context_window_count", -1))
+        recent_limit = int(source_window.get("recent_context_window_limit", -1))
+        target_request_count = int(
+            source_window.get("readout_target_request_count", -1)
+        )
+        target_context_count = int(source_window.get("readout_target_context_count", -1))
+        target_limit = int(source_window.get("readout_target_window_limit", -1))
+        source_context_count = int(source_window.get("source_context_count", -1))
+        verified_context_count = int(source_window.get("verified_context_count", -1))
+    except (TypeError, ValueError):
+        return False
+    return (
+        source_window.get("surface") == "bounded_snn_replay_priority_source_window.v1"
+        and 0 < recent_limit <= SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT
+        and 0 <= recent_count <= recent_limit
+        and 0 < target_limit <= SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT
+        and 0 <= target_request_count <= target_limit
+        and 0 <= target_context_count <= target_request_count
+        and 0 <= verified_context_count <= source_context_count
+        and source_context_count <= recent_count + target_context_count
+        and all(
+            source_window.get(flag) is False
+            for flag in SNN_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS
+        )
+        and source_window.get("archival_storage_device") == "cpu"
+        and source_window.get("score_device") == "cpu"
+    )
+
+
+def _snn_readout_replay_priority_source_window_bounded(
+    source_window: Mapping[str, Any],
+) -> bool:
+    try:
+        source_event_window_count = int(
+            source_window.get("source_event_window_count", -1)
+        )
+        source_event_window_limit = int(
+            source_window.get("source_event_window_limit", -1)
+        )
+        source_event_retention_count = int(
+            source_window.get("source_event_retention_count", -1)
+        )
+        candidate_count_before_rank = int(
+            source_window.get("candidate_count_before_rank", -1)
+        )
+        candidate_count_returned = int(
+            source_window.get("candidate_count_returned", -1)
+        )
+    except (TypeError, ValueError):
+        return False
+    return (
+        source_window.get("surface")
+        == "bounded_snn_readout_replay_priority_source_window.v1"
+        and 0 < source_event_window_limit <= SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT
+        and 0 <= source_event_window_count <= source_event_window_limit
+        and source_event_window_count <= source_event_retention_count
+        and 0 <= candidate_count_before_rank <= source_event_window_count
+        and 0 <= candidate_count_returned <= candidate_count_before_rank
+        and all(
+            source_window.get(flag) is False
+            for flag in SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS
+        )
+        and source_window.get("archival_storage_device") == "cpu"
+        and source_window.get("score_device") == "cpu"
     )
 
 
@@ -3689,10 +3784,7 @@ class ReplayController:
             )
             is False,
             "priority_queue_source_window_bounded": (
-                queue_source_window.get("surface")
-                == "bounded_snn_replay_priority_source_window.v1"
-                and bool(queue_source_window.get("global_candidate_scan")) is False
-                and bool(queue_source_window.get("runs_live_tick")) is False
+                _snn_replay_priority_source_window_bounded(queue_source_window)
             ),
             "current_revision_candidate_available": bool(selected),
         }
@@ -4479,6 +4571,11 @@ class ReplayController:
                 if isinstance(metadata.get("readout_evidence_source_window"), Mapping)
                 else {}
             )
+            replay_priority_source_window = (
+                dict(metadata.get("replay_priority_source_window"))
+                if isinstance(metadata.get("replay_priority_source_window"), Mapping)
+                else {}
+            )
             if source_metadata_hash or emission_lineage:
                 material["source_metadata_hash"] = source_metadata_hash
                 material["emission_lineage"] = emission_lineage
@@ -4487,6 +4584,10 @@ class ReplayController:
             if readout_evidence_source_window:
                 material["readout_evidence_source_window_hash"] = self._sha256_json(
                     readout_evidence_source_window
+                )
+            if replay_priority_source_window:
+                material["replay_priority_source_window_hash"] = self._sha256_json(
+                    replay_priority_source_window
                 )
             evidence_hash = self._sha256_json(material)
             artifact = {
@@ -4510,6 +4611,8 @@ class ReplayController:
                 artifact["readout_evidence_source_window"] = (
                     readout_evidence_source_window
                 )
+            if replay_priority_source_window:
+                artifact["replay_priority_source_window"] = replay_priority_source_window
             self._snn_transition_memory_replay_artifacts.appendleft(deepcopy(artifact))
             self._runtime_state.mark_dirty_without_revision()
             return deepcopy(artifact)
@@ -4539,6 +4642,14 @@ class ReplayController:
             dict(known_readout_evidence_source_window)
             if isinstance(known_readout_evidence_source_window, Mapping)
             else {}
+        )
+        replay_priority_source_window = (
+            dict(proposal.get("replay_priority_source_window"))
+            if isinstance(proposal.get("replay_priority_source_window"), Mapping)
+            else {}
+        )
+        replay_priority_source_window_hash = str(
+            proposal.get("replay_priority_source_window_hash") or ""
         )
         context = self.verified_snn_replay_evaluation_context(replay_evaluation_context_id)
         ticket = self.verified_snn_replay_artifact_recording_review_ticket(
@@ -4599,6 +4710,18 @@ class ReplayController:
             raise ValueError(
                 "Evaluated SNN replay artifact proposal requires bounded current internal-ledger evidence source window."
             )
+        if not _snn_readout_replay_priority_source_window_bounded(
+            replay_priority_source_window
+        ):
+            raise ValueError(
+                "Evaluated SNN replay artifact proposal requires bounded replay-priority source window."
+            )
+        if replay_priority_source_window_hash != self._sha256_json(
+            replay_priority_source_window
+        ):
+            raise ValueError(
+                "Evaluated SNN replay artifact proposal requires matching replay-priority source-window hash."
+            )
         source_window = self._snn_replay_provenance_source_window(
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
             review_ticket_id=str(ticket["review_ticket_id"]),
@@ -4635,6 +4758,7 @@ class ReplayController:
                 ],
                 "source_window": source_window,
                 "readout_evidence_source_window": known_source_window,
+                "replay_priority_source_window": replay_priority_source_window,
             },
         )
         return deepcopy(artifact)
@@ -4823,6 +4947,10 @@ class ReplayController:
         if artifact.get("readout_evidence_source_window_hash"):
             material["readout_evidence_source_window_hash"] = artifact.get(
                 "readout_evidence_source_window_hash"
+            )
+        if artifact.get("replay_priority_source_window_hash"):
+            material["replay_priority_source_window_hash"] = artifact.get(
+                "replay_priority_source_window_hash"
             )
         if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
             material["source_metadata_hash"] = artifact.get("source_metadata_hash")

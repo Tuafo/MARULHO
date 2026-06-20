@@ -100,6 +100,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
   - reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-known-readout-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -168,6 +171,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-source-window.json`
 - SNN replay artifact known-readout source-window binding:
   `PYTHONPATH=src python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\snn-replay-artifact-known-readout-source-window.json`
+- SNN replay artifact readout-priority source-window binding:
+  `PYTHONPATH=src python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\snn-replay-artifact-readout-priority-source-window.json`
 - SNN readout-ledger dense-label calibration source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json`
 - SNN readout-ledger dense-label evaluation source window:
@@ -206,6 +211,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for SNN replay artifact known-readout source-window binding:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-known-readout-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+- Hot-path protection for SNN replay artifact readout-priority source-window binding:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for SNN readout dense-label calibration source window:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260619\hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 - Hot-path protection for SNN readout dense-label evaluation source window:
@@ -1410,6 +1417,51 @@ sequence failures were all `0`; `velocity_environment.v1` reported GPU
 contention, CPU max `49%`, GPU max `30%`, GPU memory-util max `23%`, and RTX
 3060 memory stayed flat at `1986 MiB`. This is same-band protection under
 contention for a retired bypass, not a speed ceiling.
+
+The replay-priority binding follow-up closes the next report-dropping artifact
+shape. `transition_memory_replay_artifact_proposal(...)` already chose its
+replay window from `replay_priority(...)`, but the evaluated replay artifact did
+not have to carry the priority selector's own source-window report. The
+maintained path now stores `replay_priority_source_window` plus
+`replay_priority_source_window_hash` in the proposal, requires that report when
+recording evaluated replay artifacts, and includes the hash in artifact and
+rollout-review recomputation.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\snn-replay-artifact-readout-priority-source-window.json`
+
+It passed with replay-priority source window `1/32`, persisted
+`replay_priority_source_window_hash`, CPU archival and scoring placement, no
+global candidate/score scan, no raw text payload, no language reasoning, no
+live-tick or every-token work, CUDA available but unused, and `0.0 MiB` CUDA
+allocation/reservation. The indexed replay-artifact provenance check still
+verified the oldest retained permit every run with `4` bounded index lookups
+instead of `256` projected retained-record checks (`64x`). Mean verification
+latency was `0.421992 ms`, p95 was `0.719700 ms`, and traced Python peak was
+`0.014385 MiB`.
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The first run succeeded but is rejected as primary evidence: `4662.031
+tokens/sec`, `tick_duration_ms.p95=46.504`, and `train_compute=0.173596
+ms/token` with observed GPU contention (`gpu max=27%`, GPU memory-util max
+`25%`).
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The accepted rerun processed `524288` tokens at `5937.908 tokens/sec`, with
+`train_compute=0.136165 ms/token`, `prepare_training=0.007577 ms/token`,
+`finalize_total=0.006686 ms/token`, `tick_duration_ms.p95=22.814`, and prewarm
+`284.026 s`. Runtime Truth kept route scoring bounded at `12/65536` input rows
+and `10` output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, and recorded zero graph/native
+sequence failures. Contention was `not_observed` (`cpu max=22%`, `gpu max=13%`,
+GPU memory-util max `18%`), and RTX 3060 memory stayed flat at `1943 MiB`.
+This is same-band hot-path protection for deleting a report-dropping slow-path
+artifact shape, not a speed promotion.
 
 Dense-label candidate history and calibration policy now use the same one-family
 source-window boundary. The active path emits
