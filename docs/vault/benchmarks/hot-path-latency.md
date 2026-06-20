@@ -4683,6 +4683,39 @@ operator/export slow path. Python traced peak allocation was `2.842 MiB`;
 CUDA was available on the RTX 3060 but unused by the benchmark, with CPU
 archival/source/link placement and no GPU-resident archival metadata.
 
+Follow-up runtime trace export and replay-sample summary benchmark:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260620\replay-dataset-runtime-trace-export-summary-source-window.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 15`
+
+Result: `pass=true`; runtime trace export now reports
+`bounded_runtime_trace_export_source_window.v1` over `50/64` retained traces,
+and replay sample summary reports
+`bounded_replay_sample_summary_source_window.v1` over `64/256` retained sample
+records. Trace export selected IDs still matched the diagnostic bounded target
+IDs (`50/50`), replay sample links stayed at `64/256`, selected-candidate link
+work stayed at `1024/4096`, and the source windows reported CPU placement, no
+live-tick or every-token work, no hidden language reasoning, no replay text, no
+mutation/plasticity/training, and no GPU-resident archival metadata. End-to-end
+trace export mean latency was `2558.419640 ms` because it still includes the
+existing living-loop snapshot/replay-plan export stack; direct bounded replay
+sample summary was `7.440207 ms` on this small fixture, so this is a bounded
+source-window retirement for scale safety, not a latency promotion by itself.
+
+Follow-up runtime trace export and replay-sample summary protection rerun:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-runtime-trace-export-summary-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `86.697712 s`,
+`6047.311 tokens/sec`, `tick_duration_ms.p95=21.357`,
+`train_compute=0.134598 ms/token`, `prepare_training=0.007216 ms/token`, and
+`finalize_total=0.006447 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, and recorded zero
+graph/native sequence failures. Contention was `not_observed` (`cpu max=30%`,
+`gpu max=14%`, GPU memory utilization max `18%`). RTX 3060 memory stayed flat
+at `1911 MiB`. A same-shape first run succeeded at `5918.658 tokens/sec` but
+is retained only as secondary evidence because contention was observed.
+
 Long protection run:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-dataset-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.02`

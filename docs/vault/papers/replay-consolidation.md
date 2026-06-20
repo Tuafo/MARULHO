@@ -1649,6 +1649,27 @@ source work by `4x`, and recorded `2006.587280 ms` mean preview latency,
 and zero graph/native sequence failures. The near-two-second preview cost is
 explicit evidence that this path remains operator/export slow-path only.
 
+The runtime trace export and replay-sample summary follow-up applies the same
+rule to the remaining status/export read path. Trace export now reports
+`bounded_runtime_trace_export_source_window.v1` before endpoint filtering or
+trace-state lookup, replay-sample summary reports
+`bounded_replay_sample_summary_source_window.v1`, living status reads bounded
+recent traces, feedback summary reads bounded trace/action windows, and the
+generic sanitizer uses bounded iteration instead of materializing then
+trimming. The report
+`reports/bounded_replay_window_20260620/replay-dataset-runtime-trace-export-summary-source-window.json`
+passed with `50/64` trace-export records, `64/256` replay-sample summary
+records, `64/256` replay-sample link records, and `1024/4096`
+selected-candidate link records. Selected target IDs and trace-export IDs both
+matched the diagnostic bounded window (`50/50`). The reports keep archival and
+summary work CPU-resident and state no live tick, no every-token cadence, no
+hidden replay-text language reasoning, no mutation/plasticity/training, and no
+GPU-resident archival metadata. The accepted `524288`-token protection rerun
+kept the live tick in the same 6k-ish band at `6047.311 tokens/sec`, with
+bounded `12/65536` route rows, `state_transition_runs_all_columns=false`, no
+observed contention, flat RTX 3060 memory at `1911 MiB`, and zero graph/native
+sequence failures.
+
 SNN readout-ledger service snapshots now follow the same selected-source rule.
 The old snapshot path called `_normalized_state()`, which normalized every
 retained readout-ledger event family, before returning only the requested

@@ -1433,6 +1433,23 @@ bounded `12/65536` route rows, `65526` cached transition rows, no observed
 contention, and zero graph/native sequence failures. Runtime CUDA memory moved
 `3554->3541 MiB`; replay-dataset archival/source work used no GPU.
 
+Runtime trace export and replay-sample summary now use the same control-plane
+source-window boundary. `export_runtime_trace_examples(...)` selects at most
+`50` retained runtime traces through
+`bounded_runtime_trace_export_source_window.v1`; replay-sample summary selects
+at most `64` retained sample records through
+`bounded_replay_sample_summary_source_window.v1`; living status and feedback
+summary read bounded recent trace/action windows. The follow-up report
+`reports/bounded_replay_window_20260620/replay-dataset-runtime-trace-export-summary-source-window.json`
+preserved `50/50` trace/export target parity while reading `50/64` traces,
+`64/256` replay-sample summary rows, and `1024/4096` candidate-link rows. This
+is still operator/export work with CPU archival placement, no hidden replay-text
+reasoning, and no live-tick or every-token authority. The accepted protection
+rerun processed `524288` tokens at `6047.311 tokens/sec` with bounded
+`12/65536` route rows, `state_transition_runs_all_columns=false`, no observed
+contention, flat RTX 3060 memory at `1911 MiB`, and zero graph/native sequence
+failures.
+
 Applied-synapse provenance status is also read-only projection work. The
 service no longer scans all retained applied sparse weights and provenance rows
 to decide audit readiness. It reads a `32 + 32` CPU source window through

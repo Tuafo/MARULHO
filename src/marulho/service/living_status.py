@@ -51,7 +51,7 @@ class LivingStatusCore:
         ]
         runtime_episodes = [
             RuntimeEpisodeTrace.from_payload(item)
-            for item in list(self._interaction_pipeline.runtime_episode_traces())[:12]
+            for item in self._interaction_pipeline.runtime_episode_traces(limit=12)
             if isinstance(item, Mapping)
         ]
         runtime_state_revision = int(self._runtime_state.state_revision)

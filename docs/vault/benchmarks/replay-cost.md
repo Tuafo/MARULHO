@@ -1887,6 +1887,42 @@ sequence failures. Contention was `not_observed` (`cpu max=25%`, `gpu max=8%`,
 GPU memory utilization max `9%`), and RTX 3060 memory stayed flat at
 `1936 MiB`.
 
+## Runtime Trace Export And Replay Sample Summary Windows
+
+Runtime trace export and replay-sample summary now follow the same selected
+slow-window rule as replay-dataset preview. Trace export emits
+`bounded_runtime_trace_export_source_window.v1` before endpoint filtering or
+trace-state lookup. Replay-sample summary emits
+`bounded_replay_sample_summary_source_window.v1`, scans at most `64` recent
+sample records for mode/status/latest-item summary, and keeps the retained
+sample count as O(1) deque length. Living status and feedback summary use
+bounded recent trace/action windows instead of asking for all retained runtime
+episode traces.
+
+Focused quality and source-budget benchmark:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260620\replay-dataset-runtime-trace-export-summary-source-window.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 15`
+
+Result: `pass=true`; trace export read `50/64` retained traces, replay-sample
+summary read `64/256` retained sample records, replay-sample links read
+`64/256`, and selected-candidate links read `1024/4096`. Selected target IDs
+and trace-export IDs both matched the diagnostic bounded window (`50/50`).
+All source windows report CPU archival/source placement, no global
+candidate/score scan, no raw replay text, no hidden language reasoning, no
+live tick, no every-token cadence, no mutation/plasticity/training, and no
+GPU-resident archival metadata. Direct bounded replay-sample summary cost was
+`7.440207 ms` on this small retained fixture; that is source-budget evidence,
+not a latency promotion.
+
+The accepted `524288`-token hot-path rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-runtime-trace-export-summary-source-window-rerun.json`
+kept the live tick protected at `6047.311 tokens/sec`,
+`tick_duration_ms.p95=21.357`, `train_compute=0.134598 ms/token`,
+`prepare_training=0.007216 ms/token`, `finalize_total=0.006447 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, no observed contention, flat RTX 3060
+memory at `1911 MiB`, and zero graph/native sequence failures.
+
 ## Status Transition Memory Source Window
 
 Capacity pressure, dense readout tensor integrity, applied-synapse provenance,

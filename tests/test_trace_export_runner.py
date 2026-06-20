@@ -19,6 +19,8 @@ from marulho.service.replay_dataset_bundle_runner import (
     main as replay_dataset_bundle_main,
 )
 from marulho.service.manager import MarulhoServiceManager
+from marulho.service.replay_runtime import REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT
+from marulho.service.runtime_evidence import MAX_RUNTIME_TRACE_EXPORT_LIMIT
 from marulho.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
@@ -221,6 +223,19 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertTrue(dataset["replay_sample_summary"]["safety_flags"]["audit_only"])
         self.assertFalse(dataset["replay_sample_summary"]["safety_flags"]["external_calls_made"])
         self.assertEqual(dataset["metadata"]["replay_sample_summary"]["count"], 1)
+        source_window = dataset["source_window"]
+        self.assertEqual(source_window["surface"], "bounded_runtime_trace_export_source_window.v1")
+        self.assertEqual(source_window["source_window_count"], 1)
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        replay_sample_window = dataset["replay_sample_summary"]["source_window"]
+        self.assertEqual(
+            replay_sample_window["surface"],
+            "bounded_replay_sample_summary_source_window.v1",
+        )
+        self.assertFalse(replay_sample_window["global_candidate_scan"])
+        self.assertFalse(replay_sample_window["language_reasoning"])
         self.assertEqual(dataset["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
         self.assertEqual(dataset["metadata"]["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
         self.assertEqual(dataset["replay_dataset_summary"]["latest_history_timestamp"], "2025-01-01T00:00:03+00:00")
@@ -250,6 +265,116 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertNotIn("api_key", exported_json)
         self.assertNotIn("password", exported_json)
         self.assertNotIn("trace_path", exported_json)
+
+    def test_runtime_trace_export_and_replay_sample_summary_use_bounded_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            traces = []
+            trace_count = MAX_RUNTIME_TRACE_EXPORT_LIMIT + 14
+            for index in range(trace_count):
+                operation = "respond" if index < MAX_RUNTIME_TRACE_EXPORT_LIMIT else "feed"
+                trace = deepcopy(_runtime_trace_payload())
+                trace["episode_id"] = f"episode-{operation}-{index:03d}"
+                trace["trace_id"] = f"trace-{operation}-{index:03d}"
+                trace["operation"] = operation
+                trace["feedback"][0]["target_id"] = trace["episode_id"]
+                traces.append(trace)
+            replay_samples = []
+            for index in range(80):
+                replay_samples.append(
+                    {
+                        "schema_version": 1,
+                        "replay_sample_id": f"sample-{index:03d}",
+                        "execution_id": f"execute-{index:03d}",
+                        "created_at": f"2025-01-01T00:{index % 60:02d}:03+00:00",
+                        "mode": "execute",
+                        "status": "recorded",
+                        "operator_id": "qa-1",
+                        "selected_candidate_ids": [f"candidate-{index:03d}"],
+                        "selected_candidates": [
+                            {
+                                "candidate_id": f"candidate-{index:03d}",
+                                "target_type": "runtime_episode",
+                                "target_id": f"episode-respond-{index % MAX_RUNTIME_TRACE_EXPORT_LIMIT:03d}",
+                            }
+                        ],
+                        "safety_flags": {
+                            "audit_only": True,
+                            "external_calls_made": False,
+                        },
+                    }
+                )
+            checkpoint = _build_checkpoint(
+                root,
+                metadata={
+                    "service_state": {
+                        "terminus_runtime": {
+                            "runtime_episode_traces": traces,
+                            "replay_sample_history": replay_samples,
+                        }
+                    }
+                },
+            )
+
+            dataset = export_runtime_trace_dataset(
+                checkpoint,
+                limit=50,
+                endpoint=None,
+                trace_dir=root / "traces",
+            )
+            feed_dataset = export_runtime_trace_dataset(
+                checkpoint,
+                limit=50,
+                endpoint="feed",
+                trace_dir=root / "traces",
+            )
+
+        source_window = dataset["source_window"]
+        self.assertEqual(source_window["surface"], "bounded_runtime_trace_export_source_window.v1")
+        self.assertEqual(source_window["source_record_count"], 64)
+        self.assertEqual(source_window["source_window_count"], MAX_RUNTIME_TRACE_EXPORT_LIMIT)
+        self.assertTrue(source_window["source_payload_truncated"])
+        self.assertEqual(source_window["source_truncated_count"], 14)
+        self.assertEqual(source_window["candidate_count_returned"], 50)
+        self.assertEqual(dataset["count"], 50)
+        self.assertEqual(len(dataset["examples"]), 50)
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        self.assertFalse(source_window["gpu_resident_archival_metadata"])
+
+        sample_summary = dataset["replay_sample_summary"]
+        self.assertEqual(sample_summary["count"], 80)
+        self.assertEqual(sample_summary["history_count"], 80)
+        self.assertEqual(
+            sample_summary["source_window_count"],
+            REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertFalse(sample_summary["source_window_complete"])
+        self.assertEqual(sample_summary["summary_count_scope"], "bounded_source_window")
+        self.assertEqual(
+            sample_summary["source_window"]["source_truncated_count"],
+            80 - REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            sample_summary["mode_counts"]["execute"],
+            REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            sample_summary["latest_history_item"]["replay_sample_id"],
+            "sample-000",
+        )
+        self.assertFalse(sample_summary["source_window"]["global_candidate_scan"])
+        self.assertFalse(sample_summary["source_window"]["language_reasoning"])
+        self.assertFalse(sample_summary["source_window"]["runs_live_tick"])
+        self.assertFalse(sample_summary["source_window"]["gpu_used"])
+
+        feed_source_window = feed_dataset["source_window"]
+        self.assertEqual(feed_dataset["count"], 0)
+        self.assertEqual(feed_source_window["matched_trace_count_evaluated"], 0)
+        self.assertEqual(feed_source_window["source_window_count"], MAX_RUNTIME_TRACE_EXPORT_LIMIT)
+        self.assertTrue(feed_source_window["source_payload_truncated"])
 
     def test_main_writes_empty_valid_dataset_when_checkpoint_has_no_runtime_traces(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -63,6 +63,7 @@ SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_FALSE_FLAGS = (
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
+REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT = 64
 SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
     "review_rollout_regeneration_application": (
         "rollout_regeneration_application_review",
@@ -5230,7 +5231,7 @@ class ReplayController:
     def replay_sample_history(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
             count = max(1, min(DEFAULT_REPLAY_SAMPLE_HISTORY, int(limit)))
-            history = [deepcopy(item) for item in list(self._replay_sample_history)[:count]]
+            history = [deepcopy(item) for item in islice(self._replay_sample_history, count)]
             return {
                 "schema_version": 1,
                 "endpoint": "/terminus/replay-sample/history",
@@ -5240,11 +5241,48 @@ class ReplayController:
             }
 
     def _replay_sample_summary_locked(self) -> dict[str, Any]:
-        records = [
-            dict(item)
-            for item in list(self._replay_sample_history)
-            if isinstance(item, Mapping)
-        ]
+        retained_count = int(len(self._replay_sample_history))
+        source_limit = max(1, min(DEFAULT_REPLAY_SAMPLE_HISTORY, int(REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT)))
+        records: list[dict[str, Any]] = []
+        source_window_count = 0
+        for item in islice(self._replay_sample_history, source_limit):
+            source_window_count += 1
+            if isinstance(item, Mapping):
+                records.append(dict(item))
+        source_window = {
+            "surface": "bounded_replay_sample_summary_source_window.v1",
+            "policy": "recent_replay_sample_summary_window",
+            "window_policy": "recent_replay_sample_summary_window",
+            "source": "replay_controller.replay_sample_history",
+            "selection_criteria": [
+                "newest_replay_sample_records_first",
+                "bounded_summary_before_status_or_export",
+                "latest_item_exact_inside_window",
+            ],
+            "source_window_limit": int(source_limit),
+            "source_window_count": int(source_window_count),
+            "source_record_count": retained_count,
+            "source_record_count_known": True,
+            "source_payload_truncated": bool(retained_count > source_window_count),
+            "source_truncated_count": max(0, retained_count - source_window_count),
+            "summary_record_count": int(len(records)),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_replay_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "summary_device": "cpu",
+            "gpu_used": False,
+            "gpu_resident_archival_metadata": False,
+            "memory_budget": {
+                "max_replay_sample_records": int(source_limit),
+                "archival_storage_device": "cpu",
+            },
+        }
         mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0, "execute": 0})
         status_counts: Counter[str] = Counter()
         selected_count = 0
@@ -5324,13 +5362,18 @@ class ReplayController:
             "execution_endpoint": "/terminus/replay-execute",
             "history_endpoint": "/terminus/replay-sample/history",
             "execution_history_endpoint": "/terminus/replay-execute/history",
-            "count": int(len(records)),
-            "history_count": int(len(records)),
+            "count": retained_count,
+            "history_count": retained_count,
+            "source_window_count": int(source_window_count),
+            "source_window_complete": bool(retained_count <= source_window_count),
+            "summary_count_scope": "bounded_source_window",
+            "selected_count_scope": "bounded_source_window",
             "selected_count": int(selected_count),
             "latest_selected_count": int(latest_selected_count),
             "mode_counts": dict(mode_counts),
             "status_counts": dict(status_counts),
             "latest_history_item": latest_item,
+            "source_window": source_window,
             "safety_flags": dict(latest_safety_flags),
             "safety_boundaries": list(REPLAY_SAMPLE_SAFETY_BOUNDARIES),
             "audit_only": True,

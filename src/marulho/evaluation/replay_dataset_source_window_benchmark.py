@@ -13,7 +13,11 @@ from typing import Any, Mapping, Sequence
 
 from marulho.config.model_config import MarulhoConfig
 from marulho.service.manager import MarulhoServiceManager
-from marulho.service.runtime_evidence import MAX_REPLAY_DATASET_EXPORT_LIMIT
+from marulho.service.replay_runtime import REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT
+from marulho.service.runtime_evidence import (
+    MAX_REPLAY_DATASET_EXPORT_LIMIT,
+    MAX_RUNTIME_TRACE_EXPORT_LIMIT,
+)
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -228,6 +232,39 @@ def _diagnostic_full_retained_preview(
     }
 
 
+def _diagnostic_full_replay_sample_summary(
+    replay_samples: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    mode_counts: dict[str, int] = {"dry_run": 0, "sample": 0, "execute": 0}
+    status_counts: dict[str, int] = {}
+    selected_count = 0
+    for raw in replay_samples:
+        if not isinstance(raw, Mapping):
+            continue
+        mode = str(raw.get("mode", "sample") or "sample").strip().lower()
+        if mode not in mode_counts:
+            mode = "sample"
+        status = str(raw.get("status", "recorded") or "recorded").strip() or "recorded"
+        mode_counts[mode] += 1
+        status_counts[status] = int(status_counts.get(status, 0)) + 1
+        selected_ids = raw.get("selected_candidate_ids")
+        if isinstance(selected_ids, Sequence) and not isinstance(selected_ids, (str, bytes)):
+            selected_count += len(selected_ids)
+            continue
+        selected_candidates = raw.get("selected_candidates")
+        if isinstance(selected_candidates, Sequence) and not isinstance(selected_candidates, (str, bytes)):
+            selected_count += len(selected_candidates)
+    latest = dict(replay_samples[0]) if replay_samples and isinstance(replay_samples[0], Mapping) else {}
+    return {
+        "surface": "diagnostic_full_retained_replay_sample_summary.v1",
+        "records_scanned": int(len(replay_samples)),
+        "mode_counts": mode_counts,
+        "status_counts": status_counts,
+        "selected_count": int(selected_count),
+        "latest_replay_sample_id": latest.get("replay_sample_id"),
+    }
+
+
 def _mean(values: Sequence[float]) -> float:
     return float(statistics.fmean(values)) if values else 0.0
 
@@ -260,7 +297,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 retained_replay_samples = [deepcopy(item) for item in list(manager._replay_sample_history)]
 
             diagnostic_latencies: list[float] = []
+            diagnostic_summary_latencies: list[float] = []
             diagnostic: dict[str, Any] = {}
+            diagnostic_summary: dict[str, Any] = {}
             for _ in range(runs):
                 started = time.perf_counter()
                 diagnostic = _diagnostic_full_retained_preview(
@@ -270,10 +309,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     endpoint=endpoint,
                 )
                 diagnostic_latencies.append((time.perf_counter() - started) * 1000.0)
+                started = time.perf_counter()
+                diagnostic_summary = _diagnostic_full_replay_sample_summary(
+                    retained_replay_samples,
+                )
+                diagnostic_summary_latencies.append((time.perf_counter() - started) * 1000.0)
 
             rss_before = _process_rss_mib()
             bounded_latencies: list[float] = []
+            trace_export_latencies: list[float] = []
+            summary_latencies: list[float] = []
             last_dataset: dict[str, Any] = {}
+            last_trace_export: dict[str, Any] = {}
+            last_replay_summary: dict[str, Any] = {}
             tracemalloc.start()
             for _ in range(runs):
                 started = time.perf_counter()
@@ -282,6 +330,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     endpoint=endpoint,
                 )
                 bounded_latencies.append((time.perf_counter() - started) * 1000.0)
+                started = time.perf_counter()
+                last_trace_export = manager.runtime_facade.export_runtime_trace_examples(
+                    limit=limit,
+                    endpoint=endpoint,
+                )
+                trace_export_latencies.append((time.perf_counter() - started) * 1000.0)
+                with manager._lock:
+                    started = time.perf_counter()
+                    last_replay_summary = manager._replay_sample_summary_locked()
+                    summary_latencies.append((time.perf_counter() - started) * 1000.0)
             traced_current, traced_peak = tracemalloc.get_traced_memory()
             tracemalloc.stop()
             rss_after = _process_rss_mib()
@@ -290,9 +348,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     source_window = dict(last_dataset.get("source_window") or {})
     link_window = dict(source_window.get("replay_sample_link_source_window") or {})
+    trace_export_source_window = dict(last_trace_export.get("source_window") or {})
+    trace_export_replay_summary = dict(last_trace_export.get("replay_sample_summary") or {})
+    if not trace_export_replay_summary:
+        trace_export_replay_summary = dict(last_replay_summary)
+    replay_summary_source_window = dict(trace_export_replay_summary.get("source_window") or {})
     bounded_selected_ids = [
         str(item.get("target_id", "") or "")
         for item in list(last_dataset.get("items") or [])
+        if isinstance(item, Mapping)
+    ]
+    trace_export_selected_ids = [
+        str(item.get("example_id", "") or "")
+        for item in list(last_trace_export.get("examples") or [])
         if isinstance(item, Mapping)
     ]
     diagnostic_selected_ids = list(diagnostic.get("selected_target_ids") or [])
@@ -311,6 +379,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         1.0,
         float(link_window.get("source_window_count", 0) or 0),
     )
+    trace_export_reduction = float(diagnostic.get("trace_records_scanned", 0) or 0) / max(
+        1.0,
+        float(trace_export_source_window.get("source_window_count", 0) or 0),
+    )
+    replay_summary_reduction = float(sample_count) / max(
+        1.0,
+        float(replay_summary_source_window.get("source_window_count", 0) or 0),
+    )
     selected_candidate_reduction = float(
         diagnostic.get("selected_candidate_records_scanned", 0) or 0
     ) / max(1.0, float(link_window.get("selected_candidate_window_count", 0) or 0))
@@ -319,39 +395,85 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "metric": "bounded_preview_matches_full_retained_history_for_returned_window",
         "diagnostic_selected_target_ids": diagnostic_selected_ids,
         "bounded_selected_target_ids": bounded_selected_ids,
+        "trace_export_selected_ids": trace_export_selected_ids,
         "selected_target_ids_match": diagnostic_selected_ids == bounded_selected_ids,
+        "trace_export_selected_ids_match": diagnostic_selected_ids == trace_export_selected_ids,
         "diagnostic_linked_selected_count": int(diagnostic.get("linked_selected_count", 0) or 0),
         "bounded_linked_selected_count": int(bounded_linked_count),
         "link_coverage_matches": int(diagnostic.get("linked_selected_count", 0) or 0)
         == int(bounded_linked_count),
+        "replay_sample_latest_id": (
+            dict(trace_export_replay_summary.get("latest_history_item") or {}).get("replay_sample_id")
+        ),
+        "replay_summary_latest_matches": (
+            dict(trace_export_replay_summary.get("latest_history_item") or {}).get("replay_sample_id")
+            == diagnostic_summary.get("latest_replay_sample_id")
+        ),
     }
     pass_checks = {
         "dataset_surface": last_dataset.get("export_kind") == "terminus_replay_dataset_preview",
+        "trace_export_surface": last_trace_export.get("export_kind")
+        == "terminus_runtime_trace_dataset_preview",
         "source_window_surface": source_window.get("surface")
         == "bounded_replay_dataset_preview_source_window.v1",
+        "trace_export_source_window_surface": trace_export_source_window.get("surface")
+        == "bounded_runtime_trace_export_source_window.v1",
+        "replay_sample_summary_source_window_surface": replay_summary_source_window.get("surface")
+        == "bounded_replay_sample_summary_source_window.v1",
         "link_window_surface": link_window.get("surface")
         == "bounded_replay_dataset_sample_link_source_window.v1",
         "selected_target_ids_match": bool(quality["selected_target_ids_match"]),
+        "trace_export_selected_ids_match": bool(quality["trace_export_selected_ids_match"]),
         "link_coverage_matches": bool(quality["link_coverage_matches"]),
         "source_window_bounded": int(source_window.get("source_window_count", 0) or 0)
         <= int(source_window.get("source_window_limit", 0) or 0),
+        "trace_export_source_window_bounded": int(
+            trace_export_source_window.get("source_window_count", 0) or 0
+        )
+        <= int(trace_export_source_window.get("source_window_limit", 0) or 0),
         "replay_sample_window_bounded": int(link_window.get("source_window_count", 0) or 0)
         <= int(link_window.get("source_window_limit", 0) or 0),
+        "replay_sample_summary_window_bounded": int(
+            replay_summary_source_window.get("source_window_count", 0) or 0
+        )
+        <= int(replay_summary_source_window.get("source_window_limit", 0) or 0),
         "trace_work_reduced": trace_reduction >= 1.0,
+        "trace_export_work_reduced": trace_export_reduction >= 1.0,
         "replay_sample_work_reduced": replay_sample_reduction >= 2.0,
+        "replay_sample_summary_work_reduced": replay_summary_reduction >= 2.0,
         "selected_candidate_work_reduced": selected_candidate_reduction >= 2.0,
         "runs_live_tick_false": source_window.get("runs_live_tick") is False
-        and link_window.get("runs_live_tick") is False,
+        and link_window.get("runs_live_tick") is False
+        and trace_export_source_window.get("runs_live_tick") is False
+        and replay_summary_source_window.get("runs_live_tick") is False,
         "runs_every_token_false": source_window.get("runs_every_token") is False
-        and link_window.get("runs_every_token") is False,
+        and link_window.get("runs_every_token") is False
+        and trace_export_source_window.get("runs_every_token") is False
+        and replay_summary_source_window.get("runs_every_token") is False,
         "no_training_or_plasticity": source_window.get("trains_adapter") is False
         and link_window.get("trains_adapter") is False
         and source_window.get("applies_plasticity") is False
-        and link_window.get("applies_plasticity") is False,
+        and link_window.get("applies_plasticity") is False
+        and trace_export_source_window.get("trains_adapter") is False
+        and trace_export_source_window.get("applies_plasticity") is False
+        and replay_summary_source_window.get("applies_plasticity") is False,
         "archival_metadata_cpu": source_window.get("archival_storage_device") == "cpu"
         and link_window.get("archival_storage_device") == "cpu"
+        and trace_export_source_window.get("archival_storage_device") == "cpu"
+        and replay_summary_source_window.get("archival_storage_device") == "cpu"
         and source_window.get("gpu_resident_archival_metadata") is False
         and link_window.get("gpu_resident_archival_metadata") is False,
+        "replay_summary_total_count_retained": int(trace_export_replay_summary.get("count", 0) or 0)
+        == int(sample_count),
+        "replay_summary_latest_matches": bool(quality["replay_summary_latest_matches"]),
+        "replay_summary_window_limit_expected": int(
+            replay_summary_source_window.get("source_window_limit", 0) or 0
+        )
+        == int(REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT),
+        "trace_export_window_limit_expected": int(
+            trace_export_source_window.get("source_window_limit", 0) or 0
+        )
+        == int(MAX_RUNTIME_TRACE_EXPORT_LIMIT),
     }
 
     return {
@@ -370,16 +492,27 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "quality": quality,
         "latency_ms": {
             "diagnostic_full_retained_preview": _stats(diagnostic_latencies),
+            "diagnostic_full_retained_replay_sample_summary": _stats(
+                diagnostic_summary_latencies
+            ),
             "bounded_source_window_preview": _stats(bounded_latencies),
+            "bounded_runtime_trace_export": _stats(trace_export_latencies),
+            "bounded_replay_sample_summary": _stats(summary_latencies),
             "bounded_mean_cost_ms": round(_mean(bounded_latencies), 6),
+            "trace_export_mean_cost_ms": round(_mean(trace_export_latencies), 6),
+            "replay_sample_summary_mean_cost_ms": round(_mean(summary_latencies), 6),
+            "diagnostic_summary_mean_ms": round(_mean(diagnostic_summary_latencies), 6),
             "diagnostic_mean_ms": round(_mean(diagnostic_latencies), 6),
         },
         "work_reduction": {
             "trace_record_reduction": round(float(trace_reduction), 6),
+            "trace_export_record_reduction": round(float(trace_export_reduction), 6),
             "replay_sample_record_reduction": round(float(replay_sample_reduction), 6),
+            "replay_sample_summary_record_reduction": round(float(replay_summary_reduction), 6),
             "selected_candidate_record_reduction": round(float(selected_candidate_reduction), 6),
         },
         "diagnostic": diagnostic,
+        "diagnostic_replay_sample_summary": diagnostic_summary,
         "dataset_summary": {
             "count": int(last_dataset.get("count", 0) or 0),
             "positive_count": int(last_dataset.get("positive_count", 0) or 0),
@@ -387,6 +520,21 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "safety_flags": dict(last_dataset.get("safety_flags") or {}),
         },
         "source_window": source_window,
+        "trace_export_summary": {
+            "count": int(last_trace_export.get("count", 0) or 0),
+            "source_window": trace_export_source_window,
+            "replay_sample_summary": {
+                "count": int(trace_export_replay_summary.get("count", 0) or 0),
+                "source_window_count": int(
+                    trace_export_replay_summary.get("source_window_count", 0) or 0
+                ),
+                "source_window_complete": bool(
+                    trace_export_replay_summary.get("source_window_complete")
+                ),
+                "summary_count_scope": trace_export_replay_summary.get("summary_count_scope"),
+                "source_window": replay_summary_source_window,
+            },
+        },
         "resource_behavior": {
             "process_rss_before_mib": None if rss_before is None else round(float(rss_before), 3),
             "process_rss_after_mib": None if rss_after is None else round(float(rss_after), 3),
