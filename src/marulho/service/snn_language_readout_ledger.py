@@ -36238,7 +36238,10 @@ class SNNLanguageReadoutEvidenceLedger:
         stability_score = float(summary.get("stability_score", 0.0) or 0.0)
         rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
         selected = traces[:max_candidates]
-        known_evidence_hashes = self._known_readout_evidence_hashes()
+        (
+            known_evidence_hashes,
+            known_readout_evidence_source_window,
+        ) = self._known_readout_evidence_hashes_with_report()
         required = {
             "rehearsal_experiment_surface_available": report.get("surface")
             == "snn_language_readout_rehearsal_experiment.v1",
@@ -36266,6 +36269,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 str(item.get("readout_evidence_hash") or "") in known_evidence_hashes
                 for item in selected
             ) if selected else False,
+            "known_readout_evidence_source_window_bounded": (
+                self._known_readout_evidence_source_window_bounded(
+                    known_readout_evidence_source_window
+                )
+            ),
             "pressure_gain_sufficient": expected_gain >= min_pressure_gain,
             "stability_sufficient": stability_score >= stability_floor,
             "rollback_policy_available": rollback_available,
@@ -36287,6 +36295,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "max_replay_cycles": max_replay_cycles,
                 "min_pressure_gain": min_pressure_gain,
                 "stability_floor": stability_floor,
+                "known_readout_evidence_source_window": known_readout_evidence_source_window,
             }
         )
         return {
@@ -36316,6 +36325,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "execution_allowed": False,
                 "requires_operator_approval": ready,
             },
+            "known_readout_evidence_source_window": known_readout_evidence_source_window,
             "selected_replay_targets": [
                 {
                     "readout_evidence_hash": item.get("readout_evidence_hash"),
@@ -36393,7 +36403,10 @@ class SNNLanguageReadoutEvidenceLedger:
             active_replay_computation_device=str(device),
         )
         cycles = max(1, min(int(design.get("max_replay_cycles", 1) or 1), 12))
-        known_evidence_hashes = self._known_readout_evidence_hashes()
+        (
+            known_evidence_hashes,
+            known_readout_evidence_source_window,
+        ) = self._known_readout_evidence_hashes_with_report()
         vectors: list[torch.Tensor] = []
         trace: list[dict[str, Any]] = []
         for target in targets:
@@ -36495,6 +36508,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "sparse_replay_stable": bool(stable),
                 },
                 "replay_target_window": replay_target_window,
+                "known_readout_evidence_source_window": known_readout_evidence_source_window,
                 "requested_device": requested_device,
                 "tensor_device": str(device),
             }
@@ -36551,6 +36565,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 str(item.get("readout_evidence_hash") or "") in known_evidence_hashes
                 for item in trace
             ) if trace else False,
+            "known_readout_evidence_source_window_bounded": (
+                self._known_readout_evidence_source_window_bounded(
+                    known_readout_evidence_source_window
+                )
+            ),
             "isolated_replay_pressure_non_worsening": pressure_non_worsening,
             "isolated_replay_sparse_stable": stable,
         }
@@ -36572,6 +36591,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "replay_design_surface": report.get("surface"),
             "readout_replay_dry_run_hash": dry_run_hash,
             "replay_target_window": replay_target_window,
+            "known_readout_evidence_source_window": known_readout_evidence_source_window,
             "replay_target_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
             "replay_target_window_limit": int(
                 replay_target_window["source_window_limit"]
@@ -36715,11 +36735,16 @@ class SNNLanguageReadoutEvidenceLedger:
                     break
             if len(candidate_pairs) >= max_candidate_synapses:
                 break
+        (
+            known_evidence_hashes,
+            known_readout_evidence_source_window,
+        ) = self._known_readout_evidence_hashes_with_report()
         candidate_hash = self._sha256_json(
             {
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
                 "candidate_pairs": candidate_pairs,
                 "replay_trace_window": replay_trace_window,
+                "known_readout_evidence_source_window": known_readout_evidence_source_window,
                 "learning_rate": learning_rate,
                 "max_weight_delta": max_weight_delta,
                 "locality_radius": locality_radius,
@@ -36729,7 +36754,6 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
         runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
-        known_evidence_hashes = self._known_readout_evidence_hashes()
         required = {
             "dry_run_artifact_kind_available": report.get("artifact_kind")
             == "terminus_snn_language_readout_replay_dry_run",
@@ -36771,6 +36795,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 str(item.get("readout_evidence_hash") or "") in known_evidence_hashes
                 for item in traces
             ) if traces else False,
+            "known_readout_evidence_source_window_bounded": (
+                self._known_readout_evidence_source_window_bounded(
+                    known_readout_evidence_source_window
+                )
+            ),
             "pressure_non_worsening": pressure_non_worsening,
             "sparse_replay_stable": sparse_stable,
             "pressure_gain_positive": pressure_gain > 0.0,
@@ -36801,6 +36830,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "readout_replay_dry_run_surface": report.get("surface"),
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
             "replay_trace_window": replay_trace_window,
+            "known_readout_evidence_source_window": known_readout_evidence_source_window,
             "replay_trace_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
             "replay_trace_window_limit": int(replay_trace_window["source_window_limit"]),
             "replay_trace_source_count": replay_trace_window["source_total_count"],
@@ -36948,13 +36978,17 @@ class SNNLanguageReadoutEvidenceLedger:
         pressure_stable = simulated_post_pressure <= pre_pressure
         rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
         runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
-        known_evidence_hashes = self._known_readout_evidence_hashes()
+        (
+            known_evidence_hashes,
+            known_readout_evidence_source_window,
+        ) = self._known_readout_evidence_hashes_with_report()
         bridge_hash = self._sha256_json(
             {
                 "preflight_hash": report.get("readout_plasticity_preflight_hash"),
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
                 "canonical_replay_sequences": canonical_sequences,
                 "replay_sequence_window": replay_sequence_window,
+                "known_readout_evidence_source_window": known_readout_evidence_source_window,
                 "application_design": {
                     "learning_rate": learning_rate,
                     "max_weight_delta": max_weight_delta,
@@ -37019,6 +37053,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 str(item.get("readout_evidence_hash") or "") in known_evidence_hashes
                 for item in sequences
             ) if sequences else False,
+            "known_readout_evidence_source_window_bounded": (
+                self._known_readout_evidence_source_window_bounded(
+                    known_readout_evidence_source_window
+                )
+            ),
             "pressure_stable_after_replay": pressure_stable,
             "learning_rate_bounded": 0.0 < learning_rate <= 0.1,
             "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.1,
@@ -37049,6 +37088,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
             "readout_plasticity_replay_bridge_hash": bridge_hash,
             "replay_sequence_window": replay_sequence_window,
+            "known_readout_evidence_source_window": known_readout_evidence_source_window,
             "replay_sequence_window_policy": SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY,
             "replay_sequence_window_limit": int(
                 replay_sequence_window["source_window_limit"]
@@ -38540,10 +38580,6 @@ class SNNLanguageReadoutEvidenceLedger:
             "raw_text_scored": False,
         }
 
-    def _known_readout_evidence_hashes(self) -> set[str]:
-        hashes, _report = self._known_readout_evidence_hashes_with_report()
-        return hashes
-
     def _known_readout_evidence_hashes_with_report(
         self,
     ) -> tuple[set[str], dict[str, Any]]:
@@ -38598,6 +38634,35 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
         return hashes, report
+
+    def _known_readout_evidence_source_window_bounded(
+        self,
+        report: Mapping[str, Any],
+    ) -> bool:
+        try:
+            source_window_count = int(report.get("source_window_count", -1))
+            source_window_limit = int(report.get("source_window_limit", -1))
+        except (TypeError, ValueError):
+            return False
+        explicit_false_flags = (
+            "global_candidate_scan",
+            "global_score_scan",
+            "raw_text_payload_loaded",
+            "language_reasoning",
+            "runs_live_tick",
+            "runs_every_token",
+            "mutates_runtime_state",
+            "applies_plasticity",
+            "gpu_used",
+        )
+        return (
+            report.get("surface")
+            == "bounded_snn_readout_known_evidence_hash_source_window.v1"
+            and source_window_limit > 0
+            and 0 <= source_window_count <= source_window_limit
+            and all(report.get(flag) is False for flag in explicit_false_flags)
+            and report.get("archival_storage_device") == "cpu"
+        )
 
     def _readout_evidence_event_map_for_hashes_with_report(
         self,
@@ -38979,11 +39044,14 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return events, report
 
-    def known_readout_evidence_hashes(self) -> set[str]:
-        """Expose current internal ledger identities for controller verification."""
+    def known_readout_evidence_hashes_with_report(
+        self,
+    ) -> tuple[set[str], dict[str, Any]]:
+        """Expose current internal ledger identities with source-window evidence."""
 
         with self._lock:
-            return set(self._known_readout_evidence_hashes())
+            hashes, report = self._known_readout_evidence_hashes_with_report()
+            return set(hashes), dict(report)
 
     def _store_dense_label_calibration_update_window(
         self,

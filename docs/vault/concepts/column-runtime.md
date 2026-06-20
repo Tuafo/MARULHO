@@ -136,6 +136,26 @@ transition rows, no observed contention, GPU memory `2032->2031 MiB`, and zero
 graph/native sequence failures. The broad normalized lookup is benchmark-local
 diagnostic evidence only, not a production fallback.
 
+The follow-up report-binding cleanup removes the set-only known-readout helper
+as a production path. Column/replay status and artifact recording now use
+`known_readout_evidence_hashes_with_report()` so every known readout-evidence
+membership check carries `bounded_snn_readout_known_evidence_hash_source_window.v1`
+beside the hashes. `ReplayController` requires that report for evaluated
+transition-memory replay artifacts, validates CPU archival placement plus no
+global scan, raw text, language reasoning, live tick, every-token cadence,
+mutation/plasticity, or CUDA archive, and persists
+`readout_evidence_source_window_hash` for permit/checkpoint verification. The
+focused report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json`
+passed with source window `1/8`, `0.014095 MiB` traced Python peak, and
+`0.0 MiB` CUDA allocation/reservation; indexed provenance verification reduced
+worst-case retained checks from `256` to `4`. The paired hot-path rerun stayed
+same-band at `6007.228 tokens/sec` with bounded `12/65536` route rows, `65526`
+cached transition rows, zero graph/native sequence failures, and flat RTX 3060
+memory under observed GPU contention. This keeps readout replay verification in
+the slow/control-plane window and prevents a hash-only bypass from becoming a
+second runtime path.
+
 Dense-label candidate history and calibration policy also use a single bounded
 source window. `dense_label_candidate_history(...)` and
 `dense_label_candidate_calibration_policy(...)` read only

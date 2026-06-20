@@ -34,6 +34,9 @@ SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT = 16
 SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = "bounded_recent_context_readout_target_window_v1"
 SNN_REPLAY_PROVENANCE_SOURCE_RECORD_LIMIT = 4
 SNN_REPLAY_PROVENANCE_SOURCE_WINDOW_POLICY = "indexed_context_ticket_artifact_permit_window_v1"
+SNN_READOUT_KNOWN_EVIDENCE_SOURCE_WINDOW_SURFACE = (
+    "bounded_snn_readout_known_evidence_hash_source_window.v1"
+)
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
@@ -58,6 +61,34 @@ SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
         "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal",
     ),
 }
+
+
+def _known_readout_evidence_source_window_bounded(
+    report: Mapping[str, Any],
+) -> bool:
+    try:
+        source_window_count = int(report.get("source_window_count", -1))
+        source_window_limit = int(report.get("source_window_limit", -1))
+    except (TypeError, ValueError):
+        return False
+    explicit_false_flags = (
+        "global_candidate_scan",
+        "global_score_scan",
+        "raw_text_payload_loaded",
+        "language_reasoning",
+        "runs_live_tick",
+        "runs_every_token",
+        "mutates_runtime_state",
+        "applies_plasticity",
+        "gpu_used",
+    )
+    return (
+        report.get("surface") == SNN_READOUT_KNOWN_EVIDENCE_SOURCE_WINDOW_SURFACE
+        and source_window_limit > 0
+        and 0 <= source_window_count <= source_window_limit
+        and all(report.get(flag) is False for flag in explicit_false_flags)
+        and report.get("archival_storage_device") == "cpu"
+    )
 
 
 class _IndexedDeque(deque):
@@ -4443,11 +4474,20 @@ class ReplayController:
                 if isinstance(metadata.get("source_window"), Mapping)
                 else {}
             )
+            readout_evidence_source_window = (
+                dict(metadata.get("readout_evidence_source_window"))
+                if isinstance(metadata.get("readout_evidence_source_window"), Mapping)
+                else {}
+            )
             if source_metadata_hash or emission_lineage:
                 material["source_metadata_hash"] = source_metadata_hash
                 material["emission_lineage"] = emission_lineage
             if source_window:
                 material["source_window_hash"] = self._sha256_json(source_window)
+            if readout_evidence_source_window:
+                material["readout_evidence_source_window_hash"] = self._sha256_json(
+                    readout_evidence_source_window
+                )
             evidence_hash = self._sha256_json(material)
             artifact = {
                 "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
@@ -4466,6 +4506,10 @@ class ReplayController:
             }
             if source_window:
                 artifact["source_window"] = source_window
+            if readout_evidence_source_window:
+                artifact["readout_evidence_source_window"] = (
+                    readout_evidence_source_window
+                )
             self._snn_transition_memory_replay_artifacts.appendleft(deepcopy(artifact))
             self._runtime_state.mark_dirty_without_revision()
             return deepcopy(artifact)
@@ -4475,6 +4519,7 @@ class ReplayController:
         *,
         artifact_proposal: Mapping[str, Any],
         known_readout_evidence_hashes: Sequence[str],
+        known_readout_evidence_source_window: Mapping[str, Any],
         replay_evaluation_context_id: str,
         review_ticket_id: str,
         operator_id: str,
@@ -4490,6 +4535,11 @@ class ReplayController:
             if isinstance(item, Mapping)
         ]
         known_hashes = {str(value) for value in known_readout_evidence_hashes if str(value)}
+        known_source_window = (
+            dict(known_readout_evidence_source_window)
+            if isinstance(known_readout_evidence_source_window, Mapping)
+            else {}
+        )
         context = self.verified_snn_replay_evaluation_context(replay_evaluation_context_id)
         ticket = self.verified_snn_replay_artifact_recording_review_ticket(
             review_ticket_id,
@@ -4545,6 +4595,10 @@ class ReplayController:
             for item in replay_window
         ):
             raise ValueError("Evaluated SNN replay artifact proposal must use current internal-ledger evidence.")
+        if not _known_readout_evidence_source_window_bounded(known_source_window):
+            raise ValueError(
+                "Evaluated SNN replay artifact proposal requires bounded current internal-ledger evidence source window."
+            )
         source_window = self._snn_replay_provenance_source_window(
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
             review_ticket_id=str(ticket["review_ticket_id"]),
@@ -4580,6 +4634,7 @@ class ReplayController:
                     if str(item.get("readout_evidence_hash") or "")
                 ],
                 "source_window": source_window,
+                "readout_evidence_source_window": known_source_window,
             },
         )
         return deepcopy(artifact)
@@ -4765,6 +4820,10 @@ class ReplayController:
         }
         if artifact.get("source_window_hash"):
             material["source_window_hash"] = artifact.get("source_window_hash")
+        if artifact.get("readout_evidence_source_window_hash"):
+            material["readout_evidence_source_window_hash"] = artifact.get(
+                "readout_evidence_source_window_hash"
+            )
         if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
             material["source_metadata_hash"] = artifact.get("source_metadata_hash")
             material["emission_lineage"] = (

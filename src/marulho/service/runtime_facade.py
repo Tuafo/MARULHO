@@ -2180,8 +2180,13 @@ class RuntimeFacade:
         )
         kwargs["artifact_proposal"] = proposal
         kwargs["replay_evaluation_context_id"] = replay_evaluation_context_id
-        kwargs["known_readout_evidence_hashes"] = (
-            self._root._snn_language_readout_ledger.known_readout_evidence_hashes()
+        (
+            known_readout_evidence_hashes,
+            known_readout_evidence_source_window,
+        ) = self._root._snn_language_readout_ledger.known_readout_evidence_hashes_with_report()
+        kwargs["known_readout_evidence_hashes"] = known_readout_evidence_hashes
+        kwargs["known_readout_evidence_source_window"] = (
+            known_readout_evidence_source_window
         )
         return self._root._replay_controller.record_evaluated_snn_transition_memory_replay_artifact(
             **kwargs

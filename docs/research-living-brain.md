@@ -4,6 +4,31 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+### Replay provenance source-window binding
+
+- Known readout-evidence source-window note, June 2026: modern Hopfield
+  networks support attention-like associative retrieval only after a local
+  memory set is selected; complementary learning systems, continual replay,
+  synaptic tagging/capture, latent replay, and sparse replay all reinforce
+  carrying selection evidence into consolidation rather than passing bare
+  identity sets. MARULHO therefore removes the private
+  `_known_readout_evidence_hashes()` helper and public
+  `known_readout_evidence_hashes()` helper. The only production path is
+  `known_readout_evidence_hashes_with_report()`, which returns hashes plus
+  `bounded_snn_readout_known_evidence_hash_source_window.v1`. Replay design,
+  dry-run, plasticity preflight, bridge, and evaluated replay-artifact
+  recording now include that report in required evidence and artifact hashes.
+  The replay controller requires the report before recording evaluated replay
+  artifacts and persists `readout_evidence_source_window_hash` for later
+  permit/checkpoint verification. The benchmark
+  `reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json`
+  passed with known-readout source window `1/8`, CPU archival placement, no
+  global scans, no raw text, no language reasoning, `0.0 MiB` CUDA allocation,
+  and `0.014095 MiB` traced Python peak. The accepted `524288`-token rerun
+  stayed in band at `6007.228 tokens/sec`, with bounded `12/65536` route rows,
+  `65526` cached transition rows, and zero graph/native sequence failures,
+  though GPU contention was observed.
+
 ### Predictive spiking substrate
 
 - Persistent text-tick executor note, June 2026: profiling the promoted graph path showed that reconstruction scalar readback and Python neuromodulation still split each eligible text tick into two graph replays. NVIDIA's CUDA Graph programming guide states that whole-workflow submission reduces CPU launch cost and enables optimizations unavailable to piecewise stream submission; NVIDIA Holoscan's GPU-resident execution guidance similarly targets CPU/GPU coordination boundaries. MARULHO therefore moved reconstruction-driven dopamine, serotonin, acetylcholine, norepinephrine, and predicted-error updates onto persistent CUDA state and captured reconstruction, neuromodulation, fused route/vote, and transition as one replay. Three-factor SNN learning research supports neuromodulators as global factors over local plasticity, but does not justify graphing archival memory or replacing local spike state. Sixteen sequential ticks preserved every winner and reconstruction; all model tensors were exact except three velocity values with maximum `5.82e-11` drift. A fresh-process 512-tick comparison reached `95.58` versus `63.49 ticks/sec` (`1.506x`), while the text quality gate reached `57.14` versus `47.52 ticks/sec` (`1.202x`) with exact winners and preserved declared quality. One real 24-token source tick reported 24 persistent replays, 24 host truth synchronizations, and zero failures, but only `8.79 tokens/sec`; memory, cross-modal/text, source, and other Python stages remain the next target. Sources: [CUDA Graphs](https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html), [GPU Resident Execution](https://docs.nvidia.com/holoscan/sdk-user-guide/using-the-sdk/gpu-resident-execution), and [Three-Factor Learning in Spiking Neural Networks](https://arxiv.org/abs/2504.05341).

@@ -26,6 +26,27 @@ from marulho.service.replay_runtime import (
 )
 
 
+def _known_readout_evidence_source_window() -> dict[str, Any]:
+    return {
+        "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+        "source": "snn_readout_ledger.events",
+        "source_window_limit": 8,
+        "source_window_count": 1,
+        "source_record_count": 1,
+        "hash_count": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "gpu_used": False,
+    }
+
+
 @dataclass
 class _RuntimeState:
     state_revision: int = 17
@@ -184,6 +205,7 @@ def _record_artifact_chain(
             "promotion_gate": {"status": "ready_for_operator_recording_review"},
         },
         known_readout_evidence_hashes={readout_hash},
+        known_readout_evidence_source_window=_known_readout_evidence_source_window(),
         replay_evaluation_context_id=context_id,
         review_ticket_id=str(ticket["review_ticket_id"]),
         operator_id=operator_id,
@@ -269,6 +291,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         replay_artifact_id=str(old_chain["artifact"]["replay_artifact_id"]),
         permit_id=str(old_chain["permit"]["permit_id"]),
     )
+    readout_source_window = (
+        dict(old_chain["artifact"].get("readout_evidence_source_window"))
+        if isinstance(old_chain["artifact"].get("readout_evidence_source_window"), Mapping)
+        else {}
+    )
     rss_before = _process_rss_mb()
     timings_ms: list[float] = []
     results: list[bool] = []
@@ -333,6 +360,29 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         and full_source_window.get("gpu_used") is False,
         "not_live_tick": full_source_window.get("runs_live_tick") is False,
         "no_language_reasoning": full_source_window.get("language_reasoning") is False,
+        "known_readout_source_window_surface_present": (
+            readout_source_window.get("surface")
+            == "bounded_snn_readout_known_evidence_hash_source_window.v1"
+        ),
+        "known_readout_source_window_bounded": int(
+            readout_source_window.get("source_window_count", 0) or 0
+        )
+        <= int(readout_source_window.get("source_window_limit", 0) or 0),
+        "known_readout_source_window_cpu_only": (
+            readout_source_window.get("archival_storage_device") == "cpu"
+            and readout_source_window.get("gpu_used") is False
+        ),
+        "known_readout_source_window_no_hidden_work": (
+            readout_source_window.get("global_candidate_scan") is False
+            and readout_source_window.get("global_score_scan") is False
+            and readout_source_window.get("raw_text_payload_loaded") is False
+            and readout_source_window.get("language_reasoning") is False
+            and readout_source_window.get("runs_live_tick") is False
+            and readout_source_window.get("runs_every_token") is False
+        ),
+        "known_readout_source_window_persisted_hash": bool(
+            old_chain["artifact"].get("readout_evidence_source_window_hash")
+        ),
     }
     return {
         "surface": "bounded_snn_replay_artifact_provenance_source_window_benchmark.v1",
@@ -355,6 +405,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "permit_id": permit_tail_id,
             },
             "source_window": full_source_window,
+            "known_readout_evidence_source_window": readout_source_window,
+            "known_readout_evidence_source_window_hash": old_chain["artifact"].get(
+                "readout_evidence_source_window_hash"
+            ),
         },
         "latency": latency,
         "retired_path_comparison": retired_scan_comparisons,

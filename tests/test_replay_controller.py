@@ -115,6 +115,27 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
     )
 
 
+def _known_readout_evidence_source_window() -> dict[str, object]:
+    return {
+        "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+        "source": "snn_readout_ledger.events",
+        "source_window_limit": 8,
+        "source_window_count": 1,
+        "source_record_count": 1,
+        "hash_count": 1,
+        "global_candidate_scan": False,
+        "global_score_scan": False,
+        "raw_text_payload_loaded": False,
+        "language_reasoning": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "archival_storage_device": "cpu",
+        "gpu_used": False,
+    }
+
+
 class ReplayControllerTests(unittest.TestCase):
     @staticmethod
     def _mismatch_report() -> dict[str, object]:
@@ -221,6 +242,7 @@ class ReplayControllerTests(unittest.TestCase):
                 "promotion_gate": {"status": "ready_for_operator_recording_review"},
             },
             known_readout_evidence_hashes={"readout-hash-1"},
+            known_readout_evidence_source_window=_known_readout_evidence_source_window(),
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
             review_ticket_id=str(ticket["review_ticket_id"]),
             operator_id=operator_id,
@@ -442,6 +464,7 @@ class ReplayControllerTests(unittest.TestCase):
                     "promotion_gate": {"status": "ready_for_operator_recording_review"},
                 },
                 known_readout_evidence_hashes={"readout-hash-1"},
+                known_readout_evidence_source_window=_known_readout_evidence_source_window(),
                 replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
                 review_ticket_id="stale-context-ticket",
                 operator_id="operator-1",
@@ -1978,11 +2001,17 @@ class ReplayControllerTests(unittest.TestCase):
         artifact = controller.record_evaluated_snn_transition_memory_replay_artifact(
             artifact_proposal=proposal,
             known_readout_evidence_hashes=["readout-hash-1"],
+            known_readout_evidence_source_window=_known_readout_evidence_source_window(),
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
             review_ticket_id=str(ticket["review_ticket_id"]),
             operator_id="operator-lineage",
             confirmation=True,
         )
+        self.assertEqual(
+            artifact["readout_evidence_source_window"]["surface"],
+            "bounded_snn_readout_known_evidence_hash_source_window.v1",
+        )
+        self.assertIn("readout_evidence_source_window_hash", artifact)
         permit_design = {
             "locality_radius": 2,
             "initial_weight": 0.02,
@@ -2185,6 +2214,48 @@ class ReplayControllerTests(unittest.TestCase):
             controller.record_evaluated_snn_transition_memory_replay_artifact(
                 artifact_proposal=proposal,
                 known_readout_evidence_hashes={"real-hash"},
+                known_readout_evidence_source_window=_known_readout_evidence_source_window(),
+                replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+                review_ticket_id=str(self._record_review_ticket(controller)["review_ticket_id"]),
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_evaluated_replay_artifact_rejects_incomplete_known_readout_source_window(
+        self,
+    ) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        proposal = {
+            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+            "ready": True,
+            "owned_by_marulho": True,
+            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+            "mismatch_report": context["mismatch_report"],
+            "pressure_report": context["pressure_report"],
+            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+            "replay_evaluation_context_hash": context["evidence_hash"],
+            "replay_window": [
+                {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+            ],
+            "promotion_gate": {"status": "ready_for_operator_recording_review"},
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "bounded current internal-ledger evidence source window",
+        ):
+            controller.record_evaluated_snn_transition_memory_replay_artifact(
+                artifact_proposal=proposal,
+                known_readout_evidence_hashes={"readout-hash-1"},
+                known_readout_evidence_source_window={
+                    "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+                    "source_window_count": 1,
+                    "source_window_limit": 8,
+                    "archival_storage_device": "cpu",
+                    "gpu_used": False,
+                },
                 replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
                 review_ticket_id=str(self._record_review_ticket(controller)["review_ticket_id"]),
                 operator_id="operator-1",

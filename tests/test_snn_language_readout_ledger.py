@@ -14414,6 +14414,8 @@ def test_known_readout_evidence_hashes_uses_events_only_source_window() -> None:
         f"events:readout:{index}"
         for index in range(ledger_limit)
     }
+    assert not hasattr(ledger, "_known_readout_evidence_hashes")
+    assert not hasattr(ledger, "known_readout_evidence_hashes")
     assert report["surface"] == (
         "bounded_snn_readout_known_evidence_hash_source_window.v1"
     )
@@ -14444,6 +14446,10 @@ def test_known_readout_evidence_hashes_uses_events_only_source_window() -> None:
             assert source.iterated == ledger_limit
         else:
             assert source.iterated == 0
+
+    public_hashes, public_report = ledger.known_readout_evidence_hashes_with_report()
+    assert public_hashes == hashes
+    assert public_report == report
 
 
 def test_readout_evidence_event_map_uses_requested_hash_source_window() -> None:

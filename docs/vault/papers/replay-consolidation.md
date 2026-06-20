@@ -90,6 +90,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-known-readout-hash-window-rerun.json
+  - reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-known-readout-source-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1070,6 +1072,28 @@ stayed in the same sustained band at `5938.461 tokens/sec` with bounded
 `12/65536` route rows, `65526` cached transition rows, no observed contention,
 GPU memory `2032->2031 MiB`, and zero graph/native sequence failures. This is
 throughput protection for a slow replay/readout gate, not a speed promotion.
+
+The 2026-06-20 source-window binding follow-up removes the remaining hash-only
+production bypass. The set-only `_known_readout_evidence_hashes()` and
+`known_readout_evidence_hashes()` helpers are gone; replay design, dry-run,
+plasticity preflight, plasticity bridge, and evaluated replay-artifact recording
+must carry the bounded known-readout source-window report with the selected
+hashes. This matches the research boundary: associative recall can behave like
+an attention/Hopfield-style local memory operator only after a bounded source
+set is selected, and consolidation/replay gates must keep selection evidence
+visible rather than passing bare identities. The report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-known-readout-source-window.json`
+passed with source window `1/8`, persisted
+`readout_evidence_source_window_hash`, no global scan, no raw text, no language
+reasoning, no live-tick/every-token work, CPU archival placement, `0.014095 MiB`
+traced Python peak, and `0.0 MiB` CUDA allocation/reservation. Indexed
+provenance verification reduced worst-case retained lookup checks from `256` to
+`4` (`64x`). The paired `524288`-token rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-known-readout-source-window-rerun.json`
+stayed in the 6k-ish band at `6007.228 tokens/sec` with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native sequence
+failures, flat RTX 3060 memory, and observed GPU contention. This is deletion
+of a report-dropping path, not a broader replay cadence.
 
 The 2026-06-20 follow-up removes the remaining production all-family normalizer
 callable instead of keeping it as dead code. `SNNLanguageReadoutEvidenceLedger`
