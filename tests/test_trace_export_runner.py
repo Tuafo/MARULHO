@@ -18,6 +18,7 @@ from marulho.service.replay_dataset_bundle_runner import (
     export_replay_dataset_bundle,
     main as replay_dataset_bundle_main,
 )
+from marulho.service.manager import MarulhoServiceManager
 from marulho.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
@@ -94,6 +95,34 @@ def _runtime_trace_payload() -> dict:
 
 
 class TraceExportRunnerTests(unittest.TestCase):
+    def test_empty_trace_id_selection_does_not_scan_trace_state_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = _build_checkpoint(root)
+            manager = MarulhoServiceManager(
+                checkpoint,
+                trace_dir=root / "traces",
+                env_root=root / "env",
+            )
+            try:
+                manager._trace_history = [
+                    {
+                        "trace_id": "trace-old",
+                        "state_after": {"token_count": 99},
+                    }
+                ]
+
+                with manager._lock:
+                    selected = manager._runtime_trace_state_by_trace_id_locked(
+                        trace_ids=set(),
+                    )
+                    all_states = manager._runtime_trace_state_by_trace_id_locked()
+            finally:
+                manager.close()
+
+        self.assertEqual(selected, {})
+        self.assertEqual(all_states["trace-old"]["token_count"], 99)
+
     def test_arg_parser_accepts_checkpoint_output_limit_and_endpoint(self) -> None:
         parser = build_arg_parser()
         args = parser.parse_args(
@@ -179,6 +208,7 @@ class TraceExportRunnerTests(unittest.TestCase):
 
         self.assertEqual(dataset["export_kind"], "terminus_runtime_trace_dataset_preview")
         self.assertEqual(dataset["count"], 1)
+        self.assertEqual(len(dataset["examples"]), 1)
         self.assertEqual(dataset["metadata"]["source"], "checkpoint_runtime_episode_traces")
         self.assertTrue(dataset["metadata"]["contains_examples"])
         self.assertEqual(dataset["policy_decision"]["schema_version"], 1)
@@ -341,6 +371,28 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertEqual(dataset["latest_history_timestamp"], "2025-01-01T00:00:03+00:00")
         self.assertEqual(dataset["metadata"]["source"], "checkpoint_runtime_episode_traces_with_replay_context")
         self.assertTrue(dataset["metadata"]["contains_items"])
+        source_window = dataset["source_window"]
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_replay_dataset_preview_source_window.v1",
+        )
+        self.assertEqual(source_window["source_window_count"], 1)
+        self.assertEqual(source_window["candidate_count_returned"], 1)
+        self.assertEqual(source_window["source_trace_count_evaluated"], 1)
+        self.assertEqual(source_window["matched_trace_count_evaluated"], 1)
+        self.assertFalse(source_window["return_limit_reached"])
+        self.assertTrue(source_window["source_window_exhausted"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertFalse(source_window["trains_adapter"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        self.assertFalse(source_window["gpu_resident_archival_metadata"])
+        link_window = source_window["replay_sample_link_source_window"]
+        self.assertEqual(
+            link_window["surface"],
+            "bounded_replay_dataset_sample_link_source_window.v1",
+        )
+        self.assertEqual(link_window["target_link_count"], 1)
         self.assertFalse(dataset["safety_flags"]["training_started"])
         self.assertFalse(dataset["safety_flags"]["memory_mutated"])
         item = dataset["items"][0]
@@ -354,6 +406,99 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertNotIn("secret-value", exported_json)
         self.assertNotIn("api_key", exported_json)
         self.assertNotIn("password", exported_json)
+
+    def test_replay_dataset_runner_uses_bounded_source_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            traces = []
+            for index in range(64):
+                trace = deepcopy(_runtime_trace_payload())
+                trace["episode_id"] = f"episode-{index:03d}"
+                trace["trace_id"] = f"trace-{index:03d}"
+                traces.append(trace)
+            replay_samples = []
+            for index in range(80):
+                replay_samples.append(
+                    {
+                        "schema_version": 1,
+                        "replay_sample_id": f"sample-{index:03d}",
+                        "execution_id": f"execute-{index:03d}",
+                        "created_at": f"2025-01-01T00:{index % 60:02d}:03+00:00",
+                        "mode": "execute",
+                        "status": "recorded",
+                        "operator_id": "qa-1",
+                        "selected_candidates": [
+                            {
+                                "candidate_id": f"candidate-{index:03d}-{candidate:02d}",
+                                "target_type": "runtime_episode",
+                                "target_id": f"episode-{index % 64:03d}",
+                            }
+                            for candidate in range(24)
+                        ],
+                        "safety_flags": {
+                            "training_started": False,
+                            "sleep_started": False,
+                            "memory_mutated": False,
+                            "external_calls_made": False,
+                        },
+                    }
+                )
+            checkpoint = _build_checkpoint(
+                root,
+                metadata={
+                    "service_state": {
+                        "terminus_runtime": {
+                            "runtime_episode_traces": traces,
+                            "replay_sample_history": replay_samples,
+                        }
+                    }
+                },
+            )
+
+            dataset = export_replay_dataset_preview(
+                checkpoint,
+                limit=50,
+                endpoint=None,
+                trace_dir=root / "traces",
+            )
+
+        source_window = dataset["source_window"]
+        self.assertEqual(source_window["source_record_count"], 64)
+        self.assertEqual(source_window["source_window_count"], 50)
+        self.assertTrue(source_window["source_payload_truncated"])
+        self.assertEqual(source_window["source_truncated_count"], 14)
+        self.assertEqual(dataset["count"], 50)
+        self.assertEqual(len(dataset["items"]), 50)
+        self.assertEqual(source_window["candidate_count_returned"], 50)
+        self.assertEqual(source_window["source_trace_count_evaluated"], 50)
+        self.assertEqual(source_window["matched_trace_count_evaluated"], 50)
+        self.assertTrue(source_window["return_limit_reached"])
+        self.assertTrue(source_window["source_window_exhausted"])
+        self.assertEqual(
+            source_window["memory_budget"]["max_runtime_episode_traces"],
+            50,
+        )
+        link_window = source_window["replay_sample_link_source_window"]
+        self.assertEqual(link_window["source_record_count"], 80)
+        self.assertEqual(link_window["source_window_count"], 64)
+        self.assertTrue(link_window["source_payload_truncated"])
+        self.assertEqual(
+            link_window["selected_candidate_window_limit_per_sample"],
+            16,
+        )
+        self.assertEqual(
+            link_window["selected_candidate_source_scope"],
+            "stored_sanitized_replay_sample_payload",
+        )
+        self.assertFalse(link_window["raw_selected_candidate_count_known"])
+        self.assertEqual(link_window["stored_selected_candidate_payload_limit"], 16)
+        self.assertEqual(link_window["selected_candidate_source_count"], 64 * 16)
+        self.assertEqual(link_window["selected_candidate_window_count"], 64 * 16)
+        self.assertEqual(link_window["selected_candidate_truncated_count"], 0)
+        self.assertFalse(link_window["runs_live_tick"])
+        self.assertFalse(link_window["runs_every_token"])
+        self.assertFalse(link_window["trains_adapter"])
+        self.assertEqual(link_window["archival_storage_device"], "cpu")
 
     def test_replay_dataset_bundle_runner_applies_packaging_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

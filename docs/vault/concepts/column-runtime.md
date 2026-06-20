@@ -1338,6 +1338,28 @@ to `128` (`23x`) and mean display-history latency from `345.815600 ms` to
 failures with no observed contention. RTX 3060 runtime memory stayed flat at
 `1972 MiB`.
 
+Replay-dataset preview is now explicitly outside the Column Runtime tick. The
+service reads at most `50` retained runtime episode traces, at most `64`
+retained replay samples, and at most `16` stored sanitized candidate links per
+sample through `bounded_replay_dataset_preview_source_window.v1` and
+`bounded_replay_dataset_sample_link_source_window.v1`. Both reports state
+`runs_live_tick=false`, `runs_every_token=false`, CPU archival/source
+placement, no GPU-resident archival metadata, no global scan, no replay text
+reasoning, and no mutation/plasticity/training authority. The old export shape
+that walked every retained trace/link and could report `50` items while
+returning only `16` is retired.
+
+The focused report preserved `50/50` selected target IDs and replay links
+against a diagnostic full-retained walk while reducing replay-sample and
+candidate source work by `4x`. Its `2006.587280 ms` mean cost is accepted only
+as explicit operator/export latency. The paired clean `524288`-token run stayed
+in the maintained noisy complete-runtime band at `5923.269 tokens/sec`, with
+`tick_duration_ms.p95=22.446`, `train_compute=0.136941 ms/token`,
+`prepare_training=0.007302 ms/token`, `finalize_total=0.006512 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+contention, and zero graph/native sequence failures. Runtime CUDA memory moved
+`3554->3541 MiB`; replay-dataset archival/source work used no GPU.
+
 ## Links
 
 - [Runtime Truth](runtime-truth.md)

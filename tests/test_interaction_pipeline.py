@@ -731,6 +731,34 @@ class InteractionPipelineQueryTests(unittest.TestCase):
 
 
 class InteractionPipelineTraceSeamTests(unittest.TestCase):
+    def test_runtime_episode_traces_applies_limit_before_copying(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_dir = Path(tmpdir) / "traces"
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            pipeline, _calls = _build_pipeline(trace_dir)
+            pipeline.load_interaction_state(
+                runtime_episode_traces=[
+                    {
+                        "episode_id": f"episode-{index}",
+                        "trace_id": f"trace-{index}",
+                        "operation": "query",
+                        "feedback": [],
+                        "verification": {"status": "verified"},
+                    }
+                    for index in range(3)
+                ]
+            )
+
+            bounded = pipeline.runtime_episode_traces(limit=2)
+
+            self.assertEqual(
+                [item["episode_id"] for item in bounded],
+                ["episode-0", "episode-1"],
+            )
+            self.assertEqual(pipeline.runtime_episode_traces(limit=0), [])
+            bounded[0]["feedback"].append({"feedback_id": "fb-1"})
+            self.assertEqual(pipeline.runtime_episode_traces(limit=1)[0]["feedback"], [])
+
     def test_runtime_episode_trace_read_and_replace_use_pipeline_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_dir = Path(tmpdir) / "traces"

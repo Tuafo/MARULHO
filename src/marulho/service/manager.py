@@ -1514,6 +1514,9 @@ class MarulhoServiceManager:
     def _replay_dataset_preview_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._replay_dataset_preview_payload_locked(self, *args, **kwargs)
 
+    def _replay_dataset_preview_source_window_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return RuntimeEvidenceReporter._replay_dataset_preview_source_window_locked(self, *args, **kwargs)
+
     def _replay_dataset_preview_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._replay_dataset_preview_summary_locked(self, *args, **kwargs)
 

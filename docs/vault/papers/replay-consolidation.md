@@ -1378,6 +1378,7 @@ bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
+bounded replay-dataset preview/source-link windows,
 bounded emission replay-context review windows,
 bounded generic replay-context observed-slot windows,
 bounded status replay-path projections,
@@ -1546,6 +1547,35 @@ stayed in band at `6051.817 tokens/sec`, with bounded `12/65536` route rows,
 sequence failures, no observed contention, CUDA runtime on RTX 3060, and flat
 GPU memory at `1972 MiB`. The old broad-normalized display-history shape is
 retired; benchmark-local broad comparison remains only evidence.
+
+Replay-dataset preview/export now follows the same selected slow-window rule.
+Modern Hopfield association is treated as a local operator after source
+selection; complementary learning systems, continual-learning replay, and
+synaptic tagging/capture do not justify traversing every retained trace or
+replay sample whenever an operator asks for a dataset preview. The maintained
+path emits `bounded_replay_dataset_preview_source_window.v1` over at most
+`50/64` retained runtime episode traces and
+`bounded_replay_dataset_sample_link_source_window.v1` over at most `64/256`
+retained replay sample records, with `16` stored sanitized candidates per
+sample. Archival/source/link work stays on CPU, CUDA archival metadata is
+absent, and the reports state no live tick, every-token work, replay text,
+language reasoning, mutation, plasticity, or adapter training.
+
+The same slice removes the old count/payload mismatch where the preview could
+claim `count=50` while the generic sanitizer returned only `16` items. The
+export sanitizer now returns the declared bounded item window while replay
+sample normalization keeps the existing `16`-candidate storage budget. The
+15-run report
+`reports/bounded_replay_window_20260620/replay-dataset-source-window.json`
+preserved all `50` selected target IDs and replay-link coverage against a
+diagnostic full-retained walk, reduced replay-sample and selected-candidate
+source work by `4x`, and recorded `2006.587280 ms` mean preview latency,
+`2.842 MiB` traced Python peak, and CUDA available but unused. The clean
+`524288`-token protection run reached `5923.269 tokens/sec`,
+`tick_duration_ms.p95=22.446`, `train_compute=0.136941 ms/token`, bounded
+`12/65536` route rows, no observed contention, GPU memory `3554->3541 MiB`,
+and zero graph/native sequence failures. The near-two-second preview cost is
+explicit evidence that this path remains operator/export slow-path only.
 
 ## Links
 

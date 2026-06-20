@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from threading import RLock
 import time
@@ -417,9 +418,14 @@ class InteractionPipeline:
             self._skip_next_autonomy_for_grounded_query = False
             return skip
 
-    def runtime_episode_traces(self) -> list[dict[str, Any]]:
+    def runtime_episode_traces(self, limit: int | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            return [deepcopy(item) for item in list(self._runtime_episode_traces)]
+            if limit is None:
+                source = self._runtime_episode_traces
+            else:
+                count = max(0, min(len(self._runtime_episode_traces), int(limit)))
+                source = islice(self._runtime_episode_traces, count)
+            return [deepcopy(item) for item in source]
 
     def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None:
         with self._lock:

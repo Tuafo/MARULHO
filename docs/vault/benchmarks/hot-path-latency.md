@@ -4601,3 +4601,42 @@ rows, `state_transition_runs_all_columns=false`, and zero graph/native sequence
 failures. The environment sampler reported no observed contention (`cpu
 max=37%`, `gpu max=13%`, `gpu memory util max=18%`). Runtime CUDA memory stayed
 flat at `1972 MiB`.
+
+## Replay Dataset Source Windows
+
+Replay-dataset preview now builds its export from a `50`-trace CPU source
+window and a `64`-record replay-sample link window, with `16` stored sanitized
+candidates per replay sample. The export reports no live-tick or every-token
+work, no global candidate/score scan, no raw replay text or hidden language
+reasoning, no mutation/plasticity/training, and no GPU-resident archival
+metadata. The previous generic sanitizer could report `count=50` while
+returning only `16` dataset items; the maintained path now returns the declared
+bounded item window.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260620\replay-dataset-source-window.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 15`
+
+Result: `pass=true`; all `50` bounded selected target IDs and replay-link
+coverage matched a diagnostic full-retained walk. Runtime trace work moved from
+`64` to `50` records (`1.28x`), replay-sample work from `256` to `64` (`4x`),
+and selected-candidate work from `4096` to `1024` (`4x`). Mean bounded preview
+latency was `2006.587280 ms` over `15` runs, so this remains an explicit
+operator/export slow path. Python traced peak allocation was `2.842 MiB`;
+CUDA was available on the RTX 3060 but unused by the benchmark, with CPU
+archival/source/link placement and no GPU-resident archival metadata.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-dataset-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.02`
+
+Result: `success=true`, `524288` tokens in `88.513291 s`,
+`5923.269 tokens/sec`, `tick_duration_ms.p95=22.446`,
+`train_compute=0.136941 ms/token`, `prepare_training=0.007302 ms/token`, and
+`finalize_total=0.006512 ms/token`. Runtime Truth kept route scoring at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, and recorded zero
+graph/native sequence failures. Contention was `not_observed` (`cpu max=30%`,
+`gpu max=15%`, GPU memory utilization max `18%`). RTX 3060 memory moved
+`3554->3541 MiB`. This preserves the current noisy 6k-ish complete-runtime band; it
+does not promote replay-dataset construction into the live tick.
