@@ -19,6 +19,7 @@ related_code:
   - ../../../src/marulho/evaluation/dense_readout_training_transition_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
+  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
@@ -82,6 +83,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
+  - reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-ledger-store-state-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-source-window.json
@@ -142,6 +146,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark --retention-count 2048 --limit 8 --runs 25 --output reports\bounded_replay_window_20260618\snn-rollout-rehearsal-source-window.json`
 - SNN status replay-path source windows:
   `PYTHONPATH=src python -m marulho.evaluation.status_replay_path_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260618\status-replay-path-source-window.json`
+- SNN status applied-synapse provenance source window:
+  `PYTHONPATH=src python -m marulho.evaluation.status_applied_synapse_provenance_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-applied-synapse-provenance-source-window.json`
 - SNN readout-ledger normalization/store-state source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-source-window.json`
 - SNN readout-ledger normalization/store-state/known-hash source window:
@@ -1703,6 +1709,50 @@ It processed `524288` tokens at `6443.960 tokens/sec`, with
 `state_transition_cached_count=65526`. Graph/native/sequence failures were
 all `0`, no contention was observed, and RTX 3060 memory stayed flat at
 `1899 MiB`.
+
+The applied-synapse provenance status follow-up retires the broad readiness
+scan over all applied sparse weights and provenance rows. The status projection
+now emits `bounded_snn_status_applied_synapse_provenance_source_window.v1`,
+reads at most `32` `sparse_transition_weights` keys and `32`
+`synapse_provenance_by_key` rows, and blocks exact audit readiness when the
+source window is truncated. This keeps exact integrity review in an explicit
+audit/slow window instead of letting operator status become an archive-wide
+recall pass.
+
+Focused quality benchmark:
+
+`python -m marulho.evaluation.status_applied_synapse_provenance_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-applied-synapse-provenance-source-window.json`
+
+It passed with `64` bounded source rows instead of `4096` retired broad-scan
+rows (`64x` less source work), reduced mean latency from `66.313336 ms` to
+`3.242332 ms` (`20.452358x`), preserved bounded-window replay-regeneration
+provenance health, and correctly reported `source_window_complete=false`,
+`integrity_count_scope=bounded_source_window`, and
+`eligible_for_readout_synapse_audit_review=false` for truncated source state.
+Archival metadata and lookup stayed CPU-resident, CUDA allocation/reservation
+stayed `0.0 MiB`, and the report states no global candidate/score scan, no
+raw text payload, no hidden language reasoning, no replay, no live tick, and no
+every-token work.
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The first run succeeded at `5875.245 tokens/sec` with no observed contention,
+bounded `12/65536` route rows, and zero graph/native sequence failures, but it
+is retained as secondary variance rather than primary evidence.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The accepted rerun processed `524288` tokens at `6350.288 tokens/sec`, with
+`train_compute=0.128968 ms/token`, `prepare_training=0.006470 ms/token`,
+`finalize_total=0.005945 ms/token`, `tick_duration_ms.p95=20.090`, and prewarm
+`241.741 s`. Runtime Truth kept route scoring bounded at `12/65536` input rows
+and `10` output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, and recorded zero graph/native
+sequence failures. Contention was `not_observed` (`cpu max=25%`, `gpu max=8%`,
+GPU memory utilization max `9%`), and RTX 3060 memory stayed flat at
+`1936 MiB`.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window/readout-payload proof

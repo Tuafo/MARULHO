@@ -17,6 +17,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
@@ -80,6 +81,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
   - reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
+  - reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-recent-anchor-window.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-score-helper-retired.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-score-tensor-helpers-retired-rerun3.json
@@ -4676,3 +4680,49 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 recorded zero graph/native sequence failures. Contention was `not_observed`
 (`cpu max=19%`, `gpu max=13%`, GPU memory utilization max `18%`). RTX 3060
 memory stayed flat at `1899 MiB`.
+
+## Status Applied Synapse Provenance Source Window
+
+Applied-synapse provenance status no longer scans every retained sparse weight
+and provenance row before reporting audit readiness. The maintained status path
+reads at most `32` sparse-weight keys and `32` provenance rows, emits
+`bounded_snn_status_applied_synapse_provenance_source_window.v1`, and blocks
+exact audit readiness when the source window is truncated. This is status-only
+control-plane evidence; it does not run replay, mutate runtime state, apply
+plasticity, or reason through replay text.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.status_applied_synapse_provenance_source_window_benchmark --entry-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\status-applied-synapse-provenance-source-window.json`
+
+Result: `pass=true`; bounded source reads were `64` rows versus `4096` rows in
+the benchmark-local retired broad scan (`64x` less source work), and mean
+latency fell from `66.313336 ms` to `3.242332 ms` (`20.452358x`). The bounded
+window preserved recent replay-regeneration provenance health, retained total
+counts, and reported `source_window_complete=false`,
+`integrity_count_scope=bounded_source_window`, and
+`eligible_for_readout_synapse_audit_review=false` for truncated state.
+Archival metadata and lookup stayed CPU-resident; CUDA allocation/reservation
+stayed `0.0 MiB`.
+
+Long protection runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The first run succeeded but is kept as secondary variance: `524288` tokens at
+`5875.245 tokens/sec`, `tick_duration_ms.p95=22.774`,
+`train_compute=0.138057 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, RTX 3060 memory
+`1938->1940 MiB`, and zero graph/native sequence failures.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Accepted rerun: `success=true`, `524288` tokens in `82.561299 s`,
+`6350.288 tokens/sec`, `tick_duration_ms.p95=20.090`,
+`train_compute=0.128968 ms/token`, `prepare_training=0.006470 ms/token`, and
+`finalize_total=0.005945 ms/token`. Prewarm took `241.741 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Contention was `not_observed`
+(`cpu max=25%`, `gpu max=8%`, GPU memory utilization max `9%`), and RTX 3060
+memory stayed flat at `1936 MiB`.

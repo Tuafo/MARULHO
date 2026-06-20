@@ -14,6 +14,7 @@ import json
 import threading
 import time
 import unittest
+from collections.abc import Mapping as CollectionsMapping
 from collections import deque
 from copy import deepcopy
 from pathlib import Path
@@ -32,6 +33,7 @@ from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_POLICY,
 )
 from marulho.service.status_read_model import (
+    SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
     SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
     StatusReadModel,
 )
@@ -329,6 +331,26 @@ def _run_under_lock_contention(
     holder.join(timeout=5.0)
     reader.join(timeout=5.0)
     return result[0]
+
+
+class _CountingMapping(CollectionsMapping):
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+        self.items_yield_count = 0
+
+    def __getitem__(self, key: str) -> Any:
+        return self._payload[key]
+
+    def __iter__(self):
+        return iter(self._payload)
+
+    def __len__(self) -> int:
+        return len(self._payload)
+
+    def items(self):
+        for item in self._payload.items():
+            self.items_yield_count += 1
+            yield item
 
 
 def _build_manager(root: Path, *, test_case: str):
@@ -5192,6 +5214,109 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             lineage_blocked["promotion_gate"]["required_evidence"][
                 "replay_regeneration_artifact_lineage_complete"
             ]
+        )
+
+    def test_runtime_truth_applied_synapse_provenance_uses_bounded_status_source_window(
+        self,
+    ) -> None:
+        entry_count = SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT * 3
+        keys = [f"{index}:{index + 1}" for index in range(entry_count)]
+        sparse_weights = _CountingMapping({key: 0.1 for key in keys})
+        provenance = _CountingMapping(
+            {
+                key: {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": f"permit-{index}",
+                    "replay_artifact_id": f"artifact-{index}",
+                    "source_metadata_hash": f"source-metadata-hash-{index}",
+                    "emission_lineage": {
+                        "emission_hash": f"emission-hash-{index}",
+                        "readout_evidence_hash": f"readout-hash-{index}",
+                        "prediction_hash": f"prediction-hash-{index}",
+                    },
+                    "local_edge_provenance": {
+                        "source_synapse_id": f"snn-rollout-local:{key}:0",
+                        "source_trace_index": index,
+                        "source_rollout_step_index": index,
+                        "target_rollout_step_index": index + 1,
+                        "source_active_indices_hash": f"source-active-hash-{index}",
+                        "target_active_indices_hash": f"target-active-hash-{index}",
+                    },
+                }
+                for index, key in enumerate(keys)
+            }
+        )
+        memory_state = {
+            "sparse_transition_weights": sparse_weights,
+            "synapse_provenance_by_key": provenance,
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: memory_state
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+        source_window = evidence["source_window"]
+        required = evidence["promotion_gate"]["required_evidence"]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_snn_status_applied_synapse_provenance_source_window.v1",
+        )
+        self.assertEqual(
+            evidence["source_window_limit"],
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(evidence["sparse_transition_weight_count"], entry_count)
+        self.assertEqual(evidence["synapse_provenance_count"], entry_count)
+        self.assertEqual(
+            evidence["source_sparse_transition_weight_count"],
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            evidence["source_synapse_provenance_count"],
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            source_window["truncated_source_counts"]["sparse_transition_weights"],
+            entry_count - SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            source_window["truncated_source_counts"]["synapse_provenance_by_key"],
+            entry_count - SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertFalse(evidence["source_window_complete"])
+        self.assertEqual(evidence["integrity_count_scope"], "bounded_source_window")
+        self.assertFalse(evidence["eligible_for_readout_synapse_audit_review"])
+        self.assertTrue(required["source_window_bounded"])
+        self.assertFalse(required["source_window_complete_for_exact_status"])
+        self.assertTrue(required["archival_metadata_cpu_resident"])
+        self.assertTrue(required["language_reasoning_absent"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["global_score_scan"])
+        self.assertFalse(source_window["raw_text_payload_loaded"])
+        self.assertFalse(source_window["language_reasoning"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertFalse(source_window["gpu_used"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        self.assertEqual(source_window["lookup_device"], "cpu")
+        self.assertEqual(
+            source_window["memory_budget"]["max_records_total"],
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT * 2,
+        )
+        self.assertEqual(
+            sparse_weights.items_yield_count,
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            provenance.items_yield_count,
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
         )
 
     def test_runtime_truth_language_capacity_pressure_reports_fixed_neuron_pressure_without_resize(

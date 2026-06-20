@@ -15,6 +15,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/model.py
@@ -1377,6 +1378,22 @@ in the maintained noisy complete-runtime band at `5923.269 tokens/sec`, with
 bounded `12/65536` route rows, `65526` cached transition rows, no observed
 contention, and zero graph/native sequence failures. Runtime CUDA memory moved
 `3554->3541 MiB`; replay-dataset archival/source work used no GPU.
+
+Applied-synapse provenance status is also read-only projection work. The
+service no longer scans all retained applied sparse weights and provenance rows
+to decide audit readiness. It reads a `32 + 32` CPU source window through
+`bounded_snn_status_applied_synapse_provenance_source_window.v1`, reports
+retained/source/truncated counts, and marks exact audit readiness unavailable
+when the window is truncated. The benchmark
+`reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json`
+reduced status source reads from `4096` to `64` rows and mean latency from
+`66.313336 ms` to `3.242332 ms` while keeping CUDA allocation/reservation at
+`0.0 MiB`. The accepted `524288`-token rerun stayed in band at
+`6350.288 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, no observed contention, zero graph/native sequence failures,
+and flat RTX 3060 memory at `1936 MiB`. Exact applied-synapse integrity belongs
+in an explicit audit/slow window; status only reports whether its bounded
+source window is complete enough to allow that review.
 
 ## Links
 

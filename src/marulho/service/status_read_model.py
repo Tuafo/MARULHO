@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
@@ -110,6 +111,10 @@ SNN_STATUS_EMISSION_REVIEW_HISTORY_SOURCE_WINDOW_POLICY = (
 SNN_STATUS_ROLLOUT_CONSOLIDATION_PATH_SOURCE_WINDOW_POLICY = (
     "recent_status_rollout_and_readout_source_window_v1"
 )
+SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT = 32
+SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_POLICY = (
+    "recent_status_applied_synapse_provenance_source_window_v1"
+)
 
 
 def _bounded_status_mapping_source_window(
@@ -126,14 +131,32 @@ def _bounded_status_mapping_source_window(
         retained_count = 0
     source_limit = max(0, int(limit))
     events: list[dict[str, Any]] = []
-    for index, item in enumerate(raw_value):
-        if index >= source_limit:
-            break
+    for item in islice(raw_value, source_limit):
         if isinstance(item, Mapping):
             events.append(dict(item))
     if retained_count == 0:
         retained_count = len(events)
     return events, int(retained_count)
+
+
+def _bounded_status_mapping_item_source_window(
+    source: Any,
+    *,
+    limit: int,
+) -> tuple[list[tuple[str, Any]], int]:
+    if not isinstance(source, Mapping):
+        return [], 0
+    try:
+        retained_count = int(len(source))
+    except TypeError:
+        retained_count = 0
+    source_limit = max(0, int(limit))
+    items: list[tuple[str, Any]] = []
+    for key, value in islice(source.items(), source_limit):
+        items.append((str(key), deepcopy(value)))
+    if retained_count == 0:
+        retained_count = len(items)
+    return items, int(retained_count)
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -3170,11 +3193,27 @@ class StatusReadModel:
             if isinstance(state.get("synapse_provenance_by_key"), Mapping)
             else {}
         )
-        rows = [
-            dict(value)
-            for value in dict(provenance).values()
+        source_limit = SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT
+        sparse_weight_items, retained_sparse_weight_count = (
+            _bounded_status_mapping_item_source_window(
+                sparse_weights,
+                limit=source_limit,
+            )
+        )
+        provenance_items, retained_provenance_count = (
+            _bounded_status_mapping_item_source_window(
+                provenance,
+                limit=source_limit,
+            )
+        )
+        sparse_weight_keys = {key for key, _value in sparse_weight_items}
+        provenance_by_key = {
+            key: dict(value)
+            for key, value in provenance_items
             if isinstance(value, Mapping)
-        ]
+        }
+        provenance_keys = set(provenance_by_key)
+        rows = list(provenance_by_key.values())
         replay_rows = [
             row for row in rows if str(row.get("provenance_type") or "") == "replay_regeneration"
         ]
@@ -3229,9 +3268,77 @@ class StatusReadModel:
             0,
             replay_artifact_lineage_rows - complete_replay_artifact_lineage_rows,
         )
-        orphan_weight_count = len(set(map(str, dict(sparse_weights).keys())) - set(map(str, dict(provenance).keys())))
-        dangling_provenance_count = len(
-            set(map(str, dict(provenance).keys())) - set(map(str, dict(sparse_weights).keys()))
+        orphan_weight_count = len(sparse_weight_keys - provenance_keys)
+        dangling_provenance_count = len(provenance_keys - sparse_weight_keys)
+        truncated_sparse_weight_count = max(
+            0,
+            int(retained_sparse_weight_count) - int(len(sparse_weight_items)),
+        )
+        truncated_provenance_count = max(
+            0,
+            int(retained_provenance_count) - int(len(provenance_items)),
+        )
+        source_window_complete = (
+            truncated_sparse_weight_count == 0 and truncated_provenance_count == 0
+        )
+        source_window = {
+            "surface": "bounded_snn_status_applied_synapse_provenance_source_window.v1",
+            "policy": SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_POLICY,
+            "selection_criteria": [
+                "recent_applied_sparse_transition_weight_keys",
+                "recent_applied_synapse_provenance_rows",
+                "bounded_status_projection_before_audit_readiness",
+            ],
+            "source_limits": {
+                "sparse_transition_weights": int(source_limit),
+                "synapse_provenance_by_key": int(source_limit),
+            },
+            "source_counts": {
+                "retained_sparse_transition_weights": int(retained_sparse_weight_count),
+                "retained_synapse_provenance_rows": int(retained_provenance_count),
+                "source_sparse_transition_weights": int(len(sparse_weight_items)),
+                "source_synapse_provenance_rows": int(len(provenance_items)),
+                "source_mapping_provenance_rows": int(len(rows)),
+                "source_replay_regeneration_rows": int(len(replay_rows)),
+            },
+            "truncated_source_counts": {
+                "sparse_transition_weights": int(truncated_sparse_weight_count),
+                "synapse_provenance_by_key": int(truncated_provenance_count),
+            },
+            "source_window_complete": bool(source_window_complete),
+            "integrity_scope": "complete"
+            if source_window_complete
+            else "bounded_source_window",
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "runs_audit": False,
+            "runs_replay": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "device_placement": {
+                "archival_storage": "cpu",
+                "source_window_selection": "cpu",
+                "lookup": "cpu",
+            },
+            "gpu_used": False,
+            "memory_budget": {
+                "max_sparse_transition_weights": int(source_limit),
+                "max_synapse_provenance_rows": int(source_limit),
+                "max_records_total": int(source_limit * 2),
+                "archival_storage_device": "cpu",
+            },
+        }
+        exact_integrity_available = bool(
+            source_window_complete
+            and int(retained_sparse_weight_count) == int(len(sparse_weight_items))
+            and int(retained_provenance_count) == int(len(provenance_items))
         )
         restore_validation = self._snn_applied_replay_lineage_restore_validation()
         restore_validation_available = bool(restore_validation.get("available"))
@@ -3242,7 +3349,8 @@ class StatusReadModel:
             restore_validation_available and not restore_lineage_matches
         )
         ready = bool(
-            provenance
+            provenance_items
+            and exact_integrity_available
             and orphan_weight_count == 0
             and dangling_provenance_count == 0
             and missing_local_edge_rows == 0
@@ -3276,8 +3384,16 @@ class StatusReadModel:
             "applies_plasticity": False,
             "mutates_runtime_state": False,
             "writes_checkpoint": False,
-            "sparse_transition_weight_count": len(sparse_weights),
-            "synapse_provenance_count": len(provenance),
+            "sparse_transition_weight_count": int(retained_sparse_weight_count),
+            "synapse_provenance_count": int(retained_provenance_count),
+            "source_sparse_transition_weight_count": int(len(sparse_weight_items)),
+            "source_synapse_provenance_count": int(len(provenance_items)),
+            "source_window": source_window,
+            "source_window_policy": SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_POLICY,
+            "source_window_limit": int(source_limit),
+            "source_window_count": int(len(provenance_items)),
+            "source_window_complete": bool(source_window_complete),
+            "integrity_count_scope": source_window["integrity_scope"],
             "replay_regeneration_synapse_count": len(replay_rows),
             "complete_local_edge_provenance_count": complete_local_edge_rows,
             "missing_local_edge_provenance_count": missing_local_edge_rows,
@@ -3287,6 +3403,8 @@ class StatusReadModel:
             "incomplete_replay_artifact_lineage_count": incomplete_lineage_rows,
             "orphan_weight_count": orphan_weight_count,
             "dangling_provenance_count": dangling_provenance_count,
+            "orphan_weight_count_scope": source_window["integrity_scope"],
+            "dangling_provenance_count_scope": source_window["integrity_scope"],
             "restore_validation_available": restore_validation_available,
             "restore_lineage_matches_restored_state": restore_lineage_matches,
             "restore_validation_blocks_audit": restore_validation_blocks_audit,
@@ -3308,8 +3426,28 @@ class StatusReadModel:
                 "eligible_for_action": False,
                 "required_evidence": {
                     "synapse_provenance_available": bool(provenance),
-                    "no_unprovenanced_weights": orphan_weight_count == 0,
-                    "no_dangling_provenance": dangling_provenance_count == 0,
+                    "source_window_bounded": (
+                        source_window["surface"]
+                        == "bounded_snn_status_applied_synapse_provenance_source_window.v1"
+                        and source_window["global_candidate_scan"] is False
+                        and source_window["global_score_scan"] is False
+                        and source_window["runs_live_tick"] is False
+                    ),
+                    "source_window_complete_for_exact_status": exact_integrity_available,
+                    "archival_metadata_cpu_resident": (
+                        source_window["archival_storage_device"] == "cpu"
+                        and source_window["gpu_used"] is False
+                    ),
+                    "language_reasoning_absent": (
+                        source_window["language_reasoning"] is False
+                        and source_window["raw_text_payload_loaded"] is False
+                    ),
+                    "no_unprovenanced_weights": (
+                        exact_integrity_available and orphan_weight_count == 0
+                    ),
+                    "no_dangling_provenance": (
+                        exact_integrity_available and dangling_provenance_count == 0
+                    ),
                     "replay_regeneration_local_edge_provenance_complete": (
                         missing_local_edge_rows == 0
                     ),

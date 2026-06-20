@@ -16,6 +16,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
+  - ../../../src/marulho/evaluation/status_applied_synapse_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -76,6 +77,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-plan-source-window.json
   - reports/bounded_replay_window_20260618/snn-replay-artifact-provenance-source-window.json
   - reports/bounded_replay_window_20260618/status-replay-path-source-window.json
+  - reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-profile.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-status-replay-path-source-window-noprofile-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-source-window.json
@@ -1603,6 +1607,33 @@ processed `524288` tokens at `6443.960 tokens/sec`,
 `train_compute=0.127084 ms/token`, bounded `12/65536` route rows, `65526`
 cached transition rows, zero graph/native sequence failures, no observed
 contention, and flat RTX 3060 memory at `1899 MiB`.
+
+Applied-synapse provenance status now follows the same selected-source rule.
+Modern Hopfield-style recall is useful only after the memory/replay window is
+selected; complementary learning systems, continual replay, and synaptic
+tagging/capture do not justify checking all applied synapse provenance whenever
+operator status is projected. The maintained status evidence emits
+`bounded_snn_status_applied_synapse_provenance_source_window.v1`, reads at most
+`32` sparse-weight keys and `32` provenance rows, keeps archival metadata and
+lookup on CPU, and reports no live tick, every-token work, replay execution,
+raw text, or hidden language reasoning. If retained rows exceed the source
+window, exact audit readiness is blocked with
+`integrity_count_scope=bounded_source_window`.
+
+The report
+`reports/bounded_replay_window_20260620/status-applied-synapse-provenance-source-window.json`
+read `64` rows instead of `4096` in the benchmark-local retired broad scan
+model, reduced mean latency from `66.313336 ms` to `3.242332 ms`
+(`20.452358x`), preserved bounded-window replay-regeneration provenance health,
+and used `0.0 MiB` CUDA allocation/reservation. The first long protection run
+succeeded at `5875.245 tokens/sec` but is kept as secondary variance; the
+accepted rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-applied-synapse-provenance-source-window-rerun.json`
+stayed in band at `6350.288 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, zero graph/native sequence failures, no
+observed contention, and flat RTX 3060 memory at `1936 MiB`. The old broad
+status key scan is retired; benchmark-local broad comparison remains only
+evidence.
 
 ## Links
 
