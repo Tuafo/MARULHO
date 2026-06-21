@@ -2113,8 +2113,10 @@ class DualMemoryStore:
         index: int,
         current_token: Optional[int] = None,
         *,
-        include_text_payload: bool = True,
+        include_text_payload: bool = False,
     ) -> dict[str, Any]:
+        """Return replay tensors; raw text payloads require an explicit opt-in."""
+
         idx = int(index)
         if idx < 0 or idx >= len(self.slow_buffer):
             raise IndexError(f"Memory index out of range: {index}")

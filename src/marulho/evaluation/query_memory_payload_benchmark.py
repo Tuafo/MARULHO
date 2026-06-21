@@ -98,10 +98,18 @@ class _SyntheticMemoryStore:
         self.last_query_memory_match_report = report
         return report
 
-    def replay_entry(self, idx: int, current_token: int | None = None) -> dict[str, Any]:
+    def replay_entry(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
         index = int(idx)
         self.replay_entry_calls.append(index)
         text = self.slow_raw_windows[index]
+        if not include_text_payload:
+            return {"text": None, "raw_window": None, "metadata": None}
         return {
             "text": text,
             "raw_window": text,
@@ -138,7 +146,11 @@ def _diagnostic_eager_payload(
     for index in candidate_indices:
         evidence_pattern = store.slow_input_patterns[int(index)].float()
         similarity = query_runner.cosine_similarity(query_pattern, evidence_pattern)
-        entry = store.replay_entry(int(index), current_token=1024)
+        entry = store.replay_entry(
+            int(index),
+            current_token=1024,
+            include_text_payload=True,
+        )
         raw_window = str(entry.get("raw_window", ""))
         text = str(entry.get("text", ""))
         complete_sentence, clipped_overlap = query_runner.episode_quality(

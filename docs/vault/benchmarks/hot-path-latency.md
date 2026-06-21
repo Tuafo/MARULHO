@@ -5116,3 +5116,32 @@ recorded zero graph/native sequence failures. Prewarm took `325.285 s`; CPU max
 was `28%`; GPU max was `25%`, so velocity reported contention observed. RTX
 3060 memory stayed flat at `1963->1964 MiB`, so this is same-band live-tick
 protection evidence, not a new throughput ceiling.
+
+## Explicit Replay Text Payload Opt-In
+
+`DualMemoryStore.replay_entry(...)` is no longer a raw-text payload API by
+default. Default replay-entry reads return tensor/STC/consolidation metadata
+only; query/source-bank/context readout explicitly opts into raw text only after
+bounded candidate or returned-match selection.
+
+The focused report
+`reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json`
+passed over a `65536`-entry archive: default replay-entry reads loaded `0/192`
+raw text payloads, explicit opt-in loaded `192/192`, and bounded query readout
+loaded `5` returned-match payloads with no global candidate/score scan, no live
+tick, no every-token cadence, CPU archival placement, and
+`language_reasoning=false`. This is API-boundary protection evidence; the
+long-run gate for this slice is the paired continuous runtime run, not the
+focused payload benchmark.
+
+The paired continuous runtime report
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json`
+processed `524288` tokens in `87.470800 s` at `5993.863 tokens/sec`,
+`tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`,
+`prepare_training=0.006947 ms/token`, and `finalize_total=0.006613 ms/token`.
+Prewarm took `320.045 s`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. CPU max was `33%`; GPU
+max was `15%`, so velocity reported no observed contention. RTX 3060 memory
+stayed flat at `1878->1879 MiB`.

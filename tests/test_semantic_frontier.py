@@ -66,8 +66,20 @@ class _FakeMemoryStore:
             "fallback_reason": None,
         }
 
-    def replay_entry(self, idx: int, current_token: int | None = None) -> dict[str, object]:
+    def replay_entry(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, object]:
         self.replay_entry_calls.append(int(idx))
+        if not include_text_payload:
+            return {
+                "text": None,
+                "raw_window": None,
+                "metadata": None,
+            }
         return {
             "text": self._texts[idx],
             "raw_window": self.slow_raw_windows[idx],

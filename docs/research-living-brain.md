@@ -4,6 +4,8 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Explicit replay-entry text payload note, June 2026: modern-Hopfield-style recall can rank bounded tensor traces, but CLS/replay/tagging evidence does not justify a raw-text replay payload as the default memory operator. `DualMemoryStore.replay_entry(...)` is now tensor-only unless the caller explicitly passes `include_text_payload=True`; query, source-bank, and context readout opt in only after bounded candidate/returned-match selection. The benchmark `reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json` used a `65536`-entry store and passed `explicit_replay_entry_text_payload_opt_in.v1`: default replay-entry reads loaded `0/192` raw text payloads, explicit opt-in loaded `192/192`, and bounded query readout loaded `5` returned-match payloads with no global candidate/score scan, no live tick, no every-token cadence, CPU archival placement, and `language_reasoning=false`. The paired `524288`-token protection run `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json` stayed in band at `5993.863 tokens/sec`, `tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded `12/65536` route rows, RTX 3060 memory `1878->1879 MiB`, no observed contention, and zero graph/native sequence failures.
+
 ### Replay provenance source-window binding
 
 - Known readout-evidence source-window note, June 2026: modern Hopfield

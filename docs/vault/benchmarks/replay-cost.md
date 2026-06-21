@@ -2269,3 +2269,34 @@ grounded target, or replace the synthetic capped-window/readout-payload proof
 with a larger grounded replay corpus. Do not broaden a schedule or revive
 unscoped helper scans without a target-specific quality gate and a clean
 long-run check proving replay remains slow-window work.
+
+## Explicit Replay Text Payload Opt-In
+
+The implicit raw-text default on `DualMemoryStore.replay_entry(...)` is retired.
+The maintained path returns tensor and replay metadata by default; raw text
+payloads require `include_text_payload=True` after a bounded query/source-bank
+or context readout window selects entries.
+
+Focused benchmark:
+
+`python -m marulho.evaluation.replay_entry_text_payload_opt_in_benchmark --entries 65536 --buckets 16 --read-count 192 --candidate-limit 192 --top-k 5 --runs 25 --output reports\bounded_replay_window_20260620\replay-entry-text-payload-opt-in.json`
+
+Result: `passed=true`; default replay-entry reads loaded `0/192` raw text
+payloads, explicit opt-in loaded `192/192`, and bounded query readout loaded
+`5` returned-match payloads. Runtime Truth fields report no global
+candidate/score scan, no live tick, no every-token cadence, CPU archival
+placement, and `language_reasoning=false`.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `87.470800 s`,
+`5993.863 tokens/sec`, `tick_duration_ms.p95=21.555`,
+`train_compute=0.135543 ms/token`, `prepare_training=0.006947 ms/token`, and
+`finalize_total=0.006613 ms/token`. Prewarm took `320.045 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. CPU max was `33%`; GPU max was
+`15%`, so velocity reported no observed contention. RTX 3060 memory stayed flat
+at `1878->1879 MiB`.

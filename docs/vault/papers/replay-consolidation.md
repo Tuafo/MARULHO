@@ -1926,3 +1926,28 @@ protection rather than a clean speed ceiling.
 - [Column Runtime](../concepts/column-runtime.md)
 - [Replay Cost](../benchmarks/replay-cost.md)
 - [Hot Path Latency](../benchmarks/hot-path-latency.md)
+
+## Explicit Replay Text Payload Opt-In
+
+`DualMemoryStore.replay_entry(...)` is tensor-only by default now. Raw replay
+text, expanded text, and metadata require `include_text_payload=True`, and
+production query/source-bank/context readout uses that opt-in only after a
+bounded candidate or returned-match window already exists. This keeps
+modern-Hopfield-style recall as local tensor association over selected traces,
+not as hidden language reasoning through replay text.
+
+The benchmark
+`reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json`
+passed on a `65536`-entry store: default replay-entry reads loaded `0/192` raw
+text payloads, explicit opt-in loaded `192/192`, and bounded query readout
+loaded `5` returned-match payloads with no global candidate/score scan, no live
+tick, no every-token cadence, CPU archival placement, and
+`language_reasoning=false`.
+
+The paired protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json`
+processed `524288` tokens at `5993.863 tokens/sec` with
+`tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded
+`12/65536` route rows, cached `65526` transition rows, RTX 3060 memory
+`1878->1879 MiB`, no observed contention, and zero graph/native sequence
+failures.

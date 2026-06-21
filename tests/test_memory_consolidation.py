@@ -176,7 +176,15 @@ class MemoryConsolidationTests(unittest.TestCase):
         restored = DualMemoryStore(capacity=8)
         restored.restore(store.snapshot())
 
-        replay_entry = restored.replay_entry(0, current_token=12)
+        default_entry = restored.replay_entry(0, current_token=12)
+        self.assertIsNone(default_entry["raw_window"])
+        self.assertIsNone(default_entry["text"])
+
+        replay_entry = restored.replay_entry(
+            0,
+            current_token=12,
+            include_text_payload=True,
+        )
         self.assertEqual(replay_entry["raw_window"], "purrs safe.")
         self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
 

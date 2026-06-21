@@ -80,10 +80,18 @@ class _SyntheticMemoryStore:
             "fallback_reason": None if candidates else "empty_query_candidate_window",
         }
 
-    def replay_entry(self, idx: int, current_token: int | None = None) -> dict[str, Any]:
+    def replay_entry(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
         self.replay_entry_calls.append(int(idx))
         base = self.slow_raw_windows[int(idx)]
         text = " ".join(base for _ in range(self.payload_repeats))
+        if not include_text_payload:
+            return {"text": None, "raw_window": None, "metadata": None}
         return {"text": text, "raw_window": base, "metadata": {}}
 
     def record_bank_memory_match_report(self, report: dict[str, Any]) -> dict[str, Any]:

@@ -892,7 +892,11 @@ def memory_matches_with_report(
         if replay_entry_cache is not None:
             replay_entry = replay_entry_cache.get(int(idx))
         if replay_entry is None:
-            replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
+            replay_entry = store.replay_entry(
+                idx,
+                current_token=trainer.token_count,
+                include_text_payload=True,
+            )
             raw_text_payload_count += 1
             if replay_entry_cache is not None:
                 replay_entry_cache[int(idx)] = replay_entry

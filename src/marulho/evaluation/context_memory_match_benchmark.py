@@ -111,11 +111,19 @@ class _SyntheticMemoryStore:
         self.last_query_memory_match_report = report
         return report
 
-    def replay_entry(self, idx: int, current_token: int | None = None) -> dict[str, Any]:
+    def replay_entry(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
         _ = current_token
         index = int(idx)
         self.replay_entry_calls.append(index)
         text = self.slow_raw_windows[index]
+        if not include_text_payload:
+            return {"text": None, "raw_window": None, "metadata": None}
         return {
             "text": text,
             "raw_window": text,
