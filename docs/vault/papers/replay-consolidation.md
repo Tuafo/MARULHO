@@ -374,7 +374,8 @@ maintained CPU bucket cache and report
 `bucket_consolidation_level_cache_lookup.v1` with `full_memory_scan=false` and
 `scan_entry_count=0`; if the cache is absent, the scalar API returns a no-scan
 miss instead of rebuilding. Explicit `bucket_consolidation_tensor(...)`
-rebuilds remain load/capture/offline or selected-replay recovery work. The benchmark
+rebuilds remain load/capture/offline, explicit tensor request, checkpoint
+load, graph capture/prewarm, or benchmark-local work. The benchmark
 `reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
 matched the retired scalar scan for a `65536`-entry store while reducing mean
 latency from `12.999192 ms` to `0.016260 ms`. The paired `524288`-token
@@ -384,6 +385,24 @@ stayed same-band at `5967.267 tokens/sec`, `tick_duration_ms.p95=22.005`,
 `train_compute=0.135870 ms/token`, bounded `12/65536` route rows, cached
 `65526` transition rows, zero graph/native sequence failures, and RTX 3060
 memory `1963->1964 MiB`; velocity again observed a `25%` pre-run GPU sample.
+
+Selected replay consolidation follows the same local-window rule. A selected
+replay window can update selected memory STC/replay state, but it must not
+repair missing global bucket-cache metadata by scanning every retained
+slow-memory entry before consolidation. `DualMemoryStore.consolidate_replay`
+now emits `bounded_selected_replay_consolidation.v1`: selected replay counts,
+capture tags, consolidation levels/events, and EMAs match the retired
+benchmark-local full-cache rebuild diagnostic for the touched entries; cache
+delta updates run only when cache metadata is already present; and missing cache
+metadata records `cache_missing_deferred_no_full_rebuild`. The focused report
+`reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json`
+matched selected-entry state with `0` cache-rebuild scan entries, mean bounded
+latency `2.291943 ms` versus `2979.156029 ms`, CPU archival/cache metadata, no
+CUDA allocation, and `4096x` less source work on a `65536`-entry archive. The
+accepted `524288`-token rerun stayed same-band at `5973.047 tokens/sec`,
+`train_compute=0.135713 ms/token`, bounded `12/65536` route rows, no observed
+contention, RTX 3060 memory `2039->2041 MiB`, and zero graph/native sequence
+failures.
 
 After the micro-maintenance cleanup, the current synthetic report
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

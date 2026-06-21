@@ -80,12 +80,24 @@ but that scalar API now uses the maintained CPU bucket consolidation cache and
 reports `bucket_consolidation_level_cache_lookup.v1` with
 `full_memory_scan=false`; a missing cache returns a no-scan miss instead of
 rebuilding by iterating slow memory. Explicit tensor rebuilds remain checkpoint
-load, graph capture/prewarm, offline diagnostic, or selected-replay recovery
-work. The 65536-entry
-benchmark reduced scalar lookup from `12.999192 ms` to `0.016260 ms` while
-matching the retired full scan, and the paired 524288-token run stayed
-same-band at `5967.267 tokens/sec` with bounded `12/65536` route rows and zero
-graph/native sequence failures.
+load, graph capture/prewarm, offline diagnostic, explicit tensor request, or
+benchmark-local work. The 65536-entry benchmark reduced scalar lookup from
+`12.999192 ms` to `0.016260 ms` while matching the retired full scan, and the
+paired 524288-token run stayed same-band at `5967.267 tokens/sec` with bounded
+`12/65536` route rows and zero graph/native sequence failures.
+
+Selected replay consolidation now uses the same boundary. `DualMemoryStore`
+reports `bounded_selected_replay_consolidation.v1`; selected entries still
+update replay counts, consolidation levels, capture tags, and EMAs, but a
+missing bucket cache records `cache_missing_deferred_no_full_rebuild` rather
+than rebuilding over every retained slow-memory entry. If cache metadata already
+exists, replay applies selected-bucket delta updates only for the touched
+buckets. The focused `65536`-entry benchmark matched selected-entry state
+against the benchmark-local retired full-cache rebuild diagnostic while
+reducing mean latency from `2979.156029 ms` to `2.291943 ms` and source work by
+`4096x`. The accepted `524288`-token protection rerun stayed same-band at
+`5973.047 tokens/sec`, bounded `12/65536` route rows, no observed contention,
+RTX 3060 memory `2039->2041 MiB`, and zero graph/native sequence failures.
 
 `ColumnStructuralReviewQueue` is the durable continuation path for column growth/prune review. It is training-owned, checkpointed with the model, and fed only by bounded awake/candidate IDs plus already-owned predictive/metabolism tensors: prediction error, confidence, prediction failure streak, estimated cost, usefulness, memory pressure, wake reason, and sleep reason. A growth ticket points to `explicit_binding_growth_trial_design`; a prune/sleep ticket points to `isolated_column_prune_or_sleep_review`. Both require operator review and a checkpoint transaction, and both report `mutates_runtime_state=false`. Retained CPU ticks can update the queue from the wake plan immediately. CUDA graph bursts update it only on a slow structural-review cadence; skipped bursts record deferred capture such as `structural_review_cuda_cadence_not_due` so the queue does not add a host sync to every graph host-truth boundary. Runtime Truth projects pending/growth/prune counts, last evaluated/cached column counts, update/deferred counts, baseline queue hash, candidate evidence hashes, next gate, and `runs_all_columns=false`; service does not create or rank tickets. `column_scheduler_benchmark` exposes those queue fields, including an opt-in forced-evidence mode that queues bounded growth and prune/sleep operator-review tickets from the wake plan after measured timing; the retained CPU forced audit is slower, so this is a scheduler truth/continuation surface, not a throughput promotion.
 

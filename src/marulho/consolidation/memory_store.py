@@ -141,6 +141,9 @@ class DualMemoryStore:
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
         self.last_sfa_sample_report = self._empty_sfa_sample_report()
+        self.last_replay_consolidation_report = (
+            self._empty_replay_consolidation_report()
+        )
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
@@ -206,6 +209,9 @@ class DualMemoryStore:
         self.last_replay_selection_report = self._empty_replay_selection_report()
         self.last_replay_recall_report = self._empty_replay_recall_report()
         self.last_sfa_sample_report = self._empty_sfa_sample_report()
+        self.last_replay_consolidation_report = (
+            self._empty_replay_consolidation_report()
+        )
         self.last_replay_query_collection_report = (
             self._empty_replay_query_collection_report()
         )
@@ -246,6 +252,9 @@ class DualMemoryStore:
             ),
             "last_sfa_sample_report": dict(
                 self.last_sfa_sample_report
+            ),
+            "last_replay_consolidation_report": dict(
+                self.last_replay_consolidation_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -700,6 +709,46 @@ class DualMemoryStore:
         }
 
     @staticmethod
+    def _empty_replay_consolidation_report() -> dict[str, Any]:
+        return {
+            "surface": "bounded_selected_replay_consolidation.v1",
+            "status": "not_run",
+            "scope": "selected_replay_window_slow_path",
+            "memory_size": 0,
+            "requested_index_count": 0,
+            "selected_valid_index_count": 0,
+            "selected_indices": [],
+            "selected_bucket_ids": [],
+            "selected_bucket_count": 0,
+            "replayed_count": 0,
+            "consolidated_count": 0,
+            "fast_ema_update_count": 0,
+            "local_fast_ema_update_count": 0,
+            "cache_present_before": False,
+            "cache_present_after": False,
+            "cache_adjustment_mode": "not_run",
+            "cache_adjustment_count": 0,
+            "cache_adjustment_skipped_count": 0,
+            "cache_rebuild_count_delta": 0,
+            "cache_rebuild_scan_entry_count": 0,
+            "cache_generation_before": 0,
+            "cache_generation_after": 0,
+            "full_memory_scan": False,
+            "global_candidate_scan": False,
+            "scan_entry_count": 0,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": True,
+            "applies_plasticity": True,
+            "archival_storage_device": "cpu",
+            "cache_metadata_device": "cpu",
+            "score_device": "cpu",
+            "fallback_reason": "not_run",
+        }
+
+    @staticmethod
     def _empty_replay_query_collection_report() -> dict[str, Any]:
         return {
             "surface": "bounded_replay_query_collection.v1",
@@ -1143,6 +1192,9 @@ class DualMemoryStore:
             "last_bucket_consolidation_level_report": dict(
                 self.last_bucket_consolidation_level_report
             ),
+            "last_replay_consolidation_report": dict(
+                self.last_replay_consolidation_report
+            ),
             "stc_state_storage": "zero_copy_array_buffer",
             "stc_decay_zero_copy": True,
             "stc_state_bytes": int(
@@ -1188,6 +1240,9 @@ class DualMemoryStore:
             ),
             "last_sfa_sample_report": dict(
                 self.last_sfa_sample_report
+            ),
+            "last_replay_consolidation_report": dict(
+                self.last_replay_consolidation_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -3267,32 +3322,73 @@ class DualMemoryStore:
         current_token: int,
         blend: float,
         protein_synthesis_level: float = 1.0,
-    ) -> None:
+    ) -> dict[str, Any]:
+        requested_count = len(indices)
+        cache_generation_before = int(self._bucket_consolidation_cache_generation)
+        cache_rebuild_count_before = int(self.bucket_consolidation_cache_rebuild_count)
+        cache_rebuild_scan_count_before = int(
+            self.bucket_consolidation_cache_rebuild_scan_entry_count
+        )
+        cache_present_before = bool(
+            self._bucket_consolidation_cpu is not None
+            and self._bucket_consolidation_weighted_sum is not None
+            and self._bucket_consolidation_weight_sum is not None
+        )
         if not indices:
-            return
+            report = self._empty_replay_consolidation_report()
+            report.update(
+                {
+                    "status": "empty_window",
+                    "memory_size": int(len(self.slow_buffer)),
+                    "requested_index_count": 0,
+                    "cache_present_before": cache_present_before,
+                    "cache_present_after": bool(
+                        self._bucket_consolidation_cpu is not None
+                    ),
+                    "cache_generation_before": cache_generation_before,
+                    "cache_generation_after": int(
+                        self._bucket_consolidation_cache_generation
+                    ),
+                    "fallback_reason": "empty_selected_replay_window",
+                }
+            )
+            self.last_replay_consolidation_report = report
+            self._invalidate_summary_cache()
+            return report
 
         self._advance_state(current_token)
-        if self._bucket_consolidation_cpu is None and self.slow_buffer:
-            self._rebuild_bucket_consolidation_cache(
-                reason="selected_replay_window"
-            )
         replay_blend = float(max(0.0, blend))
         synthesis_level = float(max(0.0, protein_synthesis_level))
         replay_vectors: list[torch.Tensor] = []
         replay_buckets: dict[int, list[torch.Tensor]] = defaultdict(list)
+        selected_indices: list[int] = []
+        selected_bucket_ids: set[int] = set()
+        replayed_count = 0
+        consolidated_count = 0
+        cache_adjustment_count = 0
+        cache_adjustment_skipped_count = 0
+        cache_adjustment_allowed = bool(
+            self._bucket_consolidation_cpu is not None
+            and self._bucket_consolidation_weighted_sum is not None
+            and self._bucket_consolidation_weight_sum is not None
+        )
 
         for raw_idx in indices:
             idx = int(raw_idx)
             if idx < 0 or idx >= len(self.slow_buffer):
                 continue
+            selected_indices.append(idx)
 
             bucket_id = self.slow_bucket_ids[idx] if idx < len(self.slow_bucket_ids) else None
+            if bucket_id is not None:
+                selected_bucket_ids.add(int(bucket_id))
             tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
             importance = float(max(1e-6, self.slow_importance[idx]))
             consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
             if consolidation >= 0.8:
                 self.slow_last_replay_token[idx] = int(current_token)
                 self.slow_replay_count[idx] += 1
+                replayed_count += 1
                 continue
             if synthesis_level > 0.0:
                 injected = self._inject_prp(
@@ -3316,20 +3412,29 @@ class DualMemoryStore:
 
             if delta > 0.0:
                 next_consolidation = float(min(1.0, consolidation + delta))
-                self._adjust_bucket_consolidation_cache(
-                    bucket_id,
-                    importance=importance,
-                    consolidation=consolidation,
-                    sign=-1.0,
-                )
+                if bucket_id is not None and cache_adjustment_allowed:
+                    self._adjust_bucket_consolidation_cache(
+                        bucket_id,
+                        importance=importance,
+                        consolidation=consolidation,
+                        sign=-1.0,
+                    )
+                    cache_adjustment_count += 1
+                elif bucket_id is not None:
+                    cache_adjustment_skipped_count += 1
                 self.slow_consolidation_level[idx] = next_consolidation
-                self._adjust_bucket_consolidation_cache(
-                    bucket_id,
-                    importance=importance,
-                    consolidation=next_consolidation,
-                    sign=1.0,
-                )
+                if bucket_id is not None and cache_adjustment_allowed:
+                    self._adjust_bucket_consolidation_cache(
+                        bucket_id,
+                        importance=importance,
+                        consolidation=next_consolidation,
+                        sign=1.0,
+                    )
+                    cache_adjustment_count += 1
+                elif bucket_id is not None:
+                    cache_adjustment_skipped_count += 1
                 self.slow_consolidation_events[idx] += 1
+                consolidated_count += 1
                 release_factor = 1.0 - (1.0 - self.capture_release) * max(0.10, min(1.0, replay_blend))
                 self.slow_capture_tag[idx] = float(max(0.0, self.slow_capture_tag[idx] * release_factor))
 
@@ -3342,17 +3447,21 @@ class DualMemoryStore:
 
             self.slow_last_replay_token[idx] = int(current_token)
             self.slow_replay_count[idx] += 1
+            replayed_count += 1
             replay_vectors.append(self.slow_buffer[idx].detach().clone())
             if bucket_id is not None:
                 replay_buckets[int(bucket_id)].append(self.slow_buffer[idx].detach().clone())
 
+        fast_ema_update_count = 0
         if replay_vectors:
             replay_centroid = torch.stack(replay_vectors, dim=0).mean(dim=0)
             if self.fast_ema is None:
                 self.fast_ema = replay_centroid.clone()
             else:
                 self.fast_ema = (1.0 - replay_blend) * self.fast_ema + replay_blend * replay_centroid
+            fast_ema_update_count = 1
 
+        local_fast_ema_update_count = 0
         for bucket_id, bucket_vectors in replay_buckets.items():
             if not bucket_vectors:
                 continue
@@ -3361,6 +3470,71 @@ class DualMemoryStore:
                 self.local_fast_ema[bucket_id] = centroid.clone()
             else:
                 self.local_fast_ema[bucket_id] = (1.0 - replay_blend) * self.local_fast_ema[bucket_id] + replay_blend * centroid
+            local_fast_ema_update_count += 1
+
+        cache_present_after = bool(self._bucket_consolidation_cpu is not None)
+        if cache_adjustment_allowed:
+            cache_adjustment_mode = (
+                "selected_bucket_delta_update"
+                if cache_adjustment_count > 0
+                else "cache_ready_no_selected_delta"
+            )
+        else:
+            cache_adjustment_mode = "cache_missing_deferred_no_full_rebuild"
+        report = {
+            "surface": "bounded_selected_replay_consolidation.v1",
+            "status": (
+                "updated_selected_window"
+                if replayed_count > 0
+                else "no_valid_selected_indices"
+            ),
+            "scope": "selected_replay_window_slow_path",
+            "memory_size": int(len(self.slow_buffer)),
+            "requested_index_count": int(requested_count),
+            "selected_valid_index_count": int(len(selected_indices)),
+            "selected_indices": list(selected_indices),
+            "selected_bucket_ids": sorted(selected_bucket_ids),
+            "selected_bucket_count": int(len(selected_bucket_ids)),
+            "replayed_count": int(replayed_count),
+            "consolidated_count": int(consolidated_count),
+            "fast_ema_update_count": int(fast_ema_update_count),
+            "local_fast_ema_update_count": int(local_fast_ema_update_count),
+            "cache_present_before": cache_present_before,
+            "cache_present_after": cache_present_after,
+            "cache_adjustment_mode": cache_adjustment_mode,
+            "cache_adjustment_count": int(cache_adjustment_count),
+            "cache_adjustment_skipped_count": int(cache_adjustment_skipped_count),
+            "cache_rebuild_count_delta": int(
+                self.bucket_consolidation_cache_rebuild_count
+                - cache_rebuild_count_before
+            ),
+            "cache_rebuild_scan_entry_count": int(
+                self.bucket_consolidation_cache_rebuild_scan_entry_count
+                - cache_rebuild_scan_count_before
+            ),
+            "cache_generation_before": cache_generation_before,
+            "cache_generation_after": int(self._bucket_consolidation_cache_generation),
+            "full_memory_scan": False,
+            "global_candidate_scan": False,
+            "scan_entry_count": 0,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": True,
+            "applies_plasticity": True,
+            "archival_storage_device": "cpu",
+            "cache_metadata_device": "cpu",
+            "score_device": "cpu",
+            "fallback_reason": (
+                "none"
+                if replayed_count > 0
+                else "selected_replay_indices_out_of_range"
+            ),
+        }
+        self.last_replay_consolidation_report = report
+        self._invalidate_summary_cache()
+        return report
 
     def compute_drift(self, bucket_id: Optional[int] = None) -> float:
         if bucket_id is not None:
@@ -3434,6 +3608,9 @@ class DualMemoryStore:
                 ),
                 "last_sfa_sample_report": dict(
                     self.last_sfa_sample_report
+                ),
+                "last_replay_consolidation_report": dict(
+                    self.last_replay_consolidation_report
                 ),
                 "last_replay_query_collection_report": dict(
                     self.last_replay_query_collection_report
@@ -3542,6 +3719,9 @@ class DualMemoryStore:
             ),
             "last_sfa_sample_report": dict(
                 self.last_sfa_sample_report
+            ),
+            "last_replay_consolidation_report": dict(
+                self.last_replay_consolidation_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -3672,6 +3852,9 @@ class DualMemoryStore:
             ),
             "last_sfa_sample_report": dict(
                 self.last_sfa_sample_report
+            ),
+            "last_replay_consolidation_report": dict(
+                self.last_replay_consolidation_report
             ),
             "last_replay_query_collection_report": dict(
                 self.last_replay_query_collection_report
@@ -3886,6 +4069,12 @@ class DualMemoryStore:
             dict(raw_sfa_sample)
             if isinstance(raw_sfa_sample, Mapping)
             else self._empty_sfa_sample_report()
+        )
+        raw_replay_consolidation = snapshot.get("last_replay_consolidation_report")
+        self.last_replay_consolidation_report = (
+            dict(raw_replay_consolidation)
+            if isinstance(raw_replay_consolidation, Mapping)
+            else self._empty_replay_consolidation_report()
         )
         raw_replay_query_collection = snapshot.get(
             "last_replay_query_collection_report"

@@ -2251,7 +2251,8 @@ entry to answer one winner/bucket consolidation metric. Production scalar reads
 use the maintained CPU bucket consolidation cache and report
 `bucket_consolidation_level_cache_lookup.v1` with `full_memory_scan=false` and
 `scan_entry_count=0`. A missing cache is reported as a no-scan miss; explicit
-tensor rebuilds remain load/capture/offline or selected-replay recovery work.
+tensor rebuilds remain load/capture/offline, explicit tensor request,
+checkpoint load, graph capture/prewarm, or benchmark-local work.
 
 Focused quality and latency benchmark:
 
@@ -2370,3 +2371,42 @@ processed `524288` tokens in `87.414632 s` at `5997.714 tokens/sec`, p95
 bounded `12/65536` route rows, `65526` cached transition rows, zero
 graph/native sequence failures, CPU max `32%`, GPU max `20%`, and RTX 3060
 memory `1779->1780 MiB`.
+
+## Selected Replay Consolidation Cache Recovery
+
+Selected replay consolidation no longer rebuilds the full bucket-consolidation
+cache when cache metadata is missing. `DualMemoryStore.consolidate_replay(...)`
+now reports `bounded_selected_replay_consolidation.v1`: selected replay entries
+still update replay counts, capture tags, consolidation levels/events, and
+global/local EMAs; selected-bucket cache delta updates run only when cache
+metadata already exists; and missing metadata records
+`cache_missing_deferred_no_full_rebuild`.
+
+Focused benchmark:
+
+`python -m marulho.evaluation.selected_replay_consolidation_cache_benchmark --entries 65536 --buckets 65536 --selected-count 16 --runs 7 --output reports\bounded_replay_window_20260620\selected-replay-consolidation-cache.json`
+
+Result: `pass=true`. The bounded path matched selected-entry consolidation
+levels, replay counts, consolidation events, capture tags, and fast EMA against
+the benchmark-local retired diagnostic that rebuilt the full cache first. It
+scanned `0` cache-rebuild entries, reduced source work `4096x`, and averaged
+`2.291943 ms` versus `2979.156029 ms` for the retired diagnostic. Runtime Truth
+fields report no full-memory scan, no global candidate scan, no live tick, no
+every-token cadence, no raw replay text, no hidden language reasoning, CPU
+archival/cache metadata placement, CUDA available but unused with `0.0 MiB`
+allocated/reserved, and `0.510799 MiB` traced Python peak.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-selected-replay-consolidation-cache-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `87.775633 s`,
+`5973.047 tokens/sec`, p95 tick `21.749 ms`,
+`train_compute=0.135713 ms/token`, `prepare_training=0.007071 ms/token`, and
+`finalize_total=0.006787 ms/token`. Prewarm took `339.026 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention, CPU max `27%`, GPU max `13%`, and RTX 3060 memory `2039->2041 MiB`.
+The first same-slice run at `5879.905 tokens/sec` is treated as contended
+variance because velocity observed GPU contention at `21%`.

@@ -5106,8 +5106,9 @@ Winner/bucket consolidation scalar reads no longer rebuild a bucket level by
 scanning every slow-memory entry. Production reads use
 `bucket_consolidation_level_cache_lookup.v1` over the maintained CPU bucket
 cache and report `full_memory_scan=false`; missing cache state is a no-scan
-miss, while explicit tensor rebuilds remain load/capture/offline or
-selected-replay recovery work.
+miss, while explicit tensor rebuilds remain load/capture/offline, explicit
+tensor request, checkpoint load, graph capture/prewarm, or benchmark-local
+work.
 
 The focused report
 `reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
@@ -5197,3 +5198,28 @@ on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm
 took `324.004 s`; CPU max was `32%`; GPU max touched the configured `20%`
 contention threshold; and RTX memory stayed flat at `1779->1780 MiB`. Treat
 this as same-band live-tick protection evidence, not a new speed ceiling.
+
+## Selected Replay Consolidation Cache Recovery
+
+Selected replay no longer rebuilds the full bucket-consolidation cache when
+cache metadata is missing. The focused report
+`reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json`
+matched selected-entry replay/consolidation/EMA state against a benchmark-local
+retired full-cache rebuild diagnostic while scanning `0` cache-rebuild entries,
+reducing source work `4096x`, and cutting mean latency from
+`2979.156029 ms` to `2.291943 ms`.
+
+The accepted protection rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-selected-replay-consolidation-cache-rerun.json`
+processed `524288` tokens in `87.775633 s` at `5973.047 tokens/sec`,
+`tick_duration_ms.p95=21.749`, `train_compute=0.135713 ms/token`,
+`prepare_training=0.007071 ms/token`, and
+`finalize_total=0.006787 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
+`339.026 s`; velocity reported no observed contention, CPU max `27%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2039->2041 MiB`. The
+first same-slice run at `5879.905 tokens/sec` is retained as contended variance
+because velocity observed GPU contention at `21%`, so the rerun is the accepted
+live-tick protection evidence.

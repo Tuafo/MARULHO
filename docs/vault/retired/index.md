@@ -37,6 +37,7 @@ related_benchmarks: []
 - [Readout Replay Priority Report Dropping Path](readout-replay-priority-report-dropping-path.md)
 - [Replay Execute Alias Executor Summary](replay-execute-alias-executor-summary.md)
 - [Runtime Trace Export Replay Summary Full History](runtime-trace-export-replay-summary-full-history.md)
+- [Selected Replay Bucket Consolidation Cache Rebuild](selected-replay-bucket-consolidation-cache-rebuild.md)
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)
 - [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
 - [Source Tick Sleep Replay Fallback](source-tick-sleep-replay-fallback.md)
