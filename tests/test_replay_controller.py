@@ -365,17 +365,21 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertIs(controller.history, history)
         self.assertEqual(history[0]["replay_sample_id"], "replay-sample-1")
 
-    def test_snn_transition_memory_replay_artifact_setter_preserves_existing_deque_reference(self) -> None:
+    def test_snn_transition_memory_replay_artifact_setter_preserves_existing_deque_reference_and_drops_raw_artifacts(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
         artifacts = controller.snn_transition_memory_replay_artifacts
+        artifact = self._record_regeneration_replay_artifact(controller)
 
         controller.snn_transition_memory_replay_artifacts = [
-            {"replay_artifact_id": "artifact-1", "evidence_hash": "hash-1"}
+            {"replay_artifact_id": "raw-artifact-1", "evidence_hash": "hash-1"},
+            artifact,
         ]
 
         self.assertIs(controller.snn_transition_memory_replay_artifacts, artifacts)
-        self.assertEqual(artifacts[0]["replay_artifact_id"], "artifact-1")
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0]["replay_artifact_id"], artifact["replay_artifact_id"])
+        self.assertTrue(artifacts[0]["internal_ledger_backed"])
 
     def test_snn_replay_evaluation_context_setter_preserves_existing_deque_reference(self) -> None:
         manager = _FakeReplayManager()
@@ -2449,20 +2453,51 @@ class ReplayControllerTests(unittest.TestCase):
                 confirmation=True,
             )
 
-    def test_regeneration_permit_rejects_raw_caller_window_artifact(self) -> None:
+    def test_regeneration_permit_rejects_tampered_evaluated_artifact_source_windows(
+        self,
+    ) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
-        raw_artifact = controller.record_snn_transition_memory_replay_artifact(
-            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
-            pressure_report={"available": True},
-            replay_window=[{"case_id": "caller-window", "grounded": True}],
-            operator_id="operator-1",
-            confirmation=True,
-        )
+        artifact = self._record_regeneration_replay_artifact(controller)
+        controller.snn_transition_memory_replay_artifacts[0][
+            "replay_priority_source_window"
+        ]["source_event_window_limit"] = 999
 
         with self.assertRaisesRegex(ValueError, "verified server-owned SNN replay artifact"):
             controller.issue_regeneration_permit(
-                replay_artifact_id=str(raw_artifact["replay_artifact_id"]),
+                replay_artifact_id=str(artifact["replay_artifact_id"]),
+                regeneration_design={
+                    "locality_radius": 2,
+                    "initial_weight": 0.02,
+                    "max_new_synapses": 8,
+                    "mismatch_score": 0.9,
+                    "candidate_synapses": [
+                        {"pre_index": 1, "post_index": 2, "initial_weight": 0.02}
+                    ],
+                },
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_regeneration_permit_rejects_raw_caller_window_artifact(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        self.assertFalse(hasattr(controller, "record_snn_transition_memory_replay_artifact"))
+        controller.snn_transition_memory_replay_artifacts = [
+            {
+                "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
+                "surface": "snn_transition_memory_replay_artifact.v1",
+                "replay_artifact_id": "raw-artifact-1",
+                "evidence_hash": "raw-hash-1",
+                "internal_ledger_backed": False,
+            }
+        ]
+
+        self.assertEqual(len(controller.snn_transition_memory_replay_artifacts), 0)
+
+        with self.assertRaisesRegex(ValueError, "verified server-owned SNN replay artifact"):
+            controller.issue_regeneration_permit(
+                replay_artifact_id="raw-artifact-1",
                 regeneration_design={
                     "locality_radius": 2,
                     "initial_weight": 0.02,

@@ -173,6 +173,24 @@ graph/native sequence failures; a first contended run at `4662.031 tokens/sec`
 is rejected as primary evidence. This retires the priority report-dropping
 artifact shape instead of leaving a second replay-selection contract.
 
+Raw caller-window transition-memory replay artifact recording is retired from
+production. The Replay Controller keeps
+`record_evaluated_snn_transition_memory_replay_artifact(...)` as the only
+artifact-recording entrypoint; raw caller-window artifacts are dropped during
+controller load, and permit verification recomputes persisted known-readout,
+replay-priority, and provenance source-window hashes before accepting an
+artifact. The updated report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json`
+passed with `public_raw_recorder_callable=false`, `raw_loaded_artifact_count=0`,
+`raw_artifact_index_hit=false`, `4` bounded provenance lookups instead of `256`
+retained-record checks, mean verification latency `0.538460 ms`, traced Python
+peak `0.017773 MiB`, and no CUDA allocation/reservation. The matching hot-path
+run processed `524288` tokens at `6004.719 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, zero graph/native sequence
+failures, and RTX 3060 memory `1863->1865 MiB`; velocity observed GPU
+contention, so the run is same-band throughput protection rather than a clean
+speed ceiling.
+
 Dense-label candidate history and calibration policy also use a single bounded
 source window. `dense_label_candidate_history(...)` and
 `dense_label_candidate_calibration_policy(...)` read only

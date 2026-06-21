@@ -1220,19 +1220,97 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "promotion_gate": {"status": "ready_for_operator_review"},
                     },
                 )
-                replay_artifact = manager._replay_controller.record_snn_transition_memory_replay_artifact(
-                    mismatch_report=replay_context["mismatch_report"],
-                    pressure_report=replay_context["pressure_report"],
-                    replay_window=[{"case_id": "manager-roundtrip-1", "grounded": True}],
+                replay_queue = manager._replay_controller.snn_replay_consolidation_priority_queue(
+                    readout_replay_priority_report={
+                        "surface": "snn_language_readout_replay_priority.v1",
+                        "candidates": [
+                            {"priority_score": 90.0, "all_labels_grounded": True}
+                        ],
+                    },
+                    limit=4,
+                )
+                replay_policy = manager._replay_controller.snn_replay_artifact_recording_policy_proposal(
+                    consolidation_priority_queue=replay_queue,
+                    policy={"min_priority_score": 60.0},
+                )
+                replay_ticket = manager._replay_controller.record_snn_replay_artifact_recording_review_ticket(
+                    policy_proposal=replay_policy,
                     operator_id="operator-1",
                     confirmation=True,
                 )
-                replay_ticket = {
-                    "surface": "snn_replay_artifact_recording_review_ticket.v1",
-                    "review_ticket_id": "manager-ticket-1",
-                    "evidence_hash": "ticket-hash-1",
+                readout_evidence_source_window = {
+                    "surface": "bounded_snn_readout_known_evidence_hash_source_window.v1",
+                    "source": "snn_readout_ledger.events",
+                    "source_window_limit": 8,
+                    "source_window_count": 1,
+                    "source_record_count": 1,
+                    "hash_count": 1,
+                    "global_candidate_scan": False,
+                    "global_score_scan": False,
+                    "raw_text_payload_loaded": False,
+                    "language_reasoning": False,
+                    "runs_live_tick": False,
+                    "runs_every_token": False,
+                    "mutates_runtime_state": False,
+                    "applies_plasticity": False,
+                    "archival_storage_device": "cpu",
+                    "gpu_used": False,
                 }
-                manager._replay_controller.snn_replay_artifact_recording_review_tickets.appendleft(replay_ticket)
+                replay_priority_source_window = {
+                    "surface": "bounded_snn_readout_replay_priority_source_window.v1",
+                    "source_event_retention_count": 1,
+                    "source_event_window_limit": 32,
+                    "source_event_window_count": 1,
+                    "candidate_count_before_rank": 1,
+                    "candidate_count_returned": 1,
+                    "global_candidate_scan": False,
+                    "global_score_scan": False,
+                    "raw_text_payload_loaded": False,
+                    "language_reasoning": False,
+                    "runs_live_tick": False,
+                    "runs_every_token": False,
+                    "mutates_runtime_state": False,
+                    "applies_plasticity": False,
+                    "archival_storage_device": "cpu",
+                    "score_device": "cpu",
+                    "gpu_used": False,
+                }
+                replay_context_lineage = manager._replay_controller._snn_replay_context_emission_lineage(
+                    replay_context.get("source_metadata")
+                    if isinstance(replay_context.get("source_metadata"), dict)
+                    else {}
+                )
+                replay_proposal = {
+                    "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                    "ready": True,
+                    "owned_by_marulho": True,
+                    "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                    "mismatch_report": replay_context["mismatch_report"],
+                    "pressure_report": replay_context["pressure_report"],
+                    "replay_evaluation_context_id": replay_context["replay_evaluation_context_id"],
+                    "replay_evaluation_context_hash": replay_context["evidence_hash"],
+                    "source_metadata_hash": replay_context.get("source_metadata_hash"),
+                    "emission_lineage": replay_context_lineage,
+                    "replay_window": [
+                        {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+                    ],
+                    "replay_priority_source_window": replay_priority_source_window,
+                    "replay_priority_source_window_hash": manager._replay_controller._sha256_json(
+                        replay_priority_source_window
+                    ),
+                    "promotion_gate": {"status": "ready_for_operator_recording_review"},
+                }
+                replay_artifact = manager._replay_controller.record_evaluated_snn_transition_memory_replay_artifact(
+                    artifact_proposal=replay_proposal,
+                    known_readout_evidence_hashes={"readout-hash-1"},
+                    known_readout_evidence_source_window=readout_evidence_source_window,
+                    replay_evaluation_context_id=str(
+                        replay_context["replay_evaluation_context_id"]
+                    ),
+                    review_ticket_id=str(replay_ticket["review_ticket_id"]),
+                    operator_id="operator-1",
+                    confirmation=True,
+                )
 
                 saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
                 context_history = manager._replay_controller.snn_replay_evaluation_contexts

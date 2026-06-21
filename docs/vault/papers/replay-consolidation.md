@@ -95,6 +95,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/snn-replay-artifact-readout-priority-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
+  - reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-raw-replay-artifact-recorder-retired.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1115,6 +1117,28 @@ stayed same-band at `5937.908 tokens/sec`, with bounded `12/65536` route rows,
 `65526` cached transition rows, flat RTX 3060 memory, and zero graph/native
 sequence failures. This retires another report-dropping artifact shape rather
 than adding a second replay-priority path.
+
+Raw caller-window transition-memory replay artifact recording is now retired
+from production instead of kept as a compatibility path. Replay artifacts are
+recorded only through
+`record_evaluated_snn_transition_memory_replay_artifact(...)`, where the
+artifact is derived from a verified internal-ledger proposal, review ticket,
+known-readout source window, replay-priority source window, and provenance
+source window. Controller load drops raw caller-window artifacts, and permit
+verification recomputes all three persisted source-window hashes before an
+artifact can authorize regeneration. The report
+`reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json`
+passed with `public_raw_recorder_callable=false`,
+`raw_loaded_artifact_count=0`, `raw_artifact_index_hit=false`, mean
+verification latency `0.538460 ms`, traced Python peak `0.017773 MiB`, no CUDA
+allocation/reservation, and indexed provenance verification at `4` bounded
+lookups instead of `256` retained-record checks (`64x`). The paired
+`524288`-token run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-raw-replay-artifact-recorder-retired.json`
+stayed in the maintained band at `6004.719 tokens/sec`, with bounded
+`12/65536` route rows, `65526` cached transition rows, zero graph/native
+sequence failures, and RTX 3060 memory `1863->1865 MiB`; velocity observed GPU
+contention, so this is same-band protection, not a new speed ceiling.
 
 The 2026-06-20 follow-up removes the remaining production all-family normalizer
 callable instead of keeping it as dead code. `SNNLanguageReadoutEvidenceLedger`

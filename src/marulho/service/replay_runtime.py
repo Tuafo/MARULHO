@@ -453,6 +453,68 @@ class ReplayController:
             return ""
         return str(artifact.get("replay_artifact_id") or "").strip()
 
+    def _normalize_evaluated_snn_transition_memory_replay_artifact(
+        self,
+        artifact: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Keep only evaluated, internal-ledger-backed artifacts in retention."""
+
+        if not isinstance(artifact, Mapping):
+            return None
+        normalized = dict(artifact)
+        source_window = (
+            dict(normalized.get("source_window"))
+            if isinstance(normalized.get("source_window"), Mapping)
+            else {}
+        )
+        readout_evidence_source_window = (
+            dict(normalized.get("readout_evidence_source_window"))
+            if isinstance(normalized.get("readout_evidence_source_window"), Mapping)
+            else {}
+        )
+        replay_priority_source_window = (
+            dict(normalized.get("replay_priority_source_window"))
+            if isinstance(normalized.get("replay_priority_source_window"), Mapping)
+            else {}
+        )
+        required_text_fields = (
+            "replay_artifact_id",
+            "evidence_hash",
+            "artifact_proposal_hash",
+            "replay_evaluation_context_id",
+            "replay_evaluation_context_hash",
+            "review_ticket_id",
+            "review_ticket_hash",
+            "source_window_hash",
+            "readout_evidence_source_window_hash",
+            "replay_priority_source_window_hash",
+        )
+        if (
+            normalized.get("surface") != "snn_transition_memory_replay_artifact.v1"
+            or normalized.get("artifact_kind")
+            != "terminus_snn_transition_memory_replay_artifact"
+            or normalized.get("internal_ledger_backed") is not True
+            or not all(str(normalized.get(field) or "") for field in required_text_fields)
+            or not list(normalized.get("readout_evidence_hashes") or [])
+            or not source_window
+            or not readout_evidence_source_window
+            or not replay_priority_source_window
+            or str(normalized.get("source_window_hash") or "")
+            != self._sha256_json(source_window)
+            or str(normalized.get("readout_evidence_source_window_hash") or "")
+            != self._sha256_json(readout_evidence_source_window)
+            or str(normalized.get("replay_priority_source_window_hash") or "")
+            != self._sha256_json(replay_priority_source_window)
+            or not _known_readout_evidence_source_window_bounded(
+                readout_evidence_source_window
+            )
+            or not _snn_readout_replay_priority_source_window_bounded(
+                replay_priority_source_window
+            )
+        ):
+            return None
+        return normalized
+
     def _rebuild_snn_replay_evaluation_context_index_locked(self) -> None:
         self._snn_replay_evaluation_context_index.clear()
         for context in self._snn_replay_evaluation_contexts:
@@ -4489,13 +4551,21 @@ class ReplayController:
         self,
         artifacts: Sequence[Mapping[str, Any]],
     ) -> None:
-        normalized = [dict(item) for item in artifacts if isinstance(item, Mapping)]
+        normalized = [
+            item
+            for item in (
+                self._normalize_evaluated_snn_transition_memory_replay_artifact(raw_item)
+                for raw_item in artifacts
+                if isinstance(raw_item, Mapping)
+            )
+            if item is not None
+        ]
         self._snn_transition_memory_replay_artifacts.clear()
         self._snn_transition_memory_replay_artifacts.extend(
             normalized[:DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS]
         )
 
-    def record_snn_transition_memory_replay_artifact(
+    def _record_evaluated_snn_transition_memory_replay_artifact(
         self,
         *,
         mismatch_report: Mapping[str, Any],
@@ -4505,13 +4575,28 @@ class ReplayController:
         confirmation: bool,
         artifact_metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Record a durable server-owned SNN replay context for structural review."""
+        """Record the evaluated internal-ledger-backed artifact only."""
 
         normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
         mismatch = dict(mismatch_report)
         pressure = dict(pressure_report)
         window = [dict(item) for item in replay_window if isinstance(item, Mapping)]
         metadata = dict(artifact_metadata or {})
+        source_window = (
+            dict(metadata.get("source_window"))
+            if isinstance(metadata.get("source_window"), Mapping)
+            else {}
+        )
+        readout_evidence_source_window = (
+            dict(metadata.get("readout_evidence_source_window"))
+            if isinstance(metadata.get("readout_evidence_source_window"), Mapping)
+            else {}
+        )
+        replay_priority_source_window = (
+            dict(metadata.get("replay_priority_source_window"))
+            if isinstance(metadata.get("replay_priority_source_window"), Mapping)
+            else {}
+        )
         error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
         mismatch_score = max(0.0, min(1.0, float(error.get("mismatch_score", 0.0) or 0.0)))
         pressure_score = max(0.0, min(1.0, float(pressure.get("pressure_score", mismatch_score) or 0.0)))
@@ -4525,6 +4610,24 @@ class ReplayController:
             raise ValueError("SNN transition-memory replay artifact requires plasticity pressure evidence.")
         if not window or not all(bool(item.get("grounded")) for item in window):
             raise ValueError("SNN transition-memory replay artifact requires a grounded replay window.")
+        if (
+            metadata.get("internal_ledger_backed") is not True
+            or not str(metadata.get("artifact_proposal_hash") or "")
+            or not str(metadata.get("replay_evaluation_context_id") or "")
+            or not str(metadata.get("replay_evaluation_context_hash") or "")
+            or not str(metadata.get("review_ticket_id") or "")
+            or not str(metadata.get("review_ticket_hash") or "")
+            or not source_window
+            or not _known_readout_evidence_source_window_bounded(
+                readout_evidence_source_window
+            )
+            or not _snn_readout_replay_priority_source_window_bounded(
+                replay_priority_source_window
+            )
+        ):
+            raise ValueError(
+                "SNN transition-memory replay artifacts require evaluated internal-ledger source-window evidence."
+            )
         with self._lock:
             recorded_revision = int(self._runtime_state.state_revision)
             readout_evidence_hashes = [
@@ -4562,34 +4665,16 @@ class ReplayController:
                 if isinstance(metadata.get("emission_lineage"), Mapping)
                 else {}
             )
-            source_window = (
-                dict(metadata.get("source_window"))
-                if isinstance(metadata.get("source_window"), Mapping)
-                else {}
-            )
-            readout_evidence_source_window = (
-                dict(metadata.get("readout_evidence_source_window"))
-                if isinstance(metadata.get("readout_evidence_source_window"), Mapping)
-                else {}
-            )
-            replay_priority_source_window = (
-                dict(metadata.get("replay_priority_source_window"))
-                if isinstance(metadata.get("replay_priority_source_window"), Mapping)
-                else {}
-            )
             if source_metadata_hash or emission_lineage:
                 material["source_metadata_hash"] = source_metadata_hash
                 material["emission_lineage"] = emission_lineage
-            if source_window:
-                material["source_window_hash"] = self._sha256_json(source_window)
-            if readout_evidence_source_window:
-                material["readout_evidence_source_window_hash"] = self._sha256_json(
-                    readout_evidence_source_window
-                )
-            if replay_priority_source_window:
-                material["replay_priority_source_window_hash"] = self._sha256_json(
-                    replay_priority_source_window
-                )
+            material["source_window_hash"] = self._sha256_json(source_window)
+            material["readout_evidence_source_window_hash"] = self._sha256_json(
+                readout_evidence_source_window
+            )
+            material["replay_priority_source_window_hash"] = self._sha256_json(
+                replay_priority_source_window
+            )
             evidence_hash = self._sha256_json(material)
             artifact = {
                 "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
@@ -4605,15 +4690,13 @@ class ReplayController:
                 **material,
                 "artifact_proposal_surface": metadata.get("artifact_proposal_surface"),
                 "artifact_proposal_source": metadata.get("artifact_proposal_source"),
+                "raw_caller_window_recording_retired": True,
             }
-            if source_window:
-                artifact["source_window"] = source_window
-            if readout_evidence_source_window:
-                artifact["readout_evidence_source_window"] = (
-                    readout_evidence_source_window
-                )
-            if replay_priority_source_window:
-                artifact["replay_priority_source_window"] = replay_priority_source_window
+            artifact["source_window"] = source_window
+            artifact["readout_evidence_source_window"] = (
+                readout_evidence_source_window
+            )
+            artifact["replay_priority_source_window"] = replay_priority_source_window
             self._snn_transition_memory_replay_artifacts.appendleft(deepcopy(artifact))
             self._runtime_state.mark_dirty_without_revision()
             return deepcopy(artifact)
@@ -4727,7 +4810,7 @@ class ReplayController:
             replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
             review_ticket_id=str(ticket["review_ticket_id"]),
         )
-        artifact = self.record_snn_transition_memory_replay_artifact(
+        artifact = self._record_evaluated_snn_transition_memory_replay_artifact(
             mismatch_report=(
                 proposal.get("mismatch_report")
                 if isinstance(proposal.get("mismatch_report"), Mapping)
@@ -4925,6 +5008,21 @@ class ReplayController:
         if artifact is None:
             return None
         artifact = dict(artifact)
+        source_window = (
+            dict(artifact.get("source_window"))
+            if isinstance(artifact.get("source_window"), Mapping)
+            else {}
+        )
+        readout_evidence_source_window = (
+            dict(artifact.get("readout_evidence_source_window"))
+            if isinstance(artifact.get("readout_evidence_source_window"), Mapping)
+            else {}
+        )
+        replay_priority_source_window = (
+            dict(artifact.get("replay_priority_source_window"))
+            if isinstance(artifact.get("replay_priority_source_window"), Mapping)
+            else {}
+        )
         material = {
             "recorded_state_revision": int(artifact.get("recorded_state_revision", -1)),
             "operator_id": artifact.get("operator_id"),
@@ -4996,6 +5094,18 @@ class ReplayController:
             and artifact.get("internal_ledger_backed") is True
             and bool(str(artifact.get("artifact_proposal_hash") or ""))
             and bool(list(artifact.get("readout_evidence_hashes") or []))
+            and str(artifact.get("source_window_hash") or "")
+            == self._sha256_json(source_window)
+            and str(artifact.get("readout_evidence_source_window_hash") or "")
+            == self._sha256_json(readout_evidence_source_window)
+            and str(artifact.get("replay_priority_source_window_hash") or "")
+            == self._sha256_json(replay_priority_source_window)
+            and _known_readout_evidence_source_window_bounded(
+                readout_evidence_source_window
+            )
+            and _snn_readout_replay_priority_source_window_bounded(
+                replay_priority_source_window
+            )
             and context is not None
             and ticket is not None
             and str(artifact.get("review_ticket_hash") or "") == str(ticket.get("evidence_hash") or "")

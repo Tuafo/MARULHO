@@ -338,6 +338,40 @@ def _cuda_report() -> dict[str, Any]:
 
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     controller = _controller()
+    raw_loader_controller = _controller()
+    raw_loader_controller.load_snn_transition_memory_replay_artifacts(
+        [
+            {
+                "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
+                "surface": "snn_transition_memory_replay_artifact.v1",
+                "replay_artifact_id": "raw-caller-window-artifact",
+                "evidence_hash": "raw-artifact-hash",
+                "internal_ledger_backed": False,
+                "replay_window_hash": "caller-window-hash",
+            }
+        ]
+    )
+    raw_artifact_retirement = {
+        "surface": "raw_caller_window_replay_artifact_recording_retired.v1",
+        "public_raw_recorder_callable": hasattr(
+            controller,
+            "record_snn_transition_memory_replay_artifact",
+        ),
+        "raw_loaded_artifact_count": int(
+            len(raw_loader_controller.snn_transition_memory_replay_artifacts)
+        ),
+        "raw_artifact_index_hit": bool(
+            "raw-caller-window-artifact"
+            in raw_loader_controller._snn_transition_memory_replay_artifact_index  # noqa: SLF001
+        ),
+        "replacement_path": "record_evaluated_snn_transition_memory_replay_artifact",
+        "raw_caller_window_permit_eligible": False,
+        "runs_live_tick": False,
+        "runs_every_token": False,
+        "language_reasoning": False,
+        "gpu_used": False,
+        "archival_storage_device": "cpu",
+    }
     retention_count = max(
         1,
         min(
@@ -503,6 +537,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "replay_priority_source_window_persisted_hash": bool(
             old_chain["artifact"].get("replay_priority_source_window_hash")
         ),
+        "raw_caller_window_recorder_retired": (
+            raw_artifact_retirement["public_raw_recorder_callable"] is False
+        ),
+        "raw_loaded_artifacts_dropped": (
+            raw_artifact_retirement["raw_loaded_artifact_count"] == 0
+            and raw_artifact_retirement["raw_artifact_index_hit"] is False
+        ),
     }
     return {
         "surface": "bounded_snn_replay_artifact_provenance_source_window_benchmark.v1",
@@ -533,9 +574,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "replay_priority_source_window_hash": old_chain["artifact"].get(
                 "replay_priority_source_window_hash"
             ),
+            "raw_artifact_retirement": raw_artifact_retirement,
         },
         "latency": latency,
-        "retired_path_comparison": retired_scan_comparisons,
+        "retired_path_comparison": {
+            **retired_scan_comparisons,
+            "raw_caller_window_artifact_recording": raw_artifact_retirement,
+        },
         "resource_behavior": {
             "process_rss_before_mib": None if rss_before is None else round(rss_before, 3),
             "process_rss_after_mib": None if rss_after is None else round(rss_after, 3),
