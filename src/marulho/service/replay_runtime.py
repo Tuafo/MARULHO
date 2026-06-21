@@ -29,6 +29,8 @@ DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS = 16
 DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
+SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT = 16
+SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT = 16
 SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT = 16
 SNN_REPLAY_PRIORITY_READOUT_TARGET_LIMIT = 16
 SNN_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = "bounded_recent_context_readout_target_window_v1"
@@ -1708,14 +1710,23 @@ class ReplayController:
         """Expose durable sleep-policy review tickets without executing them."""
 
         with self._lock:
+            started = time.perf_counter()
             requested = max(1, min(DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS, int(limit)))
+            source_limit = min(
+                requested,
+                SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+            )
+            retained_count = int(len(self._snn_sleep_plasticity_review_tickets))
+            source_window_inspected_count = int(min(retained_count, source_limit))
             current_revision = int(self._runtime_state.state_revision)
             tickets: list[dict[str, Any]] = []
             action_counts: Counter[str] = Counter()
             verified_count = 0
             stale_count = 0
             tampered_count = 0
-            for raw_ticket in list(self._snn_sleep_plasticity_review_tickets):
+            for source_rank, raw_ticket in enumerate(
+                islice(self._snn_sleep_plasticity_review_tickets, source_limit)
+            ):
                 if not isinstance(raw_ticket, Mapping):
                     continue
                 ticket = dict(raw_ticket)
@@ -1789,6 +1800,7 @@ class ReplayController:
                         "identity_verified": identity_verified,
                         "revision_current": revision_current,
                         "non_executing": non_executing,
+                        "source_rank": int(source_rank),
                         "executable": False,
                         "mutates_runtime_state": False,
                         "applies_plasticity": False,
@@ -1801,6 +1813,44 @@ class ReplayController:
                 if isinstance(latest_verified, Mapping)
                 else None
             )
+            latency_ms = (time.perf_counter() - started) * 1000.0
+            source_window = {
+                "surface": "bounded_snn_sleep_plasticity_review_ticket_queue_source_window.v1",
+                "policy": "recent_sleep_plasticity_review_ticket_window",
+                "source": "replay_controller.snn_sleep_plasticity_review_tickets",
+                "selection_criteria": [
+                    "newest_review_tickets_first",
+                    "current_revision_hash_verified_non_executing_tickets",
+                    "stop_at_source_window_before_scheduler_proposal",
+                ],
+                "retained_count": retained_count,
+                "retention_limit": DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS,
+                "requested_limit": int(requested),
+                "source_window_limit": SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+                "source_window_inspected_count": source_window_inspected_count,
+                "source_window_count": int(len(tickets)),
+                "source_truncated_count": int(
+                    max(0, retained_count - source_window_inspected_count)
+                ),
+                "count_is_source_window": True,
+                "latest_verified_scope": "source_window_only",
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "raw_replay_text_payload_loaded": False,
+                "language_reasoning": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "archival_storage_device": "cpu",
+                "source_window_selection_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
+                "latency_ms": float(latency_ms),
+            }
             return {
                 "artifact_kind": "terminus_snn_sleep_plasticity_review_ticket_queue",
                 "surface": "snn_sleep_plasticity_review_ticket_queue.v1",
@@ -1810,7 +1860,9 @@ class ReplayController:
                 "source": "replay_controller.snn_sleep_plasticity_review_ticket_queue",
                 "endpoint": "/terminus/snn-language-sequence/plasticity-sleep-policy/review-tickets",
                 "count": int(len(tickets)),
+                "retained_count": retained_count,
                 "limit": int(requested),
+                "source_window": source_window,
                 "current_state_revision": current_revision,
                 "verified_count": int(verified_count),
                 "stale_count": int(stale_count),
@@ -2421,17 +2473,31 @@ class ReplayController:
         """Expose verified accepted scheduler designs without installing a scheduler."""
 
         with self._lock:
+            started = time.perf_counter()
             requested = max(
                 1,
                 min(DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS, int(limit)),
             )
+            source_limit = min(
+                requested,
+                SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+            )
+            retained_count = int(
+                len(self._snn_sleep_plasticity_scheduler_design_review_tickets)
+            )
+            source_window_inspected_count = int(min(retained_count, source_limit))
             tickets: list[dict[str, Any]] = []
             verified_count = 0
             stale_count = 0
             tampered_count = 0
             latest_verified: dict[str, Any] | None = None
             current_revision = int(self._runtime_state.state_revision)
-            for raw_ticket in list(self._snn_sleep_plasticity_scheduler_design_review_tickets):
+            for source_rank, raw_ticket in enumerate(
+                islice(
+                    self._snn_sleep_plasticity_scheduler_design_review_tickets,
+                    source_limit,
+                )
+            ):
                 if not isinstance(raw_ticket, Mapping):
                     continue
                 ticket = dict(raw_ticket)
@@ -2496,6 +2562,7 @@ class ReplayController:
                         "verified": verified,
                         "revision_current": revision_current,
                         "non_executing": non_executing,
+                        "source_rank": int(source_rank),
                         "executable": False,
                         "installs_scheduler": False,
                         "executes_suggested_endpoint": False,
@@ -2506,6 +2573,54 @@ class ReplayController:
                 if verified and latest_verified is None:
                     latest_verified = deepcopy(projection)
             selected = tickets[:requested]
+            latency_ms = (time.perf_counter() - started) * 1000.0
+            source_window = {
+                "surface": (
+                    "bounded_snn_sleep_plasticity_scheduler_design_review_ticket_"
+                    "queue_source_window.v1"
+                ),
+                "policy": "recent_sleep_plasticity_scheduler_design_review_ticket_window",
+                "source": (
+                    "replay_controller."
+                    "snn_sleep_plasticity_scheduler_design_review_tickets"
+                ),
+                "selection_criteria": [
+                    "newest_scheduler_design_review_tickets_first",
+                    "current_revision_verified_design_tickets",
+                    "stop_at_source_window_before_installation_proposal",
+                ],
+                "retained_count": retained_count,
+                "retention_limit": DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS,
+                "requested_limit": int(requested),
+                "source_window_limit": (
+                    SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT
+                ),
+                "source_window_inspected_count": source_window_inspected_count,
+                "source_window_count": int(len(tickets)),
+                "source_truncated_count": int(
+                    max(0, retained_count - source_window_inspected_count)
+                ),
+                "count_is_source_window": True,
+                "latest_verified_scope": "source_window_only",
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "raw_replay_text_payload_loaded": False,
+                "language_reasoning": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "installs_scheduler": False,
+                "executes_suggested_endpoint": False,
+                "archival_storage_device": "cpu",
+                "source_window_selection_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
+                "latency_ms": float(latency_ms),
+            }
             return {
                 "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_design_review_ticket_queue",
                 "surface": "snn_sleep_plasticity_scheduler_design_review_ticket_queue.v1",
@@ -2517,7 +2632,9 @@ class ReplayController:
                     "snn_sleep_plasticity_scheduler_design_review_ticket_queue"
                 ),
                 "count": len(tickets),
+                "retained_count": retained_count,
                 "limit": requested,
+                "source_window": source_window,
                 "current_state_revision": current_revision,
                 "verified_count": verified_count,
                 "stale_count": stale_count,

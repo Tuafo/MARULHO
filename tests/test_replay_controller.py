@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from marulho.service.replay_runtime import (
     SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
+    SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+    SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
     ReplayController,
     ReplayControllerDependencies,
     _snn_replay_priority_source_window_bounded,
@@ -99,7 +101,7 @@ class _IterationBlockedContexts:
         raise AssertionError("verified context lookup must use the controller index")
 
 
-def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
+def _replay_controller(manager: _FakeReplayManager, **kwargs: object) -> ReplayController:
     return ReplayController(
         ReplayControllerDependencies(
             action_history=lambda: manager._action_history,
@@ -112,7 +114,8 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
             runtime_state=manager._runtime_state,
             runtime_trace_export_safe_value=manager._runtime_trace_export_safe_value,
             trainer=lambda: manager._trainer,
-        )
+        ),
+        **kwargs,
     )
 
 
@@ -428,6 +431,112 @@ class ReplayControllerTests(unittest.TestCase):
 
         self.assertIs(controller.snn_sleep_plasticity_scheduler_design_review_tickets, tickets)
         self.assertEqual(tickets[0]["scheduler_design_review_ticket_id"], "design-ticket-1")
+
+    def test_snn_sleep_plasticity_ticket_queues_reload_as_bounded_source_windows(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        sleep_ticket = controller.record_snn_sleep_plasticity_review_ticket(
+            sleep_policy=self._sleep_policy(),
+            operator_id="operator-sleep",
+            confirmation=True,
+        )
+        sleep_records = []
+        for index in range(64):
+            record = deepcopy(sleep_ticket)
+            record["review_ticket_id"] = f"sleep-ticket-{index:04d}"
+            sleep_records.append(record)
+        controller.snn_sleep_plasticity_review_tickets = sleep_records
+
+        design = controller.snn_sleep_plasticity_scheduler_design(
+            limit=64,
+            cycles=3,
+            min_stable_cycles=3,
+            max_review_interval_seconds=120.0,
+        )
+        design_ticket = controller.record_snn_sleep_plasticity_scheduler_design_review_ticket(
+            limit=64,
+            cycles=3,
+            min_stable_cycles=3,
+            max_review_interval_seconds=120.0,
+            expected_state_revision=manager._runtime_state.state_revision,
+            scheduler_design_hash=design["provenance_evidence"]["scheduler_design_hash"],
+            operator_id="operator-scheduler-design",
+            confirmation=True,
+        )
+        design_records = []
+        for index in range(64):
+            record = deepcopy(design_ticket)
+            record["scheduler_design_review_ticket_id"] = f"design-ticket-{index:04d}"
+            design_records.append(record)
+
+        reloaded_manager = _FakeReplayManager()
+        reloaded = _replay_controller(
+            reloaded_manager,
+            snn_sleep_plasticity_review_tickets=sleep_records,
+            snn_sleep_plasticity_scheduler_design_review_tickets=design_records,
+        )
+
+        sleep_queue = reloaded.snn_sleep_plasticity_review_ticket_queue(limit=64)
+        self.assertEqual(sleep_queue["retained_count"], 64)
+        self.assertEqual(
+            sleep_queue["count"],
+            SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            sleep_queue["source_window"]["source_window_count"],
+            SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            sleep_queue["source_window"]["source_window_inspected_count"],
+            SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(sleep_queue["source_window"]["source_truncated_count"], 48)
+        self.assertEqual(
+            sleep_queue["latest_verified_ticket"]["review_ticket_id"],
+            "sleep-ticket-0000",
+        )
+        self.assertEqual(
+            [ticket["source_rank"] for ticket in sleep_queue["tickets"]],
+            list(range(SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT)),
+        )
+        self.assertFalse(sleep_queue["source_window"]["global_candidate_scan"])
+        self.assertFalse(sleep_queue["source_window"]["runs_live_tick"])
+        self.assertFalse(sleep_queue["source_window"]["runs_every_token"])
+        self.assertEqual(sleep_queue["source_window"]["archival_storage_device"], "cpu")
+
+        design_queue = (
+            reloaded.snn_sleep_plasticity_scheduler_design_review_ticket_queue(limit=64)
+        )
+        self.assertEqual(design_queue["retained_count"], 64)
+        self.assertEqual(
+            design_queue["count"],
+            SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            design_queue["source_window"]["source_window_count"],
+            SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            design_queue["source_window"]["source_window_inspected_count"],
+            SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(design_queue["source_window"]["source_truncated_count"], 48)
+        self.assertEqual(
+            design_queue["latest_verified_ticket"]["scheduler_design_review_ticket_id"],
+            "design-ticket-0000",
+        )
+        self.assertEqual(
+            [ticket["source_rank"] for ticket in design_queue["tickets"]],
+            list(
+                range(
+                    SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT
+                )
+            ),
+        )
+        self.assertFalse(design_queue["source_window"]["global_candidate_scan"])
+        self.assertFalse(design_queue["source_window"]["runs_live_tick"])
+        self.assertFalse(design_queue["source_window"]["runs_every_token"])
+        self.assertEqual(design_queue["source_window"]["archival_storage_device"], "cpu")
 
     def test_snn_sleep_plasticity_review_scheduler_installation_setter_preserves_existing_deque_reference(self) -> None:
         manager = _FakeReplayManager()
@@ -870,6 +979,21 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertFalse(queue["executable"])
         self.assertFalse(queue["mutates_runtime_state"])
         self.assertFalse(queue["applies_plasticity"])
+        sleep_queue_window = queue["source_window"]
+        self.assertEqual(
+            sleep_queue_window["surface"],
+            "bounded_snn_sleep_plasticity_review_ticket_queue_source_window.v1",
+        )
+        self.assertEqual(
+            sleep_queue_window["source_window_limit"],
+            SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(sleep_queue_window["source_window_count"], 1)
+        self.assertEqual(queue["retained_count"], 1)
+        self.assertFalse(sleep_queue_window["global_candidate_scan"])
+        self.assertFalse(sleep_queue_window["runs_live_tick"])
+        self.assertFalse(sleep_queue_window["runs_every_token"])
+        self.assertFalse(sleep_queue_window["gpu_used"])
         proposal = controller.snn_sleep_plasticity_autonomy_proposal(limit=4)
         self.assertEqual(proposal["surface"], "snn_sleep_plasticity_autonomy_proposal.v1")
         self.assertTrue(proposal["ready"])
@@ -1026,6 +1150,21 @@ class ReplayControllerTests(unittest.TestCase):
             ],
             design_ticket_id,
         )
+        design_ticket_queue_window = design_ticket_queue["source_window"]
+        self.assertEqual(
+            design_ticket_queue_window["surface"],
+            "bounded_snn_sleep_plasticity_scheduler_design_review_ticket_queue_source_window.v1",
+        )
+        self.assertEqual(
+            design_ticket_queue_window["source_window_limit"],
+            SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(design_ticket_queue_window["source_window_count"], 1)
+        self.assertEqual(design_ticket_queue["retained_count"], 1)
+        self.assertFalse(design_ticket_queue_window["global_candidate_scan"])
+        self.assertFalse(design_ticket_queue_window["runs_live_tick"])
+        self.assertFalse(design_ticket_queue_window["runs_every_token"])
+        self.assertFalse(design_ticket_queue_window["gpu_used"])
         self.assertFalse(design_ticket_queue["installs_scheduler"])
         self.assertFalse(design_ticket_queue["executes_suggested_endpoint"])
         self.assertFalse(design_ticket_queue["mutates_runtime_state"])
@@ -1096,11 +1235,12 @@ class ReplayControllerTests(unittest.TestCase):
             )
         )
         self.assertEqual(limited_queue["tampered_count"], 1)
+        self.assertIsNone(limited_queue["latest_verified_ticket"])
+        self.assertFalse(limited_queue["ready"])
+        self.assertEqual(limited_queue["source_window"]["source_window_count"], 1)
         self.assertEqual(
-            limited_queue["latest_verified_ticket"][
-                "scheduler_design_review_ticket_id"
-            ],
-            design_ticket_id,
+            limited_queue["source_window"]["latest_verified_scope"],
+            "source_window_only",
         )
         controller.snn_sleep_plasticity_scheduler_design_review_tickets.popleft()
         controller.snn_sleep_plasticity_scheduler_design_review_tickets.pop()

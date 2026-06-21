@@ -5171,3 +5171,29 @@ output candidates, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Prewarm took `327.665 s`.
 Velocity reported no observed contention, CPU max `38%`, GPU max `14%`, GPU
 memory utilization max `18%`, and RTX memory `1894->1881 MiB`.
+
+## Sleep Plasticity Ticket Queue Source Windows
+
+The focused source-window benchmark
+`reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json`
+passed with both sleep-review and scheduler-design-review queues inspecting
+`16/64` retained records, matching diagnostic latest-verified tickets, and
+reducing source work `4x`. Mean bounded latency was `3.326372 ms` for the
+sleep-review queue and `201.999864 ms` for the scheduler-design queue, versus
+diagnostic full-retained means of `14.464224 ms` and `681.522452 ms`. The
+benchmark reported CPU archival/source/score placement, CUDA available but
+unused with `0.0 MiB` allocated/reserved, and Python traced peak allocation
+`0.072 MiB`.
+
+The paired protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json`
+processed `524288` tokens in `87.414632 s` at `5997.714 tokens/sec`,
+`tick_duration_ms.p95=21.621`, `train_compute=0.135466 ms/token`,
+`prepare_training=0.006990 ms/token`, and
+`finalize_total=0.006604 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm
+took `324.004 s`; CPU max was `32%`; GPU max touched the configured `20%`
+contention threshold; and RTX memory stayed flat at `1779->1780 MiB`. Treat
+this as same-band live-tick protection evidence, not a new speed ceiling.

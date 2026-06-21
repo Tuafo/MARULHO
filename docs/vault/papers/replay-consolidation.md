@@ -25,6 +25,7 @@ related_code:
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -118,6 +119,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -218,6 +221,22 @@ ranking can stay tensor-only until the returned set is known; raw replay text
 is then materialized only for returned evidence. Term/focus ranking may still
 inspect text inside the bounded candidate window, but the report must state
 that policy explicitly and keep `language_reasoning=false`.
+
+Sleep-plasticity review and scheduler-design review queues now follow the same
+slow-window contract. `ReplayController` exposes
+`bounded_snn_sleep_plasticity_review_ticket_queue_source_window.v1` and
+`bounded_snn_sleep_plasticity_scheduler_design_review_ticket_queue_source_window.v1`
+before autonomy, scheduler-design, or installation proposals. Each queue
+inspects at most `16` newest retained tickets, reports `retained_count` without
+using it as a scan budget, and keeps source selection and scoring on CPU. A
+malformed newest record blocks the bounded window instead of widening the scan
+to older retained records. The benchmark
+`reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json`
+matched diagnostic latest-verified quality while reading `16/64` retained
+records on each queue (`4x` less source work), with no global candidate/score
+scan, no raw replay text, no hidden language reasoning, no live tick, no
+every-token cadence, no scheduler install, no mutation/plasticity, CUDA unused,
+and `0.072 MiB` traced Python peak allocation.
 
 ConceptStore signature lookup is now treated as an evidence-window lookup, not
 as general archive traversal. CLS and continual-replay work argue for separating

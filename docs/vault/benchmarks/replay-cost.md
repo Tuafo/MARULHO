@@ -26,6 +26,7 @@ related_code:
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
@@ -124,6 +125,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -196,6 +199,8 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\snn-replay-artifact-readout-priority-source-window.json`
 - SNN replay artifact raw caller-window recorder retirement:
   `PYTHONPATH=src python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output reports\bounded_replay_window_20260620\snn-replay-artifact-raw-recorder-retired.json`
+- Sleep-plasticity ticket queue source windows:
+  `PYTHONPATH=src python -m marulho.evaluation.sleep_plasticity_ticket_queue_source_window_benchmark --retained-count 64 --runs 25 --output reports\bounded_replay_window_20260620\sleep-plasticity-ticket-queue-source-window.json`
 - SNN readout-ledger dense-label calibration source window:
   `PYTHONPATH=src python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json`
 - SNN readout-ledger dense-label evaluation source window:
@@ -2338,3 +2343,30 @@ processed `524288` tokens in `88.089265 s` at `5951.781 tokens/sec`, p95
 bounded `12/65536` route rows, `65526` cached transition rows, zero
 graph/native sequence failures, no observed contention, CPU max `38%`, GPU max
 `14%`, and RTX 3060 memory `1894->1881 MiB`.
+
+## Sleep Plasticity Ticket Queue Source Windows
+
+Sleep-plasticity review-ticket and scheduler-design-review-ticket queues now
+inspect bounded source windows instead of the full retained ticket history
+before autonomy, scheduler-design, or installation proposals.
+
+Focused benchmark:
+`reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json`
+passed with both queues inspecting `16/64` retained records and matching the
+diagnostic latest verified ticket. Source work fell `4x`; mean bounded latency
+was `3.326372 ms` for the sleep-review queue and `201.999864 ms` for the
+scheduler-design queue, versus diagnostic full-retained means of
+`14.464224 ms` and `681.522452 ms`. Runtime Truth fields report CPU
+archival/source/score placement, no global candidate/score scan, no raw replay
+text, no hidden language reasoning, no live tick, no every-token cadence, no
+scheduler install, no mutation/plasticity, CUDA available but unused, and
+`0.072 MiB` traced Python peak.
+
+Hot-path protection:
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json`
+processed `524288` tokens in `87.414632 s` at `5997.714 tokens/sec`, p95
+`21.621 ms`, `train_compute=0.135466 ms/token`,
+`prepare_training=0.006990 ms/token`, `finalize_total=0.006604 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, zero
+graph/native sequence failures, CPU max `32%`, GPU max `20%`, and RTX 3060
+memory `1779->1780 MiB`.

@@ -29,6 +29,7 @@ related_code:
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -47,6 +48,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
 ---
 
 # Column Runtime
@@ -93,6 +96,20 @@ Awake-ripple replay tagging now consumes the same scheduler boundary. `DualMemor
 Slow-memory admission now follows the same selected-window boundary. Fixed cadence is no longer a write path from retained `train_step`: first-token retained/fallback records and selected strong-capture events are the only live archive admissions. Ordinary `slow_memory_archive_interval_tokens` hits record `cadence_deferred` in the cognitive boundary controller and increment skip pressure instead of calling `DualMemoryStore.update(...)` or awake-ripple tagging. The fixed-cadence retirement benchmark `reports/bounded_replay_window_20260620/slow-memory-fixed-cadence-admission-retired.json` kept `1` first-token archive and retired `17` projected fixed-cadence writes over `256` tokens, while the refreshed strong-capture benchmark kept `17` selected strong archives. The accepted 65536-column `524288`-token rerun stayed in band at `6043.321 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, deferred `2048` cadence hits, and kept graph/native sequence failures at `0`. This makes fixed cadence a Runtime Truth/maintenance signal, not a second replay-admission implementation beside the wake plan.
 
 BrainRuntime source ticks now defer sleep replay through the same boundary. If a background source tick falls back to per-token `train_step` for metrics or unsupported burst execution, it passes `allow_sleep_maintenance=False`; due sleep is counted as deferred maintenance and explicit trainer sleep windows remain the only replay execution path. `reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json` proved service fallback sleep calls stay at `0` while an explicit allowed projection still calls deep sleep once. The paired 65536-column `524288`-token run stayed in band at `5993.959 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, no observed contention, flat RTX 3060 memory at `1959 MiB`, and zero graph/native sequence failures. This keeps service as source orchestration and Runtime Truth projection, not a sleep scheduler.
+
+Sleep-plasticity ticket queues are also bounded control-plane windows, not
+retained-history scans. The review-ticket queue and scheduler-design-review
+queue inspect at most `16` newest retained records before exposing autonomy,
+scheduler design, or installation proposals. They report `retained_count`,
+`source_window_inspected_count`, truncation, CPU placement, no global
+candidate/score scan, no replay text, no hidden language reasoning, no live
+tick, no every-token cadence, no scheduler install, and no mutation/plasticity.
+The benchmark
+`reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json`
+verified latest-ticket parity against diagnostic full-retained queues while
+reducing source work `4x`; the paired `524288`-token run stayed same-band at
+`5997.714 tokens/sec` with bounded `12/65536` route rows and zero graph/native
+sequence failures.
 
 Live memory summary projection now follows the same boundary. Trainer telemetry, BrainRuntime summaries, living-loop status, and status Runtime Truth call `DualMemoryStore.live_summary_stats()` instead of full `summary_stats()`. The live projection reports `bounded_memory_summary_projection.v1`, `summary_full_memory_scan=false`, `summary_scan_entry_count=0`, and `summary_projection_read_only=true`, while still exposing fill/counter aliases and last replay reports. It does not advance STC decay or build tensors over all retained entries; full summary remains an explicit offline consolidation/quality path. `reports/bounded_replay_window_20260620/live-memory-summary-projection.json` measured `0.149500 ms` mean bounded projection latency versus `658.789240 ms` for the retired 65536-entry full summary scan, and the paired `524288`-token run stayed in band at `6024.783 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, flat RTX 3060 memory `1959->1958 MiB`, and zero graph/native sequence failures. This keeps service/status as Runtime Truth projection, not memory maintenance or replay selection.
 
