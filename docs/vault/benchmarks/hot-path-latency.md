@@ -5254,3 +5254,27 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 `13%`, GPU memory utilization max `18%`, and RTX memory `2061->2062 MiB`. The
 first same-shape run at `5904.020 tokens/sec` is retained as secondary evidence
 because velocity observed GPU contention at `22%`.
+
+## Applied Replay Lineage Checkpoint Summary Protection
+
+Checkpoint save/restore applied replay-lineage validation now reads the
+mutation-maintained CPU `snn_applied_replay_lineage_incremental_summary.v1`
+instead of scanning every `synapse_provenance_by_key` row. The focused report
+`reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json`
+matched the benchmark-local retired full-scan diagnostic on `65536` lineage
+rows while the active path read `0` provenance records. Active mean latency was
+`0.065529 ms` versus `6766.639043 ms` for the retired diagnostic; active traced
+Python peak was `0.001343 MiB` versus `24.036118 MiB`, with CUDA available but
+unused at `0.0 MiB` allocation/reservation.
+
+The protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json`
+processed `524288` tokens in `87.483241 s` at `5993.011 tokens/sec`,
+`tick_duration_ms.p95=21.608`, `train_compute=0.135253 ms/token`,
+`prepare_training=0.007078 ms/token`, and
+`finalize_total=0.006754 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.

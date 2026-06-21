@@ -2456,3 +2456,39 @@ failures. Velocity reported no observed contention, CPU max `30%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2061->2062 MiB`. A
 first same-shape run at `5904.020 tokens/sec` is retained as secondary evidence
 because velocity observed GPU contention at `22%`.
+
+## Applied Replay Lineage Checkpoint Summary
+
+Checkpoint save/restore no longer derives applied replay-lineage integrity by
+copying and scanning the full `synapse_provenance_by_key` archive. The active
+path maintains `snn_applied_replay_lineage_incremental_summary.v1` as mutation
+evidence: replay regeneration adds a row hash for each replay-regenerated
+synapse, and non-replay overwrites or pruning remove that row. Checkpoint
+summary and restore validation read only the maintained CPU counts/digests and
+report `full_provenance_scan=false` plus `source_record_scan_count=0`.
+
+Focused quality and latency report:
+
+`python -m marulho.evaluation.applied_replay_lineage_checkpoint_summary_benchmark --entry-count 65536 --runs 7 --output reports\bounded_replay_window_20260620\applied-replay-lineage-checkpoint-summary.json`
+
+Result: `pass=true`; the active summary matched the benchmark-local retired
+full-scan diagnostic on lineage counts and digest over `65536` replay-lineage
+rows while reading `0` provenance source records. Retired diagnostic source
+reads were `196608`. Active mean latency was `0.065529 ms`; retired full-scan
+mean latency was `6766.639043 ms` (`103261.747364x`). Active traced Python peak
+was `0.001343 MiB`; retired traced peak was `24.036118 MiB`. CUDA was
+available on the RTX 3060 but unused with `0.0 MiB` allocated/reserved.
+
+Accepted hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `87.483241 s`,
+`5993.011 tokens/sec`, p95 tick `21.608 ms`,
+`train_compute=0.135253 ms/token`, `prepare_training=0.007078 ms/token`, and
+`finalize_total=0.006754 ms/token`. Prewarm took `335.271 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`,
+selected CUDA on the RTX 3060, and recorded zero graph/native sequence
+failures. Velocity reported no observed contention, CPU max `15%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.

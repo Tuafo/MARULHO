@@ -10,6 +10,9 @@ import unittest
 from threading import Event, RLock, Thread
 from unittest.mock import patch
 
+from marulho.service.applied_replay_lineage import (
+    record_applied_replay_lineage_provenance,
+)
 from marulho.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
 
 
@@ -34,6 +37,17 @@ class _FakeConceptStore:
 
 class _FakeTrainer:
     token_count = 17
+
+
+class _ExplodingMapping(dict):
+    def __iter__(self):  # type: ignore[override]
+        raise AssertionError("provenance mapping was scanned")
+
+    def keys(self):  # type: ignore[override]
+        raise AssertionError("provenance mapping keys were scanned")
+
+    def items(self):  # type: ignore[override]
+        raise AssertionError("provenance mapping items were scanned")
 
 
 class _FakePersistenceManager:
@@ -68,6 +82,13 @@ class _FakePersistenceManager:
                 "recent_events": [{"event_index": 1, "pruned_synapse_count": 0}],
             },
         }
+        record_applied_replay_lineage_provenance(
+            self._snn_language_plasticity_state,
+            "1:2",
+            self._snn_language_plasticity_state["synapse_provenance_by_key"][
+                "1:2"
+            ],
+        )
         self._snn_language_readout_ledger_state = {
             "events": [{"readout_evidence_hash": "readout-hash-1", "prediction_hash": "prediction-hash-1"}],
             "total_recorded_count": 1,
@@ -452,6 +473,11 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertEqual(lineage_summary["complete_applied_replay_lineage_count"], 1)
             self.assertEqual(lineage_summary["incomplete_applied_replay_lineage_count"], 0)
             self.assertTrue(lineage_summary["lineage_material_hash"])
+            self.assertTrue(lineage_summary["summary_source_available"])
+            self.assertFalse(lineage_summary["full_provenance_scan"])
+            self.assertEqual(lineage_summary["source_record_scan_count"], 0)
+            self.assertEqual(lineage_summary["archival_metadata_device"], "cpu")
+            self.assertFalse(lineage_summary["gpu_used"])
             self.assertTrue(lineage_summary["raw_text_absent"])
             self.assertTrue(lineage_summary["operator_identity_absent"])
             self.assertEqual(
@@ -498,6 +524,11 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertTrue(validation["summary_counts_match_restored_state"])
             self.assertTrue(validation["summary_hash_matches_restored_state"])
             self.assertTrue(validation["summary_matches_restored_state"])
+            self.assertTrue(validation["summary_source_available"])
+            self.assertFalse(validation["full_provenance_scan"])
+            self.assertEqual(validation["source_record_scan_count"], 0)
+            self.assertEqual(validation["archival_metadata_device"], "cpu")
+            self.assertFalse(validation["gpu_used"])
             self.assertEqual(
                 validation["restored_summary"]["lineage_material_hash"],
                 summary["lineage_material_hash"],
@@ -508,6 +539,65 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertFalse(tampered["summary_hash_matches_restored_state"])
             self.assertFalse(tampered["summary_matches_restored_state"])
             self.assertTrue(tampered["summary_counts_match_restored_state"])
+
+    def test_applied_replay_lineage_checkpoint_summary_does_not_scan_provenance(self) -> None:
+        state: dict[str, object] = {"synapse_provenance_by_key": {}}
+        record_applied_replay_lineage_provenance(
+            state,
+            "1:2",
+            {
+                "provenance_type": "replay_regeneration",
+                "source_metadata_hash": "source-metadata-hash-1",
+                "emission_lineage": {
+                    "emission_hash": "emission-hash-1",
+                    "readout_evidence_hash": "readout-hash-1",
+                    "prediction_hash": "prediction-hash-1",
+                },
+            },
+        )
+        state["synapse_provenance_by_key"] = _ExplodingMapping(
+            {
+                "1:2": {
+                    "provenance_type": "replay_regeneration",
+                }
+            }
+        )
+
+        summary = RuntimePersistence._applied_replay_lineage_checkpoint_summary(state)
+
+        self.assertEqual(summary["applied_replay_lineage_count"], 1)
+        self.assertTrue(summary["lineage_material_hash"])
+        self.assertFalse(summary["full_provenance_scan"])
+        self.assertEqual(summary["source_record_scan_count"], 0)
+
+    def test_applied_replay_lineage_non_replay_overwrite_clears_digest(self) -> None:
+        state: dict[str, object] = {"synapse_provenance_by_key": {}}
+        record_applied_replay_lineage_provenance(
+            state,
+            "1:2",
+            {
+                "provenance_type": "replay_regeneration",
+                "source_metadata_hash": "source-metadata-hash-1",
+                "emission_lineage": {
+                    "emission_hash": "emission-hash-1",
+                    "readout_evidence_hash": "readout-hash-1",
+                    "prediction_hash": "prediction-hash-1",
+                },
+            },
+        )
+
+        record_applied_replay_lineage_provenance(
+            state,
+            "1:2",
+            {"source": "dense_readout_training_loop"},
+        )
+        summary = RuntimePersistence._applied_replay_lineage_checkpoint_summary(state)
+
+        self.assertEqual(summary["applied_replay_lineage_count"], 0)
+        self.assertEqual(summary["complete_applied_replay_lineage_count"], 0)
+        self.assertIsNone(summary["lineage_material_hash"])
+        self.assertFalse(summary["full_provenance_scan"])
+        self.assertEqual(summary["source_record_scan_count"], 0)
 
     def test_failed_manifest_publication_preserves_previous_current_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

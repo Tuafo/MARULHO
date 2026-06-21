@@ -11,6 +11,10 @@ from typing import Any, Callable, Mapping
 
 import torch
 
+from marulho.service.applied_replay_lineage import (
+    clear_applied_replay_lineage_provenance,
+    record_applied_replay_lineage_provenance,
+)
 from marulho.service.runtime_state import RuntimeState
 
 _LANGUAGE_NEURON_COUNT = 64
@@ -404,7 +408,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             provenance_by_key = state.setdefault("synapse_provenance_by_key", {})
             for applied in applied_synapses:
                 key = f"{int(applied['pre_index'])}:{int(applied['post_index'])}"
-                provenance_by_key[key] = {
+                provenance = {
                     field: deepcopy(applied.get(field))
                     for field in (
                         "sequence_id",
@@ -419,6 +423,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                     )
                     if applied.get(field) is not None
                 }
+                provenance_by_key[key] = provenance
+                record_applied_replay_lineage_provenance(state, key, provenance)
             live_application = state.setdefault("live_application", {})
             recent_events = list(live_application.get("recent_events") or [])
             event = {
@@ -1674,11 +1680,17 @@ class SNNLanguagePlasticityApplicationExecutor:
                     applied
                 )
                 applied_synapses.append(applied)
-                provenance_by_key[synapse_key] = {
+                provenance = {
                     "provenance_type": "newborn_neuron_integration",
                     "preflight_hash": preflight_hash,
                     **deepcopy(applied),
                 }
+                provenance_by_key[synapse_key] = provenance
+                record_applied_replay_lineage_provenance(
+                    state,
+                    synapse_key,
+                    provenance,
+                )
             state["dense_readout_weights"] = integrated_tensor
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
@@ -2327,6 +2339,11 @@ class SNNLanguagePlasticityApplicationExecutor:
                     applied["critical_period_learning_application_hash"],
                 ][-64:]
                 live_provenance[synapse] = provenance_item
+                record_applied_replay_lineage_provenance(
+                    state,
+                    synapse,
+                    provenance_item,
+                )
             state["dense_readout_weights"] = learned_tensor
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
@@ -2750,6 +2767,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 previous_provenance = dict(
                     live_provenance.pop(synapse)
                 )
+                clear_applied_replay_lineage_provenance(state, synapse)
                 applied = {
                     **deepcopy(item),
                     "removed_weight": removed_weight,
@@ -3305,13 +3323,15 @@ class SNNLanguagePlasticityApplicationExecutor:
                     weights[key] = updated
                 elif key in weights:
                     del weights[key]
-                provenance_by_key[key] = {
+                provenance = {
                     "source": "dense_readout_training_loop",
                     "operator_id": operator_id,
                     "transition_ids": list(applied["transition_ids"])[:16],
                     "preflight_hash": preflight.get("preflight_hash"),
                     "checkpoint_path": str(checkpoint_file),
                 }
+                provenance_by_key[key] = provenance
+                record_applied_replay_lineage_provenance(state, key, provenance)
 
             training_state = state.setdefault("dense_readout_training", {})
             committed_checkpoint_file = self._committed_checkpoint_path(
@@ -4056,7 +4076,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             provenance_by_key = state.setdefault("synapse_provenance_by_key", {})
             for regenerated_synapse in regenerated:
                 key = str(regenerated_synapse.get("synapse") or "")
-                provenance_by_key[key] = {
+                provenance = {
                     "provenance_type": "replay_regeneration",
                     "permit_id": replay.get("permit_id"),
                     "replay_artifact_id": replay.get("replay_artifact_id"),
@@ -4071,6 +4091,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                         else {}
                     ),
                 }
+                provenance_by_key[key] = provenance
+                record_applied_replay_lineage_provenance(state, key, provenance)
             event = {
                 "event_index": int(ledger["regeneration_count"]),
                 "completed_at": datetime.now(timezone.utc).isoformat(),

@@ -9,6 +9,7 @@ related_code:
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
+  - ../../../src/marulho/service/applied_replay_lineage.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
@@ -31,6 +32,7 @@ related_code:
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
   - ../concepts/column-runtime.md
@@ -158,6 +160,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
   - reports/bounded_replay_window_20260620/replay-restore-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json
 ---
 
 # Replay/consolidation
@@ -2060,3 +2064,45 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on RTX
 observed contention, CPU max `30%`, GPU max `13%`, and RTX memory
 `2061->2062 MiB`; the first same-shape run is secondary because GPU contention
 was observed at `22%`.
+
+## Applied Replay Lineage Checkpoint Summary
+
+Replay-backed structural growth now keeps checkpoint lineage validation on a
+mutation-maintained CPU summary instead of deriving it by scanning all
+`synapse_provenance_by_key` rows during checkpoint save or restore. Replay
+regeneration records one applied-lineage row hash per replay-regenerated
+synapse; non-replay overwrites and pruning clear the row for that synapse.
+`RuntimePersistence` reads
+`snn_applied_replay_lineage_incremental_summary.v1` to publish
+`snn_applied_replay_lineage_checkpoint_summary.v1`, and restore validation
+compares saved/restored counts and digests. If the incremental summary is
+missing, exact validation is blocked instead of falling back to a full
+provenance rebuild.
+
+This follows the replay/consolidation research boundary: modern-Hopfield-like
+association and continual replay are useful only inside selected local windows;
+CLS and synaptic tagging/capture argue for durable tags that survive slow-path
+consolidation, but not for replay-lineage scans inside checkpoint or live tick
+work. Archival lineage metadata stays CPU-resident and carries hashes only, not
+raw replay text, operator identity, or hidden language reasoning.
+
+The focused benchmark
+`reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json`
+passed on `65536` replay-lineage rows. The active checkpoint summary read `0`
+provenance source records, matched the benchmark-local retired full-scan
+diagnostic counts and digest, averaged `0.065529 ms`, and used `0.001343 MiB`
+Python traced peak. The retired diagnostic read `196608` source records,
+averaged `6766.639043 ms`, and used `24.036118 MiB` traced peak. CUDA was
+available but unused with `0.0 MiB` allocated/reserved.
+
+The paired hot-path run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json`
+processed `524288` tokens in `87.483241 s` at `5993.011 tokens/sec`, p95
+`21.608 ms`, `train_compute=0.135253 ms/token`,
+`prepare_training=0.007078 ms/token`, and
+`finalize_total=0.006754 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
+`335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.

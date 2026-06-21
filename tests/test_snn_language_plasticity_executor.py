@@ -1664,6 +1664,19 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
     assert provenance["source_metadata_hash"] == "source-metadata-hash-1"
     assert provenance["emission_lineage"]["emission_hash"] == "emission-hash-1"
     assert provenance["local_edge_provenance"] == local_edge
+    lineage_summary = language_state["applied_replay_lineage_incremental_summary"]
+    assert (
+        lineage_summary["surface"]
+        == "snn_applied_replay_lineage_incremental_summary.v1"
+    )
+    assert lineage_summary["applied_replay_lineage_count"] == 2
+    assert lineage_summary["complete_applied_replay_lineage_count"] == 2
+    assert lineage_summary["incomplete_applied_replay_lineage_count"] == 0
+    assert lineage_summary["lineage_material_hash"]
+    assert lineage_summary["full_provenance_scan"] is False
+    assert lineage_summary["source_record_scan_count"] == 0
+    assert lineage_summary["archival_metadata_device"] == "cpu"
+    assert lineage_summary["gpu_used"] is False
     assert language_state["synapse_regeneration"]["recent_events"][0]["committed_checkpoint_path"].endswith(
         ".regeneration.committed.pt"
     )

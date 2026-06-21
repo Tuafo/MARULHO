@@ -9,7 +9,8 @@ related_benchmarks: []
 
         # Retired Paths
 
-        - [Applied Synapse Provenance Audit Full Scan](applied-synapse-provenance-audit-full-scan.md)
+        - [Applied Replay Lineage Checkpoint Full Scan](applied-replay-lineage-checkpoint-full-scan.md)
+- [Applied Synapse Provenance Audit Full Scan](applied-synapse-provenance-audit-full-scan.md)
 - [Autonomous Confidence Use Broad Ledger Normalization](autonomous-confidence-use-broad-ledger-normalization.md)
 - [Autonomous Hash Readout Broad Ledger Normalization](autonomous-hash-readout-broad-ledger-normalization.md)
 - [Autonomous Language Generation Broad Ledger Normalization](autonomous-language-generation-broad-ledger-normalization.md)

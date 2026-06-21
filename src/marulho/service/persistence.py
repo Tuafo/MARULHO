@@ -15,6 +15,9 @@ from uuid import uuid4
 from marulho.config.runtime_env import load_runtime_env
 from marulho.reporting.io import write_json_file
 from marulho.semantics import ConceptStore, GeometricCuriosityController
+from marulho.service.applied_replay_lineage import (
+    applied_replay_lineage_checkpoint_summary,
+)
 from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
@@ -413,55 +416,10 @@ class RuntimePersistence:
         cls,
         plasticity_state: Mapping[str, Any],
     ) -> dict[str, Any]:
-        provenance_by_key = (
-            plasticity_state.get("synapse_provenance_by_key")
-            if isinstance(plasticity_state.get("synapse_provenance_by_key"), Mapping)
-            else {}
+        return applied_replay_lineage_checkpoint_summary(
+            plasticity_state,
+            source="runtime_persistence.save_checkpoint",
         )
-        material: list[dict[str, Any]] = []
-        lineage_rows = 0
-        complete_rows = 0
-        for key in sorted(dict(provenance_by_key).keys()):
-            provenance = provenance_by_key.get(key)
-            if not isinstance(provenance, Mapping):
-                continue
-            if str(provenance.get("provenance_type") or "") != "replay_regeneration":
-                continue
-            source_metadata_hash = str(provenance.get("source_metadata_hash") or "")
-            emission_lineage = (
-                dict(provenance.get("emission_lineage"))
-                if isinstance(provenance.get("emission_lineage"), Mapping)
-                else {}
-            )
-            if not source_metadata_hash and not emission_lineage:
-                continue
-            lineage_rows += 1
-            complete = bool(
-                source_metadata_hash
-                and emission_lineage.get("emission_hash")
-                and emission_lineage.get("readout_evidence_hash")
-                and emission_lineage.get("prediction_hash")
-            )
-            if complete:
-                complete_rows += 1
-            material.append(
-                {
-                    "synapse_key": str(key),
-                    "source_metadata_hash": source_metadata_hash,
-                    "emission_lineage": emission_lineage,
-                }
-            )
-        return {
-            "surface": "snn_applied_replay_lineage_checkpoint_summary.v1",
-            "source": "runtime_persistence.save_checkpoint",
-            "owned_by_marulho": True,
-            "applied_replay_lineage_count": lineage_rows,
-            "complete_applied_replay_lineage_count": complete_rows,
-            "incomplete_applied_replay_lineage_count": max(0, lineage_rows - complete_rows),
-            "lineage_material_hash": cls._sha256_json(material) if material else None,
-            "raw_text_absent": True,
-            "operator_identity_absent": True,
-        }
 
     def publish_current_checkpoint(self, path: str | Path, *, operation: str) -> dict[str, Any]:
         """Atomically publish the verified checkpoint selected for crash recovery."""
@@ -580,11 +538,6 @@ class RuntimePersistence:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
-
-    @staticmethod
-    def _sha256_json(value: Any) -> str:
-        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
     def _copy_atomic(source: Path, target: Path) -> None:
@@ -788,8 +741,9 @@ class RuntimePersistence:
             )
             else {}
         )
-        restored_summary = self._applied_replay_lineage_checkpoint_summary(
-            self._snn_language_plasticity_state
+        restored_summary = applied_replay_lineage_checkpoint_summary(
+            self._snn_language_plasticity_state,
+            source="runtime_persistence.restore_checkpoint",
         )
         summary_available = bool(saved_summary)
         def _summary_int(summary: Mapping[str, Any], key: str, default: int) -> int:
@@ -820,6 +774,14 @@ class RuntimePersistence:
             "summary_matches_restored_state": bool(counts_match and hash_matches),
             "saved_summary": deepcopy(dict(saved_summary)),
             "restored_summary": restored_summary,
+            "summary_source_available": bool(
+                restored_summary.get("summary_source_available")
+            ),
+            "summary_policy": restored_summary.get("summary_policy"),
+            "full_provenance_scan": False,
+            "source_record_scan_count": 0,
+            "archival_metadata_device": "cpu",
+            "gpu_used": False,
             "runs_replay": False,
             "applies_plasticity": False,
             "issues_regeneration_permit": False,

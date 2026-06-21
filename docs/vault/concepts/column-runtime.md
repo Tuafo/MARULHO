@@ -25,6 +25,7 @@ related_code:
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
+  - ../../../src/marulho/service/applied_replay_lineage.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
@@ -34,6 +35,7 @@ related_code:
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -56,6 +58,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
   - reports/bounded_replay_window_20260620/replay-restore-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
+  - reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json
 ---
 
 # Column Runtime
@@ -1699,3 +1703,26 @@ bounded `12/65536` route rows, `65526` cached transition rows,
 `state_transition_runs_all_columns=false`, no observed contention, flat RTX
 3060 memory `2061->2062 MiB`, and zero graph/native sequence failures. This is
 hot-path protection for the restore cleanup, not a new speed ceiling.
+
+## Applied Replay Lineage Checkpoint Summary
+
+Applied replay-lineage checkpoint evidence now uses one mutation-maintained
+CPU summary rather than checkpoint-time provenance reconstruction. The active
+path records `snn_applied_replay_lineage_incremental_summary.v1` when replay
+regeneration writes synapse provenance, clears the row when non-replay
+provenance overwrites or pruning removes that synapse, and has
+`RuntimePersistence` read the maintained counts/digest with
+`source_record_scan_count=0` and `full_provenance_scan=false`. Restore
+validation compares saved and restored summary fields; missing incremental
+state blocks exact validation rather than scanning `synapse_provenance_by_key`.
+
+The focused `65536`-row report
+`reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json`
+matched the benchmark-local retired full-scan diagnostic while reading `0`
+provenance records. Active mean latency was `0.065529 ms` versus
+`6766.639043 ms` retired, with active traced peak `0.001343 MiB` versus
+`24.036118 MiB`; CUDA stayed unused at `0.0 MiB` allocated/reserved. The paired
+`524288`-token hot-path report stayed in band at `5993.011 tokens/sec`, p95
+`21.608 ms`, `train_compute=0.135253 ms/token`, bounded `12/65536` route rows,
+`65526` cached rows, no observed contention, RTX memory `2082->2084 MiB`, and
+zero graph/native sequence failures.
