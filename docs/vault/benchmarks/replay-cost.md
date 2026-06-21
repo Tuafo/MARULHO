@@ -22,6 +22,7 @@ related_code:
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
+  - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
@@ -113,6 +114,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
+  - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1946,6 +1949,39 @@ Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 max `13%`, GPU memory-util max `18%`, and RTX 3060 memory stayed flat at
 `1959 MiB`. This is same-band hot-path protection for deleting source tick
 sleep replay execution, not a speed-ceiling claim.
+
+The live memory-summary projection follow-up removes the remaining
+trainer/service/status call shape that used full slow-memory summaries as
+display telemetry. `DualMemoryStore.summary_stats()` still exists for explicit
+offline consolidation and quality windows, but live projections now call
+`DualMemoryStore.live_summary_stats()`, which reports fill/counter/report
+fields without advancing STC decay, creating all-entry tensors, or scanning
+archival metadata.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.live_memory_summary_projection_benchmark --entries 65536 --dim 16 --runs 5 --output reports\bounded_replay_window_20260620\live-memory-summary-projection.json`
+
+It passed with scalar fill/report parity, `summary_full_memory_scan=false`,
+`summary_scan_entry_count=0`, `summary_projection_read_only=true`, CPU
+projection/archive placement, and no hidden language reasoning. The retired
+full-summary path scanned `65536` entries at `658.789240 ms` mean, while the
+bounded live projection averaged `0.149500 ms`.
+
+The 65536-column protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6024.783 tokens/sec`, with
+`train_compute=0.135003 ms/token`, `prepare_training=0.006861 ms/token`,
+`finalize_total=0.006603 ms/token`, and `tick_duration_ms.p95=21.265`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph/native sequence failures were
+`0`. The velocity sampler reported no observed contention, CPU max `22%`, GPU
+max `13%`, GPU memory-util max `18%`, and RTX 3060 memory moved
+`1959->1958 MiB`. This is same-band hot-path protection for deleting full
+memory-summary scans from live/status projection, not a speed-ceiling claim.
 
 The readout-ledger snapshot follow-up retires the broad
 snapshot-through-normalizer shape. `SNNLanguageReadoutEvidenceLedger.snapshot`

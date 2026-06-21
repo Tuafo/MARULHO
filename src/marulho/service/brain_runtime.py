@@ -1537,7 +1537,9 @@ class BrainRuntime:
             "binding": binding_state,
             "abstraction": abstraction_state,
             "stdp": stdp_state,
-            "memory_fill": float(model.memory_store.summary_stats().get("fill_fraction", 0.0)),
+            "memory_fill": float(
+                model.memory_store.live_summary_stats().get("fill_fraction", 0.0)
+            ),
         }
 
     def _brain_runtime_snapshot_locked(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:

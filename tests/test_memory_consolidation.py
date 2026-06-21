@@ -63,6 +63,67 @@ class _IndexOnlyBucketSequence:
 
 
 class MemoryConsolidationTests(unittest.TestCase):
+    def test_live_memory_summary_does_not_advance_or_scan_slow_entries(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        store.update(
+            torch.tensor([1.0, 0.0], dtype=torch.float32),
+            importance=1.0,
+            token_count=1,
+            bucket_id=1,
+            capture_tag=0.8,
+        )
+        state_token_before = int(store._state_token)
+        tags_before = list(store.slow_capture_tag)
+
+        live = store.live_summary_stats(current_token=10_000)
+
+        self.assertEqual(store._state_token, state_token_before)
+        self.assertEqual(list(store.slow_capture_tag), tags_before)
+        self.assertFalse(live["summary_full_memory_scan"])
+        self.assertEqual(live["summary_scan_entry_count"], 0)
+        self.assertEqual(live["summary_token_marker"], 10_000)
+        self.assertEqual(live["summary_state_token"], state_token_before)
+        self.assertEqual(live["summary_surface"], "bounded_memory_summary_projection.v1")
+
+        store.summary_stats(current_token=10_000, force=True)
+        self.assertEqual(store._state_token, 10_000)
+        self.assertLess(float(store.slow_capture_tag[0]), float(tags_before[0]))
+
+    def test_train_step_telemetry_uses_bounded_memory_summary_projection(self) -> None:
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            slow_memory_archive_interval_tokens=10**9,
+            trainer_telemetry_interval_tokens=1,
+            device="cpu",
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[0] = 1.0
+
+        def _fail_full_summary(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("full memory summary must stay off trainer telemetry")
+
+        with patch.object(
+            trainer.model.memory_store,
+            "summary_stats",
+            side_effect=_fail_full_summary,
+        ):
+            metrics = trainer.train_step(
+                pattern,
+                raw_window="bounded live memory summary",
+                allow_sleep_maintenance=False,
+                return_metrics=True,
+            )
+
+        self.assertEqual(metrics["trainer_telemetry_due"], 1)
+        self.assertIn("mean_memory_capture_tag", metrics)
+
     def test_train_step_can_defer_due_sleep_maintenance_until_allowed(self) -> None:
         cfg = MarulhoConfig(
             n_columns=8,

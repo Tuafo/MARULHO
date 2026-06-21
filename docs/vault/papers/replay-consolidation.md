@@ -21,6 +21,7 @@ related_code:
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
+  - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -107,6 +108,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
+  - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1508,6 +1511,23 @@ paired `524288`-token protection run stayed in the maintained band at
 route rows, `65526` cached rows, no observed contention, flat RTX 3060 memory
 at `1959 MiB`, and zero graph/native sequence failures.
 
+Live memory summaries follow the same slow-window rule. Trainer telemetry,
+BrainRuntime summaries, living-loop status, and status Runtime Truth now call
+`DualMemoryStore.live_summary_stats()` instead of full `summary_stats()`.
+The live projection emits `bounded_memory_summary_projection.v1`, reports
+fill/counter/last-report fields, keeps `summary_full_memory_scan=false` and
+`summary_scan_entry_count=0`, and does not advance STC tag/PRP decay. Full
+`summary_stats()` remains available only for explicit offline consolidation and
+quality runners. The 65536-entry report
+`reports/bounded_replay_window_20260620/live-memory-summary-projection.json`
+passed with scalar fill/report parity and mean latency `0.149500 ms` versus
+`658.789240 ms` for the retired full-summary scan. The paired protection run
+processed `524288` tokens at `6024.783 tokens/sec`,
+`train_compute=0.135003 ms/token`, bounded `12/65536` route rows, `65526`
+cached rows, flat RTX 3060 memory `1959->1958 MiB`, and zero graph/native
+sequence failures. Status remains read-only projection, not replay selection or
+hidden consolidation.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -1537,7 +1557,8 @@ bounded rollout-regeneration facade candidate windows,
 bounded readout-ledger rollout candidate windows,
 bounded dense-readout training transition windows,
 strong-capture admission cadence, fixed-cadence slow-memory admission
-retirement, source tick sleep replay deferral, awake-ripple tagging, and retired unscoped
+retirement, source tick sleep replay deferral, bounded live memory-summary
+projection, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and

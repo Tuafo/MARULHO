@@ -4013,7 +4013,7 @@ class StatusReadModel:
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
         runtime_scope = self._runtime_scope_report_locked(
             force_refresh=force_runtime_scope_refresh
@@ -4081,7 +4081,7 @@ class StatusReadModel:
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         trace_history_size = int(len(self._trace_history))
         runtime_scope = self._runtime_scope_report_locked(
             force_refresh=force_runtime_scope_refresh
@@ -4136,7 +4136,7 @@ class StatusReadModel:
         if self._cached_telemetry is not None and self._cached_telemetry_rev == current_rev:
             return self._cached_telemetry
 
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
         drift_value = (
             self._trainer._cached_drift

@@ -222,6 +222,136 @@ class DualMemoryStore:
         self._cached_summary = None
         self._cached_summary_token = -1
 
+    def _last_report_summary_fields(self) -> dict[str, Any]:
+        return {
+            "last_replay_selection_report": dict(
+                self.last_replay_selection_report
+            ),
+            "last_replay_recall_report": dict(
+                self.last_replay_recall_report
+            ),
+            "last_sfa_sample_report": dict(
+                self.last_sfa_sample_report
+            ),
+            "last_replay_query_collection_report": dict(
+                self.last_replay_query_collection_report
+            ),
+            "last_query_memory_match_report": dict(
+                self.last_query_memory_match_report
+            ),
+            "last_bank_memory_match_report": dict(
+                self.last_bank_memory_match_report
+            ),
+            "last_runtime_concept_memory_lookup_report": dict(
+                self.last_runtime_concept_memory_lookup_report
+            ),
+            "last_frontier_gap_collection_report": dict(
+                self.last_frontier_gap_collection_report
+            ),
+            "last_awake_ripple_tag_report": dict(
+                self.last_awake_ripple_tag_report
+            ),
+            "last_recent_memory_window_report": dict(
+                self.last_recent_memory_window_report
+            ),
+            "last_recent_memory_tag_report": dict(
+                self.last_recent_memory_tag_report
+            ),
+            "last_anchor_capture_report": dict(
+                self.last_anchor_capture_report
+            ),
+        }
+
+    def _cached_summary_float(self, key: str, default: float = 0.0) -> float:
+        cached = self._cached_summary if isinstance(self._cached_summary, Mapping) else {}
+        try:
+            return float(cached.get(key, default) or default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    def live_summary_stats(self, current_token: Optional[int] = None) -> dict[str, Any]:
+        """Bounded read-only projection for trainer/service/status hot surfaces."""
+
+        token_marker = self._state_token if current_token is None else int(current_token)
+        size = len(self.slow_buffer)
+        cached_available = isinstance(self._cached_summary, Mapping)
+        result = {
+            "capacity": int(self.capacity),
+            "size": int(size),
+            "fill_fraction": float(size / max(1, self.capacity)),
+            "fill_ratio": float(size / max(1, self.capacity)),
+            "n_seen": int(self.n_seen),
+            "total_stored": int(self.admission_count),
+            "total_evicted": int(self.reservoir_rejection_count),
+            "mean_importance": self._cached_summary_float("mean_importance"),
+            "mean_capture_tag": self._cached_summary_float("mean_capture_tag"),
+            "mean_prp_level": self._cached_summary_float("mean_prp_level"),
+            "mean_capture_strength": self._cached_summary_float(
+                "mean_capture_strength"
+            ),
+            "max_capture_strength": self._cached_summary_float(
+                "max_capture_strength"
+            ),
+            "mean_consolidation_level": self._cached_summary_float(
+                "mean_consolidation_level"
+            ),
+            "mean_confidence": self._cached_summary_float(
+                "mean_capture_strength"
+            ),
+            "mean_fragility": self._cached_summary_float("mean_fragility"),
+            "max_fragility": self._cached_summary_float("max_fragility"),
+            "mean_replay_count": self._cached_summary_float("mean_replay_count"),
+            "strong_tag_fraction": self._cached_summary_float(
+                "strong_tag_fraction"
+            ),
+            "mean_ripple_strength": self._cached_summary_float(
+                "mean_ripple_strength"
+            ),
+            "max_ripple_strength": self._cached_summary_float(
+                "max_ripple_strength"
+            ),
+            "global_prp_pool": float(self.global_prp_pool),
+            "active_prp_buckets": int(len(self.bucket_prp_pool)),
+            "fast_ema_norm": float(torch.norm(self.fast_ema).item())
+            if isinstance(self.fast_ema, torch.Tensor)
+            else 0.0,
+            "slow_mean_norm": float(torch.norm(self._slow_mean).item())
+            if isinstance(self._slow_mean, torch.Tensor)
+            else 0.0,
+            "drift": float(self.compute_drift()),
+            "ripple_scalar_scan_count": int(self.ripple_scalar_scan_count),
+            "ripple_vector_scan_count": int(self.ripple_vector_scan_count),
+            "ripple_awake_bucket_scan_count": int(
+                self.ripple_awake_bucket_scan_count
+            ),
+            "ripple_awake_bucket_candidate_count": int(
+                self.ripple_awake_bucket_candidate_count
+            ),
+            "last_ripple_awake_bucket_count": int(
+                self.last_ripple_awake_bucket_count
+            ),
+            "last_ripple_awake_candidate_count": int(
+                self.last_ripple_awake_candidate_count
+            ),
+            "last_ripple_scan_mode": str(self.last_ripple_scan_mode),
+            "summary_surface": "bounded_memory_summary_projection.v1",
+            "summary_full_memory_scan": False,
+            "summary_scan_entry_count": 0,
+            "summary_token_marker": int(token_marker),
+            "summary_state_token": int(self._state_token),
+            "summary_cached_full_available": bool(cached_available),
+            "summary_mean_fields_source": (
+                "cached_full_summary" if cached_available else "zero_until_full_summary"
+            ),
+            "summary_projection_read_only": True,
+            "summary_projection_reason": (
+                "trainer_service_status_hot_path_must_not_advance_or_scan_slow_memory"
+            ),
+            "provenance_distribution": {},
+        }
+        result.update(self._last_report_summary_fields())
+        return result
+
     def _remove_bucket_entry_index(
         self,
         bucket_id: Optional[int],
@@ -3176,6 +3306,12 @@ class DualMemoryStore:
                 "last_anchor_capture_report": dict(
                     self.last_anchor_capture_report
                 ),
+                "summary_surface": "full_memory_summary.v1",
+                "summary_full_memory_scan": False,
+                "summary_scan_entry_count": 0,
+                "summary_token_marker": int(token_marker),
+                "summary_state_token": int(self._state_token),
+                "summary_projection_read_only": False,
             }
             self._cached_summary = result
             self._cached_summary_token = token_marker
@@ -3283,6 +3419,12 @@ class DualMemoryStore:
             "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
             "slow_mean_norm": float(torch.norm(self._slow_mean).item()) if isinstance(self._slow_mean, torch.Tensor) else 0.0,
             "drift": float(self.compute_drift()),
+            "summary_surface": "full_memory_summary.v1",
+            "summary_full_memory_scan": True,
+            "summary_scan_entry_count": int(size),
+            "summary_token_marker": int(token_marker),
+            "summary_state_token": int(self._state_token),
+            "summary_projection_read_only": False,
         }
         self._cached_summary = result
         self._cached_summary_token = token_marker

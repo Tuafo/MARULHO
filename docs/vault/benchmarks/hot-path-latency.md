@@ -20,6 +20,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
+  - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
@@ -62,6 +63,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
+  - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -4072,6 +4075,27 @@ velocity sampler reported no observed contention, CPU max `56%`, GPU max
 `13%`, GPU memory-util max `18%`, and RTX 3060 memory stayed flat at `1959 MiB`.
 This is same-band protection after deleting automatic sleep replay from service
 source-tick fallback, not a speed-ceiling claim.
+
+The live memory-summary projection protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6024.783 tokens/sec`, with
+`train_compute=0.135003 ms/token`, `prepare_training=0.006861 ms/token`,
+`finalize_total=0.006603 ms/token`, `tick_duration_ms.p95=21.265`, and prewarm
+`323.662 s`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. Graph, native burst, and native
+sequence failures were all `0`; conditional-WHILE q16 remained active. The
+velocity sampler reported no observed contention, CPU max `22%`, GPU max
+`13%`, GPU memory-util max `18%`, and RTX 3060 memory moved `1959->1958 MiB`.
+The paired source-window benchmark
+`reports/bounded_replay_window_20260620/live-memory-summary-projection.json`
+measured `0` live scan entries and `0.149500 ms` mean bounded projection
+latency versus `658.789240 ms` for the retired full summary over `65536`
+entries. This is same-band protection after deleting full memory-summary scans
+from trainer/service/status projection, not a speed-ceiling claim.
 
 The dense-label calibration source-window protection run was:
 

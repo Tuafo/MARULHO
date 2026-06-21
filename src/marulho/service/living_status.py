@@ -33,7 +33,7 @@ class LivingStatusCore:
         *,
         include_replay_dataset_summary: bool = False,
     ) -> dict[str, Any]:
-        memory_snapshot = self._trainer.model.memory_store.summary_stats()
+        memory_snapshot = self._trainer.model.memory_store.live_summary_stats()
         provenance = ProvenanceState.from_distribution(
             cast(Mapping[str, Any], memory_snapshot).get("provenance_distribution")
             if isinstance(memory_snapshot, Mapping)
@@ -99,7 +99,7 @@ class LivingStatusCore:
         elif feedback_summary["unverified_count"] > 0 and grounding_health.get("status") == "grounded":
             grounding_health["status"] = "needs_verification"
         payload["grounding_health"] = grounding_health
-        memory_stats = self._trainer.model.memory_store.summary_stats()
+        memory_stats = memory_snapshot
         memory_fill = float(memory_stats.get("fill_fraction", 0.0) or 0.0)
         subcortex_sleep_pressure = {
             "source": "subcortex_memory_and_trainer_sleep_counters",

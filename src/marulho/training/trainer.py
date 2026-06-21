@@ -4114,7 +4114,7 @@ class MarulhoTrainer:
             return {}
 
         memory_stats = (
-            self.model.memory_store.summary_stats()
+            self.model.memory_store.live_summary_stats()
             if self.memory_warm_started and _telemetry_tick
             else self._cached_memory_stats if hasattr(self, "_cached_memory_stats") else {}
         )

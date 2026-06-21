@@ -383,7 +383,7 @@ class RuntimeStatusCore:
         terminus_runtime = self._brain_runtime_snapshot_locked()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         runtime_scope = self._trainer.model.runtime_scope_report(
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
             last_winner=getattr(self._trainer, "last_winner", None),
@@ -478,7 +478,7 @@ class RuntimeStatusCore:
         if cached is not None and cached_rev == current_rev:
             return cached
 
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         last_trace = self._trace_history[0] if self._trace_history else None
         drift_value = (
             self._trainer._cached_drift
@@ -840,7 +840,7 @@ class RuntimeStatusCore:
         terminus_runtime = self._brain_runtime_snapshot_locked()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
-        memory_store = self._trainer.model.memory_store.summary_stats()
+        memory_store = self._trainer.model.memory_store.live_summary_stats()
         runtime_scope = self._trainer.model.runtime_scope_report(
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
             last_winner=getattr(self._trainer, "last_winner", None),
