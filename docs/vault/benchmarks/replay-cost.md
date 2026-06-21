@@ -1887,6 +1887,46 @@ sequence failures. Contention was `not_observed` (`cpu max=25%`, `gpu max=8%`,
 GPU memory utilization max `9%`), and RTX 3060 memory stayed flat at
 `1936 MiB`.
 
+The exact applied-synapse audit now also has a bounded source window instead
+of copying all applied sparse weights and provenance rows before returning
+capped audit rows. `synapse_provenance_audit(...)` emits
+`bounded_snn_readout_synapse_provenance_audit_source_window.v1`, selects at
+most `64` applied sparse-weight/provenance rows from CPU archival state, and
+requests ledger evidence only for the selected hashes. If retained applied
+synapses exceed the source window, exact audit review is blocked until a
+separate explicit slow-audit policy widens the selected source.
+
+Quality and latency report:
+
+`reports\bounded_replay_window_20260620\synapse-provenance-audit-source-window.json`
+
+It passed with `2048` retained sparse weights and `2048` retained provenance
+rows. The bounded production audit read `64` source rows while the
+benchmark-local diagnostic full scan touched `4096` records and materialized
+`2048` audit rows (`32x` less source work by the benchmark's comparison
+metric). Selected source keys matched the diagnostic first source window,
+requested ledger hashes were capped at `64`, truncated source windows blocked
+exact review, and the audit reported CPU archival/lookup placement, no global
+candidate or score scan, no raw text payload, no hidden language reasoning, no
+live tick, no every-token work, no mutation/plasticity, and no GPU-resident
+archival metadata. Mean latency was `75.262088 ms` versus `259.221928 ms` for
+the diagnostic full materializer, traced Python peak allocation was
+`1.909667 MiB`, CUDA was available, and production audit GPU use was `false`.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Accepted rerun: `success=true`, `524288` tokens in `81.396445 s`,
+`6441.166 tokens/sec`, `tick_duration_ms.p95=19.527`,
+`train_compute=0.127184 ms/token`, `prepare_training=0.006068 ms/token`, and
+`finalize_total=0.005747 ms/token`. Prewarm took `239.005 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. Contention was `not_observed`
+(`cpu max=20%`, `gpu max=13%`, GPU memory utilization max `18%`), and RTX 3060
+memory stayed flat at `1866 MiB`.
+
 ## Runtime Trace Export And Replay Sample Summary Windows
 
 Runtime trace export and replay-sample summary now follow the same selected

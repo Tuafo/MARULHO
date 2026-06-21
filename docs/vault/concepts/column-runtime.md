@@ -1466,6 +1466,24 @@ and flat RTX 3060 memory at `1936 MiB`. Exact applied-synapse integrity belongs
 in an explicit audit/slow window; status only reports whether its bounded
 source window is complete enough to allow that review.
 
+The exact applied-synapse provenance audit now uses that same one-path
+boundary instead of keeping a full audit scan beside the status window.
+`synapse_provenance_audit(...)` emits
+`bounded_snn_readout_synapse_provenance_audit_source_window.v1`, reads at most
+`64` applied sparse-weight/provenance rows from CPU archival state, requests
+ledger rows only for the selected hashes, and blocks exact review when retained
+applied synapse provenance exceeds the source window. The benchmark
+`reports/bounded_replay_window_20260620/synapse-provenance-audit-source-window.json`
+matched the diagnostic first source window, read `64` bounded rows instead of
+`4096` diagnostic records and `2048` materialized rows (`32x` less source work
+by report metric), and reduced mean audit latency from `259.221928 ms` to
+`75.262088 ms` with no GPU audit allocation. The accepted `524288`-token rerun
+stayed in band at `6441.166 tokens/sec`, with `tick_duration_ms.p95=19.527`,
+`train_compute=0.127184 ms/token`, bounded `12/65536` route rows, no observed
+contention, flat RTX 3060 memory at `1866 MiB`, and zero graph/native sequence
+failures. Full applied-synapse audit scans are now benchmark-local diagnostics
+only.
+
 Transition-memory status projections now share that same source-window rule
 instead of each projection materializing all retained sparse-transition and
 provenance rows. Capacity pressure, dense readout tensor integrity, applied

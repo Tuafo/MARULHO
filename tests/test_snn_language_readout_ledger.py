@@ -25,6 +25,8 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY,
     SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT,
     SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT,
+    SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT,
+    SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY,
     SNN_ROLLOUT_REHEARSAL_SOURCE_WINDOW_LIMIT,
     SNNLanguageReadoutEvidenceLedger,
 )
@@ -15421,6 +15423,86 @@ def test_readout_synapse_provenance_audit_uses_dynamic_neuron_capacity() -> None
     ] is True
 
 
+def test_readout_synapse_provenance_audit_uses_bounded_applied_synapse_source_window() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+    source_limit = SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT
+    retained_count = source_limit + 16
+    weights: dict[str, float] = {}
+    provenance: dict[str, dict[str, object]] = {}
+    for index in range(retained_count):
+        key = f"{index}:{index + 1}"
+        weights[key] = 0.03
+        provenance[key] = {
+            "readout_evidence_hash": f"missing-ledger-row-{index:03d}",
+            "prediction_hash": f"prediction-{index:03d}",
+            "transition_memory_evaluation_hash": f"evaluation-{index:03d}",
+            "persistent_transition_weights_hash": f"weights-{index:03d}",
+            "source_pre_indices": [index],
+            "source_post_indices": [index + 1],
+            "source_active_indices": [index, index + 1],
+        }
+
+    audit = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_marulho": True,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": retained_count + 1,
+                "sparse_edge_budget": retained_count + 2,
+                "outgoing_fanout_budget": 16,
+                "dynamic_capacity_enabled": True,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": provenance,
+        },
+        limit=source_limit,
+    )
+
+    source_window = audit["applied_synapse_audit_source_window"]
+    assert source_window["surface"] == (
+        "bounded_snn_readout_synapse_provenance_audit_source_window.v1"
+    )
+    assert source_window["policy"] == SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY
+    assert source_window["source_window_limit"] == source_limit
+    assert source_window["source_sparse_weight_rows"] == source_limit
+    assert source_window["source_synapse_provenance_rows"] == source_limit
+    assert source_window["retained_sparse_weight_rows"] == retained_count
+    assert source_window["retained_synapse_provenance_rows"] == retained_count
+    assert source_window["source_payload_truncated"] is True
+    assert source_window["source_window_complete"] is False
+    assert source_window["source_truncated_counts"]["sparse_transition_weights"] == 16
+    assert source_window["source_truncated_counts"]["synapse_provenance_by_key"] == 16
+    assert source_window["global_candidate_scan"] is False
+    assert source_window["global_score_scan"] is False
+    assert source_window["runs_live_tick"] is False
+    assert source_window["runs_every_token"] is False
+    assert source_window["language_reasoning"] is False
+    assert source_window["archival_storage_device"] == "cpu"
+    assert source_window["gpu_resident_archival_metadata"] is False
+    assert audit["audit_summary"]["audited_synapse_count"] == source_limit
+    assert audit["audit_summary"]["returned_synapse_count"] == source_limit
+    assert audit["audit_summary"]["provenanced_synapse_count"] == retained_count
+    assert audit["audit_summary"]["sparse_transition_weight_count"] == retained_count
+    assert audit["ledger_event_source_window"]["requested_hash_count"] == source_limit
+    assert audit["ledger_event_source_window"]["matched_hash_count"] == 0
+    assert audit["audited_synapses"][0]["synapse_key"] == "0:1"
+    assert audit["audited_synapses"][-1]["synapse_key"] == f"{source_limit - 1}:{source_limit}"
+    assert audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert audit["promotion_gate"]["required_evidence"][
+        "applied_synapse_audit_source_window_bounded"
+    ] is True
+    assert audit["promotion_gate"]["required_evidence"][
+        "applied_synapse_audit_source_window_complete"
+    ] is False
+
+
 def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -15715,6 +15797,13 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert audit["audit_summary"]["ledger_event_missing_hash_count"] == 0
     assert audit["promotion_gate"]["required_evidence"][
         "ledger_event_source_window_bounded"
+    ] is True
+    assert audit["applied_synapse_audit_source_window"]["source_window_complete"] is True
+    assert audit["promotion_gate"]["required_evidence"][
+        "applied_synapse_audit_source_window_bounded"
+    ] is True
+    assert audit["promotion_gate"]["required_evidence"][
+        "applied_synapse_audit_source_window_complete"
     ] is True
     assert audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is True
     assert blocked["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False

@@ -1724,6 +1724,36 @@ observed contention, and flat RTX 3060 memory at `1936 MiB`. The old broad
 status key scan is retired; benchmark-local broad comparison remains only
 evidence.
 
+Applied-synapse provenance audit now uses a bounded local source window before
+the associative ledger lookup as well. This matches the research boundary:
+modern Hopfield-style recall is a local associative operator after selection,
+complementary learning systems separate online state from slow consolidation,
+continual-learning replay and synaptic tagging/capture prioritize selected
+salient traces, and sparse replay keeps the candidate set small. The maintained
+`synapse_provenance_audit(...)` path emits
+`bounded_snn_readout_synapse_provenance_audit_source_window.v1`, reads at most
+`64` applied sparse-weight/provenance rows from CPU archival state, asks the
+ledger only for hashes in that source window, and blocks exact audit review
+when the source window is truncated. It reports no global candidate or score
+scan, no raw replay text, no hidden language reasoning, no live tick, no
+every-token work, no mutation/plasticity, and no GPU-resident archival
+metadata.
+
+The report
+`reports/bounded_replay_window_20260620/synapse-provenance-audit-source-window.json`
+matched the diagnostic first source window, requested only `64` ledger hashes,
+read `64` bounded source rows instead of `4096` diagnostic records and `2048`
+materialized rows (`32x` less source work by report metric), and reduced mean
+audit latency from `259.221928 ms` to `75.262088 ms` with `1.909667 MiB`
+traced Python peak allocation and no GPU production-audit use. The accepted
+hot-path rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-source-window-rerun.json`
+stayed in band at `6441.166 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, zero graph/native sequence failures, no
+observed contention, and flat RTX 3060 memory at `1866 MiB`. The old full
+applied-synapse audit scan is retired from production; broad comparison remains
+only benchmark-local diagnostic evidence.
+
 Transition-memory status projection now applies the same selected-source rule
 to the broader status family. Modern Hopfield-style associative recall belongs
 inside a selected local memory or replay window; CLS, continual replay,

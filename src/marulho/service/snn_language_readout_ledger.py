@@ -166,6 +166,10 @@ SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY = (
     "bounded_snn_readout_replay_target_source_window_v1"
 )
+SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT = 64
+SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY = (
+    "recent_applied_synapse_provenance_audit_source_window_v1"
+)
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
@@ -37303,6 +37307,107 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def _applied_synapse_provenance_audit_source_window(
+        self,
+        runtime: Mapping[str, Any],
+        *,
+        limit: int,
+    ) -> tuple[
+        Mapping[str, Any],
+        dict[str, Any],
+        list[tuple[str, Any]],
+        dict[str, Any],
+    ]:
+        source_limit = max(
+            1,
+            min(
+                int(limit),
+                int(SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT),
+            ),
+        )
+        raw_weights = runtime.get("sparse_transition_weights")
+        weight_mapping: Mapping[str, Any] = (
+            raw_weights if isinstance(raw_weights, Mapping) else {}
+        )
+        raw_provenance = runtime.get("synapse_provenance_by_key")
+        provenance_mapping: Mapping[str, Any] = (
+            raw_provenance if isinstance(raw_provenance, Mapping) else {}
+        )
+        retained_weight_count = int(len(weight_mapping))
+        retained_provenance_count = int(len(provenance_mapping))
+        source_weight_items = [
+            (str(key), value)
+            for key, value in islice(weight_mapping.items(), source_limit)
+        ]
+        source_provenance_by_key = {
+            str(key): dict(value)
+            for key, value in islice(provenance_mapping.items(), source_limit)
+            if isinstance(value, Mapping)
+        }
+        source_weight_count = int(len(source_weight_items))
+        source_provenance_count = int(len(source_provenance_by_key))
+        source_window_complete = (
+            retained_weight_count <= source_weight_count
+            and retained_provenance_count <= source_provenance_count
+        )
+        source_window = {
+            "surface": "bounded_snn_readout_synapse_provenance_audit_source_window.v1",
+            "policy": SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY,
+            "window_policy": SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY,
+            "source": "snn_language_plasticity_runtime_state.applied_synapse_provenance",
+            "selection_criteria": [
+                "runtime_mapping_iteration_order",
+                "bounded_source_window_before_synapse_provenance_audit",
+                "ledger_hash_lookup_requested_only_from_selected_provenance_rows",
+            ],
+            "source_window_limit": int(source_limit),
+            "source_window_count": max(source_weight_count, source_provenance_count),
+            "source_sparse_weight_rows": source_weight_count,
+            "source_synapse_provenance_rows": source_provenance_count,
+            "retained_sparse_weight_rows": retained_weight_count,
+            "retained_synapse_provenance_rows": retained_provenance_count,
+            "source_record_count": max(retained_weight_count, retained_provenance_count),
+            "source_record_count_known": True,
+            "source_payload_truncated": not source_window_complete,
+            "source_truncated_counts": {
+                "sparse_transition_weights": max(
+                    0, retained_weight_count - source_weight_count
+                ),
+                "synapse_provenance_by_key": max(
+                    0, retained_provenance_count - source_provenance_count
+                ),
+            },
+            "source_window_complete": bool(source_window_complete),
+            "integrity_scope": (
+                "exact_retained_applied_synapse_audit"
+                if source_window_complete
+                else "bounded_source_window"
+            ),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "gpu_resident_archival_metadata": False,
+            "memory_budget": {
+                "max_sparse_transition_weight_rows": int(source_limit),
+                "max_synapse_provenance_rows": int(source_limit),
+                "archival_storage_device": "cpu",
+            },
+        }
+        return (
+            weight_mapping,
+            source_provenance_by_key,
+            source_weight_items,
+            source_window,
+        )
+
     def synapse_provenance_audit(
         self,
         *,
@@ -37328,14 +37433,45 @@ class SNNLanguageReadoutEvidenceLedger:
         language_neuron_count = int(
             language_capacity["language_neuron_count"]
         )
-        raw_weights = dict(runtime.get("sparse_transition_weights") or {})
+        (
+            weight_mapping,
+            provenance_by_key,
+            source_weight_items,
+            audit_source_window,
+        ) = self._applied_synapse_provenance_audit_source_window(
+            runtime,
+            limit=limit,
+        )
+        source_window_complete = bool(
+            audit_source_window.get("source_window_complete")
+        )
+        audit_source_window_bounded = bool(
+            audit_source_window.get("surface")
+            == "bounded_snn_readout_synapse_provenance_audit_source_window.v1"
+            and audit_source_window.get("policy")
+            == SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY
+            and int(audit_source_window.get("source_window_count", 0) or 0)
+            <= int(audit_source_window.get("source_window_limit", 0) or 0)
+            and audit_source_window.get("global_candidate_scan") is False
+            and audit_source_window.get("global_score_scan") is False
+            and audit_source_window.get("runs_live_tick") is False
+            and audit_source_window.get("runs_every_token") is False
+            and audit_source_window.get("archival_storage_device") == "cpu"
+            and audit_source_window.get("lookup_device") == "cpu"
+            and audit_source_window.get("gpu_used") is False
+            and audit_source_window.get("gpu_resident_archival_metadata") is False
+            and audit_source_window.get("language_reasoning") is False
+            and audit_source_window.get("raw_text_payload_loaded") is False
+        )
         weights: dict[str, float] = {}
         finite_weight_keys: set[str] = set()
         bounded_weight_keys: set[str] = set()
         canonical_weight_keys: set[str] = set()
         in_range_weight_keys: set[str] = set()
-        for key, value in raw_weights.items():
+        source_weight_key_set: set[str] = set()
+        for key, value in source_weight_items:
             key_text = str(key)
+            source_weight_key_set.add(key_text)
             try:
                 if value is None or isinstance(value, bool):
                     raise TypeError("non_numeric_weight")
@@ -37361,11 +37497,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 language_neuron_count=language_neuron_count,
             ):
                 in_range_weight_keys.add(key_text)
-        provenance_by_key = {
-            str(key): dict(value)
-            for key, value in dict(runtime.get("synapse_provenance_by_key") or {}).items()
-            if isinstance(value, Mapping)
-        }
+        source_provenance_key_set = set(provenance_by_key.keys())
         requested_ledger_hashes: set[str] = set()
         for provenance in provenance_by_key.values():
             readout_hash = str(provenance.get("readout_evidence_hash") or "").strip()
@@ -37381,7 +37513,7 @@ class SNNLanguageReadoutEvidenceLedger:
             )
         )
         all_rows: list[dict[str, Any]] = []
-        for key in sorted(provenance_by_key.keys()):
+        for key in provenance_by_key.keys():
             provenance = provenance_by_key.get(key, {})
             provenance_type = str(provenance.get("provenance_type") or "readout_plasticity")
             readout_hash = str(provenance.get("readout_evidence_hash") or "")
@@ -37489,7 +37621,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 if isinstance(value, int)
             ]
             pre_index, post_index = self._split_synapse_key(key)
-            weight = weights.get(key)
+            weight_available = bool(key in weight_mapping)
+            raw_weight_value = weight_mapping.get(key)
+            try:
+                if raw_weight_value is None or isinstance(raw_weight_value, bool):
+                    raise TypeError("non_numeric_weight")
+                weight = float(raw_weight_value)
+            except (TypeError, ValueError):
+                weight = float("nan") if weight_available else None
             weight_finite = bool(weight is not None and math.isfinite(float(weight)))
             source_indices_in_range = all(
                 self._valid_language_index(
@@ -37515,7 +37654,7 @@ class SNNLanguageReadoutEvidenceLedger:
             row = {
                 "synapse_key": key,
                 "provenance_type": provenance_type,
-                "weight_available": key in weights,
+                "weight_available": weight_available,
                 "weight": weight,
                 "weight_finite": weight_finite,
                 "weight_bounded": bool(
@@ -37588,16 +37727,24 @@ class SNNLanguageReadoutEvidenceLedger:
             all_rows.append(row)
         row_limit = max(0, min(int(limit), 512))
         rows = all_rows[:row_limit]
-        orphan_weight_keys = sorted(set(weights.keys()) - set(provenance_by_key.keys()))
-        dangling_provenance_keys = sorted(set(provenance_by_key.keys()) - set(weights.keys()))
+        orphan_weight_keys = sorted(source_weight_key_set - source_provenance_key_set)
+        dangling_provenance_keys = sorted(source_provenance_key_set - source_weight_key_set)
         replay_regeneration_rows = [
             row for row in all_rows if row.get("provenance_type") == "replay_regeneration"
         ]
+        retained_weight_count = int(
+            audit_source_window.get("retained_sparse_weight_rows", 0) or 0
+        )
+        retained_provenance_count = int(
+            audit_source_window.get("retained_synapse_provenance_rows", 0) or 0
+        )
         required = {
             "runtime_state_surface_available": runtime.get("surface")
             == "snn_language_plasticity_runtime_state.v1",
             "runtime_state_owned_by_marulho": bool(runtime.get("owned_by_marulho")),
-            "synapse_provenance_available": bool(provenance_by_key),
+            "synapse_provenance_available": bool(retained_provenance_count > 0),
+            "applied_synapse_audit_source_window_bounded": audit_source_window_bounded,
+            "applied_synapse_audit_source_window_complete": source_window_complete,
             "audited_synapses_have_weights": all(
                 bool(row["weight_available"]) for row in all_rows
             ) if all_rows else False,
@@ -37662,12 +37809,24 @@ class SNNLanguageReadoutEvidenceLedger:
             "applied_replay_lineage_restore_validation_not_mismatched": (
                 restore_validation_not_mismatched
             ),
-            "no_unprovenanced_weights": not bool(orphan_weight_keys),
-            "no_dangling_provenance": not bool(dangling_provenance_keys),
-            "all_weights_finite": len(finite_weight_keys) == len(weights),
-            "all_weights_bounded": len(bounded_weight_keys) == len(weights),
-            "all_weight_keys_canonical": len(canonical_weight_keys) == len(weights),
-            "all_weight_indices_in_range": len(in_range_weight_keys) == len(weights),
+            "no_unprovenanced_weights": bool(
+                source_window_complete and not bool(orphan_weight_keys)
+            ),
+            "no_dangling_provenance": bool(
+                source_window_complete and not bool(dangling_provenance_keys)
+            ),
+            "all_weights_finite": bool(
+                source_window_complete and len(finite_weight_keys) == retained_weight_count
+            ),
+            "all_weights_bounded": bool(
+                source_window_complete and len(bounded_weight_keys) == retained_weight_count
+            ),
+            "all_weight_keys_canonical": bool(
+                source_window_complete and len(canonical_weight_keys) == retained_weight_count
+            ),
+            "all_weight_indices_in_range": bool(
+                source_window_complete and len(in_range_weight_keys) == retained_weight_count
+            ),
         }
         ready = all(required.values())
         return {
@@ -37687,14 +37846,29 @@ class SNNLanguageReadoutEvidenceLedger:
             "audit_summary": {
                 "audited_synapse_count": len(all_rows),
                 "returned_synapse_count": len(rows),
-                "provenanced_synapse_count": len(provenance_by_key),
-                "sparse_transition_weight_count": len(weights),
+                "audited_count_scope": audit_source_window["integrity_scope"],
+                "source_window_complete": source_window_complete,
+                "source_sparse_weight_count": int(
+                    audit_source_window.get("source_sparse_weight_rows", 0) or 0
+                ),
+                "source_synapse_provenance_count": int(
+                    audit_source_window.get("source_synapse_provenance_rows", 0) or 0
+                ),
+                "provenanced_synapse_count": retained_provenance_count,
+                "sparse_transition_weight_count": retained_weight_count,
                 "orphan_weight_count": len(orphan_weight_keys),
                 "dangling_provenance_count": len(dangling_provenance_keys),
-                "nonfinite_weight_count": len(weights) - len(finite_weight_keys),
-                "unbounded_weight_count": len(weights) - len(bounded_weight_keys),
-                "noncanonical_weight_key_count": len(weights) - len(canonical_weight_keys),
-                "out_of_range_weight_key_count": len(weights) - len(in_range_weight_keys),
+                "orphan_weight_count_scope": audit_source_window["integrity_scope"],
+                "dangling_provenance_count_scope": audit_source_window["integrity_scope"],
+                "nonfinite_weight_count": max(0, len(source_weight_key_set) - len(finite_weight_keys)),
+                "unbounded_weight_count": max(0, len(source_weight_key_set) - len(bounded_weight_keys)),
+                "noncanonical_weight_key_count": max(
+                    0, len(source_weight_key_set) - len(canonical_weight_keys)
+                ),
+                "out_of_range_weight_key_count": max(
+                    0, len(source_weight_key_set) - len(in_range_weight_keys)
+                ),
+                "weight_integrity_count_scope": audit_source_window["integrity_scope"],
                 "ledger_event_count": len(ledger_events),
                 "ledger_event_source_window_count": int(
                     ledger_event_source_window.get("source_window_count", 0) or 0
@@ -37729,6 +37903,10 @@ class SNNLanguageReadoutEvidenceLedger:
                     restore_validation_available and not restore_summary_matches
                 ),
             },
+            "applied_synapse_audit_source_window": audit_source_window,
+            "applied_synapse_audit_source_window_policy": (
+                SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY
+            ),
             "ledger_event_source_window": ledger_event_source_window,
             "ledger_event_source_window_policy": (
                 SNN_READOUT_EVIDENCE_HASH_SOURCE_WINDOW_POLICY
