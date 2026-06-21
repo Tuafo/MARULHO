@@ -261,7 +261,6 @@ def _fake_service_app() -> FastAPI:
                 {
                     "schema_version": 1,
                     "replay_sample_id": "replay-sample-1",
-                    "execution_id": None,
                     "created_at": "2026-01-01T00:00:01+00:00",
                     "mode": "sample",
                     "status": "recorded",
@@ -1003,7 +1002,6 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["replay_sample_summary"]["latest_history_item"]["selected_count"] == 1
         assert result["replay_sample_summary"]["safety_flags"]["audit_only"] is True
         assert result["replay_sample_summary"]["safety_flags"]["external_calls_made"] is False
-        assert result["replay_executor_summary"]["count"] == 1
         assert result["trace_export_summary"]["count"] == 0
         assert result["replay_dataset_summary"]["export_kind"] == "terminus_replay_dataset_preview"
         assert result["replay_dataset_summary"]["training_role"] == "replay_dataset_preview_only_not_training_no_mutation"

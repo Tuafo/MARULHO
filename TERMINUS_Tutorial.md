@@ -336,7 +336,7 @@ Key telemetry fields:
 - `grounding_health` — verification, evidence, contradiction, feedback counts, and grounding status for the current loop state
 - `feedback_summary`, `feedback_count`, `verified_feedback_count`, `contradicted_feedback_count`, `unverified_feedback_count`, and `recent_feedback` — operator/runtime review state folded back into the living loop
 - `replay_plan` — advisory prioritized replay/consolidation candidates derived from feedback, uncertainty, memory pressure, latency, and policy signals
-- `replay_sample_summary` and `replay_executor_summary` — identical audit summaries for the operator-gated replay sampler/executor history, including selected counts, mode/status counts, safety flags, and endpoint aliases
+- `replay_sample_summary` — audit summary for the operator-gated replay sampler history, including selected counts, mode/status counts, and safety flags
 
 ### Policy actuator
 
@@ -408,9 +408,9 @@ Replay-plan fields are surfaced consistently across telemetry/export/benchmark p
 
 What remains before autonomous learning: replay candidates still require an operator or separate training process to select, validate, and apply them. Contradicted memories should become negative lessons or corrected examples, not facts. Dreamed/imagination memories must remain provenance-tagged and cannot be consolidated as observed/verified without external validation.
 
-### Operator-gated replay sampler/executor
+### Operator-gated replay sampler
 
-`POST /terminus/replay-sample` records an operator-confirmed replay sample from the current replay plan. `POST /terminus/replay-execute` is an alias for the same guarded path; when `mode="execute"` the response also sets `execution_id`, but execution still means **audit execution only**. The endpoint revalidates the live `GET /terminus/replay-plan` candidates, samples or selects candidates, records a bounded sanitized history item, and returns before/after counters proving that learning/action state did not move.
+`POST /terminus/replay-sample` records an operator-confirmed replay sample from the current replay plan. It is the only maintained replay-sample path: the old replay-execute alias is retired so the service does not advertise a second replay route. The endpoint revalidates the live `GET /terminus/replay-plan` candidates, samples or selects candidates, records a bounded sanitized history item, and returns before/after counters proving that learning/action state did not move.
 
 Typical sample request:
 
@@ -428,24 +428,8 @@ curl -X POST http://localhost:8000/terminus/replay-sample \
   }'
 ```
 
-Typical audit-execute request for one already inspected candidate:
-
-```bash
-curl -X POST http://localhost:8000/terminus/replay-execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "mode": "execute",
-    "candidate_id": "candidate-id-from-replay-plan",
-    "target_type": "runtime_episode",
-    "target_id": "episode-id-from-replay-plan",
-    "operator_id": "operator-a",
-    "operator_note": "Confirmed this candidate should become a reviewed lesson later.",
-    "confirmation": true
-  }'
-```
-
 Request fields:
-- `mode` — `dry_run`, `sample`, or `execute`; all modes are audit/sample only, and `execute` does not train, sleep, promote memory, post feedback, execute digital actions, or call outside services
+- `mode` — `dry_run` or `sample`
 - `candidate_id` — optional exact replay-plan candidate to revalidate; stale or missing candidate IDs return HTTP 422
 - `target_type` and `target_id` — optional guards that must match every selected candidate before a record is accepted
 - `operator_id` — required non-empty operator identifier for the audit trail
@@ -456,7 +440,7 @@ Request fields:
 - `seed` — optional deterministic seed for reproducible stochastic sampling
 
 Response fields:
-- `schema_version`, `replay_sample_id`, optional `execution_id`, `created_at`, `mode`, `status`, `reason`, and `endpoint`
+- `schema_version`, `replay_sample_id`, `created_at`, `mode`, `status`, `reason`, and `endpoint`
 - `operator_id`, `operator_note`, `requested_candidate_id`, `target_type`, `target_id`, `requested_count`, `alpha`, and `seed`
 - `candidate_ids` — current replay-plan candidate IDs considered by the sampler
 - `selected_candidate_ids` and `selected_candidates` — sanitized selected candidate payloads; each selected candidate includes `safety` flags such as `audit_only`, `not_promoted`, `non_factual`, `negative_lesson`, and `dreamed_or_synthetic`
@@ -465,24 +449,23 @@ Response fields:
 - `before` / `after` — `token_count`, `state_revision`, `action_history_count`, and `feedback_count` snapshots used to verify no learning/action state changed
 - `plan_summary` — sanitized summary of the replay plan used for the selection
 
-History endpoints are `GET /terminus/replay-sample/history` and `GET /terminus/replay-execute/history`:
+History endpoint:
 
 ```bash
 curl "http://localhost:8000/terminus/replay-sample/history?limit=20"
-curl "http://localhost:8000/terminus/replay-execute/history?limit=20"
 ```
 
-Both history endpoints return `schema_version`, `endpoint`, total `count`, requested `limit`, and recent `history` records. `/terminus/replay-execute/history` is an alias over the same replay-sample audit history.
+The history endpoint returns `schema_version`, `endpoint`, total `count`, requested `limit`, and recent `history` records.
 
 Sampling semantics and research rationale: when `candidate_id` is omitted, Terminus uses a seeded prioritized-experience-replay sampler without replacement. Candidate weight is `P(i) proportional to (epsilon + score)^alpha`, where `score` is the replay-plan `priority_score`; a diversity dampening step reduces repeat target-type dominance so review batches do not collapse onto one candidate family. This keeps the deterministic replay plan auditable while allowing reproducible stochastic review batches. The rationale combines PER with human-in-the-loop safe RL and active learning: surface high-value, high-uncertainty, or contradiction-heavy candidates to an operator, but keep training and promotion in a separate verified process.
 
 Safety boundary: this endpoint is **operator-gated audit/sample only**. It does not start training, start sleep, promote memory verification, post feedback, execute digital actions, make external calls, or convert dreamed/synthetic material into facts. Contradicted candidates are negative lessons or correction targets, not verified knowledge. Dreamed, synthetic, simulated, contradicted, or failed candidates remain provenance-tagged and must be externally validated before any future training or memory-promotion path can use them as positive examples. The only persistent effect is the sanitized replay-sample history record and its audit summary.
 
-Replay-sample/executor fields are surfaced consistently across telemetry/export/benchmark paths:
-- telemetry: `/terminus/living-loop` and `/status` include `living_loop.replay_sample_summary` and `living_loop.replay_executor_summary`; `benchmark_telemetry.replay_sample_summary` and `benchmark_telemetry.replay_executor_summary` mirror endpoint aliases, counts, latest selected item, mode/status counts, safety boundaries, and audit-only/executable posture
-- export: `GET /terminus/runtime-traces/export` includes sanitized top-level `replay_sample_summary` and `replay_executor_summary`; each exported example includes sanitized `replay_sample_summary`; `python -m marulho.service.trace_export_runner` mirrors both summaries in CLI metadata
-- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `GET /terminus/replay-sample/history`, records it in `endpoint_timings` / `endpoints_by_name.replay_sample_history`, and writes both `replay_sample_summary` and `replay_executor_summary` with history-derived counts and safety flags
-- UI: the current dashboard remains read-only for replay. It renders the advisory replay-plan card and does not post to `/terminus/replay-sample` or `/terminus/replay-execute`; operators should use the API/CLI until a dedicated gated sampler form and history panel are added
+Replay-sample fields are surfaced consistently across telemetry/export/benchmark paths:
+- telemetry: `/terminus/living-loop` and `/status` include `living_loop.replay_sample_summary`; `benchmark_telemetry.replay_sample_summary` mirrors counts, latest selected item, mode/status counts, safety boundaries, and audit-only/executable posture
+- export: `GET /terminus/runtime-traces/export` includes sanitized top-level `replay_sample_summary`; each exported example includes sanitized `replay_sample_summary`; `python -m marulho.service.trace_export_runner` mirrors that summary in CLI metadata
+- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `GET /terminus/replay-sample/history`, records it in `endpoint_timings` / `endpoints_by_name.replay_sample_history`, and writes `replay_sample_summary` with history-derived counts and safety flags
+- UI: the current dashboard remains read-only for replay. It renders the advisory replay-plan card and does not post to `/terminus/replay-sample`; operators should use the API/CLI until a dedicated gated sampler form and history panel is added
 
 Remaining work before autonomous replay learning: add an operator UI for candidate selection/history review, define a separate offline trainer or adapter-distillation job that consumes only externally validated examples, add promotion rules that distinguish negative lessons from positive facts, enforce retention/audit review for replay-sample history, and keep benchmark claims limited to sampling/telemetry until a verified training path exists.
 
@@ -521,7 +504,7 @@ Preview response fields:
 - `schema_version`, `export_kind=terminus_replay_dataset_preview`, `training_role=replay_dataset_preview_only_not_training_no_mutation`, `description`, `created_at`, `latest_export_timestamp`, `latest_history_timestamp`, `endpoint`, `limit`, `max_limit`, `filter_endpoint`, and `count`
 - `positive_count` and `negative_count` so verified/corrected examples stay separate from contradicted/failed lessons
 - `provenance_counts` and `example_type_counts` for auditability
-- `policy_decision`, `replay_plan_summary`, `replay_sample_summary`, and `replay_executor_summary` linking examples back to the current living-loop context
+- `policy_decision`, `replay_plan_summary`, and `replay_sample_summary` linking examples back to the current living-loop context
 - `safety_flags`, `before`, and `after` proving the export did not start training, mutate memory, post feedback, execute digital actions, or make external calls
 - `items` containing sanitized SFT/DPO-style preview records with provenance labels, target IDs, replay-plan reasons, sample links, positive/negative role markers, and excluded raw fields
 - `empty_reason` when the checkpoint has no eligible sanitized runtime traces
@@ -727,9 +710,7 @@ maintained path.
 | `GET` | `/terminus/policy-actuator` | advisory-only living-loop policy recommendation |
 | `GET` | `/terminus/replay-plan` | advisory replay/consolidation candidate plan |
 | `POST` | `/terminus/replay-sample` | operator-gated audit sampler over replay-plan candidates |
-| `POST` | `/terminus/replay-execute` | alias for replay-sample audit execution mode; no training/action side effects |
 | `GET` | `/terminus/replay-sample/history` | replay sampler audit history |
-| `GET` | `/terminus/replay-execute/history` | replay executor alias over the same audit history |
 | `GET` | `/terminus/presets` | list maintained quick-start presets |
 | `POST` | `/terminus/quick-start` | apply preset and start runtime |
 | `POST` | `/terminus/configure` | explicit runtime configuration |
@@ -814,7 +795,7 @@ Top-level trace dataset fields include:
 - `training_role`
 - `description`
 - `limit`, `max_limit`, `endpoint`, and `count`
-- `policy_decision`, `replay_plan_summary`, `replay_sample_summary`, and `replay_executor_summary`
+- `policy_decision`, `replay_plan_summary`, and `replay_sample_summary`
 - `examples`
 - `excluded_fields`
 - CLI-only `metadata` with `source`, `generated_by`, `sanitization`, `contains_examples`, and, for empty checkpoints, `empty_reason=checkpoint_contains_no_persisted_runtime_episode_traces`
@@ -837,7 +818,7 @@ Useful options:
 - `--trace-dir`, `--web-dist-dir`, and `--env-root` — optional service construction paths
 - `--feed-text`, `--query-text`, and `--export-limit` — request payload controls for the smoke run
 
-The output JSON includes `benchmark=marulho_service_endpoint_latency`, `schema_version`, `generated_at`, `checkpoint_path`, `success`, `total_latency_ms`, `endpoint_timings`, `endpoints_by_name`, `living_loop_benchmark_telemetry`, `feedback_telemetry`, `policy_actuator_summary`, `replay_plan_summary`, `replay_sample_summary`, `replay_executor_summary`, `trace_export_summary`, and `output_path`. Each endpoint timing records the endpoint `name`, HTTP `method`, `path`, `latency_ms`, `success`, `status_code`, optional `params`, `response_size_bytes`, and JSON response keys, including `replay_sample_history` timing for `GET /terminus/replay-sample/history`. `policy_actuator_summary` captures `schema_version`, `action`, `recommendation`, `risk`, `expected_information_gain`, `expected_goal_progress`, `expected_cost`, `uncertainty`, `advisory`, `executable`, target IDs, `suggested_endpoint`, and `reason_codes`. `replay_plan_summary` captures replay `schema_version`, `endpoint`, `count`, `priority_rules_version`, `plan_reason_codes`, `snapshot_counts`, and the top candidate summary. `replay_sample_summary` / `replay_executor_summary` capture sampler endpoints, history endpoints, count/history count, selected counts, mode/status counts, latest history item, safety flags, safety boundaries, and audit-only/executable posture.
+The output JSON includes `benchmark=marulho_service_endpoint_latency`, `schema_version`, `generated_at`, `checkpoint_path`, `success`, `total_latency_ms`, `endpoint_timings`, `endpoints_by_name`, `living_loop_benchmark_telemetry`, `feedback_telemetry`, `policy_actuator_summary`, `replay_plan_summary`, `replay_sample_summary`, `trace_export_summary`, and `output_path`. Each endpoint timing records the endpoint `name`, HTTP `method`, `path`, `latency_ms`, `success`, `status_code`, optional `params`, `response_size_bytes`, and JSON response keys, including `replay_sample_history` timing for `GET /terminus/replay-sample/history`. `policy_actuator_summary` captures `schema_version`, `action`, `recommendation`, `risk`, `expected_information_gain`, `expected_goal_progress`, `expected_cost`, `uncertainty`, `advisory`, `executable`, target IDs, `suggested_endpoint`, and `reason_codes`. `replay_plan_summary` captures replay `schema_version`, `endpoint`, `count`, `priority_rules_version`, `plan_reason_codes`, `snapshot_counts`, and the top candidate summary. `replay_sample_summary` captures sampler endpoint, history endpoint, count/history count, selected counts, mode/status counts, latest history item, safety flags, safety boundaries, and audit-only/executable posture.
 
 ### Benchmark posture: ARC-AGI
 
@@ -904,13 +885,13 @@ The active docs should state current runtime limitations plainly.
 ### Runtime limitations
 - live Hugging Face sources can still introduce real latency and transient stalls
 - short smoke runs are now correctly classified, but they remain sensitive to real remote performance
-- replay sampling/execution is currently an operator-gated audit path only; it records review history but does not perform autonomous training, memory promotion, feedback posting, sleep, digital action execution, or external calls
+- replay sampling is currently an operator-gated audit path only; it records review history but does not perform autonomous training, memory promotion, feedback posting, sleep, digital action execution, or external calls
 
 ### Cognitive limitations
 - replay validation remains weak in short runs
 - some language/readout surfaces are still awkward or generic
 - language/readout quality is not yet consistent across domains
-- contradicted replay candidates are negative lessons until a separate correction/training process validates them; dreamed or synthetic candidates are never promoted as facts by the sampler/executor
+- contradicted replay candidates are negative lessons until a separate correction/training process validates them; dreamed or synthetic candidates are never promoted as facts by the sampler
 
 ### Data limitations
 - current multimodal sources are materially better than old digit-only scaffolding, but they are still not broad embodied experience

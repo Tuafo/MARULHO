@@ -366,11 +366,11 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
                 "history_count": 2,
                 "selected_count": 3,
                 "latest_selected_count": 1,
-                "mode_counts": {"sample": 1, "execute": 1},
+                "mode_counts": {"sample": 2},
                 "status_counts": {"recorded": 2},
                 "latest_history_item": {
-                    "replay_sample_id": "replay-execute-1",
-                    "mode": "execute",
+                    "replay_sample_id": "replay-sample-1",
+                    "mode": "sample",
                     "status": "recorded",
                     "selected_count": 1,
                     "safety_flags": {
@@ -386,7 +386,7 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
         )
         self.assertEqual(telemetry["replay_sample_summary"]["count"], 2)
         self.assertEqual(
-            telemetry["replay_sample_summary"]["mode_counts"]["execute"], 1
+            telemetry["replay_sample_summary"]["mode_counts"]["sample"], 2
         )
         self.assertEqual(
             telemetry["replay_sample_summary"]["status_counts"]["recorded"], 2
@@ -395,7 +395,7 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
             telemetry["replay_sample_summary"]["latest_history_item"][
                 "replay_sample_id"
             ],
-            "replay-execute-1",
+            "replay-sample-1",
         )
         self.assertTrue(
             telemetry["replay_sample_summary"]["safety_flags"]["audit_only"]

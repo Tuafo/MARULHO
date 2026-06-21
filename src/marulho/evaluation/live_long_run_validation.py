@@ -44,7 +44,7 @@ def _replay_safety_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
     replay_safety = runtime_safety.get("replay_safety")
     if isinstance(replay_safety, Mapping):
         return dict(replay_safety)
-    for key in ("replay_dataset_summary", "replay_dataset_bundle_summary", "replay_sample_summary", "replay_executor_summary"):
+    for key in ("replay_dataset_summary", "replay_dataset_bundle_summary", "replay_sample_summary"):
         section = _mapping(report.get(key))
         flags = section.get("safety_flags")
         if isinstance(flags, Mapping):

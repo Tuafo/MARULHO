@@ -261,7 +261,6 @@ class RuntimeEvidenceReporter:
             "policy_decision": policy_decision,
             "replay_plan_summary": replay_plan_summary,
             "replay_sample_summary": sample_summary,
-            "replay_executor_summary": sample_summary,
             "source_window": source_window,
             "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
             "before": before,
@@ -399,7 +398,6 @@ class RuntimeEvidenceReporter:
                 "policy_decision": policy_decision,
                 "replay_plan_summary": replay_plan_summary,
                 "replay_sample_summary": replay_sample_summary,
-                "replay_executor_summary": replay_sample_summary,
                 "replay_dataset_summary": replay_dataset_summary,
                 "source_window": source_window,
                 "examples": examples,
@@ -739,20 +737,16 @@ class RuntimeEvidenceReporter:
                         "target_type": target_type,
                         "target_id": target_id,
                         "replay_sample_ids": [],
-                        "execution_ids": [],
                         "modes": [],
                         "candidate_ids": [],
                         "latest": None,
                     },
                 )
                 replay_sample_id = self._normalize_feedback_text(record.get("replay_sample_id", ""), max_chars=160)
-                execution_id = self._normalize_feedback_text(record.get("execution_id", ""), max_chars=160)
                 mode = self._normalize_feedback_text(record.get("mode", ""), max_chars=32)
                 candidate_id = self._normalize_feedback_text(raw_candidate.get("candidate_id", ""), max_chars=160)
                 if replay_sample_id and replay_sample_id not in link["replay_sample_ids"]:
                     link["replay_sample_ids"].append(replay_sample_id)
-                if execution_id and execution_id not in link["execution_ids"]:
-                    link["execution_ids"].append(execution_id)
                 if mode and mode not in link["modes"]:
                     link["modes"].append(mode)
                 if candidate_id and candidate_id not in link["candidate_ids"]:
@@ -760,7 +754,6 @@ class RuntimeEvidenceReporter:
                 if link["latest"] is None:
                     link["latest"] = {
                         "replay_sample_id": replay_sample_id,
-                        "execution_id": execution_id or None,
                         "created_at": self._normalize_feedback_text(record.get("created_at", ""), max_chars=80),
                         "mode": mode,
                         "status": self._normalize_feedback_text(record.get("status", ""), max_chars=80),
@@ -951,7 +944,6 @@ class RuntimeEvidenceReporter:
                     "target_type": "runtime_episode",
                     "target_id": target_id,
                     "replay_sample_ids": [],
-                    "execution_ids": [],
                     "modes": [],
                     "candidate_ids": [],
                     "latest": None,

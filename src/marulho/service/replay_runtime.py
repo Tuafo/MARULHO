@@ -5217,7 +5217,7 @@ class ReplayController:
         seed: int | None = None,
     ) -> dict[str, Any]:
         normalized_mode = self._normalize_action_text(mode).lower()
-        if normalized_mode not in {"dry_run", "sample", "execute"}:
+        if normalized_mode not in {"dry_run", "sample"}:
             raise ValueError(f"Unsupported replay sample mode: {normalized_mode or '<empty>'}")
         normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
         if not normalized_operator_id:
@@ -5291,15 +5291,12 @@ class ReplayController:
             }
             status = "recorded"
             reason = (
-                "operator-gated audit execution recorded without training, memory promotion, feedback posting, "
+                "operator-gated replay sample recorded without training, memory promotion, feedback posting, "
                 "digital action execution, sleep, or external calls"
-                if normalized_mode == "execute"
-                else "operator-gated replay sample recorded without training, memory promotion, feedback posting, digital action execution, sleep, or external calls"
             )
             record = {
                 "schema_version": 1,
                 "replay_sample_id": replay_sample_id,
-                "execution_id": replay_sample_id if normalized_mode == "execute" else None,
                 "created_at": created_at,
                 "mode": normalized_mode,
                 "status": status,
@@ -5393,12 +5390,12 @@ class ReplayController:
                 "archival_storage_device": "cpu",
             },
         }
-        mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0, "execute": 0})
+        mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0})
         status_counts: Counter[str] = Counter()
         selected_count = 0
         for record in records:
             mode = self._normalize_action_text(record.get("mode", "sample")).lower() or "sample"
-            if mode not in {"dry_run", "sample", "execute"}:
+            if mode not in {"dry_run", "sample"}:
                 mode = "sample"
             status = self._normalize_feedback_text(record.get("status", "recorded"), max_chars=80) or "recorded"
             mode_counts[mode] += 1
@@ -5449,7 +5446,6 @@ class ReplayController:
             latest_item = {
                 "schema_version": latest.get("schema_version", 1),
                 "replay_sample_id": latest.get("replay_sample_id"),
-                "execution_id": latest.get("execution_id"),
                 "created_at": latest.get("created_at"),
                 "mode": latest.get("mode"),
                 "status": latest.get("status"),
@@ -5469,9 +5465,7 @@ class ReplayController:
         summary = {
             "schema_version": 1,
             "endpoint": "/terminus/replay-sample",
-            "execution_endpoint": "/terminus/replay-execute",
             "history_endpoint": "/terminus/replay-sample/history",
-            "execution_history_endpoint": "/terminus/replay-execute/history",
             "count": retained_count,
             "history_count": retained_count,
             "source_window_count": int(source_window_count),
@@ -5580,7 +5574,7 @@ class ReplayController:
             }
 
         mode = self._normalize_action_text(data.get("mode", "sample")).lower()
-        if mode not in {"dry_run", "sample", "execute"}:
+        if mode not in {"dry_run", "sample"}:
             mode = "sample"
         selected_candidates = [
             dict(item)
@@ -5614,7 +5608,6 @@ class ReplayController:
         return {
             "schema_version": 1,
             "replay_sample_id": replay_sample_id,
-            "execution_id": self._normalize_feedback_text(data.get("execution_id", ""), max_chars=160) or None,
             "created_at": self._normalize_feedback_text(data.get("created_at", ""), max_chars=80) or datetime.now(timezone.utc).isoformat(),
             "mode": mode,
             "status": self._normalize_feedback_text(data.get("status", "recorded"), max_chars=80) or "recorded",

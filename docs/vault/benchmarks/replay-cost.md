@@ -2308,3 +2308,33 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 recorded zero graph/native sequence failures. CPU max was `33%`; GPU max was
 `15%`, so velocity reported no observed contention. RTX 3060 memory stayed flat
 at `1878->1879 MiB`.
+
+## Replay Sample Single Path
+
+The audit-only replay executor alias is retired. `POST /terminus/replay-sample`
+and `GET /terminus/replay-sample/history` are the only maintained sampler
+surfaces; `mode="execute"`, `execution_id`, and `replay_executor_summary` are
+removed from production output.
+
+Service report:
+`reports/bounded_replay_window_20260620/replay-sample-single-path-service-benchmark.json`
+passed with no `replay_executor_summary`, replay-sample history latency
+`4.798 ms`, mode counts limited to `dry_run` and `sample`, CPU summary
+placement, no raw replay text, no hidden language reasoning, no live tick, no
+every-token work, and no training/plasticity/action side effects.
+
+Replay-dataset source-window report:
+`reports/bounded_replay_window_20260620/replay-dataset-source-window-replay-sample-single-path.json`
+passed with canonical `sample` records, `50/50` target/link parity, `64/256`
+bounded replay-sample summary rows, `64/256` replay link rows, CPU
+archival/source placement, no GPU-resident archival metadata, and no
+live/every-token work.
+
+Hot-path protection:
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json`
+processed `524288` tokens in `88.089265 s` at `5951.781 tokens/sec`, p95
+`21.962 ms`, `train_compute=0.136320 ms/token`,
+`prepare_training=0.007157 ms/token`, `finalize_total=0.006694 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, zero
+graph/native sequence failures, no observed contention, CPU max `38%`, GPU max
+`14%`, and RTX 3060 memory `1894->1881 MiB`.

@@ -1955,3 +1955,29 @@ processed `524288` tokens at `5993.863 tokens/sec` with
 `12/65536` route rows, cached `65526` transition rows, RTX 3060 memory
 `1878->1879 MiB`, no observed contention, and zero graph/native sequence
 failures.
+
+## Replay Sample Single Path
+
+Replay/consolidation literature supports separating nomination, review, and
+execution authority. MARULHO therefore removes the execution-shaped audit alias
+instead of preserving it as a second replay path. The maintained operator review
+surface is `POST /terminus/replay-sample` plus
+`GET /terminus/replay-sample/history`; `/terminus/replay-execute`,
+`mode="execute"`, `execution_id`, and `replay_executor_summary` are retired.
+
+`reports/bounded_replay_window_20260620/replay-sample-single-path-service-benchmark.json`
+passed with no `replay_executor_summary`, replay-sample history latency
+`4.798 ms`, CPU summary placement, no raw replay text, no hidden language
+reasoning, no live tick, no every-token cadence, and no
+training/plasticity/action side effects.
+
+`reports/bounded_replay_window_20260620/replay-dataset-source-window-replay-sample-single-path.json`
+passed with canonical `sample` records, `50/50` target/link parity, `64/256`
+bounded replay-sample summary rows, CPU archival/source placement, and no
+GPU-resident archival metadata.
+
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json`
+processed `524288` tokens at `5951.781 tokens/sec`, p95 `21.962 ms`,
+`train_compute=0.136320 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, and zero graph/native sequence
+failures.

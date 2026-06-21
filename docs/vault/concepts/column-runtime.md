@@ -1615,3 +1615,25 @@ kept the live tick in the maintained band at `5993.863 tokens/sec`,
 `12/65536` route rows, cached `65526` transition rows, RTX 3060 memory
 `1878->1879 MiB`, no observed contention, and zero graph/native sequence
 failures.
+
+## Replay Sample Single Path
+
+Operator-gated replay review now has one service path:
+`POST /terminus/replay-sample` and `GET /terminus/replay-sample/history`.
+The old `/terminus/replay-execute` alias, `mode="execute"`, `execution_id`, and
+`replay_executor_summary` projection are retired. This keeps audit sampling
+from being mistaken for a live replay/consolidation executor and preserves the
+column-runtime rule that replay execution must be an explicit slow-path window,
+not a duplicate control-plane name.
+
+The bounded summary remains `bounded_replay_sample_summary_source_window.v1`
+over at most `64` CPU replay-sample records. The service benchmark
+`reports/bounded_replay_window_20260620/replay-sample-single-path-service-benchmark.json`
+proved the duplicate executor summary is absent; the replay-dataset source
+window
+`reports/bounded_replay_window_20260620/replay-dataset-source-window-replay-sample-single-path.json`
+kept canonical `sample` records with `50/50` target/link parity; and the
+hot-path run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json`
+stayed in band at `5951.781 tokens/sec` with bounded `12/65536` route rows,
+`65526` cached rows, and zero graph/native sequence failures.

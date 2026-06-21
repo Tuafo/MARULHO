@@ -157,12 +157,11 @@ class TraceExportRunnerTests(unittest.TestCase):
                             "replay_sample_history": [
                                 {
                                     "schema_version": 1,
-                                    "replay_sample_id": "replay-execute-1",
-                                    "execution_id": "replay-execute-1",
+                                    "replay_sample_id": "replay-sample-1",
                                     "created_at": "2025-01-01T00:00:03+00:00",
-                                    "mode": "execute",
+                                    "mode": "sample",
                                     "status": "recorded",
-                                    "reason": "operator-gated audit execution recorded without side effects",
+                                    "reason": "operator-gated replay sample recorded without side effects",
                                     "endpoint": "/terminus/replay-sample",
                                     "operator_id": "qa-1",
                                     "requested_count": 1,
@@ -219,7 +218,7 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertEqual(dataset["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
         self.assertEqual(dataset["metadata"]["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
         self.assertEqual(dataset["replay_sample_summary"]["count"], 1)
-        self.assertEqual(dataset["replay_sample_summary"]["mode_counts"]["execute"], 1)
+        self.assertEqual(dataset["replay_sample_summary"]["mode_counts"]["sample"], 1)
         self.assertTrue(dataset["replay_sample_summary"]["safety_flags"]["audit_only"])
         self.assertFalse(dataset["replay_sample_summary"]["safety_flags"]["external_calls_made"])
         self.assertEqual(dataset["metadata"]["replay_sample_summary"]["count"], 1)
@@ -285,9 +284,8 @@ class TraceExportRunnerTests(unittest.TestCase):
                     {
                         "schema_version": 1,
                         "replay_sample_id": f"sample-{index:03d}",
-                        "execution_id": f"execute-{index:03d}",
                         "created_at": f"2025-01-01T00:{index % 60:02d}:03+00:00",
-                        "mode": "execute",
+                        "mode": "sample",
                         "status": "recorded",
                         "operator_id": "qa-1",
                         "selected_candidate_ids": [f"candidate-{index:03d}"],
@@ -358,7 +356,7 @@ class TraceExportRunnerTests(unittest.TestCase):
             80 - REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT,
         )
         self.assertEqual(
-            sample_summary["mode_counts"]["execute"],
+            sample_summary["mode_counts"]["sample"],
             REPLAY_SAMPLE_SUMMARY_SOURCE_WINDOW_LIMIT,
         )
         self.assertEqual(
@@ -435,12 +433,11 @@ class TraceExportRunnerTests(unittest.TestCase):
                             "replay_sample_history": [
                                 {
                                     "schema_version": 1,
-                                    "replay_sample_id": "replay-execute-1",
-                                    "execution_id": "replay-execute-1",
+                                    "replay_sample_id": "replay-sample-1",
                                     "created_at": "2025-01-01T00:00:03+00:00",
-                                    "mode": "execute",
+                                    "mode": "sample",
                                     "status": "recorded",
-                                    "reason": "operator-gated audit execution recorded without side effects",
+                                    "reason": "operator-gated replay sample recorded without side effects",
                                     "endpoint": "/terminus/replay-sample",
                                     "operator_id": "qa-1",
                                     "requested_count": 1,
@@ -547,9 +544,8 @@ class TraceExportRunnerTests(unittest.TestCase):
                     {
                         "schema_version": 1,
                         "replay_sample_id": f"sample-{index:03d}",
-                        "execution_id": f"execute-{index:03d}",
                         "created_at": f"2025-01-01T00:{index % 60:02d}:03+00:00",
-                        "mode": "execute",
+                        "mode": "sample",
                         "status": "recorded",
                         "operator_id": "qa-1",
                         "selected_candidates": [

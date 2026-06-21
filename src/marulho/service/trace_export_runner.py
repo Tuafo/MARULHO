@@ -90,8 +90,6 @@ def export_runtime_trace_dataset(
         metadata["replay_plan_summary"] = dict(dataset["replay_plan_summary"])
     if isinstance(dataset.get("replay_sample_summary"), dict):
         metadata["replay_sample_summary"] = dict(dataset["replay_sample_summary"])
-    if isinstance(dataset.get("replay_executor_summary"), dict):
-        metadata["replay_executor_summary"] = dict(dataset["replay_executor_summary"])
     if isinstance(dataset.get("replay_dataset_summary"), dict):
         metadata["replay_dataset_summary"] = dict(dataset["replay_dataset_summary"])
     if not metadata["contains_examples"]:

@@ -1821,7 +1821,6 @@ def _build_living_loop_snapshot() -> dict[str, Any]:
             "unverified_feedback_count": 0,
             "recent_feedback": [],
             "replay_sample_summary": {},
-            "replay_executor_summary": {},
             "grounding_health": {},
             "benchmark_telemetry": {},
             "policy_decision": {},

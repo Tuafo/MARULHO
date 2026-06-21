@@ -5155,3 +5155,19 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 3060, and recorded zero graph/native sequence failures. CPU max was `33%`; GPU
 max was `15%`, so velocity reported no observed contention. RTX 3060 memory
 stayed flat at `1878->1879 MiB`.
+
+## Replay Sample Single Path Protection
+
+After retiring `/terminus/replay-execute`, `mode="execute"`, `execution_id`,
+and `replay_executor_summary`, the 65536-column protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json`
+processed `524288` tokens in `88.089265 s` at `5951.781 tokens/sec`.
+
+Stage evidence: p95 tick `21.962 ms`, `train_compute=0.136320 ms/token`,
+`prepare_training=0.007157 ms/token`, and `finalize_total=0.006694 ms/token`.
+Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
+output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Prewarm took `327.665 s`.
+Velocity reported no observed contention, CPU max `38%`, GPU max `14%`, GPU
+memory utilization max `18%`, and RTX memory `1894->1881 MiB`.

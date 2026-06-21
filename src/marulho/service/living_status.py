@@ -79,7 +79,6 @@ class LivingStatusCore:
         payload["recent_feedback"] = [deepcopy(item) for item in feedback_summary["recent_feedback"]]
         replay_sample_summary = self._replay_sample_summary_locked()
         payload["replay_sample_summary"] = replay_sample_summary
-        payload["replay_executor_summary"] = replay_sample_summary
         grounding_health = (
             dict(payload.get("grounding_health") or {})
             if isinstance(payload.get("grounding_health"), Mapping)
@@ -148,7 +147,6 @@ class LivingStatusCore:
         if isinstance(payload.get("benchmark_telemetry"), Mapping):
             payload["benchmark_telemetry"]["replay_plan_summary"] = self._replay_plan_summary(replay_plan)
             payload["benchmark_telemetry"]["replay_sample_summary"] = replay_sample_summary
-            payload["benchmark_telemetry"]["replay_executor_summary"] = replay_sample_summary
             if replay_dataset_summary is not None:
                 payload["benchmark_telemetry"]["replay_dataset_summary"] = replay_dataset_summary
         return payload

@@ -712,18 +712,18 @@ def _summarize_replay_sample_history(history_body: Any, fallback: Any = None) ->
         history = None
     records = [dict(item) for item in history if isinstance(item, dict)] if isinstance(history, list) else []
     if not records and isinstance(fallback, dict):
-        existing = fallback.get("replay_sample_summary") or fallback.get("replay_executor_summary")
+        existing = fallback.get("replay_sample_summary")
         if isinstance(existing, dict):
             return dict(existing)
     if not records and not isinstance(history_body, dict):
         return None
 
-    mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0, "execute": 0})
+    mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0})
     status_counts: Counter[str] = Counter()
     selected_count = 0
     for record in records:
         mode = str(record.get("mode") or "sample")
-        if mode not in {"dry_run", "sample", "execute"}:
+        if mode not in {"dry_run", "sample"}:
             mode = "sample"
         status = str(record.get("status") or "recorded")
         mode_counts[mode] += 1
@@ -759,7 +759,6 @@ def _summarize_replay_sample_history(history_body: Any, fallback: Any = None) ->
         latest_item = {
             "schema_version": latest.get("schema_version", 1),
             "replay_sample_id": latest.get("replay_sample_id"),
-            "execution_id": latest.get("execution_id"),
             "created_at": latest.get("created_at"),
             "mode": latest.get("mode"),
             "status": latest.get("status"),
@@ -774,9 +773,7 @@ def _summarize_replay_sample_history(history_body: Any, fallback: Any = None) ->
     return {
         "schema_version": 1,
         "endpoint": "/terminus/replay-sample",
-        "execution_endpoint": "/terminus/replay-execute",
         "history_endpoint": "/terminus/replay-sample/history",
-        "execution_history_endpoint": "/terminus/replay-execute/history",
         "count": history_count,
         "history_count": history_count,
         "selected_count": int(selected_count),
@@ -1059,7 +1056,6 @@ def benchmark_service_app(
                 "count",
                 "endpoint",
                 "replay_sample_summary",
-                "replay_executor_summary",
                 "replay_dataset_summary",
             )
             if key in export_body
@@ -1382,7 +1378,6 @@ def benchmark_service_app(
         "policy_actuator_summary": policy_actuator_summary,
         "replay_plan_summary": replay_plan_summary,
         "replay_sample_summary": replay_sample_summary,
-        "replay_executor_summary": replay_sample_summary,
         "trace_export_summary": export_summary,
         "replay_dataset_summary": replay_dataset_summary,
         "replay_dataset_bundle_summary": replay_dataset_bundle_summary,

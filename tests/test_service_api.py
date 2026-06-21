@@ -15024,7 +15024,16 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 history_response = client.get("/terminus/replay-sample/history?limit=5")
-                alias_history_response = client.get("/terminus/replay-execute/history?limit=5")
+                retired_execute_response = client.post(
+                    "/terminus/replay-execute",
+                    json={
+                        "mode": "sample",
+                        "candidate_id": candidate["candidate_id"],
+                        "operator_id": "operator-a",
+                        "confirmation": True,
+                    },
+                )
+                retired_history_response = client.get("/terminus/replay-execute/history?limit=5")
                 living_response = client.get("/terminus/living-loop")
                 export_response = client.get("/terminus/runtime-traces/export?limit=5")
                 replay_dataset_response = client.get("/terminus/replay-dataset/preview?limit=5")
@@ -15103,14 +15112,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         history = history_response.json()
         self.assertEqual(history["count"], 1)
         self.assertEqual(history["history"][0]["replay_sample_id"], body["replay_sample_id"])
-        self.assertEqual(alias_history_response.status_code, 200)
-        self.assertEqual(alias_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(retired_execute_response.status_code, 404)
+        self.assertEqual(retired_history_response.status_code, 404)
         self.assertEqual(living_response.status_code, 200)
         living_loop = living_response.json()["living_loop"]
         replay_summary = living_loop["replay_sample_summary"]
         self.assertEqual(replay_summary["endpoint"], "/terminus/replay-sample")
-        self.assertEqual(replay_summary["execution_endpoint"], "/terminus/replay-execute")
         self.assertEqual(replay_summary["history_endpoint"], "/terminus/replay-sample/history")
+        self.assertNotIn("execution_endpoint", replay_summary)
+        self.assertNotIn("execution_history_endpoint", replay_summary)
         self.assertEqual(replay_summary["count"], 1)
         self.assertEqual(replay_summary["mode_counts"]["sample"], 1)
         self.assertEqual(replay_summary["status_counts"]["recorded"], 1)
@@ -15118,7 +15128,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(replay_summary["safety_flags"]["audit_only"])
         self.assertFalse(replay_summary["safety_flags"]["external_calls_made"])
         self.assertEqual(living_loop["benchmark_telemetry"]["replay_sample_summary"]["count"], 1)
-        self.assertEqual(living_loop["replay_executor_summary"]["count"], 1)
+        self.assertNotIn("replay_executor_summary", living_loop)
+        self.assertNotIn("replay_executor_summary", living_loop["benchmark_telemetry"])
         living_dataset_summary = living_loop["replay_dataset_summary"]
         self.assertEqual(living_dataset_summary["export_kind"], "terminus_replay_dataset_preview")
         self.assertEqual(living_dataset_summary["endpoint"], "/terminus/replay-dataset/preview")

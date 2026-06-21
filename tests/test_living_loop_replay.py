@@ -710,12 +710,12 @@ class TestCoerceReplaySampleSummary(unittest.TestCase):
     def test_known_values(self) -> None:
         result = _coerce_replay_sample_summary({
             "count": 5,
-            "mode_counts": {"execute": 3},
+            "mode_counts": {"sample": 3},
             "status_counts": {"recorded": 5},
             "safety_flags": {"operator_confirmed": True},
         })
         self.assertEqual(result["count"], 5)
-        self.assertEqual(result["mode_counts"]["execute"], 3)
+        self.assertEqual(result["mode_counts"]["sample"], 3)
         self.assertTrue(result["safety_flags"]["operator_confirmed"])
         self.assertTrue(result["safety_flags"]["audit_only"])  # default preserved
 

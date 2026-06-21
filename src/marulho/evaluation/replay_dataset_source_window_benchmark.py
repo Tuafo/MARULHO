@@ -124,9 +124,8 @@ def _replay_sample_payload(
     return {
         "schema_version": 1,
         "replay_sample_id": f"sample-{index:04d}",
-        "execution_id": f"execute-{index:04d}",
         "created_at": f"2026-06-20T02:{(index // 60) % 60:02d}:{index % 60:02d}+00:00",
-        "mode": "execute",
+        "mode": "sample",
         "status": "recorded",
         "operator_id": "benchmark",
         "selected_candidates": selected_candidates,
@@ -235,7 +234,7 @@ def _diagnostic_full_retained_preview(
 def _diagnostic_full_replay_sample_summary(
     replay_samples: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    mode_counts: dict[str, int] = {"dry_run": 0, "sample": 0, "execute": 0}
+    mode_counts: dict[str, int] = {"dry_run": 0, "sample": 0}
     status_counts: dict[str, int] = {}
     selected_count = 0
     for raw in replay_samples:

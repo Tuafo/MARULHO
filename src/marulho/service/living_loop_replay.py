@@ -218,23 +218,60 @@ def _coerce_replay_sample_summary(summary: Mapping[str, Any] | None) -> dict[str
     mode_counts = _policy_mapping(data.get("mode_counts"))
     status_counts = _policy_mapping(data.get("status_counts"))
     latest = data.get("latest_history_item") if isinstance(data.get("latest_history_item"), Mapping) else None
+    latest_keys = (
+        "schema_version",
+        "replay_sample_id",
+        "created_at",
+        "mode",
+        "status",
+        "reason",
+        "endpoint",
+        "operator_id",
+        "requested_candidate_id",
+        "target_type",
+        "target_id",
+        "requested_count",
+        "selected_count",
+        "selected_candidate_ids",
+        "safety_checks",
+        "safety_flags",
+        "plan_summary",
+    )
+    latest_item = {
+        key: latest[key]
+        for key in latest_keys
+        if isinstance(latest, Mapping) and key in latest
+    } if isinstance(latest, Mapping) else None
+    if latest_item is not None:
+        if str(latest_item.get("mode") or "sample") not in {"dry_run", "sample"}:
+            latest_item["mode"] = "sample"
     safety_flags = _policy_mapping(data.get("safety_flags"))
     if not safety_flags and isinstance(latest, Mapping) and isinstance(latest.get("safety_flags"), Mapping):
         safety_flags = latest["safety_flags"]
     normalized_safety_flags = {**_default_replay_sample_safety_flags(), **dict(safety_flags)}
+    sample_count = 0
+    dry_run_count = 0
+    for key, value in dict(mode_counts).items():
+        mode = str(key)
+        try:
+            count = int(value or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if mode == "dry_run":
+            dry_run_count += count
+        else:
+            sample_count += count
     return {
         "schema_version": int(data.get("schema_version", 1) or 1),
         "endpoint": str(data.get("endpoint") or "/terminus/replay-sample"),
-        "execution_endpoint": str(data.get("execution_endpoint") or "/terminus/replay-execute"),
         "history_endpoint": str(data.get("history_endpoint") or "/terminus/replay-sample/history"),
-        "execution_history_endpoint": str(data.get("execution_history_endpoint") or "/terminus/replay-execute/history"),
         "count": int(data.get("count", data.get("history_count", 0)) or 0),
         "history_count": int(data.get("history_count", data.get("count", 0)) or 0),
         "selected_count": int(data.get("selected_count", 0) or 0),
         "latest_selected_count": int(data.get("latest_selected_count", 0) or 0),
-        "mode_counts": {str(key): int(value or 0) for key, value in dict(mode_counts).items()},
+        "mode_counts": {"dry_run": dry_run_count, "sample": sample_count},
         "status_counts": {str(key): int(value or 0) for key, value in dict(status_counts).items()},
-        "latest_history_item": dict(latest) if isinstance(latest, Mapping) else None,
+        "latest_history_item": latest_item,
         "safety_flags": normalized_safety_flags,
         "safety_boundaries": list(data.get("safety_boundaries") or REPLAY_SAMPLE_SAFETY_BOUNDARIES),
         "audit_only": True,

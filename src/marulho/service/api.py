@@ -3460,16 +3460,8 @@ def create_app(
     def terminus_replay_sample(request: ReplaySampleRequest) -> ReplaySampleResponse:
         return _replay_sample_response(request)
 
-    @app.post("/terminus/replay-execute", response_model=ReplaySampleResponse)
-    def terminus_replay_execute(request: ReplaySampleRequest) -> ReplaySampleResponse:
-        return _replay_sample_response(request)
-
     @app.get("/terminus/replay-sample/history", response_model=ReplaySampleHistoryResponse)
     def terminus_replay_sample_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
-        return ReplaySampleHistoryResponse(**runtime.replay_sample_history(limit=limit))
-
-    @app.get("/terminus/replay-execute/history", response_model=ReplaySampleHistoryResponse)
-    def terminus_replay_execute_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
         return ReplaySampleHistoryResponse(**runtime.replay_sample_history(limit=limit))
 
     @app.get("/terminus/runtime-traces/export", response_model=RuntimeTraceExportResponse)

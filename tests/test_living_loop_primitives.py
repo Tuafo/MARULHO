@@ -343,11 +343,11 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 "history_count": 2,
                 "selected_count": 3,
                 "latest_selected_count": 1,
-                "mode_counts": {"sample": 1, "execute": 1},
+                "mode_counts": {"sample": 2},
                 "status_counts": {"recorded": 2},
                 "latest_history_item": {
-                    "replay_sample_id": "replay-execute-1",
-                    "mode": "execute",
+                    "replay_sample_id": "replay-sample-1",
+                    "mode": "sample",
                     "status": "recorded",
                     "selected_count": 1,
                     "safety_flags": {"audit_only": True, "external_calls_made": False},
@@ -369,9 +369,9 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertAlmostEqual(telemetry["verification_success"]["success_rate"], 0.5)
         self.assertEqual(telemetry["policy_recommendations"]["counts"]["investigate_contradictions"], 1)
         self.assertEqual(telemetry["replay_sample_summary"]["count"], 2)
-        self.assertEqual(telemetry["replay_sample_summary"]["mode_counts"]["execute"], 1)
+        self.assertEqual(telemetry["replay_sample_summary"]["mode_counts"]["sample"], 2)
         self.assertEqual(telemetry["replay_sample_summary"]["status_counts"]["recorded"], 2)
-        self.assertEqual(telemetry["replay_sample_summary"]["latest_history_item"]["replay_sample_id"], "replay-execute-1")
+        self.assertEqual(telemetry["replay_sample_summary"]["latest_history_item"]["replay_sample_id"], "replay-sample-1")
         self.assertTrue(telemetry["replay_sample_summary"]["safety_flags"]["audit_only"])
         self.assertFalse(telemetry["replay_sample_summary"]["safety_flags"]["external_calls_made"])
 
@@ -963,16 +963,13 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "`replay_plan_summary`",
             "Dreamed/imagination memories must remain provenance-tagged",
             "POST /terminus/replay-sample",
-            "POST /terminus/replay-execute",
             "GET /terminus/replay-sample/history",
-            "GET /terminus/replay-execute/history",
-            "`mode` — `dry_run`, `sample`, or `execute`",
+            "`mode` — `dry_run` or `sample`",
             "`operator_id` — required non-empty operator identifier",
             "`confirmation` — must be `true`",
             "`alpha` — PER-style priority exponent",
             "`seed` — optional deterministic seed",
             "`replay_sample_id`",
-            "`execution_id`",
             "`selected_candidates`",
             "`safety_checks`",
             "`safety_flags`",
@@ -985,19 +982,16 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "`digital_action_executed=false`",
             "`external_calls_made=false`",
             "`living_loop.replay_sample_summary`",
-            "`living_loop.replay_executor_summary`",
             "`benchmark_telemetry.replay_sample_summary`",
-            "`benchmark_telemetry.replay_executor_summary`",
             "sanitized top-level `replay_sample_summary`",
-            "sanitized top-level `replay_sample_summary` and `replay_executor_summary`",
             "each exported example includes sanitized `replay_sample_summary`",
             "`endpoints_by_name.replay_sample_history`",
-            "`replay_sample_summary` and `replay_executor_summary`",
+            "`replay_sample_summary`",
             "operator-gated audit/sample only",
             "Contradicted candidates are negative lessons",
             "Dreamed, synthetic, simulated, contradicted, or failed candidates remain provenance-tagged",
             "the current dashboard remains read-only for replay",
-            "does not post to `/terminus/replay-sample` or `/terminus/replay-execute`",
+            "does not post to `/terminus/replay-sample`",
             "Remaining work before autonomous replay learning",
             "GET /terminus/replay-dataset/preview",
             "GET /terminus/replay-dataset/candidates",

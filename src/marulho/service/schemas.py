@@ -1956,7 +1956,7 @@ class ReplayPlanResponse(BaseModel):
 
 
 class ReplaySampleRequest(BaseModel):
-    mode: Literal["dry_run", "sample", "execute"] = "sample"
+    mode: Literal["dry_run", "sample"] = "sample"
     candidate_id: str | None = Field(None, min_length=1, max_length=160)
     target_type: str | None = Field(None, min_length=1, max_length=64)
     target_id: str | None = Field(None, min_length=1, max_length=160)
@@ -1972,9 +1972,8 @@ class ReplaySampleRequest(BaseModel):
 class ReplaySampleResponse(BaseModel):
     schema_version: int
     replay_sample_id: str
-    execution_id: str | None = None
     created_at: str
-    mode: Literal["dry_run", "sample", "execute"]
+    mode: Literal["dry_run", "sample"]
     status: str
     reason: str
     endpoint: str
@@ -2032,7 +2031,6 @@ class RuntimeTraceExportResponse(BaseModel):
     policy_decision: dict[str, Any] | None = None
     replay_plan_summary: dict[str, Any] | None = None
     replay_sample_summary: dict[str, Any] | None = None
-    replay_executor_summary: dict[str, Any] | None = None
     replay_dataset_summary: dict[str, Any] | None = None
     examples: list[dict[str, Any]]
     excluded_fields: list[str]
@@ -2058,7 +2056,6 @@ class ReplayDatasetPreviewResponse(BaseModel):
     policy_decision: dict[str, Any] | None = None
     replay_plan_summary: dict[str, Any] | None = None
     replay_sample_summary: dict[str, Any] | None = None
-    replay_executor_summary: dict[str, Any] | None = None
     safety_flags: dict[str, Any]
     before: dict[str, int]
     after: dict[str, int]
