@@ -20,8 +20,10 @@ related_code:
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
+  - ../../../src/marulho/service/transition_memory_source_window.py
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
@@ -60,6 +62,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
   - reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json
+  - reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json
+  - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window.json
+  - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window-rerun.json
 ---
 
 # Column Runtime
@@ -195,6 +200,28 @@ allocation/reservation. The paired `524288`-token run stayed in band at
 `6224.717 tokens/sec`, bounded route scoring at `12/65536`, cached `65526`
 transition rows, and recorded zero graph/native sequence failures with
 borderline `21%` GPU contention.
+
+SNN language plasticity runtime-state now follows the same source-window rule.
+`SNNLanguagePlasticityApplicationExecutor.snapshot()` no longer starts by
+deep-copying the complete retained transition memory. It builds
+`bounded_snn_language_plasticity_runtime_transition_memory_source_window.v1`,
+returns at most `64` newest sparse-transition rows and `64` newest provenance
+rows, and preserves retained/source/truncated counts so status and ledger
+consumers can block exact review when the returned maps are partial. Archival
+transition memory remains CPU-resident; the runtime-state endpoint reports no
+global scan, replay, mutation/plasticity, raw text, hidden language reasoning,
+live tick, every-token work, or GPU-resident archival metadata. The focused
+`65536`-row benchmark
+`reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json`
+read `256` active source rows instead of `262144` in the benchmark-local
+retired full snapshot (`1024x` less source work), reduced mean latency from
+`752.314014 ms` to `7.770271 ms` (`96.819528x`), used `0.110454 MiB` traced
+Python peak versus `12.287186 MiB`, and kept CUDA allocation/reservation deltas
+at `0`. The paired `524288`-token protection runs succeeded without contention
+or graph/native sequence failures and kept route scoring bounded at `12/65536`,
+but measured `5642.888` and `5736.332 tokens/sec`, below stronger recent
+6k-ish runs. Treat them as live-tick protection evidence for this control-plane
+cleanup, not durable completion proof.
 
 Readout-ledger snapshots now have their own bounded display source window
 instead of reusing all-family normalization. `snapshot(...)` reads only the

@@ -16,6 +16,9 @@ from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
     bounded_application_synapse_window,
 )
+from marulho.service.transition_memory_source_window import (
+    retained_transition_memory_counts,
+)
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
@@ -37333,8 +37336,13 @@ class SNNLanguageReadoutEvidenceLedger:
         provenance_mapping: Mapping[str, Any] = (
             raw_provenance if isinstance(raw_provenance, Mapping) else {}
         )
-        retained_weight_count = int(len(weight_mapping))
-        retained_provenance_count = int(len(provenance_mapping))
+        retained_weight_count, retained_provenance_count = (
+            retained_transition_memory_counts(
+                runtime,
+                weight_mapping,
+                provenance_mapping,
+            )
+        )
         source_weight_items = [
             (str(key), value)
             for key, value in islice(weight_mapping.items(), source_limit)

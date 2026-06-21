@@ -30,6 +30,7 @@ related_benchmarks: []
 - [Implicit Replay Entry Raw Text Payload Default](implicit-replay-entry-raw-text-payload-default.md)
 - [Live Memory Summary Full Scan](live-memory-summary-full-scan.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
+- [Plasticity Runtime State Full Snapshot](plasticity-runtime-state-full-snapshot.md)
 - [Raw Caller Window Replay Artifact Recording](raw-caller-window-replay-artifact-recording.md)
 - [Readout Known Hash Report Dropping Path](readout-known-hash-report-dropping-path.md)
 - [Readout Ledger Broad Snapshot Normalization](readout-ledger-broad-snapshot-normalization.md)

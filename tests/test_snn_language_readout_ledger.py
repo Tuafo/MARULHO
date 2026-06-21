@@ -15503,6 +15503,76 @@ def test_readout_synapse_provenance_audit_uses_bounded_applied_synapse_source_wi
     ] is False
 
 
+def test_readout_synapse_provenance_audit_uses_runtime_source_window_retained_counts() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+    source_limit = SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT
+    retained_count = source_limit + 23
+    weights = {f"{index}:{index + 1}": 0.03 for index in range(source_limit)}
+    provenance = {
+        key: {
+            "readout_evidence_hash": f"missing-ledger-row-{index:03d}",
+            "prediction_hash": f"prediction-{index:03d}",
+            "transition_memory_evaluation_hash": f"evaluation-{index:03d}",
+            "persistent_transition_weights_hash": f"weights-{index:03d}",
+            "source_pre_indices": [index],
+            "source_post_indices": [index + 1],
+            "source_active_indices": [index, index + 1],
+        }
+        for index, key in enumerate(weights)
+    }
+
+    audit = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_marulho": True,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": retained_count + 1,
+                "sparse_edge_budget": retained_count + 2,
+                "outgoing_fanout_budget": 16,
+                "dynamic_capacity_enabled": True,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": provenance,
+            "transition_memory_source_window": {
+                "surface": (
+                    "bounded_snn_language_plasticity_runtime_"
+                    "transition_memory_source_window.v1"
+                ),
+                "source_counts": {
+                    "retained_sparse_transition_weights": retained_count,
+                    "retained_synapse_provenance_rows": retained_count,
+                    "source_sparse_transition_weights": source_limit,
+                    "source_synapse_provenance_rows": source_limit,
+                },
+                "retained_sparse_transition_weight_rows": retained_count,
+                "retained_synapse_provenance_rows": retained_count,
+            },
+        },
+        limit=source_limit,
+    )
+
+    source_window = audit["applied_synapse_audit_source_window"]
+    assert source_window["retained_sparse_weight_rows"] == retained_count
+    assert source_window["retained_synapse_provenance_rows"] == retained_count
+    assert source_window["source_sparse_weight_rows"] == source_limit
+    assert source_window["source_synapse_provenance_rows"] == source_limit
+    assert source_window["source_payload_truncated"] is True
+    assert source_window["source_window_complete"] is False
+    assert source_window["source_truncated_counts"]["sparse_transition_weights"] == 23
+    assert source_window["source_truncated_counts"]["synapse_provenance_by_key"] == 23
+    assert audit["audit_summary"]["audited_synapse_count"] == source_limit
+    assert audit["audit_summary"]["sparse_transition_weight_count"] == retained_count
+    assert audit["audit_summary"]["provenanced_synapse_count"] == retained_count
+    assert audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+
+
 def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)

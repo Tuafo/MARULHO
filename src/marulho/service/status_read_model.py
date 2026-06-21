@@ -77,6 +77,9 @@ from marulho.semantics import (
 )
 from marulho.service.column_runtime_projection import build_column_runtime_evidence
 from marulho.service.runtime_state import RuntimeState
+from marulho.service.transition_memory_source_window import (
+    retained_transition_memory_counts,
+)
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
@@ -184,17 +187,20 @@ def _bounded_status_transition_memory_source_window(
         else {}
     )
     source_limit = max(0, int(limit))
-    sparse_weight_items, retained_sparse_weight_count = (
+    sparse_weight_items, _ = (
         _bounded_status_mapping_item_source_window(
             sparse_weights,
             limit=source_limit,
         )
     )
-    provenance_items, retained_provenance_count = (
+    provenance_items, _ = (
         _bounded_status_mapping_item_source_window(
             provenance,
             limit=source_limit,
         )
+    )
+    retained_sparse_weight_count, retained_provenance_count = (
+        retained_transition_memory_counts(state, sparse_weights, provenance)
     )
     truncated_sparse_weight_count = max(
         0,

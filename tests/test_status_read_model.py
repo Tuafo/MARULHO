@@ -5404,6 +5404,67 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIsNone(binding["server_transition_memory_hash"])
         self.assertIsInstance(binding["server_transition_memory_source_window_hash"], str)
 
+    def test_runtime_truth_transition_memory_uses_runtime_source_window_retained_counts(
+        self,
+    ) -> None:
+        retained_count = SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT * 5
+        runtime_source_count = SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT * 2
+        keys = [f"{index}:{index + 1}" for index in range(runtime_source_count)]
+        memory_state = {
+            "sparse_transition_weights": {key: 0.1 for key in keys},
+            "synapse_provenance_by_key": {
+                key: {
+                    "provenance_type": "replay_regeneration",
+                    "source_metadata_hash": f"source-metadata-hash-{index}",
+                    "emission_lineage": {
+                        "emission_hash": f"emission-hash-{index}",
+                        "readout_evidence_hash": f"readout-hash-{index}",
+                        "prediction_hash": f"prediction-hash-{index}",
+                    },
+                    "local_edge_provenance": {
+                        "source_synapse_id": f"snn-rollout-local:{key}:0",
+                        "source_rollout_step_index": index,
+                        "target_rollout_step_index": index + 1,
+                    },
+                }
+                for index, key in enumerate(keys)
+            },
+            "transition_memory_source_window": {
+                "surface": (
+                    "bounded_snn_language_plasticity_runtime_"
+                    "transition_memory_source_window.v1"
+                ),
+                "source_counts": {
+                    "retained_sparse_transition_weights": retained_count,
+                    "retained_synapse_provenance_rows": retained_count,
+                    "source_sparse_transition_weights": runtime_source_count,
+                    "source_synapse_provenance_rows": runtime_source_count,
+                },
+                "retained_sparse_transition_weight_rows": retained_count,
+                "retained_synapse_provenance_rows": retained_count,
+            },
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: memory_state
+        )
+        runtime_state.mark_clean()
+
+        evidence = model._snn_readout_applied_synapse_provenance()
+        source_window = evidence["source_window"]
+
+        self.assertEqual(evidence["sparse_transition_weight_count"], retained_count)
+        self.assertEqual(evidence["synapse_provenance_count"], retained_count)
+        self.assertEqual(
+            evidence["source_sparse_transition_weight_count"],
+            SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertEqual(
+            source_window["truncated_source_counts"]["sparse_transition_weights"],
+            retained_count - SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
+        )
+        self.assertFalse(evidence["source_window_complete"])
+        self.assertFalse(evidence["eligible_for_readout_synapse_audit_review"])
+
     def test_runtime_truth_language_capacity_pressure_reports_fixed_neuron_pressure_without_resize(
         self,
     ) -> None:
@@ -6360,9 +6421,37 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
     def test_snn_language_capacity_expansion_design_is_read_only_checkpoint_backed_plan(
         self,
     ) -> None:
-        weights = {
+        truncated_weights = {
             f"{source}:{target}": 0.01
             for source in range(14)
+            for target in range(16)
+        }
+        truncated_state = {
+            "sparse_transition_weights": truncated_weights,
+            "synapse_provenance_by_key": {
+                key: {"source": "unit"} for key in truncated_weights
+            },
+        }
+        truncated_model, _, _, _ = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(truncated_state)
+        )
+        truncated_pressure = truncated_model.status()["runtime_truth"][
+            "evidence"
+        ]["snn_language_capacity_pressure"]
+
+        self.assertTrue(truncated_pressure["capacity_pressure_detected"])
+        self.assertFalse(truncated_pressure["source_window_complete"])
+        self.assertFalse(
+            truncated_pressure["eligible_for_capacity_expansion_design_review"]
+        )
+        self.assertEqual(
+            truncated_pressure["promotion_status"],
+            "waiting_for_complete_language_capacity_source_window",
+        )
+
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(1)
             for target in range(16)
         }
         memory_state = {
@@ -6426,7 +6515,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
     ) -> None:
         weights = {
             f"{source}:{target}": 0.01
-            for source in range(14)
+            for source in range(1)
             for target in range(16)
         }
         memory_state = {
@@ -7292,6 +7381,13 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
 
     def test_runtime_truth_consolidation_path_reports_recorded_rollout_without_execution(self) -> None:
         ledger_state = {
+            "events": [
+                {
+                    "readout_evidence_hash": "readout-evidence-hash",
+                    "prediction_hash": "prediction-hash",
+                    "recorded_at": "2026-06-02T00:00:00+00:00",
+                }
+            ],
             "rollout_events": [
                 {
                     "rollout_evidence_hash": "evidence-hash",

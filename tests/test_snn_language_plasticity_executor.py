@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping as CollectionsMapping
 from pathlib import Path
 from threading import RLock
+from typing import Any
 
 import pytest
 import torch
@@ -13,6 +15,29 @@ from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_DENSE_READOUT_TRAINING_TRANSITION_WINDOW_LIMIT,
     SNNLanguagePlasticityApplicationExecutor,
 )
+from marulho.service.transition_memory_source_window import (
+    SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT,
+)
+
+
+class _CountingMapping(CollectionsMapping):
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+        self.items_yield_count = 0
+
+    def __getitem__(self, key: str) -> Any:
+        return self._payload[key]
+
+    def __iter__(self):
+        return iter(self._payload)
+
+    def __len__(self) -> int:
+        return len(self._payload)
+
+    def items(self):
+        for item in self._payload.items():
+            self.items_yield_count += 1
+            yield item
 
 
 def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
@@ -413,6 +438,61 @@ def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> N
     assert snapshot["dense_readout_layout"]["dense_resize_applied"] is False
     assert snapshot["dense_readout_layout"]["resizes_network"] is False
     assert snapshot["dense_readout_tensor"]["available"] is False
+
+
+def test_snapshot_bounds_transition_memory_source_window_without_full_mapping_scan(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    source_limit = SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT
+    entry_count = source_limit + 19
+    weights = _CountingMapping(
+        {f"{index}:{index + 1}": float(index) / 100.0 for index in range(entry_count)}
+    )
+    provenance = _CountingMapping(
+        {
+            f"{index}:{index + 1}": {"source": "unit", "index": index}
+            for index in range(entry_count)
+        }
+    )
+    language_state = {
+        "sparse_transition_weights": weights,
+        "synapse_provenance_by_key": provenance,
+    }
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: {"path": str(path or tmp_path / "checkpoint.pt")},
+        checkpoint_path=lambda: tmp_path / "checkpoint.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    snapshot = executor.snapshot()
+    source_window = snapshot["transition_memory_source_window"]
+
+    assert weights.items_yield_count == source_limit
+    assert provenance.items_yield_count == source_limit
+    assert len(snapshot["sparse_transition_weights"]) == source_limit
+    assert len(snapshot["synapse_provenance_by_key"]) == source_limit
+    assert snapshot["sparse_transition_weight_count"] == entry_count
+    assert snapshot["synapse_provenance_count"] == entry_count
+    assert snapshot["source_sparse_transition_weight_count"] == source_limit
+    assert snapshot["source_synapse_provenance_count"] == source_limit
+    assert snapshot["transition_memory_count_scope"] == "bounded_source_window"
+    assert source_window["surface"] == (
+        "bounded_snn_language_plasticity_runtime_transition_memory_source_window.v1"
+    )
+    assert source_window["source_payload_truncated"] is True
+    assert source_window["source_truncated_counts"]["sparse_transition_weights"] == 19
+    assert source_window["source_truncated_counts"]["synapse_provenance_by_key"] == 19
+    assert source_window["global_candidate_scan"] is False
+    assert source_window["runs_live_tick"] is False
+    assert source_window["runs_every_token"] is False
+    assert source_window["language_reasoning"] is False
+    assert source_window["archival_storage_device"] == "cpu"
+    assert source_window["gpu_resident_archival_metadata"] is False
 
 
 def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(

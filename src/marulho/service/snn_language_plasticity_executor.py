@@ -16,6 +16,11 @@ from marulho.service.applied_replay_lineage import (
     record_applied_replay_lineage_provenance,
 )
 from marulho.service.runtime_state import RuntimeState
+from marulho.service.transition_memory_source_window import (
+    SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT,
+    bounded_transition_memory_mapping_items,
+    build_plasticity_runtime_transition_memory_source_window,
+)
 
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_STRUCTURAL_EDGES_PER_EVENT = 32
@@ -3435,8 +3440,15 @@ class SNNLanguagePlasticityApplicationExecutor:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            state = deepcopy(self._language_plasticity_state())
-            weights = dict(state.get("sparse_transition_weights") or {})
+            state = self._language_plasticity_state()
+            transition_memory_window = (
+                build_plasticity_runtime_transition_memory_source_window(state)
+            )
+            weights = transition_memory_window["sparse_transition_weights"]
+            provenance = transition_memory_window["synapse_provenance_by_key"]
+            transition_memory_source_window = transition_memory_window[
+                "source_window"
+            ]
             maintenance = dict(state.get("homeostatic_maintenance") or {})
             regeneration = dict(state.get("synapse_regeneration") or {})
             live_application = dict(state.get("live_application") or {})
@@ -3505,6 +3517,20 @@ class SNNLanguagePlasticityApplicationExecutor:
             recent_newborn_synapse_pruning = deepcopy(
                 list(newborn_synapse_pruning.get("recent_events") or [])
             )
+            critical_by_synapse_items, critical_by_synapse_count, _, critical_truncated = (
+                bounded_transition_memory_mapping_items(
+                    critical_period_learning.get("by_synapse") or {},
+                    limit=SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT,
+                    prefer_recent=True,
+                )
+            )
+            pruned_provenance_items, pruned_provenance_count, _, pruned_truncated = (
+                bounded_transition_memory_mapping_items(
+                    state.get("pruned_synapse_provenance_by_key") or {},
+                    limit=SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT,
+                    prefer_recent=True,
+                )
+            )
             return {
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_marulho": True,
@@ -3531,7 +3557,37 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "sparse_edge_budget": capacity["sparse_edge_budget"],
                 "outgoing_fanout_budget": capacity["outgoing_fanout_budget"],
                 "sparse_transition_weights": deepcopy(weights),
-                "sparse_transition_weight_count": len(weights),
+                "synapse_provenance_by_key": deepcopy(provenance),
+                "transition_memory_source_window": deepcopy(
+                    transition_memory_source_window
+                ),
+                "transition_memory_source_window_policy": (
+                    transition_memory_source_window["policy"]
+                ),
+                "transition_memory_source_window_limit": int(
+                    transition_memory_source_window["source_window_limit"]
+                ),
+                "transition_memory_source_window_count": int(
+                    transition_memory_source_window["source_window_count"]
+                ),
+                "transition_memory_source_window_complete": bool(
+                    transition_memory_source_window["source_window_complete"]
+                ),
+                "transition_memory_count_scope": transition_memory_source_window[
+                    "integrity_scope"
+                ],
+                "sparse_transition_weight_count": int(
+                    transition_memory_source_window[
+                        "retained_sparse_transition_weight_rows"
+                    ]
+                ),
+                "source_sparse_transition_weight_count": len(weights),
+                "synapse_provenance_count": int(
+                    transition_memory_source_window[
+                        "retained_synapse_provenance_rows"
+                    ]
+                ),
+                "source_synapse_provenance_count": len(provenance),
                 "applied_update_count": int(state.get("applied_update_count", 0) or 0),
                 "homeostatic_maintenance_count": int(maintenance.get("maintenance_count", 0) or 0),
                 "pruned_synapse_count_total": int(maintenance.get("pruned_synapse_count_total", 0) or 0),
@@ -3541,7 +3597,6 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "regenerated_synapse_count_total": int(regeneration.get("regenerated_synapse_count_total", 0) or 0),
                 "last_synapse_regeneration": deepcopy(regeneration.get("last_regeneration")),
                 "recent_synapse_regeneration": deepcopy(list(regeneration.get("recent_events") or [])),
-                "synapse_provenance_by_key": deepcopy(dict(state.get("synapse_provenance_by_key") or {})),
                 "last_live_application": deepcopy(live_application.get("last_application")),
                 "recent_live_applications": deepcopy(list(live_application.get("recent_events") or [])),
                 "language_capacity_mutation_count": capacity_mutation_count,
@@ -3581,7 +3636,24 @@ class SNNLanguagePlasticityApplicationExecutor:
                     recent_critical_period_learning
                 ),
                 "newborn_neuron_critical_period_state_by_synapse": deepcopy(
-                    dict(critical_period_learning.get("by_synapse") or {})
+                    dict(critical_by_synapse_items)
+                ),
+                "newborn_neuron_critical_period_state_by_synapse_count": int(
+                    critical_by_synapse_count
+                ),
+                "newborn_neuron_critical_period_state_source_window": (
+                    self._runtime_mapping_source_window_summary(
+                        surface=(
+                            "bounded_snn_language_plasticity_runtime_"
+                            "critical_period_by_synapse_source_window.v1"
+                        ),
+                        field_name=(
+                            "newborn_neuron_critical_period_state_by_synapse"
+                        ),
+                        source_count=len(critical_by_synapse_items),
+                        retained_count=critical_by_synapse_count,
+                        truncated=critical_truncated,
+                    )
                 ),
                 "critical_period_learning_dense_samples": (
                     self._critical_period_learning_dense_samples(
@@ -3625,14 +3697,76 @@ class SNNLanguagePlasticityApplicationExecutor:
                     recent_newborn_synapse_pruning
                 ),
                 "pruned_synapse_provenance_by_key": deepcopy(
-                    dict(
-                        state.get("pruned_synapse_provenance_by_key") or {}
+                    dict(pruned_provenance_items)
+                ),
+                "pruned_synapse_provenance_count": int(pruned_provenance_count),
+                "pruned_synapse_provenance_source_window": (
+                    self._runtime_mapping_source_window_summary(
+                        surface=(
+                            "bounded_snn_language_plasticity_runtime_"
+                            "pruned_synapse_provenance_source_window.v1"
+                        ),
+                        field_name="pruned_synapse_provenance_by_key",
+                        source_count=len(pruned_provenance_items),
+                        retained_count=pruned_provenance_count,
+                        truncated=pruned_truncated,
                     )
                 ),
                 "last_applied_at": state.get("last_applied_at"),
                 "last_operator_id": state.get("last_operator_id"),
                 "last_checkpoint_path": state.get("last_checkpoint_path"),
             }
+
+    @staticmethod
+    def _runtime_mapping_source_window_summary(
+        *,
+        surface: str,
+        field_name: str,
+        source_count: int,
+        retained_count: int,
+        truncated: bool,
+    ) -> dict[str, Any]:
+        source_limit = int(
+            SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT
+        )
+        return {
+            "surface": surface,
+            "policy": "recent_plasticity_runtime_mapping_source_window_v1",
+            "window_policy": "recent_plasticity_runtime_mapping_source_window_v1",
+            "source": "snn_language_plasticity_runtime_state",
+            "field_name": field_name,
+            "selection_criteria": [
+                "newest_mapping_rows",
+                "bounded_runtime_state_source_window",
+            ],
+            "source_window_limit": source_limit,
+            "source_window_count": int(source_count),
+            "retained_record_count": int(retained_count),
+            "source_payload_truncated": bool(truncated),
+            "source_truncated_count": max(
+                0,
+                int(retained_count) - int(source_count),
+            ),
+            "source_window_complete": not bool(truncated),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "hidden_language_reasoning": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "runs_replay": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "lookup_device": "cpu",
+            "gpu_used": False,
+            "gpu_resident_archival_metadata": False,
+            "memory_budget": {
+                "max_records": source_limit,
+                "archival_storage_device": "cpu",
+            },
+        }
 
     @classmethod
     def _language_capacity_state(cls, state: Mapping[str, Any]) -> dict[str, Any]:

@@ -32,8 +32,10 @@ related_code:
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
+  - ../../../src/marulho/service/transition_memory_source_window.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -162,6 +164,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
   - reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json
+  - reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json
+  - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window.json
+  - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window-rerun.json
 ---
 
 # Replay/consolidation
@@ -2106,3 +2111,40 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
 `335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+## Plasticity Runtime-State Source Window
+
+SNN language plasticity runtime-state now uses the same selected-source rule
+before exposing retained transition memory. Modern Hopfield-style association
+is useful here only after a local memory has been selected; complementary
+learning systems, continual replay, synaptic tagging/capture, and sparse replay
+support slow selected consolidation, not full retained transition-memory export
+from a status endpoint.
+
+`SNNLanguagePlasticityApplicationExecutor.snapshot()` emits
+`bounded_snn_language_plasticity_runtime_transition_memory_source_window.v1`,
+returns at most `64` sparse-transition rows and `64` synapse-provenance rows,
+keeps retained counts in the source-window metadata, and marks exact integrity
+incomplete when truncated. Status and readout-ledger consumers read those
+retained counts instead of treating bounded maps as complete. The old full
+runtime-state deep copy is retired from production and remains only as a
+benchmark-local diagnostic in
+`plasticity_runtime_state_source_window_benchmark.py`.
+
+The focused benchmark
+`reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json`
+passed over `65536` sparse weights and `65536` provenance rows. The active path
+read `256` source records versus `262144` in the retired diagnostic (`1024x`
+less source work), averaged `7.770271 ms` versus `752.314014 ms`
+(`96.819528x`), used `0.110454 MiB` traced Python peak versus `12.287186 MiB`,
+and kept CUDA allocation/reservation deltas at `0`. Runtime Truth reports CPU
+archival/source/lookup placement, no global scan, no replay, no raw text, no
+hidden language reasoning, no live tick, no every-token cadence, no
+mutation/plasticity, and no GPU-resident archival metadata.
+
+The paired `524288`-token protection runs succeeded with no observed
+contention, bounded `12/65536` route scoring, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. They measured `5642.888` and `5736.332 tokens/sec`, so they protect
+the live tick from obvious runtime-state source-window tax but do not close the
+durable completion condition or establish a new speed ceiling.
