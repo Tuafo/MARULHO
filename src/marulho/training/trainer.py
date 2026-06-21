@@ -2689,6 +2689,8 @@ class MarulhoTrainer:
         seen_signatures: set[tuple[tuple[int, int], ...]] = set()
         duplicate_trace_skips = 0
         invalid_trace_skips = 0
+        missing_routing_key_skips = 0
+        stored_routing_key_count = 0
         no_candidate_skips = 0
         stored_bucket_candidate_injections = 0
         candidate_union: list[int] = []
@@ -2715,12 +2717,11 @@ class MarulhoTrainer:
 
             replay_input = input_pattern.to(self.model.device) if isinstance(input_pattern, torch.Tensor) else None
             if isinstance(stored_routing_key, torch.Tensor):
+                stored_routing_key_count += 1
                 routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
-            elif replay_input is not None:
-                routing_key = self.model.routing_key_from_pattern(replay_input)
             else:
-                routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
-                routing_key = F.normalize(routing_key, dim=0)
+                missing_routing_key_skips += 1
+                continue
             if float(routing_key.abs().sum().item()) <= 0.0:
                 invalid_trace_skips += 1
                 continue
@@ -2830,6 +2831,14 @@ class MarulhoTrainer:
             "sleep_replay_unique_trace_count": int(len(records)),
             "sleep_replay_duplicate_trace_skip_count": int(duplicate_trace_skips),
             "sleep_replay_invalid_trace_skip_count": int(invalid_trace_skips),
+            "sleep_replay_stored_routing_key_count": int(stored_routing_key_count),
+            "sleep_replay_missing_routing_key_count": int(missing_routing_key_skips),
+            "sleep_replay_missing_routing_key_deferred_count": int(
+                missing_routing_key_skips
+            ),
+            "sleep_replay_local_trace_prepare_policy": (
+                "stored_routing_key_required_missing_keys_deferred"
+            ),
             "sleep_replay_no_candidate_skip_count": int(no_candidate_skips),
             "sleep_replay_rejected_commit_count": int(rejected_commits),
             "sleep_replay_candidate_column_union_count": int(len(candidate_union)),
@@ -3044,6 +3053,7 @@ class MarulhoTrainer:
             "sleep_replay_bounded_input_prepare_count": 0,
             "sleep_replay_stored_routing_key_count": 0,
             "sleep_replay_missing_routing_key_count": 0,
+            "sleep_replay_missing_routing_key_deferred_count": 0,
         }
         if not replay_idx:
             self.model.memory_store.last_replay_selection_report = dict(
@@ -3083,12 +3093,12 @@ class MarulhoTrainer:
             bounded_input_prepare_count = 0
             stored_routing_key_count = 0
             missing_routing_key_count = 0
-            stored_assembly_projection_fallback_count = 0
+            missing_routing_key_deferred_count = 0
             commit_report = {
                 "sleep_replay_commit_strategy": "bounded_repair_reanchor",
                 "sleep_replay_winner_source": "stored_replay_bucket_with_anchor_scope",
                 "sleep_replay_local_trace_prepare_policy": (
-                    "stored_routing_key_then_stored_assembly_projection_no_dense_fallback"
+                    "stored_routing_key_required_missing_keys_deferred"
                 ),
                 "sleep_replay_unconditional_dense_input_assembly_retired": True,
             }
@@ -3130,9 +3140,8 @@ class MarulhoTrainer:
                     routing_key = F.normalize(stored_routing_key.to(self.model.device), dim=0)
                 else:
                     missing_routing_key_count += 1
-                    stored_assembly_projection_fallback_count += 1
-                    routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
-                    routing_key = F.normalize(routing_key, dim=0)
+                    missing_routing_key_deferred_count += 1
+                    continue
 
                 context_prediction, context_gain = self._context_prediction_and_gain()
 
@@ -3169,8 +3178,8 @@ class MarulhoTrainer:
                     "sleep_replay_missing_routing_key_count": int(
                         missing_routing_key_count
                     ),
-                    "sleep_replay_stored_assembly_projection_fallback_count": int(
-                        stored_assembly_projection_fallback_count
+                    "sleep_replay_missing_routing_key_deferred_count": int(
+                        missing_routing_key_deferred_count
                     ),
                 }
             )

@@ -82,16 +82,16 @@ signatures from already-selected evidence. Recent replay setup uses
 - Emergency repair replay follows the same anchor-bucket rule. Without anchor
   buckets it must report `no_anchor_bucket_scope_for_repair_replay` and apply
   no mutation.
-- Repair replay must not rebuild dense input assemblies for selected replay
-  entries. Stored routing keys are used directly, and missing stored routing
-  keys fall back to projecting the selected stored assembly trace while
-  reporting `sleep_replay_stored_assembly_projection_fallback_count` and
-  keeping `sleep_replay_dense_input_assembly_fallback_count=0`. The mixed-key
-  benchmark
-  `reports/bounded_replay_window_20260618/sleep-repair-replay-no-dense-legacy-fallback.json`
-  used `16` stored-assembly projection fallbacks with `0` dense input-assembly
-  calls, and the 524288-token hot-path run stayed in band at
-  `6298.782 tokens/sec`.
+- Repair replay must not rebuild dense input assemblies or project stored
+  assemblies for selected replay entries missing routing keys. Stored routing
+  keys are required for repair mutation; missing keys are deferred and reported
+  through `sleep_replay_missing_routing_key_deferred_count` while
+  `sleep_replay_dense_input_assembly_fallback_count=0` remains true. The
+  mixed-key benchmark
+  `reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
+  updated `16` stored-key entries, deferred `16` missing-key entries, made `0`
+  dense input-assembly calls, and the 524288-token hot-path run stayed in band
+  at `5988.223 tokens/sec`.
 - Micro maintenance follows the same anchor-bucket rule. Without anchor buckets
   it must report `no_anchor_bucket_scope_for_micro_replay` and apply no refresh.
   Anchored micro refresh updates CPU metadata only; it must not call the live

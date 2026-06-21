@@ -3571,38 +3571,40 @@ utilization max `10%`, and GPU memory stayed flat at `1789 MiB`.
 
 ### Repair Replay Dense Legacy Fallback Retirement, 2026-06-18
 
-This slice removes the remaining dense fallback from selected repair replay.
-The previous repair path used stored routing keys when present, but entries
-without stored routing keys rebuilt a routing key from the input pattern, which
-could call dense all-column input assembly in legacy checkpoint shapes. The
-maintained path uses the stored routing key when present and otherwise projects
-the already-selected stored assembly trace. The report records
-`sleep_replay_stored_assembly_projection_fallback_count` and keeps
-`sleep_replay_dense_input_assembly_fallback_count=0`.
+This slice removes the remaining missing-key fallback from selected repair
+replay. The previous repair path used stored routing keys when present, but
+entries without stored routing keys could rebuild a routing key from the input
+pattern or project the already-selected stored assembly trace. The maintained
+path requires a stored routing key; missing-key entries are deferred and reported
+as `sleep_replay_missing_routing_key_deferred_count`. The old
+`sleep_replay_stored_assembly_projection_fallback_count` field is no longer
+emitted, and `sleep_replay_dense_input_assembly_fallback_count=0` stays true.
 
 The focused mixed-key benchmark was:
 
-`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output reports\bounded_replay_window_20260618\sleep-repair-replay-no-dense-legacy-fallback.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --min-prepare-speedup 1.0`
+`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output reports\bounded_replay_window_20260620\sleep-repair-replay-missing-routing-key-deferred.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --min-prepare-speedup 1.0`
 
-It selected `32` anchored repair entries, dropped routing keys for `16`, used
-`16` stored-assembly projection fallbacks, made `0` dense input-assembly calls,
-improved mean repair quality by `0.171254`, and kept selected input-prep
-speedup at `1.990857x`. Archival repair traces stayed CPU-resident, and active
-repair computation ran on CUDA.
+It selected `32` anchored repair entries, updated `16` entries with stored
+routing keys, deferred `16` missing-key entries, made `0` dense input-assembly
+calls, removed the stored-assembly projection fallback field, improved stored-key
+repair quality by `0.149600`, and kept selected input-prep speedup at
+`1.869720x`. Archival repair traces stayed CPU-resident, and active repair
+computation ran on CUDA.
 
 The 65536-column protection run was:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-repair-no-dense-legacy-fallback.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-repair-missing-routing-key-deferred.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 
-It processed `524288` tokens at `6298.782 tokens/sec`, with
-`train_compute=0.129392 ms/token`, `prepare_training=0.006428 ms/token`,
-`finalize_total=0.006182 ms/token`, and `tick_duration_ms.p95=20.403`.
+It processed `524288` tokens at `5988.223 tokens/sec`, with
+`train_compute=0.135762 ms/token`, `prepare_training=0.006894 ms/token`,
+`finalize_total=0.006597 ms/token`, and `tick_duration_ms.p95=21.650`.
 Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 `route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
 `state_transition_runs_all_columns=false`. Graph, selection, native sequence,
-and native burst failures were all `0`. The velocity surface reported no
-observed contention: CPU max `20%`, GPU utilization max `10%`, GPU memory
-utilization max `10%`, and GPU memory moved only from `1790 MiB` to `1791 MiB`.
+and native burst failures were all `0`. The velocity surface reported CPU max
+`17%`, GPU utilization max `31%`, GPU memory utilization max `23%`, and GPU
+memory moved from `1877 MiB` to `1878 MiB`; because the GPU sample crossed the
+contention threshold, this is protection evidence rather than a speed ceiling.
 
 ### Replay Query Anchor Source Window, 2026-06-18
 

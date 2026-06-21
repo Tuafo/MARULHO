@@ -935,21 +935,22 @@ processed `524288` tokens at `6302.207 tokens/sec`, bounded route scoring at
 `12/65536`, cached `65526` transition rows, reported no observed contention,
 and kept GPU memory effectively flat at `1805->1806 MiB`.
 
-The dense fallback cleanup removes the remaining legacy branch for selected
-repair entries that lack stored routing keys. Instead of rebuilding a routing
-key from the input pattern, repair replay now uses the stored routing key when
-available and otherwise projects the selected stored assembly trace through the
-assembly projection. The report records
-`sleep_replay_stored_assembly_projection_fallback_count` and keeps
-`sleep_replay_dense_input_assembly_fallback_count=0`. The mixed-key benchmark
-`reports/bounded_replay_window_20260618/sleep-repair-replay-no-dense-legacy-fallback.json`
-dropped routing keys for `16/32` anchored repair entries, used `16`
-stored-assembly projection fallbacks, made `0` dense input-assembly calls,
-improved mean repair quality by `0.171254`, and kept selected input-prep
-speedup at `1.990857x`. The 524288-token protection run stayed in band at
-`6298.782 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
-transition rows, GPU memory `1790->1791 MiB`, no observed contention, and zero
-graph/native/sequence failures.
+The missing-key cleanup removes the remaining legacy branch for selected repair
+entries that lack stored routing keys. Instead of rebuilding a routing key from
+the input pattern or projecting the stored assembly trace, repair replay and
+deep candidate repair now require stored routing keys and defer missing-key
+entries with `sleep_replay_missing_routing_key_deferred_count`. The mixed-key
+benchmark
+`reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
+dropped routing keys for `16/32` anchored repair entries, updated the `16`
+stored-key entries, deferred the `16` missing-key entries, made `0` dense
+input-assembly calls, removed the assembly-projection fallback field, improved
+stored-key repair quality by `0.149600`, and kept selected input-prep speedup at
+`1.869720x`. The 524288-token protection run stayed in band at
+`5988.223 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
+transition rows, GPU memory `1877->1878 MiB`, and zero graph/native/sequence
+failures; a GPU-utilization sample crossed the contention threshold, so this is
+not a speed-ceiling claim.
 
 The query-memory episode readout cleanup makes returned text evidence explicit
 without turning it into hidden replay reasoning. The list-only

@@ -2169,7 +2169,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             "missing_existing_row_update_api",
         )
 
-    def test_repair_sleep_missing_routing_key_uses_stored_assembly_projection(self) -> None:
+    def test_repair_sleep_missing_routing_key_defers_without_projection(self) -> None:
         set_seed(11)
         cfg = MarulhoConfig(
             n_columns=6,
@@ -2236,8 +2236,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
 
         self.assertGreater(anchored, 0)
-        self.assertEqual(updates, 1)
-        self.assertLess(after_distance, before_distance)
+        self.assertEqual(updates, 0)
+        self.assertAlmostEqual(after_distance, before_distance, places=7)
         report = trainer._last_sleep_replay_selection_report
         self.assertEqual(report["sleep_replay_commit_strategy"], "bounded_repair_reanchor")
         self.assertTrue(report["sleep_replay_unconditional_dense_input_assembly_retired"])
@@ -2245,13 +2245,77 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["sleep_replay_bounded_input_prepare_count"], 0)
         self.assertEqual(report["sleep_replay_stored_routing_key_count"], 0)
         self.assertEqual(report["sleep_replay_missing_routing_key_count"], 1)
-        self.assertEqual(
-            report["sleep_replay_stored_assembly_projection_fallback_count"],
-            1,
+        self.assertEqual(report["sleep_replay_missing_routing_key_deferred_count"], 1)
+        self.assertEqual(report["sleep_replay_applied_count"], 0)
+        self.assertFalse(report["sleep_replay_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_applies_plasticity"])
+        self.assertNotIn(
+            "sleep_replay_stored_assembly_projection_fallback_count",
+            report,
         )
         self.assertEqual(
             report["sleep_replay_local_trace_prepare_policy"],
-            "stored_routing_key_then_stored_assembly_projection_no_dense_fallback",
+            "stored_routing_key_required_missing_keys_deferred",
+        )
+
+    def test_deep_sleep_missing_routing_key_defers_without_recomputing_key(self) -> None:
+        set_seed(12)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 10
+
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[1:5] = 1.0
+        pattern = pattern / pattern.sum()
+        assembly = trainer.model.competitive.assembly_from_input(
+            pattern.to(trainer.model.device)
+        ).detach().cpu()
+        trainer.model.memory_store.update(
+            assembly,
+            importance=1.0,
+            token_count=trainer.token_count,
+            bucket_id=0,
+            input_pattern=pattern,
+            routing_key=None,
+            raw_window="legacy deep memory trace",
+            text="legacy deep memory trace",
+            capture_tag=0.4,
+        )
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+
+        with patch.object(
+            trainer.model,
+            "routing_key_from_pattern",
+            side_effect=AssertionError(
+                "deep replay must not recompute missing stored routing keys"
+            ),
+        ):
+            updates, updated_ids, processed_indices, report = (
+                trainer._sleep_replay_bounded_candidate_repair([0])
+            )
+
+        self.assertEqual(updates, 0)
+        self.assertEqual(updated_ids, [])
+        self.assertEqual(processed_indices, [])
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertEqual(
+            report["sleep_replay_commit_strategy"],
+            "bounded_reconstruction_gated_candidate_repair",
+        )
+        self.assertEqual(report["sleep_replay_stored_routing_key_count"], 0)
+        self.assertEqual(report["sleep_replay_missing_routing_key_count"], 1)
+        self.assertEqual(report["sleep_replay_missing_routing_key_deferred_count"], 1)
+        self.assertEqual(
+            report["sleep_replay_local_trace_prepare_policy"],
+            "stored_routing_key_required_missing_keys_deferred",
         )
 
     def test_repair_sleep_without_anchors_blocks_global_repair_mutation(self) -> None:

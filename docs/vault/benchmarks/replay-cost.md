@@ -740,19 +740,21 @@ coverage. The paired hot-path run processed `524288` tokens at
 transition rows, reported no observed contention, and kept GPU memory
 `1805->1806 MiB`.
 
-The follow-up retires the remaining dense legacy fallback for selected repair
-entries missing stored routing keys. Those entries now use the selected stored
-assembly trace projected through the assembly projection instead of rebuilding a
-routing key from the input pattern. The mixed-key benchmark
-`reports/bounded_replay_window_20260618/sleep-repair-replay-no-dense-legacy-fallback.json`
-used `32` selected anchored repair entries, dropped `16` routing keys, recorded
-`16` stored-assembly projection fallbacks, made `0` dense input-assembly calls,
-improved mean repair quality by `0.171254`, and kept selected input-prep
-speedup at `1.990857x`. The long hot-path check processed `524288` tokens at
-`6298.782 tokens/sec`, with `train_compute=0.129392 ms/token`, bounded
+The follow-up retires the remaining missing-key repair fallback entirely.
+Selected repair entries without stored routing keys no longer rebuild keys from
+input patterns or project stored assemblies; they are deferred and reported as
+`sleep_replay_missing_routing_key_deferred_count`. The mixed-key benchmark
+`reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
+used `32` selected anchored repair entries, updated the `16` entries with
+stored routing keys, deferred `16` missing-key entries, made `0` dense
+input-assembly calls, removed the stored-assembly projection fallback field,
+improved stored-key repair quality by `0.149600`, and kept selected input-prep
+speedup at `1.869720x`. The long hot-path check processed `524288` tokens at
+`5988.223 tokens/sec`, with `train_compute=0.135762 ms/token`, bounded
 `12/65536` route rows, `65526` cached transition rows, GPU memory
-`1790->1791 MiB`, no observed contention, and zero graph/native/sequence
-failures.
+`1877->1878 MiB`, and zero graph/native/sequence failures. Velocity observed a
+GPU-utilization sample at `31%`, so this is protection evidence, not a speed
+ceiling.
 
 The matching final 65536-column hot-path run
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-replay-tensor-payload-boundary.json`

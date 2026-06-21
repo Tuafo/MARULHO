@@ -116,7 +116,12 @@ def _measure_input_prepare(
     return float((time.perf_counter() - started) * 1000.0)
 
 
-def _mean_anchor_distance(trainer: MarulhoTrainer, bucket_ids: list[int]) -> float:
+def _mean_anchor_distance(
+    trainer: MarulhoTrainer,
+    bucket_ids: list[int],
+    *,
+    require_routing_key: bool,
+) -> float:
     distances: list[float] = []
     for index, bucket_id in enumerate(bucket_ids):
         entry = trainer.model.memory_store.replay_entry(
@@ -126,6 +131,8 @@ def _mean_anchor_distance(trainer: MarulhoTrainer, bucket_ids: list[int]) -> flo
         )
         routing_key = entry.get("routing_key")
         if not isinstance(routing_key, torch.Tensor):
+            if require_routing_key:
+                continue
             assembly = entry.get("assembly")
             if not isinstance(assembly, torch.Tensor):
                 continue
@@ -149,6 +156,19 @@ def _mean_anchor_distance(trainer: MarulhoTrainer, bucket_ids: list[int]) -> flo
     return float(statistics.fmean(distances)) if distances else float("inf")
 
 
+def _routing_key_count(trainer: MarulhoTrainer, indices: list[int]) -> int:
+    count = 0
+    for index in indices:
+        entry = trainer.model.memory_store.replay_entry(
+            int(index),
+            current_token=trainer.token_count,
+            include_text_payload=False,
+        )
+        if isinstance(entry.get("routing_key"), torch.Tensor):
+            count += 1
+    return int(count)
+
+
 def _disturb_anchor_prototypes(trainer: MarulhoTrainer, bucket_ids: list[int]) -> None:
     for offset, bucket_id in enumerate(bucket_ids):
         row = trainer.model.competitive.prototypes[int(bucket_id)].detach()
@@ -170,6 +190,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         count=int(args.entry_count),
         candidate_pool=int(args.candidate_pool),
     )
+    selected_stored_routing_key_count = _routing_key_count(trainer, selected_indices)
+    selected_missing_routing_key_count = int(
+        len(selected_indices) - selected_stored_routing_key_count
+    )
 
     legacy_latencies: list[float] = []
     bounded_latencies: list[float] = []
@@ -190,7 +214,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     _disturb_anchor_prototypes(trainer, bucket_ids)
-    quality_before = _mean_anchor_distance(trainer, bucket_ids)
+    quality_before = _mean_anchor_distance(
+        trainer,
+        bucket_ids,
+        require_routing_key=True,
+    )
     dense_call_count = 0
     original_dense = trainer.model.competitive.assembly_from_input
 
@@ -206,7 +234,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         trainer.model.competitive.assembly_from_input = original_dense  # type: ignore[method-assign]
     repair_latency_ms = float((time.perf_counter() - repair_started) * 1000.0)
-    quality_after = _mean_anchor_distance(trainer, bucket_ids)
+    quality_after = _mean_anchor_distance(
+        trainer,
+        bucket_ids,
+        require_routing_key=True,
+    )
     repair_report = dict(trainer._last_sleep_replay_selection_report)
 
     legacy_mean = float(statistics.fmean(legacy_latencies)) if legacy_latencies else 0.0
@@ -217,15 +249,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     report_pass = bool(
         repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
         and int(repair_report.get("sleep_replay_dense_input_assembly_fallback_count", -1)) == 0
-        and (
-            int(repair_report.get("sleep_replay_bounded_input_prepare_count", 0))
-            + int(
-                repair_report.get(
-                    "sleep_replay_stored_assembly_projection_fallback_count",
-                    0,
-                )
-            )
-        ) >= int(updates)
+        and int(repair_report.get("sleep_replay_bounded_input_prepare_count", 0))
+        >= int(updates)
+        and int(repair_report.get("sleep_replay_missing_routing_key_deferred_count", -1))
+        == int(selected_missing_routing_key_count)
+        and "sleep_replay_stored_assembly_projection_fallback_count"
+        not in repair_report
         and int(dense_call_count) == 0
         and not bool(repair_report.get("sleep_replay_text_payload_loaded"))
         and not bool(repair_report.get("sleep_replay_language_reasoning"))
@@ -235,13 +264,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "surface": "bounded_sleep_repair_replay_input_prepare_benchmark.v1",
         "pass": bool(quality_pass and report_pass and latency_pass),
-        "selection_criteria": "anchored_repair_replay_window_with_stored_routing_or_assembly_trace",
-        "quality_metric": "mean_anchor_prototype_distance_to_stored_routing_key",
+        "selection_criteria": "anchored_repair_replay_window_with_stored_routing_keys_missing_keys_deferred",
+        "quality_metric": "mean_anchor_prototype_distance_to_stored_routing_key_entries",
         "latency_metric": "input_prepare_ms_for_selected_replay_entries",
         "n_columns": int(args.n_columns),
         "entry_count": int(args.entry_count),
         "candidate_pool": int(args.candidate_pool),
         "selected_count": int(len(selected_indices)),
+        "selected_stored_routing_key_count": int(selected_stored_routing_key_count),
+        "selected_missing_routing_key_count": int(selected_missing_routing_key_count),
         "updates": int(updates),
         "quality": {
             "before": float(quality_before),
@@ -274,11 +305,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "missing_routing_key_count": int(
                 repair_report.get("sleep_replay_missing_routing_key_count", 0)
             ),
-            "stored_assembly_projection_fallback_count": int(
+            "missing_routing_key_deferred_count": int(
                 repair_report.get(
-                    "sleep_replay_stored_assembly_projection_fallback_count",
+                    "sleep_replay_missing_routing_key_deferred_count",
                     0,
                 )
+            ),
+            "stored_assembly_projection_fallback_removed": bool(
+                "sleep_replay_stored_assembly_projection_fallback_count"
+                not in repair_report
             ),
             "unconditional_dense_input_assembly_retired": bool(
                 repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
@@ -333,8 +368,8 @@ def main() -> None:
                 "dense_input_assembly_call_count": result["runtime_truth"][
                     "dense_input_assembly_call_count"
                 ],
-                "stored_assembly_projection_fallback_count": result["runtime_truth"][
-                    "stored_assembly_projection_fallback_count"
+                "missing_routing_key_deferred_count": result["runtime_truth"][
+                    "missing_routing_key_deferred_count"
                 ],
                 "output": str(args.output),
             },
