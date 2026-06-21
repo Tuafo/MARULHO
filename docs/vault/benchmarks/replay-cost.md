@@ -29,6 +29,10 @@ related_code:
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
+  - ../../../src/marulho/service/replay_runtime.py
+  - ../../../src/marulho/service/manager.py
+  - ../../../src/marulho/service/persistence.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/training/trainer.py
@@ -127,6 +131,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
+  - reports/bounded_replay_window_20260620/replay-restore-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -2410,3 +2416,43 @@ recorded zero graph/native sequence failures. Velocity reported no observed
 contention, CPU max `27%`, GPU max `13%`, and RTX 3060 memory `2039->2041 MiB`.
 The first same-slice run at `5879.905 tokens/sec` is treated as contended
 variance because velocity observed GPU contention at `21%`.
+
+## Replay Restore Source Window
+
+Replay checkpoint restore no longer normalizes full retained replay-controller
+histories before applying retention budgets. The maintained path reports
+`bounded_replay_restore_source_window.v1` and slices replay sample history,
+regeneration permits, replay-evaluation contexts, review tickets, scheduler
+installations, and transition-memory replay artifacts before normalization,
+indexing, or evaluated-artifact validation.
+
+Focused quality and latency report:
+
+`python -m marulho.evaluation.replay_restore_source_window_benchmark --entry-count 65536 --runs 7 --output reports\bounded_replay_window_20260620\replay-restore-source-window.json`
+
+Result: `pass=true`; latest-window state matched the benchmark-local retired
+full-materialized restore diagnostic, including `64` valid evaluated artifacts.
+The bounded path inspected `656` records instead of `524288`
+(`799.219512x` less source work). Mean bounded restore latency was
+`15.600729 ms`; the retired diagnostic averaged `6605.339529 ms`
+(`423.399426x`). Runtime Truth reported CPU archival/source placement,
+`full_retained_materialization=false`, no live tick, no every-token work, no raw
+replay text, no hidden language reasoning, no mutation/plasticity, and no
+GPU-resident archival metadata. CUDA was available but unused with `0.0 MiB`
+allocated/reserved, and Python traced peak allocation was `0.581783 MiB`.
+
+Accepted hot-path protection rerun:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.181184 s`,
+`5945.577 tokens/sec`, p95 tick `22.062 ms`,
+`train_compute=0.136201 ms/token`, `prepare_training=0.007152 ms/token`, and
+`finalize_total=0.006825 ms/token`. Prewarm took `345.053 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`,
+selected CUDA on the RTX 3060, and recorded zero graph/native sequence
+failures. Velocity reported no observed contention, CPU max `30%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2061->2062 MiB`. A
+first same-shape run at `5904.020 tokens/sec` is retained as secondary evidence
+because velocity observed GPU contention at `22%`.

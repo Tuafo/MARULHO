@@ -9,7 +9,7 @@ import hashlib
 import json
 import random
 import time
-from typing import Any, Callable, Mapping, Sequence, cast
+from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 from uuid import uuid4
 
 from marulho.service.living_loop_replay import (
@@ -29,6 +29,7 @@ DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS = 16
 DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
+REPLAY_RESTORE_SOURCE_WINDOW_SURFACE = "bounded_replay_restore_source_window.v1"
 SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT = 16
 SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT = 16
 SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT = 16
@@ -297,14 +298,14 @@ class ReplayController:
         self,
         dependencies: ReplayControllerDependencies,
         *,
-        replay_sample_history: Sequence[Mapping[str, Any]] | None = None,
-        regeneration_permits: Sequence[Mapping[str, Any]] | None = None,
-        snn_replay_evaluation_contexts: Sequence[Mapping[str, Any]] | None = None,
-        snn_replay_artifact_recording_review_tickets: Sequence[Mapping[str, Any]] | None = None,
-        snn_sleep_plasticity_review_tickets: Sequence[Mapping[str, Any]] | None = None,
-        snn_sleep_plasticity_scheduler_design_review_tickets: Sequence[Mapping[str, Any]] | None = None,
-        snn_sleep_plasticity_review_scheduler_installations: Sequence[Mapping[str, Any]] | None = None,
-        snn_transition_memory_replay_artifacts: Sequence[Mapping[str, Any]] | None = None,
+        replay_sample_history: Iterable[Mapping[str, Any]] | None = None,
+        regeneration_permits: Iterable[Mapping[str, Any]] | None = None,
+        snn_replay_evaluation_contexts: Iterable[Mapping[str, Any]] | None = None,
+        snn_replay_artifact_recording_review_tickets: Iterable[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_review_tickets: Iterable[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_scheduler_design_review_tickets: Iterable[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_review_scheduler_installations: Iterable[Mapping[str, Any]] | None = None,
+        snn_transition_memory_replay_artifacts: Iterable[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
         self._dependencies = dependencies
@@ -347,6 +348,9 @@ class ReplayController:
             index=self._snn_transition_memory_replay_artifact_index,
             key=self._snn_transition_memory_replay_artifact_id,
         )
+        self._last_replay_restore_source_window_report: dict[str, Any] = (
+            self._empty_replay_restore_source_window_report()
+        )
         self.load_replay_sample_history(replay_sample_history or [])
         self.load_regeneration_permits(regeneration_permits or [])
         self.load_snn_replay_evaluation_contexts(snn_replay_evaluation_contexts or [])
@@ -373,6 +377,119 @@ class ReplayController:
     @property
     def _runtime_state(self) -> Any:
         return self._dependencies.runtime_state
+
+    @staticmethod
+    def _source_record_count(source: Iterable[Any]) -> int | None:
+        try:
+            return int(len(source))  # type: ignore[arg-type]
+        except TypeError:
+            return None
+
+    @classmethod
+    def _empty_replay_restore_source_window_report(cls) -> dict[str, Any]:
+        return {
+            "surface": REPLAY_RESTORE_SOURCE_WINDOW_SURFACE,
+            "policy": "newest_first_checkpoint_source_window",
+            "selection_criteria": [
+                "checkpoint_or_controller_state_records_are_newest_first",
+                "read_only_until_controller_retention_limit",
+                "normalize_and_index_only_selected_source_window",
+            ],
+            "source": "replay_controller_state_load",
+            "owner": "marulho.service.ReplayController",
+            "fields": {},
+            "source_window_device": "cpu",
+            "archival_metadata_device": "cpu",
+            "gpu_used": False,
+            "gpu_resident_archival_metadata": False,
+            "full_retained_materialization": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "runs_live_replay": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "total_source_window_inspected_count": 0,
+            "total_normalized_count": 0,
+            "total_restored_count": 0,
+        }
+
+    def _bounded_restore_source_window(
+        self,
+        source: Iterable[Any],
+        *,
+        retention_limit: int,
+    ) -> tuple[list[Any], int | None]:
+        limit = max(0, int(retention_limit))
+        source_record_count = self._source_record_count(source)
+        return list(islice(source, limit)), source_record_count
+
+    def _record_replay_restore_source_window(
+        self,
+        *,
+        field_name: str,
+        retention_limit: int,
+        source_record_count: int | None,
+        source_window_inspected_count: int,
+        normalized_count: int,
+        restored_count: int,
+    ) -> None:
+        report = self._empty_replay_restore_source_window_report()
+        previous_fields = self._last_replay_restore_source_window_report.get("fields")
+        if isinstance(previous_fields, Mapping):
+            report["fields"] = {
+                str(key): dict(value)
+                for key, value in previous_fields.items()
+                if isinstance(value, Mapping)
+            }
+        source_count_known = source_record_count is not None
+        source_count_value = int(source_record_count or 0)
+        field_report = {
+            "source": f"replay_controller.{field_name}",
+            "retention_limit": max(0, int(retention_limit)),
+            "source_record_count": source_count_value,
+            "source_record_count_known": bool(source_count_known),
+            "source_window_inspected_count": int(source_window_inspected_count),
+            "normalized_count": int(normalized_count),
+            "restored_count": int(restored_count),
+            "source_window_truncated": bool(
+                source_count_known and source_count_value > int(source_window_inspected_count)
+            ),
+            "source_truncated_count": (
+                max(0, source_count_value - int(source_window_inspected_count))
+                if source_count_known
+                else None
+            ),
+            "source_window_complete": bool(
+                source_count_known and source_count_value <= int(source_window_inspected_count)
+            ),
+            "device": "cpu",
+            "normalizes_full_retained_state": False,
+            "indexes_only_restored_window": True,
+        }
+        report["fields"][field_name] = field_report
+        report["total_source_window_inspected_count"] = sum(
+            int(value.get("source_window_inspected_count", 0) or 0)
+            for value in report["fields"].values()
+            if isinstance(value, Mapping)
+        )
+        report["total_normalized_count"] = sum(
+            int(value.get("normalized_count", 0) or 0)
+            for value in report["fields"].values()
+            if isinstance(value, Mapping)
+        )
+        report["total_restored_count"] = sum(
+            int(value.get("restored_count", 0) or 0)
+            for value in report["fields"].values()
+            if isinstance(value, Mapping)
+        )
+        self._last_replay_restore_source_window_report = report
+
+    def replay_restore_source_window_report(self) -> dict[str, Any]:
+        return deepcopy(self._last_replay_restore_source_window_report)
 
     @property
     def _trainer(self) -> Any:
@@ -653,46 +770,80 @@ class ReplayController:
         return self._replay_sample_history
 
     @history.setter
-    def history(self, replay_sample_history: Sequence[Mapping[str, Any]]) -> None:
+    def history(self, replay_sample_history: Iterable[Mapping[str, Any]]) -> None:
         self.load_replay_sample_history(replay_sample_history)
 
-    def load_replay_sample_history(self, replay_sample_history: Sequence[Mapping[str, Any]]) -> None:
+    def load_replay_sample_history(self, replay_sample_history: Iterable[Mapping[str, Any]]) -> None:
+        source_window, source_record_count = self._bounded_restore_source_window(
+            replay_sample_history,
+            retention_limit=self._history_maxlen,
+        )
         normalized = [
             item
-            for item in (self._normalize_replay_sample_record(raw_item) for raw_item in replay_sample_history)
+            for item in (self._normalize_replay_sample_record(raw_item) for raw_item in source_window)
             if item is not None
         ]
         self._replay_sample_history.clear()
         self._replay_sample_history.extend(normalized)
+        self._record_replay_restore_source_window(
+            field_name="replay_sample_history",
+            retention_limit=self._history_maxlen,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._replay_sample_history),
+        )
 
     @property
     def regeneration_permits(self) -> deque[dict[str, Any]]:
         return self._regeneration_permits
 
     @regeneration_permits.setter
-    def regeneration_permits(self, permits: Sequence[Mapping[str, Any]]) -> None:
+    def regeneration_permits(self, permits: Iterable[Mapping[str, Any]]) -> None:
         self.load_regeneration_permits(permits)
 
-    def load_regeneration_permits(self, permits: Sequence[Mapping[str, Any]]) -> None:
-        normalized = [dict(item) for item in permits if isinstance(item, Mapping)]
+    def load_regeneration_permits(self, permits: Iterable[Mapping[str, Any]]) -> None:
+        source_window, source_record_count = self._bounded_restore_source_window(
+            permits,
+            retention_limit=DEFAULT_REPLAY_REGENERATION_PERMITS,
+        )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
         self._regeneration_permits.clear()
-        self._regeneration_permits.extend(normalized[:DEFAULT_REPLAY_REGENERATION_PERMITS])
+        self._regeneration_permits.extend(normalized)
+        self._record_replay_restore_source_window(
+            field_name="replay_regeneration_permits",
+            retention_limit=DEFAULT_REPLAY_REGENERATION_PERMITS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._regeneration_permits),
+        )
 
     @property
     def snn_replay_evaluation_contexts(self) -> deque[dict[str, Any]]:
         return self._snn_replay_evaluation_contexts
 
     @snn_replay_evaluation_contexts.setter
-    def snn_replay_evaluation_contexts(self, contexts: Sequence[Mapping[str, Any]]) -> None:
+    def snn_replay_evaluation_contexts(self, contexts: Iterable[Mapping[str, Any]]) -> None:
         self.load_snn_replay_evaluation_contexts(contexts)
 
-    def load_snn_replay_evaluation_contexts(self, contexts: Sequence[Mapping[str, Any]]) -> None:
-        normalized = [dict(item) for item in contexts if isinstance(item, Mapping)]
-        self._snn_replay_evaluation_contexts.clear()
-        self._snn_replay_evaluation_contexts.extend(
-            normalized[:DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS]
+    def load_snn_replay_evaluation_contexts(self, contexts: Iterable[Mapping[str, Any]]) -> None:
+        source_window, source_record_count = self._bounded_restore_source_window(
+            contexts,
+            retention_limit=DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS,
         )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
+        self._snn_replay_evaluation_contexts.clear()
+        self._snn_replay_evaluation_contexts.extend(normalized)
         self._rebuild_snn_replay_evaluation_context_index_locked()
+        self._record_replay_restore_source_window(
+            field_name="snn_replay_evaluation_contexts",
+            retention_limit=DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_replay_evaluation_contexts),
+        )
 
     @property
     def snn_replay_artifact_recording_review_tickets(self) -> deque[dict[str, Any]]:
@@ -701,18 +852,30 @@ class ReplayController:
     @snn_replay_artifact_recording_review_tickets.setter
     def snn_replay_artifact_recording_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
         self.load_snn_replay_artifact_recording_review_tickets(tickets)
 
     def load_snn_replay_artifact_recording_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
-        normalized = [dict(item) for item in tickets if isinstance(item, Mapping)]
+        source_window, source_record_count = self._bounded_restore_source_window(
+            tickets,
+            retention_limit=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS,
+        )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
         self._snn_replay_artifact_recording_review_tickets.clear()
         self._snn_replay_artifact_recording_review_tickets.extend(
-            normalized[:DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS]
+            normalized
+        )
+        self._record_replay_restore_source_window(
+            field_name="snn_replay_artifact_recording_review_tickets",
+            retention_limit=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_replay_artifact_recording_review_tickets),
         )
 
     @property
@@ -722,18 +885,28 @@ class ReplayController:
     @snn_sleep_plasticity_review_tickets.setter
     def snn_sleep_plasticity_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
         self.load_snn_sleep_plasticity_review_tickets(tickets)
 
     def load_snn_sleep_plasticity_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
-        normalized = [dict(item) for item in tickets if isinstance(item, Mapping)]
+        source_window, source_record_count = self._bounded_restore_source_window(
+            tickets,
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS,
+        )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
         self._snn_sleep_plasticity_review_tickets.clear()
-        self._snn_sleep_plasticity_review_tickets.extend(
-            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS]
+        self._snn_sleep_plasticity_review_tickets.extend(normalized)
+        self._record_replay_restore_source_window(
+            field_name="snn_sleep_plasticity_review_tickets",
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_sleep_plasticity_review_tickets),
         )
 
     @property
@@ -743,18 +916,30 @@ class ReplayController:
     @snn_sleep_plasticity_scheduler_design_review_tickets.setter
     def snn_sleep_plasticity_scheduler_design_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
         self.load_snn_sleep_plasticity_scheduler_design_review_tickets(tickets)
 
     def load_snn_sleep_plasticity_scheduler_design_review_tickets(
         self,
-        tickets: Sequence[Mapping[str, Any]],
+        tickets: Iterable[Mapping[str, Any]],
     ) -> None:
-        normalized = [dict(item) for item in tickets if isinstance(item, Mapping)]
+        source_window, source_record_count = self._bounded_restore_source_window(
+            tickets,
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS,
+        )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
         self._snn_sleep_plasticity_scheduler_design_review_tickets.clear()
         self._snn_sleep_plasticity_scheduler_design_review_tickets.extend(
-            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS]
+            normalized
+        )
+        self._record_replay_restore_source_window(
+            field_name="snn_sleep_plasticity_scheduler_design_review_tickets",
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_sleep_plasticity_scheduler_design_review_tickets),
         )
 
     @property
@@ -764,18 +949,30 @@ class ReplayController:
     @snn_sleep_plasticity_review_scheduler_installations.setter
     def snn_sleep_plasticity_review_scheduler_installations(
         self,
-        installations: Sequence[Mapping[str, Any]],
+        installations: Iterable[Mapping[str, Any]],
     ) -> None:
         self.load_snn_sleep_plasticity_review_scheduler_installations(installations)
 
     def load_snn_sleep_plasticity_review_scheduler_installations(
         self,
-        installations: Sequence[Mapping[str, Any]],
+        installations: Iterable[Mapping[str, Any]],
     ) -> None:
-        normalized = [dict(item) for item in installations if isinstance(item, Mapping)]
+        source_window, source_record_count = self._bounded_restore_source_window(
+            installations,
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS,
+        )
+        normalized = [dict(item) for item in source_window if isinstance(item, Mapping)]
         self._snn_sleep_plasticity_review_scheduler_installations.clear()
         self._snn_sleep_plasticity_review_scheduler_installations.extend(
-            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS]
+            normalized
+        )
+        self._record_replay_restore_source_window(
+            field_name="snn_sleep_plasticity_review_scheduler_installations",
+            retention_limit=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_sleep_plasticity_review_scheduler_installations),
         )
 
     def record_snn_replay_evaluation_context(
@@ -4661,25 +4858,35 @@ class ReplayController:
         return self._snn_transition_memory_replay_artifacts
 
     @snn_transition_memory_replay_artifacts.setter
-    def snn_transition_memory_replay_artifacts(self, artifacts: Sequence[Mapping[str, Any]]) -> None:
+    def snn_transition_memory_replay_artifacts(self, artifacts: Iterable[Mapping[str, Any]]) -> None:
         self.load_snn_transition_memory_replay_artifacts(artifacts)
 
     def load_snn_transition_memory_replay_artifacts(
         self,
-        artifacts: Sequence[Mapping[str, Any]],
+        artifacts: Iterable[Mapping[str, Any]],
     ) -> None:
+        source_window, source_record_count = self._bounded_restore_source_window(
+            artifacts,
+            retention_limit=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS,
+        )
         normalized = [
             item
             for item in (
                 self._normalize_evaluated_snn_transition_memory_replay_artifact(raw_item)
-                for raw_item in artifacts
+                for raw_item in source_window
                 if isinstance(raw_item, Mapping)
             )
             if item is not None
         ]
         self._snn_transition_memory_replay_artifacts.clear()
-        self._snn_transition_memory_replay_artifacts.extend(
-            normalized[:DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS]
+        self._snn_transition_memory_replay_artifacts.extend(normalized)
+        self._record_replay_restore_source_window(
+            field_name="snn_transition_memory_replay_artifacts",
+            retention_limit=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS,
+            source_record_count=source_record_count,
+            source_window_inspected_count=len(source_window),
+            normalized_count=len(normalized),
+            restored_count=len(self._snn_transition_memory_replay_artifacts),
         )
 
     def _record_evaluated_snn_transition_memory_replay_artifact(

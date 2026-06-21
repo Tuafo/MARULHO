@@ -36,6 +36,7 @@ related_benchmarks: []
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Readout Replay Priority Report Dropping Path](readout-replay-priority-report-dropping-path.md)
 - [Replay Execute Alias Executor Summary](replay-execute-alias-executor-summary.md)
+- [Replay Restore Full Materialized Normalization](replay-restore-full-materialized-normalization.md)
 - [Runtime Trace Export Replay Summary Full History](runtime-trace-export-replay-summary-full-history.md)
 - [Selected Replay Bucket Consolidation Cache Rebuild](selected-replay-bucket-consolidation-cache-rebuild.md)
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)

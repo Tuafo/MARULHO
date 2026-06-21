@@ -6,8 +6,12 @@ related_code:
   - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/service/living_loop_replay.py
+  - ../../../src/marulho/service/replay_runtime.py
+  - ../../../src/marulho/service/manager.py
+  - ../../../src/marulho/service/persistence.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
+  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
@@ -152,6 +156,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-plasticity-replay-window-rerun.json
   - reports/bounded_replay_window_20260619/readout-ledger-rollout-candidate-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-readout-ledger-rollout-candidate-window.json
+  - reports/bounded_replay_window_20260620/replay-restore-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
 ---
 
 # Replay/consolidation
@@ -2019,3 +2025,38 @@ processed `524288` tokens at `5951.781 tokens/sec`, p95 `21.962 ms`,
 `train_compute=0.136320 ms/token`, bounded `12/65536` route rows, `65526`
 cached transition rows, no observed contention, and zero graph/native sequence
 failures.
+
+## Replay Restore Source Window
+
+Checkpoint/reload replay-controller state now follows the same selected-source
+rule. `ReplayController` emits `bounded_replay_restore_source_window.v1` and
+loads only the newest controller-retained source window for replay sample
+history, regeneration permits, replay-evaluation contexts, review tickets,
+scheduler installations, and transition-memory replay artifacts before
+normalization or index rebuild. `MarulhoServiceManager` and
+`RuntimePersistence` no longer add full `list(...)` copies around those replay
+fields during restore.
+
+The focused report
+`reports/bounded_replay_window_20260620/replay-restore-source-window.json`
+used `65536` records in each replay restore field. It matched the
+benchmark-local retired full-materialized restore model for the latest window,
+restored `64` valid evaluated artifacts, inspected `656` records instead of
+`524288` (`799.219512x` less source work), and reduced mean restore latency
+from `6605.339529 ms` to `15.600729 ms` (`423.399426x`). Placement stayed on
+CPU; CUDA was available but unused with `0.0 MiB` allocation/reservation, Python
+traced peak was `0.581783 MiB`, and the Runtime Truth report states no live
+tick, no every-token work, no raw replay text, no hidden language reasoning, no
+mutation/plasticity, and no GPU-resident archival metadata.
+
+The accepted protection rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json`
+processed `524288` tokens at `5945.577 tokens/sec`, p95 `22.062 ms`,
+`train_compute=0.136201 ms/token`, `prepare_training=0.007152 ms/token`, and
+`finalize_total=0.006825 ms/token`. Runtime Truth kept route scoring at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on RTX
+3060, and recorded zero graph/native sequence failures. Velocity reported no
+observed contention, CPU max `30%`, GPU max `13%`, and RTX memory
+`2061->2062 MiB`; the first same-shape run is secondary because GPU contention
+was observed at `22%`.

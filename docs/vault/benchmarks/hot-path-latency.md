@@ -25,8 +25,12 @@ related_code:
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
   - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/service/status_read_model.py
+  - ../../../src/marulho/service/replay_runtime.py
+  - ../../../src/marulho/service/manager.py
+  - ../../../src/marulho/service/persistence.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
 related_docs: []
@@ -73,6 +77,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -5223,3 +5229,28 @@ on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
 first same-slice run at `5879.905 tokens/sec` is retained as contended variance
 because velocity observed GPU contention at `21%`, so the rerun is the accepted
 live-tick protection evidence.
+
+## Replay Restore Source Window Protection
+
+Checkpoint/reload replay-controller histories now restore through
+`bounded_replay_restore_source_window.v1`, slicing each replay field before
+normalization, indexing, or evaluated-artifact validation. The focused report
+`reports/bounded_replay_window_20260620/replay-restore-source-window.json`
+preserved latest-window parity against the retired full-materialized diagnostic,
+restored `64` valid evaluated artifacts, inspected `656` records instead of
+`524288`, cut mean restore latency from `6605.339529 ms` to `15.600729 ms`, kept
+archival/source metadata on CPU, and used `0.0 MiB` CUDA allocation/reservation.
+
+The accepted protection rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json`
+processed `524288` tokens in `88.181184 s` at `5945.577 tokens/sec`,
+`tick_duration_ms.p95=22.062`, `train_compute=0.136201 ms/token`,
+`prepare_training=0.007152 ms/token`, and
+`finalize_total=0.006825 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`345.053 s`; velocity reported no observed contention, CPU max `30%`, GPU max
+`13%`, GPU memory utilization max `18%`, and RTX memory `2061->2062 MiB`. The
+first same-shape run at `5904.020 tokens/sec` is retained as secondary evidence
+because velocity observed GPU contention at `22%`.

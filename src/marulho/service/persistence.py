@@ -719,24 +719,24 @@ class RuntimePersistence:
         )
         self._brain_last_error = None
         self._action_history = list(terminus_state.get("action_history") or [])
-        self._replay_sample_history = list(terminus_state.get("replay_sample_history") or [])
-        self._replay_regeneration_permits = list(terminus_state.get("replay_regeneration_permits") or [])
-        self._snn_replay_evaluation_contexts = list(
+        self._replay_sample_history = terminus_state.get("replay_sample_history") or []
+        self._replay_regeneration_permits = terminus_state.get("replay_regeneration_permits") or []
+        self._snn_replay_evaluation_contexts = (
             terminus_state.get("snn_replay_evaluation_contexts") or []
         )
-        self._snn_replay_artifact_recording_review_tickets = list(
+        self._snn_replay_artifact_recording_review_tickets = (
             terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
         )
-        self._snn_sleep_plasticity_review_tickets = list(
+        self._snn_sleep_plasticity_review_tickets = (
             terminus_state.get("snn_sleep_plasticity_review_tickets") or []
         )
-        self._snn_sleep_plasticity_scheduler_design_review_tickets = list(
+        self._snn_sleep_plasticity_scheduler_design_review_tickets = (
             terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets") or []
         )
-        self._snn_sleep_plasticity_review_scheduler_installations = list(
+        self._snn_sleep_plasticity_review_scheduler_installations = (
             terminus_state.get("snn_sleep_plasticity_review_scheduler_installations") or []
         )
-        self._snn_transition_memory_replay_artifacts = list(
+        self._snn_transition_memory_replay_artifacts = (
             terminus_state.get("snn_transition_memory_replay_artifacts") or []
         )
         self._delayed_consequence_records = deque(

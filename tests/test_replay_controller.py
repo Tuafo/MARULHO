@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from marulho.service.replay_runtime import (
+    DEFAULT_REPLAY_SAMPLE_HISTORY,
+    REPLAY_RESTORE_SOURCE_WINDOW_SURFACE,
     SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
     SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
     SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
@@ -99,6 +101,17 @@ class _FakeReplayManager:
 class _IterationBlockedContexts:
     def __iter__(self):  # type: ignore[no-untyped-def]
         raise AssertionError("verified context lookup must use the controller index")
+
+
+class _CountingIterable:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._rows = rows
+        self.iterated_count = 0
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        for row in self._rows:
+            self.iterated_count += 1
+            yield row
 
 
 def _replay_controller(manager: _FakeReplayManager, **kwargs: object) -> ReplayController:
@@ -367,6 +380,71 @@ class ReplayControllerTests(unittest.TestCase):
 
         self.assertIs(controller.history, history)
         self.assertEqual(history[0]["replay_sample_id"], "replay-sample-1")
+
+    def test_replay_state_restore_uses_bounded_source_window_before_normalization(self) -> None:
+        manager = _FakeReplayManager()
+        records = [
+            {
+                "schema_version": 1,
+                "replay_sample_id": f"replay-sample-{index:04d}",
+                "mode": "sample",
+                "status": "recorded",
+                "selected_candidate_ids": [f"candidate-{index:04d}"],
+                "selected_candidates": [],
+                "safety_flags": {"audit_only": True, "operator_confirmed": True},
+            }
+            for index in range(DEFAULT_REPLAY_SAMPLE_HISTORY + 17)
+        ]
+        source = _CountingIterable(records)
+
+        controller = _replay_controller(manager, replay_sample_history=source)
+
+        self.assertEqual(source.iterated_count, DEFAULT_REPLAY_SAMPLE_HISTORY)
+        self.assertEqual(len(controller.history), DEFAULT_REPLAY_SAMPLE_HISTORY)
+        self.assertEqual(controller.history[0]["replay_sample_id"], "replay-sample-0000")
+        self.assertEqual(
+            controller.history[-1]["replay_sample_id"],
+            f"replay-sample-{DEFAULT_REPLAY_SAMPLE_HISTORY - 1:04d}",
+        )
+        report = controller.replay_restore_source_window_report()
+        self.assertEqual(report["surface"], REPLAY_RESTORE_SOURCE_WINDOW_SURFACE)
+        self.assertFalse(report["full_retained_materialization"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["runs_every_token"])
+        self.assertFalse(report["gpu_used"])
+        self.assertFalse(report["language_reasoning"])
+        field = report["fields"]["replay_sample_history"]
+        self.assertEqual(field["source_window_inspected_count"], DEFAULT_REPLAY_SAMPLE_HISTORY)
+        self.assertEqual(field["normalized_count"], DEFAULT_REPLAY_SAMPLE_HISTORY)
+        self.assertFalse(field["source_record_count_known"])
+        self.assertFalse(field["normalizes_full_retained_state"])
+        self.assertTrue(field["indexes_only_restored_window"])
+
+    def test_replay_state_restore_reports_truncated_checkpoint_sequences(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        records = [
+            {
+                "schema_version": 1,
+                "replay_sample_id": f"replay-sample-{index:04d}",
+                "mode": "sample",
+                "status": "recorded",
+                "selected_candidate_ids": [f"candidate-{index:04d}"],
+                "selected_candidates": [],
+                "safety_flags": {"audit_only": True, "operator_confirmed": True},
+            }
+            for index in range(DEFAULT_REPLAY_SAMPLE_HISTORY + 3)
+        ]
+
+        controller.history = records
+
+        report = controller.replay_restore_source_window_report()
+        field = report["fields"]["replay_sample_history"]
+        self.assertTrue(field["source_record_count_known"])
+        self.assertEqual(field["source_record_count"], DEFAULT_REPLAY_SAMPLE_HISTORY + 3)
+        self.assertTrue(field["source_window_truncated"])
+        self.assertEqual(field["source_truncated_count"], 3)
+        self.assertEqual(len(controller.history), DEFAULT_REPLAY_SAMPLE_HISTORY)
 
     def test_snn_transition_memory_replay_artifact_setter_preserves_existing_deque_reference_and_drops_raw_artifacts(self) -> None:
         manager = _FakeReplayManager()

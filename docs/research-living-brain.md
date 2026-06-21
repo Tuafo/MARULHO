@@ -4,6 +4,36 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Replay restore source-window note, June 2026: modern-Hopfield-style recall,
+  CLS, continual replay, synaptic tagging/capture, and sparse replay all keep
+  restore-time replay state as selected evidence, not as permission to
+  normalize every retained checkpoint record before applying the controller
+  retention budget. MARULHO therefore retires the full-materialized
+  replay-controller restore shape: `ReplayController` now emits
+  `bounded_replay_restore_source_window.v1` and slices replay sample history,
+  regeneration permits, replay-evaluation contexts, review tickets, scheduler
+  installations, and transition-memory replay artifacts to their retention
+  limits before normalization, indexing, or evaluated-artifact validation.
+  `MarulhoServiceManager` and `RuntimePersistence` no longer add extra full
+  `list(...)` copies around those replay fields on restore. The benchmark
+  `reports/bounded_replay_window_20260620/replay-restore-source-window.json`
+  used `65536` records in each of eight replay restore fields and passed with
+  latest-window parity against a benchmark-local retired full-materialized
+  diagnostic: bounded restore inspected `656` records instead of `524288`
+  (`799.219512x` less source work), averaged `15.600729 ms` versus
+  `6605.339529 ms` (`423.399426x`), restored `64` valid evaluated artifacts,
+  used `0.581783 MiB` traced Python peak, kept CUDA allocation/reservation at
+  `0.0 MiB`, and reported no live tick, no every-token work, no raw replay
+  text, no hidden language reasoning, no mutation/plasticity, and no
+  GPU-resident archival metadata. The accepted `524288`-token protection rerun
+  `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json`
+  stayed in band at `5945.577 tokens/sec`, p95 `22.062 ms`,
+  `train_compute=0.136201 ms/token`, `prepare_training=0.007152 ms/token`,
+  `finalize_total=0.006825 ms/token`, bounded `12/65536` route rows,
+  `65526` cached transition rows, no observed contention, RTX 3060 memory
+  `2061->2062 MiB`, and zero graph/native sequence failures. A first same-shape
+  run succeeded at `5904.020 tokens/sec` but is secondary because velocity
+  observed GPU contention at `22%`.
 - Explicit replay-entry text payload note, June 2026: modern-Hopfield-style recall can rank bounded tensor traces, but CLS/replay/tagging evidence does not justify a raw-text replay payload as the default memory operator. `DualMemoryStore.replay_entry(...)` is now tensor-only unless the caller explicitly passes `include_text_payload=True`; query, source-bank, and context readout opt in only after bounded candidate/returned-match selection. The benchmark `reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json` used a `65536`-entry store and passed `explicit_replay_entry_text_payload_opt_in.v1`: default replay-entry reads loaded `0/192` raw text payloads, explicit opt-in loaded `192/192`, and bounded query readout loaded `5` returned-match payloads with no global candidate/score scan, no live tick, no every-token cadence, CPU archival placement, and `language_reasoning=false`. The paired `524288`-token protection run `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json` stayed in band at `5993.863 tokens/sec`, `tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded `12/65536` route rows, RTX 3060 memory `1878->1879 MiB`, no observed contention, and zero graph/native sequence failures.
 - Replay-sample single-path note, June 2026: modern-Hopfield-style recall, CLS, continual replay, synaptic tagging/capture, and sparse replay all argue for named slow-path windows with visible authority boundaries. MARULHO therefore retires the audit-only `/terminus/replay-execute` alias, `mode="execute"`, `execution_id`, and `replay_executor_summary` projection instead of preserving a second execution-shaped surface beside `POST /terminus/replay-sample`. The maintained sampler exposes only `dry_run` and `sample`, normalizes old execute-shaped records to `sample`, returns 404 for the retired alias, and carries one bounded `replay_sample_summary` with CPU archival placement, no raw replay text, no hidden language reasoning, no live-tick/every-token work, and no training/plasticity/action side effects. `reports/bounded_replay_window_20260620/replay-sample-single-path-service-benchmark.json` passed with no `replay_executor_summary` and replay-sample history latency `4.798 ms`; `reports/bounded_replay_window_20260620/replay-dataset-source-window-replay-sample-single-path.json` preserved `50/50` dataset target/link parity with canonical `sample` records; and `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json` stayed in band at `5951.781 tokens/sec`, p95 `21.962 ms`, `train_compute=0.136320 ms/token`, bounded `12/65536` route rows, zero graph/native sequence failures, no observed contention, CPU max `38%`, GPU max `14%`, and RTX 3060 memory `1894->1881 MiB`.
 - Sleep-plasticity ticket queue source-window note, June 2026: modern-Hopfield-style recall, CLS, continual replay, synaptic tagging/capture, and sparse replay support replay and consolidation as selected slow windows, not retained-history scans before every scheduler/autonomy proposal. MARULHO therefore bounds `snn_sleep_plasticity_review_ticket_queue(...)` and `snn_sleep_plasticity_scheduler_design_review_ticket_queue(...)` to the newest `16` retained records while reporting `retained_count` separately. The focused benchmark `reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json` passed with `16/64` inspected records on both queues, latest verified tickets matching diagnostic full-retained scans, `4x` less source work, mean bounded latency `3.326372 ms` for sleep tickets and `201.999864 ms` for scheduler-design tickets, CPU archival/score placement, `0.072 MiB` traced Python peak, CUDA available but unused (`0.0 MiB` allocated/reserved), no global candidate/score scan, no live tick, no every-token cadence, and no hidden language reasoning. The paired `524288`-token protection run `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json` stayed in the 6k-ish band at `5997.714 tokens/sec`, p95 `21.621 ms`, `train_compute=0.135466 ms/token`, bounded `12/65536` route rows, zero graph/native sequence failures, CPU max `32%`, GPU max `20%`, and RTX 3060 memory `1779->1780 MiB`.

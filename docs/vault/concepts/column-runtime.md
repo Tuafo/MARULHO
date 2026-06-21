@@ -22,6 +22,9 @@ related_code:
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py
   - ../../../src/marulho/service/status_read_model.py
+  - ../../../src/marulho/service/replay_runtime.py
+  - ../../../src/marulho/service/manager.py
+  - ../../../src/marulho/service/persistence.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/training/model.py
   - ../../../src/marulho/training/trainer.py
@@ -30,6 +33,7 @@ related_code:
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -50,6 +54,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/sleep-plasticity-ticket-queue-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json
+  - reports/bounded_replay_window_20260620/replay-restore-source-window.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-restore-source-window-rerun.json
 ---
 
 # Column Runtime
@@ -1666,3 +1672,30 @@ hot-path run
 `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-sample-single-path.json`
 stayed in band at `5951.781 tokens/sec` with bounded `12/65536` route rows,
 `65526` cached rows, and zero graph/native sequence failures.
+
+## Replay Restore Source Window
+
+Replay checkpoint restore now enters the column-runtime replay queues through
+one bounded controller-owned source window. `ReplayController` slices persisted
+replay histories, permits, evaluation contexts, review tickets, scheduler
+installations, and transition-memory replay artifacts to their retention
+budgets before normalization, index rebuild, or evaluated-artifact validation.
+That makes restore/reload a slow-path CPU metadata boundary rather than a
+full-retained replay-history materializer.
+
+The focused report
+`reports/bounded_replay_window_20260620/replay-restore-source-window.json`
+passed with `656` inspected restore records versus `524288` in the
+benchmark-local retired model, latest-window parity, `64` valid evaluated
+artifacts restored, `423.399426x` lower mean latency, `0.581783 MiB` Python
+traced peak, and `0.0 MiB` CUDA allocation/reservation. Runtime Truth reports
+`bounded_replay_restore_source_window.v1`, CPU archival/source placement, no
+live tick, no every-token work, no replay text reasoning, no mutation/plasticity,
+and no GPU-resident archival metadata.
+
+The accepted `524288`-token protection rerun stayed in the maintained band at
+`5945.577 tokens/sec`, p95 `22.062 ms`, `train_compute=0.136201 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, no observed contention, flat RTX
+3060 memory `2061->2062 MiB`, and zero graph/native sequence failures. This is
+hot-path protection for the restore cleanup, not a new speed ceiling.

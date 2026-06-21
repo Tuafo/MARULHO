@@ -214,26 +214,30 @@ class MarulhoServiceManager:
                 runtime_trace_export_safe_value=lambda value: RuntimeEvidenceReporter._runtime_trace_export_safe_value(self, value),
                 trainer=lambda: self._trainer,
             ),
-            replay_sample_history=list(terminus_state.get("replay_sample_history") or []),
-            regeneration_permits=list(terminus_state.get("replay_regeneration_permits") or []),
-            snn_replay_evaluation_contexts=list(
-                terminus_state.get("snn_replay_evaluation_contexts") or []
-            ),
-            snn_replay_artifact_recording_review_tickets=list(
-                terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
-            ),
-            snn_sleep_plasticity_review_tickets=list(
-                terminus_state.get("snn_sleep_plasticity_review_tickets") or []
-            ),
-            snn_sleep_plasticity_scheduler_design_review_tickets=list(
-                terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets") or []
-            ),
-            snn_sleep_plasticity_review_scheduler_installations=list(
-                terminus_state.get("snn_sleep_plasticity_review_scheduler_installations") or []
-            ),
-            snn_transition_memory_replay_artifacts=list(
-                terminus_state.get("snn_transition_memory_replay_artifacts") or []
-            ),
+            replay_sample_history=terminus_state.get("replay_sample_history") or [],
+            regeneration_permits=terminus_state.get("replay_regeneration_permits") or [],
+            snn_replay_evaluation_contexts=terminus_state.get("snn_replay_evaluation_contexts")
+            or [],
+            snn_replay_artifact_recording_review_tickets=terminus_state.get(
+                "snn_replay_artifact_recording_review_tickets"
+            )
+            or [],
+            snn_sleep_plasticity_review_tickets=terminus_state.get(
+                "snn_sleep_plasticity_review_tickets"
+            )
+            or [],
+            snn_sleep_plasticity_scheduler_design_review_tickets=terminus_state.get(
+                "snn_sleep_plasticity_scheduler_design_review_tickets"
+            )
+            or [],
+            snn_sleep_plasticity_review_scheduler_installations=terminus_state.get(
+                "snn_sleep_plasticity_review_scheduler_installations"
+            )
+            or [],
+            snn_transition_memory_replay_artifacts=terminus_state.get(
+                "snn_transition_memory_replay_artifacts"
+            )
+            or [],
         )
         self._delayed_consequence = DelayedConsequenceTracker(
             DelayedConsequenceDependencies(
