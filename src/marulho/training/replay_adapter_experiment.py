@@ -103,7 +103,6 @@ def _replay_safety_flags(report: Mapping[str, Any]) -> dict[str, Any]:
     for key in (
         "replay_dataset_summary",
         "replay_dataset_bundle_summary",
-        "replay_executor_summary",
         "replay_sample_summary",
     ):
         value = report.get(key)

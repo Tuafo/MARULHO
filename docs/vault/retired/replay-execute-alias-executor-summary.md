@@ -6,6 +6,7 @@ related_code:
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/living_status.py
   - ../../../src/marulho/service/runtime_evidence.py
+  - ../../../src/marulho/training/replay_adapter_experiment.py
 related_docs:
   - ../../retired-paths.md
   - ../../../CONTEXT.md
@@ -33,6 +34,9 @@ Old execute-shaped records normalize to `sample`; production summaries expose
 only `dry_run` and `sample` modes. Runtime/export/benchmark evidence carries
 one bounded summary surface:
 `bounded_replay_sample_summary_source_window.v1`.
+Offline replay-adapter comparison also ignores the old
+`replay_executor_summary` key and reads safety flags from replay dataset,
+bundle, Runtime Truth, or `replay_sample_summary` evidence only.
 
 ## Evidence
 
