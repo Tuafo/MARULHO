@@ -894,7 +894,8 @@ class TestPredictiveColumnsInTrainer:
             column_latent_dim=4,
             bootstrap_tokens=0,
             memory_capacity=16,
-            slow_memory_archive_interval_tokens=1,
+            slow_memory_archive_interval_tokens=10**9,
+            slow_memory_archive_strong_capture_threshold=0.0,
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
@@ -958,7 +959,7 @@ class TestPredictiveColumnsInTrainer:
         assert "metrics_build_skipped" in report["per_tick_ms"]
         assert "metrics_build" in report["per_tick_ms"]
 
-    def test_trainer_cadences_slow_memory_archival(self):
+    def test_trainer_defers_fixed_cadence_slow_memory_archival(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
@@ -981,13 +982,15 @@ class TestPredictiveColumnsInTrainer:
                 raw_window=f"memory cadence {step}",
             )
 
-        assert model.memory_store.update_calls == 2
+        assert model.memory_store.update_calls == 1
         assert metrics["slow_memory_archive_interval_tokens"] == 3
-        assert metrics["slow_memory_archive_count"] == 2
-        assert metrics["slow_memory_archive_skip_count"] == 3
+        assert metrics["slow_memory_archive_count"] == 1
+        assert metrics["slow_memory_archive_skip_count"] == 4
+        assert metrics["slow_memory_cadence_deferred_count"] == 1
+        assert metrics["slow_memory_last_deferred_cadence_token"] == 3
         assert metrics["slow_memory_archive_reason"] == "cadence_skip"
 
-    def test_trainer_cadences_awake_ripple_tagging_with_archive(self):
+    def test_trainer_defers_fixed_cadence_awake_ripple_tagging_without_archive(self):
         from marulho.config.model_config import MarulhoConfig
         from marulho.training.model import MarulhoModel
         from marulho.training.trainer import MarulhoTrainer
@@ -1014,11 +1017,13 @@ class TestPredictiveColumnsInTrainer:
 
         assert model.memory_store.ripple_scalar_scan_count == 0
         assert model.memory_store.ripple_vector_scan_count == 0
-        assert model.memory_store.ripple_awake_bucket_scan_count == 2
+        assert model.memory_store.ripple_awake_bucket_scan_count == 1
         assert model.memory_store.last_ripple_scan_mode == "awake_bucket_index"
-        assert metrics["awake_ripple_tag_count"] == 2
-        assert metrics["awake_ripple_tag_skip_count"] == 3
+        assert metrics["awake_ripple_tag_count"] == 1
+        assert metrics["awake_ripple_tag_skip_count"] == 4
         assert metrics["awake_ripple_last_reason"] == "cadence_skip"
+        assert metrics["slow_memory_cadence_deferred_count"] == 1
+        assert metrics["slow_memory_last_deferred_cadence_token"] == 3
 
     def test_trainer_delays_candidate_scoped_predictive_updates(self):
         from marulho.config.model_config import MarulhoConfig

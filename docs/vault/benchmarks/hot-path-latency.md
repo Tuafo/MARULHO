@@ -18,6 +18,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
+  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
@@ -54,6 +55,10 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
   - reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-raw-replay-artifact-recorder-retired.json
+  - reports/bounded_replay_window_20260620/slow-memory-fixed-cadence-admission-retired.json
+  - reports/bounded_replay_window_20260620/strong-capture-admission-cadence-after-fixed-cadence-retirement.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -4016,6 +4021,37 @@ velocity sampler observed contention, CPU max `32%`, GPU max `28%`, GPU
 memory-util max `22%`, and RTX 3060 memory moved only `1863->1865 MiB`. This
 confirms that deleting the raw caller-window artifact recorder did not push the
 current 6k-ish live-tick band down; it is not a new speed ceiling.
+
+The fixed-cadence slow-memory admission retirement protection runs were:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The first run succeeded at `5758.051 tokens/sec` with no observed contention
+but is rejected as primary evidence because it fell below the maintained
+6k-ish band. It still kept `train_compute=0.140847 ms/token`,
+`prepare_training=0.007262 ms/token`, `finalize_total=0.006773 ms/token`,
+bounded `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`,
+and zero graph/native sequence failures, so it is retained as same-code
+variance evidence.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The accepted rerun processed `524288` tokens at `6043.321 tokens/sec`, with
+`train_compute=0.134537 ms/token`, `prepare_training=0.007011 ms/token`,
+`finalize_total=0.006472 ms/token`, `tick_duration_ms.p95=21.354`, and prewarm
+`268.079 s`. Runtime Truth stayed bounded at
+`route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. The run recorded
+`slow_memory_cadence_deferred_count=2048`,
+`last_slow_memory_cadence_token=524288`, and
+`slow_memory_cadence_execution_gate=false`, proving cadence became a deferred
+maintenance signal rather than a live slow-memory write. Graph, native burst,
+and native sequence failures were all `0`; conditional-WHILE q16 remained
+active. The velocity sampler observed borderline GPU contention at the
+configured threshold, CPU max `30%`, GPU max `20%`, GPU memory-util max `21%`,
+and RTX 3060 memory stayed flat at `1958 MiB`. This is same-band hot-path
+protection after deleting fixed-cadence admission, not a speed-ceiling claim.
 
 The dense-label calibration source-window protection run was:
 

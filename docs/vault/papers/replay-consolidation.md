@@ -17,6 +17,8 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
+  - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
+  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -97,6 +99,10 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
   - reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-raw-replay-artifact-recorder-retired.json
+  - reports/bounded_replay_window_20260620/slow-memory-fixed-cadence-admission-retired.json
+  - reports/bounded_replay_window_20260620/strong-capture-admission-cadence-after-fixed-cadence-retirement.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1460,6 +1466,29 @@ at `6100.415 tokens/sec` with `train_compute=0.133405 ms/token`, bounded
 observed GPU contention keeps it as hot-path protection evidence rather than a
 clean speed ceiling.
 
+Fixed-cadence slow-memory admission is now retired as an executable
+per-token fallback. The maintained path archives only the first retained token
+and selected strong captures; ordinary `slow_memory_archive_interval_tokens`
+hits record `cadence_deferred` in the cognitive boundary controller and do not
+call `DualMemoryStore.update(...)`. The retirement benchmark
+`reports/bounded_replay_window_20260620/slow-memory-fixed-cadence-admission-retired.json`
+kept the first-token record, produced `1` bounded archive versus `17` retired
+fixed-cadence writes over `256` tokens (`17x` less archival write work), kept
+the slow-memory fixed-cadence execution gate closed, reported CPU archival
+placement, and performed no active replay computation, global scan, raw-text
+reasoning, or hidden language reasoning. The refreshed strong-capture report
+`reports/bounded_replay_window_20260620/strong-capture-admission-cadence-after-fixed-cadence-retirement.json`
+still archived `17` selected strong captures versus `256` retired every-strong
+writes (`15.058824x`), so useful STC-like selection remains available without
+fixed-cadence writes. The first same-code `524288`-token run after retirement
+is retained as below-band variance at `5758.051 tokens/sec`; the accepted rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json`
+stayed in the maintained band at `6043.321 tokens/sec`,
+`train_compute=0.134537 ms/token`, bounded `12/65536` route rows, `65526`
+cached rows, `2048` deferred cadence hits, zero graph/native sequence failures,
+and flat RTX 3060 memory at `1958 MiB`. Borderline GPU contention makes this
+protection evidence, not a new speed ceiling.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -1488,7 +1517,8 @@ bounded checkpointed application synapse windows,
 bounded rollout-regeneration facade candidate windows,
 bounded readout-ledger rollout candidate windows,
 bounded dense-readout training transition windows,
-strong-capture admission cadence, awake-ripple tagging, and retired unscoped
+strong-capture admission cadence, fixed-cadence slow-memory admission
+retirement, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and

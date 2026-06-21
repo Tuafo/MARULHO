@@ -20,6 +20,7 @@ related_code:
   - ../../../src/marulho/evaluation/dense_readout_training_transition_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
+  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
@@ -105,6 +106,10 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-priority-source-window-binding-rerun.json
   - reports/bounded_replay_window_20260620/snn-replay-artifact-raw-recorder-retired.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-raw-replay-artifact-recorder-retired.json
+  - reports/bounded_replay_window_20260620/slow-memory-fixed-cadence-admission-retired.json
+  - reports/bounded_replay_window_20260620/strong-capture-admission-cadence-after-fixed-cadence-retirement.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1848,6 +1853,63 @@ all `0`, and RTX 3060 memory stayed flat at `2390 MiB`. The rerun also
 succeeded at `5326.602 tokens/sec`, but included a `12435 ms` max tick outlier
 and observed GPU contention, so it is retained as variance evidence rather
 than promotion evidence.
+
+The fixed-cadence slow-memory admission follow-up removes the remaining
+per-token fallback archive trigger. Fixed cadence now records deferred
+maintenance evidence through the cognitive boundary controller; it does not
+call `DualMemoryStore.update(...)`, does not tag awake ripple entries, and does
+not materialize raw replay text. First-token retained/fallback admission and
+bounded strong-capture admission remain the only live archive writes.
+
+The focused benchmark was:
+
+`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260620\slow-memory-fixed-cadence-admission-retired.json`
+
+It passed with `1` bounded archive versus `17` retired fixed-cadence writes
+over `256` tokens, a `17x` archival-write reduction. First-token retention was
+intact, strong-capture counters stayed zero in the non-strong case, deferred
+cadence count was `16`, and the fixed-cadence execution gate was closed.
+Archival placement stayed CPU-resident, active replay computation was `none`,
+CUDA allocation/reservation stayed `0.0 MiB`, and the report states no global
+candidate scan, no global score scan, no every-token slow-memory admission, and
+no hidden language reasoning.
+
+The refreshed strong-capture regression benchmark was:
+
+`python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260620\strong-capture-admission-cadence-after-fixed-cadence-retirement.json`
+
+It still passed with `17` bounded strong-capture archives versus `256` retired
+every-strong writes (`15.058824x` write reduction), proving the selected
+STC-like path remains after fixed cadence was removed.
+
+The first 65536-column protection run after the change was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It succeeded at `5758.051 tokens/sec` with no observed contention, but is
+rejected as primary throughput evidence because it fell below the maintained
+6k-ish band. Stage costs were still comparable
+(`train_compute=0.140847 ms/token`, `prepare_training=0.007262 ms/token`,
+`finalize_total=0.006773 ms/token`), bounded route scoring stayed at
+`12/65536`, cached transition rows stayed at `65526`, and graph/native
+sequence failures were `0`.
+
+The accepted rerun was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6043.321 tokens/sec`, with
+`train_compute=0.134537 ms/token`, `prepare_training=0.007011 ms/token`,
+`finalize_total=0.006472 ms/token`, and `tick_duration_ms.p95=21.354`.
+Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`. The run recorded
+`slow_memory_cadence_deferred_count=2048`,
+`last_slow_memory_cadence_token=524288`,
+`slow_memory_cadence_execution_gate=false`, no graph/native sequence failures,
+and flat RTX 3060 memory at `1958 MiB`. The sampler observed borderline GPU
+contention at the configured threshold, so this is same-band hot-path
+protection evidence rather than a clean speed-ceiling claim.
 
 The readout-ledger snapshot follow-up retires the broad
 snapshot-through-normalizer shape. `SNNLanguageReadoutEvidenceLedger.snapshot`

@@ -3965,9 +3965,6 @@ class MarulhoTrainer:
             if next_token == 1:
                 slow_memory_archive_due = True
                 slow_memory_archive_reason = "first_token"
-            elif next_token % slow_memory_archive_interval == 0:
-                slow_memory_archive_due = True
-                slow_memory_archive_reason = "cadence"
             elif strong_capture_candidate:
                 if self._slow_memory_strong_capture_allowed(next_token):
                     slow_memory_archive_due = True
@@ -3975,6 +3972,11 @@ class MarulhoTrainer:
                 else:
                     self._slow_memory_strong_capture_refractory_skip_count += 1
                     slow_memory_archive_reason = "strong_capture_refractory_skip"
+            elif next_token % slow_memory_archive_interval == 0:
+                slow_memory_archive_reason = "cadence_deferred"
+                self._cognitive_boundary_controller.record_slow_memory_cadence_deferred(
+                    token=next_token,
+                )
             else:
                 slow_memory_archive_reason = "cadence_skip"
         if profile_enabled:
@@ -4005,9 +4007,7 @@ class MarulhoTrainer:
                 capture_tag=capture_tag,
             )
             self._slow_memory_archive_count += 1
-            if slow_memory_archive_reason == "strong_capture" or (
-                slow_memory_archive_reason == "cadence" and strong_capture_candidate
-            ):
+            if slow_memory_archive_reason == "strong_capture":
                 self._record_slow_memory_strong_capture_archive(next_token)
         elif self.memory_warm_started:
             self._slow_memory_archive_skip_count += 1
@@ -4344,6 +4344,17 @@ class MarulhoTrainer:
         metrics["slow_memory_archive_count"] = int(self._slow_memory_archive_count)
         metrics["slow_memory_archive_skip_count"] = int(
             self._slow_memory_archive_skip_count
+        )
+        metrics["slow_memory_cadence_deferred_count"] = int(
+            self._cognitive_boundary_controller.slow_memory_cadence_deferred_count
+        )
+        last_deferred_cadence_token = (
+            self._cognitive_boundary_controller.last_slow_memory_cadence_token
+        )
+        metrics["slow_memory_last_deferred_cadence_token"] = (
+            None
+            if last_deferred_cadence_token is None
+            else int(last_deferred_cadence_token)
         )
         metrics["slow_memory_strong_capture_min_interval_tokens"] = int(
             self._slow_memory_strong_capture_min_interval_tokens()
