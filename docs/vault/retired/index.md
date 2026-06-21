@@ -18,6 +18,7 @@ related_benchmarks: []
 - [Autonomous Output Chain Broad Ledger Normalization](autonomous-output-chain-broad-ledger-normalization.md)
 - [Autonomous Text Surface Broad Ledger Normalization](autonomous-text-surface-broad-ledger-normalization.md)
 - [Autonomous Training Probe Broad Ledger Normalization](autonomous-training-probe-broad-ledger-normalization.md)
+- [Bucket Consolidation Level Full Scan](bucket-consolidation-level-full-scan.md)
 - [Compiled Column Kernel Benchmark](compiled-column-kernel-benchmark.md)
 - [Compiled Predictive Dense Transition](compiled-predictive-dense-transition.md)
 - [Dense Label Calibration Update Broad Ledger Normalization](dense-label-calibration-update-broad-ledger-normalization.md)

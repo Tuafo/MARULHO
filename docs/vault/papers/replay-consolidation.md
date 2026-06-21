@@ -24,6 +24,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
+  - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -114,6 +115,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -341,6 +344,24 @@ stayed in band at `6022.776 tokens/sec`, `tick_duration_ms.p95=21.373`,
 3060 memory at `1967 MiB`. The velocity sampler flagged pre-run GPU utilization
 at `25%`, so this is same-band protection evidence rather than a clean speed
 ceiling.
+
+Bucket-level consolidation pressure now uses the same bounded accounting.
+`DualMemoryStore.bucket_consolidation_level(...)` no longer recomputes a single
+winner bucket by scanning every slow-memory entry. Live scalar reads use the
+maintained CPU bucket cache and report
+`bucket_consolidation_level_cache_lookup.v1` with `full_memory_scan=false` and
+`scan_entry_count=0`; if the cache is absent, the scalar API returns a no-scan
+miss instead of rebuilding. Explicit `bucket_consolidation_tensor(...)`
+rebuilds remain load/capture/offline or selected-replay recovery work. The benchmark
+`reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
+matched the retired scalar scan for a `65536`-entry store while reducing mean
+latency from `12.999192 ms` to `0.016260 ms`. The paired `524288`-token
+hot-path run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json`
+stayed same-band at `5967.267 tokens/sec`, `tick_duration_ms.p95=22.005`,
+`train_compute=0.135870 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, zero graph/native sequence failures, and RTX 3060
+memory `1963->1964 MiB`; velocity again observed a `25%` pre-run GPU sample.
 
 After the micro-maintenance cleanup, the current synthetic report
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

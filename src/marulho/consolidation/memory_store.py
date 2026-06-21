@@ -80,6 +80,20 @@ class DualMemoryStore:
         self._bucket_consolidation_weight_sum: Optional[torch.Tensor] = None
         self._bucket_consolidation_devices: dict[str, torch.Tensor] = {}
         self._bucket_consolidation_cache_generation = 0
+        self.bucket_consolidation_cache_rebuild_count = 0
+        self.bucket_consolidation_cache_rebuild_scan_entry_count = 0
+        self.bucket_consolidation_level_cache_lookup_count = 0
+        self.bucket_consolidation_level_cache_miss_count = 0
+        self.last_bucket_consolidation_level_report = {
+            "surface": "bucket_consolidation_level_cache_lookup.v1",
+            "status": "not_run",
+            "bucket_id": None,
+            "level": 0.0,
+            "cache_hit": False,
+            "full_memory_scan": False,
+            "scan_entry_count": 0,
+            "cache_generation": 0,
+        }
         self._bucket_entry_indices: defaultdict[int, list[int]] = defaultdict(list)
         self._recent_entry_indices: list[tuple[int, int]] = []
 
@@ -453,6 +467,92 @@ class DualMemoryStore:
         self._bucket_consolidation_weighted_sum = None
         self._bucket_consolidation_weight_sum = None
         self._bucket_consolidation_devices = {}
+
+    def _ensure_bucket_consolidation_cache_size(self, n_buckets: int) -> None:
+        size = max(0, int(n_buckets))
+        current = 0 if self._bucket_consolidation_cpu is None else int(
+            self._bucket_consolidation_cpu.numel()
+        )
+        if current >= size:
+            return
+        next_cpu = torch.zeros(size, dtype=torch.float32)
+        next_weighted = torch.zeros(size, dtype=torch.float32)
+        next_weight = torch.zeros(size, dtype=torch.float32)
+        if self._bucket_consolidation_cpu is not None and current > 0:
+            next_cpu[:current].copy_(self._bucket_consolidation_cpu)
+        if self._bucket_consolidation_weighted_sum is not None and current > 0:
+            next_weighted[:current].copy_(self._bucket_consolidation_weighted_sum)
+        if self._bucket_consolidation_weight_sum is not None and current > 0:
+            next_weight[:current].copy_(self._bucket_consolidation_weight_sum)
+        self._bucket_consolidation_cpu = next_cpu
+        self._bucket_consolidation_weighted_sum = next_weighted
+        self._bucket_consolidation_weight_sum = next_weight
+        next_devices: dict[str, torch.Tensor] = {"cpu": next_cpu}
+        for key, cached in list(self._bucket_consolidation_devices.items()):
+            if key == "cpu":
+                continue
+            next_cached = torch.zeros(size, dtype=torch.float32, device=cached.device)
+            if current > 0:
+                next_cached[:current].copy_(cached[:current])
+            next_devices[key] = next_cached
+        self._bucket_consolidation_devices = next_devices
+        self._bucket_consolidation_cache_generation += 1
+
+    def _rebuild_bucket_consolidation_cache(
+        self,
+        *,
+        n_buckets: int | None = None,
+        reason: str = "explicit_rebuild",
+    ) -> None:
+        if n_buckets is None:
+            observed = [
+                int(bucket_id)
+                for bucket_id in self.slow_bucket_ids
+                if bucket_id is not None and int(bucket_id) >= 0
+            ]
+            size = 0 if not observed else max(observed) + 1
+        else:
+            size = max(0, int(n_buckets))
+        weighted_sum = torch.zeros(size, dtype=torch.float32)
+        weight_sum = torch.zeros(size, dtype=torch.float32)
+        scan_count = 0
+        for bucket_id, importance, consolidation in zip(
+            self.slow_bucket_ids,
+            self.slow_importance,
+            self.slow_consolidation_level,
+        ):
+            scan_count += 1
+            if bucket_id is None:
+                continue
+            bucket = int(bucket_id)
+            if 0 <= bucket < size:
+                weight = max(1e-6, float(importance))
+                weighted_sum[bucket] += (
+                    weight * max(0.0, min(1.0, float(consolidation)))
+                )
+                weight_sum[bucket] += weight
+        snapshot = weighted_sum / weight_sum.clamp(min=1e-8)
+        snapshot = torch.where(
+            weight_sum > 0.0,
+            snapshot,
+            torch.zeros_like(snapshot),
+        )
+        self._bucket_consolidation_cpu = snapshot
+        self._bucket_consolidation_weighted_sum = weighted_sum
+        self._bucket_consolidation_weight_sum = weight_sum
+        self._bucket_consolidation_devices = {"cpu": snapshot}
+        self.bucket_consolidation_cache_rebuild_count += 1
+        self.bucket_consolidation_cache_rebuild_scan_entry_count += int(scan_count)
+        self.last_bucket_consolidation_level_report = {
+            "surface": "bucket_consolidation_level_cache_lookup.v1",
+            "status": f"cache_rebuilt_{reason}",
+            "bucket_id": None,
+            "level": 0.0,
+            "cache_hit": False,
+            "full_memory_scan": True,
+            "scan_entry_count": int(scan_count),
+            "cache_generation": int(self._bucket_consolidation_cache_generation),
+        }
 
     @property
     def bucket_consolidation_cache_generation(self) -> int:
@@ -903,13 +1003,18 @@ class DualMemoryStore:
     ) -> None:
         if (
             bucket_id is None
-            or self._bucket_consolidation_cpu is None
-            or self._bucket_consolidation_weighted_sum is None
-            or self._bucket_consolidation_weight_sum is None
         ):
             return
         bucket = int(bucket_id)
-        if bucket < 0 or bucket >= int(self._bucket_consolidation_cpu.numel()):
+        if bucket < 0:
+            return
+        self._ensure_bucket_consolidation_cache_size(bucket + 1)
+        if (
+            self._bucket_consolidation_cpu is None
+            or self._bucket_consolidation_weighted_sum is None
+            or self._bucket_consolidation_weight_sum is None
+            or bucket >= int(self._bucket_consolidation_cpu.numel())
+        ):
             return
         weight = max(1e-6, float(importance))
         level = max(0.0, min(1.0, float(consolidation)))
@@ -935,6 +1040,29 @@ class DualMemoryStore:
             if key != "cpu":
                 cached[bucket] = value
 
+    def cached_bucket_consolidation_tensor(
+        self,
+        n_buckets: int,
+        *,
+        device: torch.device,
+    ) -> torch.Tensor | None:
+        size = max(0, int(n_buckets))
+        if self._bucket_consolidation_cpu is None:
+            return None
+        if int(self._bucket_consolidation_cpu.numel()) < size:
+            self._ensure_bucket_consolidation_cache_size(size)
+        if (
+            self._bucket_consolidation_cpu is None
+            or int(self._bucket_consolidation_cpu.numel()) != size
+        ):
+            return None
+        key = str(device)
+        cached = self._bucket_consolidation_devices.get(key)
+        if cached is None:
+            cached = self._bucket_consolidation_cpu.to(device)
+            self._bucket_consolidation_devices[key] = cached
+        return cached
+
     def bucket_consolidation_tensor(
         self,
         n_buckets: int,
@@ -948,32 +1076,10 @@ class DualMemoryStore:
             self._bucket_consolidation_cpu is None
             or int(self._bucket_consolidation_cpu.numel()) != size
         ):
-            weighted_sum = torch.zeros(size, dtype=torch.float32)
-            weight_sum = torch.zeros(size, dtype=torch.float32)
-            for bucket_id, importance, consolidation in zip(
-                self.slow_bucket_ids,
-                self.slow_importance,
-                self.slow_consolidation_level,
-            ):
-                if bucket_id is None:
-                    continue
-                bucket = int(bucket_id)
-                if 0 <= bucket < size:
-                    weight = max(1e-6, float(importance))
-                    weighted_sum[bucket] += (
-                        weight * max(0.0, min(1.0, float(consolidation)))
-                    )
-                    weight_sum[bucket] += weight
-            snapshot = weighted_sum / weight_sum.clamp(min=1e-8)
-            snapshot = torch.where(
-                weight_sum > 0.0,
-                snapshot,
-                torch.zeros_like(snapshot),
+            self._rebuild_bucket_consolidation_cache(
+                n_buckets=size,
+                reason="explicit_tensor_request",
             )
-            self._bucket_consolidation_cpu = snapshot
-            self._bucket_consolidation_weighted_sum = weighted_sum
-            self._bucket_consolidation_weight_sum = weight_sum
-            self._bucket_consolidation_devices = {"cpu": snapshot}
 
         key = str(device)
         cached = self._bucket_consolidation_devices.get(key)
@@ -1018,6 +1124,24 @@ class DualMemoryStore:
                 0
                 if self._bucket_consolidation_cpu is None
                 else int(self._bucket_consolidation_cpu.numel())
+            ),
+            "bucket_consolidation_cache_generation": int(
+                self._bucket_consolidation_cache_generation
+            ),
+            "bucket_consolidation_cache_rebuild_count": int(
+                self.bucket_consolidation_cache_rebuild_count
+            ),
+            "bucket_consolidation_cache_rebuild_scan_entry_count": int(
+                self.bucket_consolidation_cache_rebuild_scan_entry_count
+            ),
+            "bucket_consolidation_level_cache_lookup_count": int(
+                self.bucket_consolidation_level_cache_lookup_count
+            ),
+            "bucket_consolidation_level_cache_miss_count": int(
+                self.bucket_consolidation_level_cache_miss_count
+            ),
+            "last_bucket_consolidation_level_report": dict(
+                self.last_bucket_consolidation_level_report
             ),
             "stc_state_storage": "zero_copy_array_buffer",
             "stc_decay_zero_copy": True,
@@ -1277,32 +1401,46 @@ class DualMemoryStore:
 
     def bucket_consolidation_level(self, bucket_id: Optional[int]) -> float:
         if bucket_id is None or not self.slow_buffer:
+            self.last_bucket_consolidation_level_report = {
+                "surface": "bucket_consolidation_level_cache_lookup.v1",
+                "status": "empty_or_missing_bucket",
+                "bucket_id": None if bucket_id is None else int(bucket_id),
+                "level": 0.0,
+                "cache_hit": False,
+                "full_memory_scan": False,
+                "scan_entry_count": 0,
+                "cache_generation": int(self._bucket_consolidation_cache_generation),
+            }
             return 0.0
 
         bucket = int(bucket_id)
-        bucket_ids = self.slow_bucket_ids
-        importance = self.slow_importance
-        consolidation = self.slow_consolidation_level
-
-        weighted_sum = 0.0
-        total_weight = 0.0
-        for idx in range(len(bucket_ids)):
-            bid = bucket_ids[idx]
-            if bid is None or int(bid) != bucket:
-                continue
-            imp = importance[idx]
-            if imp < 1e-6:
-                imp = 1e-6
-            cl = consolidation[idx]
-            if cl < 0.0:
-                cl = 0.0
-            elif cl > 1.0:
-                cl = 1.0
-            weighted_sum += imp * cl
-            total_weight += imp
-        if total_weight <= 0.0:
+        self.bucket_consolidation_level_cache_lookup_count += 1
+        cache = self._bucket_consolidation_cpu
+        if cache is None or bucket < 0 or bucket >= int(cache.numel()):
+            self.bucket_consolidation_level_cache_miss_count += 1
+            self.last_bucket_consolidation_level_report = {
+                "surface": "bucket_consolidation_level_cache_lookup.v1",
+                "status": "cache_missing_no_scan",
+                "bucket_id": bucket,
+                "level": 0.0,
+                "cache_hit": False,
+                "full_memory_scan": False,
+                "scan_entry_count": 0,
+                "cache_generation": int(self._bucket_consolidation_cache_generation),
+            }
             return 0.0
-        return weighted_sum / total_weight
+        value = float(cache[bucket].item())
+        self.last_bucket_consolidation_level_report = {
+            "surface": "bucket_consolidation_level_cache_lookup.v1",
+            "status": "cache_hit",
+            "bucket_id": bucket,
+            "level": value,
+            "cache_hit": True,
+            "full_memory_scan": False,
+            "scan_entry_count": 0,
+            "cache_generation": int(self._bucket_consolidation_cache_generation),
+        }
+        return value
 
     def _consume_pools(self, idx: int, amount: float) -> float:
         required = float(max(0.0, amount))
@@ -3132,6 +3270,10 @@ class DualMemoryStore:
             return
 
         self._advance_state(current_token)
+        if self._bucket_consolidation_cpu is None and self.slow_buffer:
+            self._rebuild_bucket_consolidation_cache(
+                reason="selected_replay_window"
+            )
         replay_blend = float(max(0.0, blend))
         synthesis_level = float(max(0.0, protein_synthesis_level))
         replay_vectors: list[torch.Tensor] = []
@@ -3171,8 +3313,20 @@ class DualMemoryStore:
             delta = replay_blend * self.consolidation_rate * capture_drive * max(0.0, 1.0 - consolidation)
 
             if delta > 0.0:
-                self.slow_consolidation_level[idx] = float(min(1.0, consolidation + delta))
-                self._invalidate_bucket_consolidation_cache()
+                next_consolidation = float(min(1.0, consolidation + delta))
+                self._adjust_bucket_consolidation_cache(
+                    bucket_id,
+                    importance=importance,
+                    consolidation=consolidation,
+                    sign=-1.0,
+                )
+                self.slow_consolidation_level[idx] = next_consolidation
+                self._adjust_bucket_consolidation_cache(
+                    bucket_id,
+                    importance=importance,
+                    consolidation=next_consolidation,
+                    sign=1.0,
+                )
                 self.slow_consolidation_events[idx] += 1
                 release_factor = 1.0 - (1.0 - self.capture_release) * max(0.10, min(1.0, replay_blend))
                 self.slow_capture_tag[idx] = float(max(0.0, self.slow_capture_tag[idx] * release_factor))
@@ -3631,6 +3785,7 @@ class DualMemoryStore:
         ]
         self.slow_consolidation_level = [float(value) for value in _pad(snapshot.get("slow_consolidation_level"), 0.0, size)]
         self._invalidate_bucket_consolidation_cache()
+        self._rebuild_bucket_consolidation_cache(reason="load_state")
         self.slow_consolidation_events = [int(value) for value in _pad(snapshot.get("slow_consolidation_events"), 0, size)]
         self.slow_last_replay_token = _pad(snapshot.get("slow_last_replay_token"), None, size)
         self.slow_last_replay_token = [

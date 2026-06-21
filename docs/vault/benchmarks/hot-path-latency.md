@@ -22,6 +22,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
+  - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/retrieval/routing_index.py
@@ -69,6 +70,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -5085,4 +5088,31 @@ output candidates, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Prewarm took `327.237 s`; CPU max
 was `31%`; GPU max was `25%`, so velocity reported contention observed. RTX
 3060 memory stayed flat at `1967 MiB`, so this is same-band live-tick
+protection evidence, not a new throughput ceiling.
+
+## Bucket Consolidation Cache Lookup
+
+Winner/bucket consolidation scalar reads no longer rebuild a bucket level by
+scanning every slow-memory entry. Production reads use
+`bucket_consolidation_level_cache_lookup.v1` over the maintained CPU bucket
+cache and report `full_memory_scan=false`; missing cache state is a no-scan
+miss, while explicit tensor rebuilds remain load/capture/offline or
+selected-replay recovery work.
+
+The focused report
+`reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
+passed over `65536` entries with retired-scan parity, cached lookup mean
+`0.016260 ms`, retired scan mean `12.999192 ms`, and scan count `0`.
+
+The paired protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json`
+processed `524288` tokens at `5967.267 tokens/sec`,
+`tick_duration_ms.p95=22.005`, `train_compute=0.135870 ms/token`,
+`prepare_training=0.007225 ms/token`, and `finalize_total=0.006671 ms/token`.
+Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
+output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Prewarm took `325.285 s`; CPU max
+was `28%`; GPU max was `25%`, so velocity reported contention observed. RTX
+3060 memory stayed flat at `1963->1964 MiB`, so this is same-band live-tick
 protection evidence, not a new throughput ceiling.

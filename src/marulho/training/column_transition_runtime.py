@@ -1912,14 +1912,16 @@ class ColumnTransitionRuntime:
             previous = None
             self.graph_consolidation_lookup_skip_count += 1
         else:
-            consolidation = (
-                trainer.model.memory_store.bucket_consolidation_tensor(
-                    comp.n_columns,
-                    device=trainer.model.device,
+            consolidation = self._zero_consolidation
+            if trainer.memory_warm_started:
+                cached_consolidation = (
+                    trainer.model.memory_store.cached_bucket_consolidation_tensor(
+                        comp.n_columns,
+                        device=trainer.model.device,
+                    )
                 )
-                if trainer.memory_warm_started
-                else self._zero_consolidation
-            )
+                if cached_consolidation is not None:
+                    consolidation = cached_consolidation
             previous = (
                 routing_key
                 if trainer._prev_routing_key is None

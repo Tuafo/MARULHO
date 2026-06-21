@@ -28,6 +28,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
+  - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -43,6 +44,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
 ---
 
 # Column Runtime
@@ -66,6 +69,19 @@ State transition scope is now its own truth surface. On retained CPU and promote
 Column reporting is control-plane work. When source state is on CUDA, Runtime Truth uses one latency-first column-state snapshot for scheduler evidence. A bounded device-export attempt reduced bytes but was slower at current 1024/8192-column sizes, so the active policy favors latency over smaller status payloads. CPU reports still materialize only bounded vote/registry samples. Runtime Truth exposes source device, report compute device, source tensor count, materialized column-state count, snapshot bytes, transfer count, report latency, and the hot-path effect boundary so the optimization cannot be mistaken for a full sleep scheduler or CUDA speedup of cognition.
 
 `ColumnMetabolismState` owns per-column estimated cost, cached memory pressure, and last update stamps on the model device. The trainer updates it only for the live wake-plan mask and checkpoints it with the model. If a memory-store bucket-consolidation tensor is already cached on the compute device, the awake candidates can derive pressure from that evidence; otherwise the source remains `no_memory_store_bucket_evidence` and the filter does not fabricate pressure. The retained CPU route can request a bounded pressure backfill pool and filter only the retrieved candidate IDs against the cached pressure vector. There is no all-column pressure scan to decide sleep. CUDA route-vote now owns pressure masking only when cached pressure evidence exists: the fused route owner reads `ColumnMetabolismState.memory_pressure`, masks high-pressure route rows before top-k/winner selection, and reports pressure filter counts in the same scheduler-filter packet as deep sleep. When pressure evidence is absent, the pressure gate remains disabled rather than adding a decorative route-row pressure read.
+
+Winner/bucket consolidation metrics use the same cache boundary. Retained and
+graph metric code may read `DualMemoryStore.bucket_consolidation_level(...)`,
+but that scalar API now uses the maintained CPU bucket consolidation cache and
+reports `bucket_consolidation_level_cache_lookup.v1` with
+`full_memory_scan=false`; a missing cache returns a no-scan miss instead of
+rebuilding by iterating slow memory. Explicit tensor rebuilds remain checkpoint
+load, graph capture/prewarm, offline diagnostic, or selected-replay recovery
+work. The 65536-entry
+benchmark reduced scalar lookup from `12.999192 ms` to `0.016260 ms` while
+matching the retired full scan, and the paired 524288-token run stayed
+same-band at `5967.267 tokens/sec` with bounded `12/65536` route rows and zero
+graph/native sequence failures.
 
 `ColumnStructuralReviewQueue` is the durable continuation path for column growth/prune review. It is training-owned, checkpointed with the model, and fed only by bounded awake/candidate IDs plus already-owned predictive/metabolism tensors: prediction error, confidence, prediction failure streak, estimated cost, usefulness, memory pressure, wake reason, and sleep reason. A growth ticket points to `explicit_binding_growth_trial_design`; a prune/sleep ticket points to `isolated_column_prune_or_sleep_review`. Both require operator review and a checkpoint transaction, and both report `mutates_runtime_state=false`. Retained CPU ticks can update the queue from the wake plan immediately. CUDA graph bursts update it only on a slow structural-review cadence; skipped bursts record deferred capture such as `structural_review_cuda_cadence_not_due` so the queue does not add a host sync to every graph host-truth boundary. Runtime Truth projects pending/growth/prune counts, last evaluated/cached column counts, update/deferred counts, baseline queue hash, candidate evidence hashes, next gate, and `runs_all_columns=false`; service does not create or rank tickets. `column_scheduler_benchmark` exposes those queue fields, including an opt-in forced-evidence mode that queues bounded growth and prune/sleep operator-review tickets from the wake plan after measured timing; the retained CPU forced audit is slower, so this is a scheduler truth/continuation surface, not a throughput promotion.
 

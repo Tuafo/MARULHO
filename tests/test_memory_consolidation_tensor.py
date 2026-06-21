@@ -19,6 +19,11 @@ def test_bucket_consolidation_tensor_matches_scalar_lookup_and_invalidates() -> 
     assert torch.allclose(first, torch.tensor([0.0, 0.65, 0.0, 0.6, 0.0]))
     assert first[1].item() == pytest.approx(store.bucket_consolidation_level(1))
     assert first[3].item() == pytest.approx(store.bucket_consolidation_level(3))
+    report = store.device_report()["last_bucket_consolidation_level_report"]
+    assert report["surface"] == "bucket_consolidation_level_cache_lookup.v1"
+    assert report["status"] == "cache_hit"
+    assert report["full_memory_scan"] is False
+    assert report["scan_entry_count"] == 0
 
     store.slow_consolidation_level[1] = 0.9
     store._invalidate_bucket_consolidation_cache()
@@ -52,6 +57,24 @@ def test_bucket_consolidation_tensor_updates_one_cached_bucket_on_append() -> No
 
     assert cached[2].item() == pytest.approx(0.2)
     assert store.bucket_consolidation_cache_generation == generation
+
+
+def test_bucket_consolidation_level_missing_cache_does_not_scan() -> None:
+    store = DualMemoryStore(capacity=8)
+    store.slow_buffer = [torch.zeros(1) for _ in range(3)]
+    store.slow_bucket_ids = [1, 3, 1]
+    store.slow_importance = [1.0, 1.0, 3.0]
+    store.slow_consolidation_level = [0.2, 0.6, 0.8]
+    store._invalidate_bucket_consolidation_cache()
+
+    assert store.bucket_consolidation_level(1) == pytest.approx(0.0)
+    report = store.device_report()["last_bucket_consolidation_level_report"]
+
+    assert report["status"] == "cache_missing_no_scan"
+    assert report["cache_hit"] is False
+    assert report["full_memory_scan"] is False
+    assert report["scan_entry_count"] == 0
+    assert store.bucket_consolidation_cache_rebuild_count == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
