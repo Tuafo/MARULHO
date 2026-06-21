@@ -5,6 +5,7 @@ related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/service/living_loop_replay.py
+  - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
@@ -19,6 +20,7 @@ related_code:
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
+  - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -103,6 +105,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/strong-capture-admission-cadence-after-fixed-cadence-retirement.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-slow-memory-fixed-cadence-retired-rerun.json
+  - reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -1489,6 +1493,21 @@ cached rows, `2048` deferred cadence hits, zero graph/native sequence failures,
 and flat RTX 3060 memory at `1958 MiB`. Borderline GPU contention makes this
 protection evidence, not a new speed ceiling.
 
+Source tick sleep replay is also deferred out of the live service fallback.
+BrainRuntime still owns source selection and tick orchestration, but it no
+longer lets a per-token fallback run deep, micro, or repair sleep replay just
+because metrics or burst eligibility forced `train_step`. The fallback now
+passes `allow_sleep_maintenance=False`, exposes deferred sleep through trainer
+metrics, and leaves sleep replay to explicit slow-path calls. The benchmark
+`reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json`
+passed with service fallback sleep calls `0`, explicit slow-path projection
+sleep calls `1`, `sleep_maintenance_deferred=1`, CPU archival placement, no
+global scan, no live replay execution, and no hidden language reasoning. The
+paired `524288`-token protection run stayed in the maintained band at
+`5993.959 tokens/sec`, `train_compute=0.135624 ms/token`, bounded `12/65536`
+route rows, `65526` cached rows, no observed contention, flat RTX 3060 memory
+at `1959 MiB`, and zero graph/native sequence failures.
+
 ## Status
 
 bounded slow-path selection, stored-experience recall, reconstruction-gated
@@ -1518,7 +1537,7 @@ bounded rollout-regeneration facade candidate windows,
 bounded readout-ledger rollout candidate windows,
 bounded dense-readout training transition windows,
 strong-capture admission cadence, fixed-cadence slow-memory admission
-retirement, awake-ripple tagging, and retired unscoped
+retirement, source tick sleep replay deferral, awake-ripple tagging, and retired unscoped
 random replay defaults plus the full-buffer replay-score, score-tensor,
 list-only replay/SFA, concept-frontier report-dropping, input-unbounded
 replay-plan construction, linear replay-artifact provenance lookups, and

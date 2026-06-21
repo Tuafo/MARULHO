@@ -343,6 +343,7 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
         super().__init__()
         self.concept_observation_windows: list[str] = []
         self.train_step_return_metrics_requests: list[bool] = []
+        self.train_step_allow_sleep_maintenance_requests: list[bool] = []
         self.staged_input_quantum_sizes: list[int] = []
         self._trainer = SimpleNamespace(
             token_count=0,
@@ -356,6 +357,9 @@ class _ConceptSamplingManager(_BrainRuntimeFixtureBase):
         self._trainer.token_count += 1
         return_metrics = bool(kwargs.get("return_metrics", True))
         self.train_step_return_metrics_requests.append(return_metrics)
+        self.train_step_allow_sleep_maintenance_requests.append(
+            bool(kwargs.get("allow_sleep_maintenance", True))
+        )
         if not return_metrics:
             return {}
         return {
@@ -649,6 +653,12 @@ class BrainRuntimeSeamTests(unittest.TestCase):
                 False,
                 True,
             ],
+        )
+        self.assertTrue(
+            all(
+                allowed is False
+                for allowed in manager.train_step_allow_sleep_maintenance_requests
+            )
         )
         self.assertEqual(
             observation,

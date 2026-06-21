@@ -646,6 +646,7 @@ class BrainRuntime:
                             pattern,
                             raw_window=raw_window,
                             memory_metadata=memory_metadata,
+                            allow_sleep_maintenance=False,
                             return_metrics=return_metrics,
                         )
                         if stage_timings_ms is not None:
