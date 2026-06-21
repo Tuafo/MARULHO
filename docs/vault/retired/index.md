@@ -34,6 +34,7 @@ related_benchmarks: []
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Readout Replay Priority Report Dropping Path](readout-replay-priority-report-dropping-path.md)
 - [Runtime Trace Export Replay Summary Full History](runtime-trace-export-replay-summary-full-history.md)
+- [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
 - [Source Tick Sleep Replay Fallback](source-tick-sleep-replay-fallback.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
 - [Status Applied Synapse Provenance Broad Key Scan](status-applied-synapse-provenance-broad-key-scan.md)

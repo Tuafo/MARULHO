@@ -30,6 +30,7 @@ class HierarchicalAssemblyIndex:
         self._vector_store: Dict[int, np.ndarray] = {}
         self._torch_ids = torch.empty(0, dtype=torch.long, device=self.device)
         self._torch_vectors = torch.empty((0, self.dim), dtype=torch.float32, device=self.device)
+        self._torch_row_by_id: dict[int, int] = {}
         self._torch_cache_dirty = True
         self._torch_cache_generation = 0
         self.tensor_search_count = 0
@@ -64,6 +65,63 @@ class HierarchicalAssemblyIndex:
         elif self.insertion_count >= self.rebuild_threshold:
             self.rebuild()
 
+    def update_existing(
+        self,
+        vectors: torch.Tensor,
+        ids: np.ndarray,
+    ) -> dict[str, Any]:
+        if int(vectors.shape[0]) != int(len(ids)):
+            raise ValueError("vectors and ids must have matching rows")
+        normalized_tensor = F.normalize(vectors.detach().float(), dim=1)
+        normalized_cpu = (
+            normalized_tensor.to(device="cpu")
+            .numpy()
+            .astype(np.float32, copy=False)
+        )
+        missing_positions: list[int] = []
+        direct_updates = 0
+        cache_ready = not bool(self._torch_cache_dirty)
+        for position, vec_id in enumerate(ids.tolist()):
+            key = int(vec_id)
+            if key not in self._vector_store:
+                missing_positions.append(int(position))
+                continue
+            self._vector_store[key] = normalized_cpu[position].copy()
+            if cache_ready:
+                row = self._torch_row_by_id.get(key)
+                if (
+                    row is not None
+                    and 0 <= int(row) < int(self._torch_ids.numel())
+                    and int(self._torch_ids[int(row)].item()) == key
+                ):
+                    self._torch_vectors[int(row)].copy_(
+                        normalized_tensor[position].to(self._torch_vectors.device)
+                    )
+                    direct_updates += 1
+                else:
+                    cache_ready = False
+                    self._torch_cache_dirty = True
+        fallback_rebuild = False
+        if missing_positions:
+            missing_index = np.asarray(missing_positions, dtype=np.int64)
+            self.add(vectors[missing_index], ids[missing_index].astype(np.int64))
+            fallback_rebuild = True
+        elif not cache_ready:
+            self._torch_cache_dirty = True
+            fallback_rebuild = True
+        else:
+            self._torch_cache_generation += 1
+        return {
+            "surface": "routing_index_existing_row_refresh.v1",
+            "requested_update_count": int(len(ids)),
+            "direct_update_count": int(direct_updates),
+            "missing_id_count": int(len(missing_positions)),
+            "row_lookup_mode": "host_id_row_map",
+            "full_rebuild_required": bool(fallback_rebuild),
+            "cache_dirty_after": bool(self._torch_cache_dirty),
+            "cache_generation": int(self._torch_cache_generation),
+        }
+
     def synchronize_host_store(
         self,
         vectors: torch.Tensor,
@@ -94,12 +152,17 @@ class HierarchicalAssemblyIndex:
         if not valid_ids:
             self._torch_ids = torch.empty(0, dtype=torch.long, device=self.device)
             self._torch_vectors = torch.empty((0, self.dim), dtype=torch.float32, device=self.device)
+            self._torch_row_by_id = {}
             self._torch_cache_dirty = False
             return
 
         vectors = np.stack([self._vector_store[idx] for idx in valid_ids], axis=0)
         next_ids = torch.tensor(valid_ids, dtype=torch.long, device=self.device)
         next_vectors = torch.from_numpy(vectors).to(self.device)
+        self._torch_row_by_id = {
+            int(vec_id): int(position)
+            for position, vec_id in enumerate(valid_ids)
+        }
         if (
             tuple(self._torch_ids.shape) == tuple(next_ids.shape)
             and tuple(self._torch_vectors.shape) == tuple(next_vectors.shape)
@@ -187,6 +250,7 @@ class HierarchicalAssemblyIndex:
         info["torch_vector_cache_device"] = str(self._torch_vectors.device)
         info["torch_id_cache_device"] = str(self._torch_ids.device)
         info["torch_vector_cache_count"] = int(self._torch_vectors.shape[0])
+        info["torch_row_map_count"] = int(len(self._torch_row_by_id))
         info["torch_cache_cuda"] = bool(
             self._torch_vectors.is_cuda and self._torch_ids.is_cuda
         )
@@ -226,6 +290,7 @@ class ShardedHierarchicalAssemblyIndex:
             dtype=torch.float32,
             device=merged_device,
         )
+        self._merged_torch_row_by_id: dict[int, int] = {}
         self._merged_torch_cache_dirty = True
         self._merged_torch_cache_generation = 0
 
@@ -251,6 +316,82 @@ class ShardedHierarchicalAssemblyIndex:
             shard_vectors = vectors[positions]
             shard_ids = ids[np.asarray(positions, dtype=np.int64)]
             self.shards[shard_id].add(shard_vectors, shard_ids.astype(np.int64))
+
+    def update_existing(
+        self,
+        vectors: torch.Tensor,
+        ids: np.ndarray,
+    ) -> dict[str, Any]:
+        if int(vectors.shape[0]) != int(len(ids)):
+            raise ValueError("vectors and ids must have matching rows")
+        if len(ids) == 0:
+            return {
+                "surface": "routing_index_existing_row_refresh.v1",
+                "requested_update_count": 0,
+                "direct_update_count": 0,
+                "missing_id_count": 0,
+                "full_rebuild_required": False,
+                "cache_dirty_after": bool(self._merged_torch_cache_dirty),
+                "cache_generation": int(self._merged_torch_cache_generation),
+                "shard_reports": [],
+            }
+        shard_positions: Dict[int, List[int]] = {}
+        for position, vec_id in enumerate(ids.tolist()):
+            shard_id = self.shard_for_id(int(vec_id))
+            shard_positions.setdefault(shard_id, []).append(position)
+        shard_reports: list[dict[str, Any]] = []
+        missing_total = 0
+        direct_total = 0
+        rebuild_required = False
+        for shard_id, positions in shard_positions.items():
+            position_index = np.asarray(positions, dtype=np.int64)
+            shard_report = self.shards[shard_id].update_existing(
+                vectors[position_index],
+                ids[position_index].astype(np.int64),
+            )
+            shard_reports.append({"shard_id": int(shard_id), **shard_report})
+            missing_total += int(shard_report.get("missing_id_count", 0) or 0)
+            direct_total += int(shard_report.get("direct_update_count", 0) or 0)
+            rebuild_required = rebuild_required or bool(
+                shard_report.get("full_rebuild_required")
+            )
+        normalized_tensor = F.normalize(vectors.detach().float(), dim=1)
+        merged_direct_updates = 0
+        if not bool(self._merged_torch_cache_dirty) and not rebuild_required:
+            for position, vec_id in enumerate(ids.tolist()):
+                key = int(vec_id)
+                row = self._merged_torch_row_by_id.get(key)
+                if (
+                    row is not None
+                    and 0 <= int(row) < int(self._merged_torch_ids.numel())
+                    and int(self._merged_torch_ids[int(row)].item()) == key
+                ):
+                    self._merged_torch_vectors[int(row)].copy_(
+                        normalized_tensor[position].to(
+                            self._merged_torch_vectors.device
+                        )
+                    )
+                    merged_direct_updates += 1
+                else:
+                    rebuild_required = True
+                    break
+        if rebuild_required:
+            self._merged_torch_cache_dirty = True
+            self._merged_torch_cache_generation += 1
+        else:
+            self._merged_torch_cache_generation += 1
+        return {
+            "surface": "routing_index_existing_row_refresh.v1",
+            "requested_update_count": int(len(ids)),
+            "direct_update_count": int(direct_total),
+            "merged_direct_update_count": int(merged_direct_updates),
+            "missing_id_count": int(missing_total),
+            "row_lookup_mode": "host_id_row_map",
+            "full_rebuild_required": bool(rebuild_required),
+            "cache_dirty_after": bool(self._merged_torch_cache_dirty),
+            "cache_generation": int(self._merged_torch_cache_generation),
+            "shard_reports": shard_reports,
+        }
 
     def synchronize_host_store(
         self,
@@ -303,9 +444,16 @@ class ShardedHierarchicalAssemblyIndex:
                 dtype=torch.float32,
                 device=device,
             )
+            self._merged_torch_row_by_id = {}
         else:
             self._merged_torch_ids = torch.cat(ids, dim=0)
             self._merged_torch_vectors = torch.cat(vectors, dim=0)
+            self._merged_torch_row_by_id = {
+                int(vec_id): int(position)
+                for position, vec_id in enumerate(
+                    self._merged_torch_ids.detach().cpu().tolist()
+                )
+            }
         self._merged_torch_cache_dirty = False
 
     def search_tensors(self, query: torch.Tensor, k: int = 5) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -386,6 +534,7 @@ class ShardedHierarchicalAssemblyIndex:
             "merged_torch_vector_cache_device": str(self._merged_torch_vectors.device),
             "merged_torch_id_cache_device": str(self._merged_torch_ids.device),
             "merged_torch_vector_cache_count": int(self._merged_torch_vectors.shape[0]),
+            "merged_torch_row_map_count": int(len(self._merged_torch_row_by_id)),
             "merged_torch_cache_bytes": int(
                 self._merged_torch_vectors.numel() * self._merged_torch_vectors.element_size()
                 + self._merged_torch_ids.numel() * self._merged_torch_ids.element_size()

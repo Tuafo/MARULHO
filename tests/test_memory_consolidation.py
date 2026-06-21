@@ -2078,6 +2078,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         before_distance = float(torch.norm(trainer.model.competitive.prototypes[0] - routing_key.to(trainer.model.device)).item())
         before_weights = trainer.model.competitive.input_weights.detach().clone()
         before_levels = list(trainer.model.memory_store.slow_consolidation_level)
+        trainer.model.routing_index.routing_tensor_cache()
+        rebuild_count_before = int(trainer.model.routing_index.stats()["rebuild_count"])
 
         with patch.object(
             trainer.model.competitive,
@@ -2108,6 +2110,20 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(report["sleep_replay_dense_input_assembly_fallback_count"], 0)
         self.assertEqual(report["sleep_replay_bounded_input_prepare_count"], 1)
         self.assertEqual(report["sleep_replay_stored_routing_key_count"], 1)
+        self.assertEqual(
+            report["sleep_replay_routing_index_refresh_mode"],
+            "existing_row_in_place",
+        )
+        self.assertFalse(report["sleep_replay_routing_index_full_rebuild"])
+        self.assertEqual(
+            report["sleep_replay_routing_index_row_lookup_mode"],
+            "host_id_row_map",
+        )
+        self.assertEqual(report["sleep_replay_routing_index_updated_count"], 1)
+        self.assertEqual(
+            int(trainer.model.routing_index.stats()["rebuild_count"]),
+            rebuild_count_before,
+        )
 
     def test_repair_sleep_missing_routing_key_uses_stored_assembly_projection(self) -> None:
         set_seed(11)

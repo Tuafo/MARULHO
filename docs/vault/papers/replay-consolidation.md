@@ -3,6 +3,7 @@ type: paper
 status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/service/living_loop_replay.py
   - ../../../src/marulho/service/brain_runtime.py
@@ -22,6 +23,7 @@ related_code:
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
 related_docs:
@@ -110,6 +112,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -317,6 +321,26 @@ processed `262144` tokens at `6306.507 tokens/sec`, with
 `state_transition_cached_count=65526`, zero graph/native/sequence failures, and
 no observed contention. Replay repair remains an explicit sleep/replay window;
 it is not every-token background work.
+
+Post-replay routing maintenance now stays inside the same selected-window
+budget. Deep/repair replay returns the prototype IDs it actually updated;
+`MarulhoTrainer._refresh_sleep_replay_routing_index(...)` then calls
+`routing_index_existing_row_refresh.v1` to update only those existing rows in
+the tensor routing cache through a CPU ID-to-row map. Selection criteria are:
+nonempty replay-updated prototype IDs, existing routing IDs, and a ready cache.
+Missing IDs or dirty caches become explicit full-rebuild fallbacks; the full
+rebuild is no longer the normal selected-replay maintenance path. The benchmark
+`reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json`
+updated `16/65536` rows with exact top-1 recall, no rebuild, CPU row-lookup
+metadata, and mean latency `5.006260 ms` versus `133.747880 ms` for the retired
+full rebuild path. The paired `524288`-token hot-path run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json`
+stayed in band at `6022.776 tokens/sec`, `tick_duration_ms.p95=21.373`,
+`train_compute=0.134715 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, zero graph/native sequence failures, and flat RTX
+3060 memory at `1967 MiB`. The velocity sampler flagged pre-run GPU utilization
+at `25%`, so this is same-band protection evidence rather than a clean speed
+ceiling.
 
 After the micro-maintenance cleanup, the current synthetic report
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

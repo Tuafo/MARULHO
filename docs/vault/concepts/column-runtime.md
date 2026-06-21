@@ -5,6 +5,7 @@ related_code:
   - ../../../src/marulho/core/column_runtime.py
   - ../../../src/marulho/core/hypercube.py
   - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
@@ -26,6 +27,7 @@ related_code:
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
 related_docs:
   - ../modules/core.md
   - ../concepts/runtime-truth.md
@@ -39,6 +41,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
 ---
 
 # Column Runtime
@@ -74,6 +78,21 @@ Slow-memory admission now follows the same selected-window boundary. Fixed caden
 BrainRuntime source ticks now defer sleep replay through the same boundary. If a background source tick falls back to per-token `train_step` for metrics or unsupported burst execution, it passes `allow_sleep_maintenance=False`; due sleep is counted as deferred maintenance and explicit trainer sleep windows remain the only replay execution path. `reports/bounded_replay_window_20260620/source-tick-sleep-replay-deferred.json` proved service fallback sleep calls stay at `0` while an explicit allowed projection still calls deep sleep once. The paired 65536-column `524288`-token run stayed in band at `5993.959 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, no observed contention, flat RTX 3060 memory at `1959 MiB`, and zero graph/native sequence failures. This keeps service as source orchestration and Runtime Truth projection, not a sleep scheduler.
 
 Live memory summary projection now follows the same boundary. Trainer telemetry, BrainRuntime summaries, living-loop status, and status Runtime Truth call `DualMemoryStore.live_summary_stats()` instead of full `summary_stats()`. The live projection reports `bounded_memory_summary_projection.v1`, `summary_full_memory_scan=false`, `summary_scan_entry_count=0`, and `summary_projection_read_only=true`, while still exposing fill/counter aliases and last replay reports. It does not advance STC decay or build tensors over all retained entries; full summary remains an explicit offline consolidation/quality path. `reports/bounded_replay_window_20260620/live-memory-summary-projection.json` measured `0.149500 ms` mean bounded projection latency versus `658.789240 ms` for the retired 65536-entry full summary scan, and the paired `524288`-token run stayed in band at `6024.783 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, flat RTX 3060 memory `1959->1958 MiB`, and zero graph/native sequence failures. This keeps service/status as Runtime Truth projection, not memory maintenance or replay selection.
+
+Selected sleep replay routing-index refresh is now the only normal
+post-replay routing maintenance path. Deep/repair replay already selected a
+bounded replay window and returned the prototype IDs it updated; trainer then
+updates only those existing tensor-cache rows through
+`routing_index_existing_row_refresh.v1`. `HierarchicalAssemblyIndex` and the
+sharded wrapper keep CPU ID-to-row maps for routing-cache metadata while active
+routing vectors/ids remain on the index device. Full routing-index rebuild is
+reserved for explicit missing-ID, dirty-cache, checkpoint, or bootstrap
+fallback. The `65536`-row benchmark refreshed `16` selected rows in
+`5.006260 ms` mean versus `133.747880 ms` for the retired rebuild path, and the
+paired `524288`-token run stayed same-band at `6022.776 tokens/sec` with
+bounded `12/65536` route rows and zero graph/native sequence failures. Service
+surfaces may report the refresh mode, row lookup mode, and rebuild fallback
+flag, but they do not select replay rows or decide routing maintenance.
 
 Sleep replay now has the same bounded-window accounting. `DualMemoryStore.select_replay_window(...)` reports `bounded_replay_window_selection.v1` before any replay mutation. Deep sleep passes checkpointed `column_anchors` as candidate bucket ids, so a positive-pressure replay window scores only entries reachable through the memory store's bucket-to-entry index. That bucket-indexed path now caps candidates before scoring by recent round-robin across anchor buckets and records `candidate_window_policy=recent_bucket_round_robin_candidate_pool`, `candidate_window_limit`, `candidate_index_available_count`, and scored `candidate_index_count`; a hot bucket can make more entries available, but it cannot make the selector score every stored entry. `DualMemoryStore.recall_replay_window(...)` reports `bounded_replay_window_recall.v1` as a non-mutating slow-path operator over the selected entries: routing-key and input-pattern recall stay CPU-resident, `runs_live_tick=false`, and no plasticity is applied. The report records candidate bucket ids/count, candidate entries scored, selected count, CPU archival/score placement, and whether the lower-level selector used `bucket_indexed_candidate_window` or blocked unscoped selection with `bucket_index_scope_required`. There is no runtime diagnostic global score/candidate branch. Production deep replay no longer mutates from the unscoped global scorer: no-anchor and zero-pressure bucket cases record `unscoped_global_fallback_retired=true` and apply `0` replay updates. The former list-only replay/SFA helpers are now removed: callers use `select_replay_window(...)` and `sample_for_sfa_with_report(...)` so bounded reports are retained; unscoped SFA now reports `selected_replay_window_required`. The capped-window long run processed `262144` tokens at `6148.125 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 

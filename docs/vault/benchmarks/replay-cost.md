@@ -3,6 +3,7 @@ type: benchmark
 status: draft
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
+  - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
   - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
@@ -23,6 +24,7 @@ related_code:
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_plasticity_executor.py
@@ -116,6 +118,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -2186,6 +2190,43 @@ recorded zero graph/native sequence failures. Velocity still reported
 borderline GPU contention (`cpu max=17%`, `gpu max=23%`, GPU memory utilization
 max `19%`), so this is same-band throughput protection rather than a clean
 ceiling claim. RTX 3060 memory stayed flat at `1986 MiB`.
+
+## Sleep Replay Routing-Index Refresh
+
+Selected deep/repair replay no longer performs a full routing-index rebuild
+after it updates a small set of prototypes. The active path is
+`routing_index_existing_row_refresh.v1`: the trainer passes the replay-updated
+prototype IDs, the routing index refreshes only existing cache rows through a
+CPU ID-to-row map, and the report states direct update count, row lookup mode,
+missing-ID count, dirty-cache state, and full-rebuild fallback status. Full
+rebuild is retained only for explicit missing-ID/dirty-cache fallback,
+checkpoint restore, or bootstrap, not as the normal selected-replay path.
+
+Focused quality and latency benchmark:
+
+`python -m marulho.evaluation.sleep_replay_routing_index_refresh_benchmark --entries 65536 --dim 64 --update-count 16 --runs 5 --device auto --output reports\bounded_replay_window_20260620\sleep-replay-routing-index-refresh.json`
+
+Result: `pass=true`; the bounded path updated `16/65536` selected rows, used
+`row_lookup_mode=host_id_row_map`, avoided a rebuild, left the cache clean, and
+returned exact top-1 IDs for the updated vectors. Mean latency fell from
+`133.747880 ms` for the benchmark-local retired `add()+rebuild()` path to
+`5.006260 ms` for selected-row refresh. Archival storage and row-lookup
+metadata stayed CPU-resident; the active routing tensor cache stayed on the
+selected routing device.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `87.050890 s`,
+`6022.776 tokens/sec`, `tick_duration_ms.p95=21.373`,
+`train_compute=0.134715 ms/token`, `prepare_training=0.007044 ms/token`, and
+`finalize_total=0.006512 ms/token`. Prewarm took `327.237 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded zero graph/native sequence failures. CPU max was `31%`; GPU max was
+`25%`, so velocity marked contention observed, but RTX 3060 memory stayed flat
+at `1967 MiB` and throughput remained in the maintained 6k-ish band.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window/readout-payload proof

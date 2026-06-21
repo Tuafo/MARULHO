@@ -2863,6 +2863,76 @@ class MarulhoTrainer:
             return []
         return sorted(int(bucket_id) for bucket_id in self.column_anchors)
 
+    def _refresh_sleep_replay_routing_index(
+        self,
+        updated_ids: list[int],
+    ) -> dict[str, Any]:
+        uniq = sorted(set(int(value) for value in updated_ids))
+        if not uniq:
+            return {
+                "sleep_replay_routing_index_refresh_surface": (
+                    "routing_index_existing_row_refresh.v1"
+                ),
+                "sleep_replay_routing_index_refresh_mode": "not_run",
+                "sleep_replay_routing_index_updated_count": 0,
+                "sleep_replay_routing_index_full_rebuild": False,
+            }
+        id_arr = np.asarray(uniq, dtype=np.int64)
+        vecs = self.model.competitive.prototypes[id_arr].detach()
+        updater = getattr(self.model.routing_index, "update_existing", None)
+        if not callable(updater):
+            self.model.routing_index.add(vecs, id_arr)
+            self.model.routing_index.rebuild()
+            return {
+                "sleep_replay_routing_index_refresh_surface": (
+                    "routing_index_existing_row_refresh.v1"
+                ),
+                "sleep_replay_routing_index_refresh_mode": (
+                    "full_rebuild_missing_existing_row_api"
+                ),
+                "sleep_replay_routing_index_updated_count": int(len(uniq)),
+                "sleep_replay_routing_index_full_rebuild": True,
+            }
+        report = dict(updater(vecs, id_arr))
+        if bool(report.get("full_rebuild_required")):
+            self.model.routing_index.rebuild()
+        return {
+            "sleep_replay_routing_index_refresh_surface": str(
+                report.get("surface", "routing_index_existing_row_refresh.v1")
+            ),
+            "sleep_replay_routing_index_refresh_mode": (
+                "existing_row_in_place"
+                if not bool(report.get("full_rebuild_required"))
+                else "full_rebuild_fallback"
+            ),
+            "sleep_replay_routing_index_updated_count": int(len(uniq)),
+            "sleep_replay_routing_index_direct_update_count": int(
+                report.get("direct_update_count", 0) or 0
+            ),
+            "sleep_replay_routing_index_merged_direct_update_count": int(
+                report.get(
+                    "merged_direct_update_count",
+                    report.get("direct_update_count", 0),
+                )
+                or 0
+            ),
+            "sleep_replay_routing_index_missing_id_count": int(
+                report.get("missing_id_count", 0) or 0
+            ),
+            "sleep_replay_routing_index_row_lookup_mode": str(
+                report.get("row_lookup_mode", "unknown")
+            ),
+            "sleep_replay_routing_index_full_rebuild": bool(
+                report.get("full_rebuild_required")
+            ),
+            "sleep_replay_routing_index_cache_dirty_after": bool(
+                report.get("cache_dirty_after")
+            ),
+            "sleep_replay_routing_index_cache_generation": int(
+                report.get("cache_generation", -1) or -1
+            ),
+        }
+
     def _sleep_replay(
         self,
         mode: str,
@@ -3087,15 +3157,11 @@ class MarulhoTrainer:
             )
 
         if applied > 0:
+            routing_index_report: dict[str, Any] = {}
             if mode == "deep":
-                # Routing-index rebuild after consolidation loop.
-                # Avoids stale-cell issue: prototype positions shift during the
-                # bounded replay repair above; rebuilding now uses final rows.
-                uniq = sorted(set(updated_ids))
-                id_arr = np.asarray(uniq, dtype=np.int64)
-                vecs = self.model.competitive.prototypes[id_arr].detach()
-                self.model.routing_index.add(vecs, id_arr)
-                self.model.routing_index.rebuild()
+                routing_index_report = self._refresh_sleep_replay_routing_index(
+                    updated_ids
+                )
                 self.model.memory_store.consolidate_replay(
                     processed_indices,
                     current_token=self.token_count,
@@ -3108,15 +3174,15 @@ class MarulhoTrainer:
                     current_token=self.token_count,
                 )
             else:
-                uniq = sorted(set(updated_ids))
-                id_arr = np.asarray(uniq, dtype=np.int64)
-                vecs = self.model.competitive.prototypes[id_arr].detach()
-                self.model.routing_index.add(vecs, id_arr)
-                self.model.routing_index.rebuild()
+                routing_index_report = self._refresh_sleep_replay_routing_index(
+                    updated_ids
+                )
                 self.model.memory_store.mark_repair_replay(
                     processed_indices,
                     current_token=self.token_count,
                 )
+            if routing_index_report:
+                commit_report.update(routing_index_report)
 
             self.sleep_events += 1
             if mode == "micro":

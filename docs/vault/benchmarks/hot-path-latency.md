@@ -21,8 +21,10 @@ related_code:
   - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
+  - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/evaluation/promoted_scheduler_checkpoint.py
   - ../../../tests/test_service_benchmark.py
@@ -65,6 +67,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-dense-label-calibration-source-window.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-evaluation-source-window.json
@@ -5053,3 +5057,32 @@ recorded zero graph/native sequence failures. Velocity still reported
 borderline GPU contention (`cpu max=17%`, `gpu max=23%`, GPU memory utilization
 max `19%`), so this is same-band throughput protection rather than a clean
 ceiling claim. RTX 3060 memory stayed flat at `1986 MiB`.
+
+## Sleep Replay Routing-Index Refresh
+
+The selected-row routing-index refresh changes slow-window replay maintenance,
+not the live tick: after deep/repair replay updates selected prototype IDs,
+trainer refreshes those existing tensor-cache rows through
+`routing_index_existing_row_refresh.v1` and a CPU ID-to-row map. The old normal
+`add()+rebuild()` after selected sleep replay is retired; full rebuild remains
+only as a fallback for missing IDs, dirty cache, checkpoint restore, or
+bootstrap.
+
+The focused report
+`reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json`
+passed with exact top-1 recall for `16` updated rows in a `65536`-row index, no
+bounded-path rebuild, `row_lookup_mode=host_id_row_map`, and mean latency
+`5.006260 ms` versus `133.747880 ms` for the retired rebuild baseline.
+
+The paired protection run
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json`
+processed `524288` tokens at `6022.776 tokens/sec`,
+`tick_duration_ms.p95=21.373`, `train_compute=0.134715 ms/token`,
+`prepare_training=0.007044 ms/token`, and `finalize_total=0.006512 ms/token`.
+Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
+output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Prewarm took `327.237 s`; CPU max
+was `31%`; GPU max was `25%`, so velocity reported contention observed. RTX
+3060 memory stayed flat at `1967 MiB`, so this is same-band live-tick
+protection evidence, not a new throughput ceiling.
