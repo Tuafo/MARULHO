@@ -2876,34 +2876,44 @@ class MarulhoTrainer:
                 "sleep_replay_routing_index_refresh_mode": "not_run",
                 "sleep_replay_routing_index_updated_count": 0,
                 "sleep_replay_routing_index_full_rebuild": False,
+                "sleep_replay_routing_index_full_rebuild_executed": False,
+                "sleep_replay_routing_index_deferred_rebuild_required": False,
             }
         id_arr = np.asarray(uniq, dtype=np.int64)
         vecs = self.model.competitive.prototypes[id_arr].detach()
         updater = getattr(self.model.routing_index, "update_existing", None)
         if not callable(updater):
-            self.model.routing_index.add(vecs, id_arr)
-            self.model.routing_index.rebuild()
             return {
                 "sleep_replay_routing_index_refresh_surface": (
                     "routing_index_existing_row_refresh.v1"
                 ),
                 "sleep_replay_routing_index_refresh_mode": (
-                    "full_rebuild_missing_existing_row_api"
+                    "deferred_missing_existing_row_api"
                 ),
                 "sleep_replay_routing_index_updated_count": int(len(uniq)),
-                "sleep_replay_routing_index_full_rebuild": True,
+                "sleep_replay_routing_index_direct_update_count": 0,
+                "sleep_replay_routing_index_merged_direct_update_count": 0,
+                "sleep_replay_routing_index_missing_id_count": 0,
+                "sleep_replay_routing_index_row_lookup_miss_count": 0,
+                "sleep_replay_routing_index_skipped_update_count": int(len(uniq)),
+                "sleep_replay_routing_index_row_lookup_mode": "missing_update_api",
+                "sleep_replay_routing_index_full_rebuild": False,
+                "sleep_replay_routing_index_full_rebuild_executed": False,
+                "sleep_replay_routing_index_deferred_rebuild_required": True,
+                "sleep_replay_routing_index_recovery_reason": (
+                    "missing_existing_row_update_api"
+                ),
             }
         report = dict(updater(vecs, id_arr))
-        if bool(report.get("full_rebuild_required")):
-            self.model.routing_index.rebuild()
+        recovery_required = bool(report.get("recovery_required"))
         return {
             "sleep_replay_routing_index_refresh_surface": str(
                 report.get("surface", "routing_index_existing_row_refresh.v1")
             ),
             "sleep_replay_routing_index_refresh_mode": (
                 "existing_row_in_place"
-                if not bool(report.get("full_rebuild_required"))
-                else "full_rebuild_fallback"
+                if not recovery_required
+                else "deferred_rebuild_required"
             ),
             "sleep_replay_routing_index_updated_count": int(len(uniq)),
             "sleep_replay_routing_index_direct_update_count": int(
@@ -2919,11 +2929,20 @@ class MarulhoTrainer:
             "sleep_replay_routing_index_missing_id_count": int(
                 report.get("missing_id_count", 0) or 0
             ),
+            "sleep_replay_routing_index_row_lookup_miss_count": int(
+                report.get("row_lookup_miss_count", 0) or 0
+            ),
+            "sleep_replay_routing_index_skipped_update_count": int(
+                report.get("skipped_update_count", 0) or 0
+            ),
             "sleep_replay_routing_index_row_lookup_mode": str(
                 report.get("row_lookup_mode", "unknown")
             ),
-            "sleep_replay_routing_index_full_rebuild": bool(
-                report.get("full_rebuild_required")
+            "sleep_replay_routing_index_full_rebuild": False,
+            "sleep_replay_routing_index_full_rebuild_executed": False,
+            "sleep_replay_routing_index_deferred_rebuild_required": recovery_required,
+            "sleep_replay_routing_index_recovery_reason": report.get(
+                "recovery_reason"
             ),
             "sleep_replay_routing_index_cache_dirty_after": bool(
                 report.get("cache_dirty_after")

@@ -2133,6 +2133,42 @@ class MemoryConsolidationTests(unittest.TestCase):
             rebuild_count_before,
         )
 
+    def test_sleep_replay_routing_index_refresh_defers_missing_update_api(self) -> None:
+        class _RoutingIndexWithoutExistingRowApi:
+            def add(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                raise AssertionError("selected replay refresh must not add rows")
+
+            def rebuild(self) -> None:
+                raise AssertionError("selected replay refresh must not rebuild")
+
+        cfg = MarulhoConfig(
+            n_columns=4,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.model.routing_index = _RoutingIndexWithoutExistingRowApi()  # type: ignore[assignment]
+
+        report = trainer._refresh_sleep_replay_routing_index([0, 1])
+
+        self.assertEqual(
+            report["sleep_replay_routing_index_refresh_mode"],
+            "deferred_missing_existing_row_api",
+        )
+        self.assertFalse(report["sleep_replay_routing_index_full_rebuild"])
+        self.assertFalse(
+            report["sleep_replay_routing_index_full_rebuild_executed"]
+        )
+        self.assertTrue(
+            report["sleep_replay_routing_index_deferred_rebuild_required"]
+        )
+        self.assertEqual(report["sleep_replay_routing_index_skipped_update_count"], 2)
+        self.assertEqual(
+            report["sleep_replay_routing_index_recovery_reason"],
+            "missing_existing_row_update_api",
+        )
+
     def test_repair_sleep_missing_routing_key_uses_stored_assembly_projection(self) -> None:
         set_seed(11)
         cfg = MarulhoConfig(

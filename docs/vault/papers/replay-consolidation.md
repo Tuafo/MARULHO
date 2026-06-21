@@ -113,8 +113,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
-  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
-  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery-sharded.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
@@ -331,19 +332,21 @@ budget. Deep/repair replay returns the prototype IDs it actually updated;
 `routing_index_existing_row_refresh.v1` to update only those existing rows in
 the tensor routing cache through a CPU ID-to-row map. Selection criteria are:
 nonempty replay-updated prototype IDs, existing routing IDs, and a ready cache.
-Missing IDs or dirty caches become explicit full-rebuild fallbacks; the full
-rebuild is no longer the normal selected-replay maintenance path. The benchmark
-`reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json`
-updated `16/65536` rows with exact top-1 recall, no rebuild, CPU row-lookup
-metadata, and mean latency `5.006260 ms` versus `133.747880 ms` for the retired
-full rebuild path. The paired `524288`-token hot-path run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json`
-stayed in band at `6022.776 tokens/sec`, `tick_duration_ms.p95=21.373`,
-`train_compute=0.134715 ms/token`, bounded `12/65536` route rows, cached
-`65526` transition rows, zero graph/native sequence failures, and flat RTX
-3060 memory at `1967 MiB`. The velocity sampler flagged pre-run GPU utilization
-at `25%`, so this is same-band protection evidence rather than a clean speed
-ceiling.
+Missing IDs, missing row-update APIs, or dirty caches become deferred recovery
+evidence and do not call `add()+rebuild()` inside selected replay. The refreshed
+benchmark
+`reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json`
+updated `16/65536` rows, deferred `1` missing row without inserting it,
+preserved exact top-1 recall for updated rows, used CPU row-lookup metadata,
+and measured `4.171690 ms` mean latency versus `118.414640 ms` for the
+benchmark-local retired full rebuild path. The sharded variant passed at
+`13.348040 ms` versus `140.566380 ms`, with `16` direct shard and merged updates.
+The accepted `524288`-token hot-path rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
+stayed in band at `5943.512 tokens/sec`, `tick_duration_ms.p95=22.097`,
+`train_compute=0.136627 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, zero graph/native sequence failures, no observed
+contention, CPU max `28%`, GPU max `19%`, and flat RTX 3060 memory at `1878 MiB`.
 
 Bucket-level consolidation pressure now uses the same bounded accounting.
 `DualMemoryStore.bucket_consolidation_level(...)` no longer recomputes a single

@@ -68,8 +68,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
-  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
-  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery-sharded.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-store-state-known-hash-dense-label-source-window.json
@@ -5067,28 +5068,35 @@ The selected-row routing-index refresh changes slow-window replay maintenance,
 not the live tick: after deep/repair replay updates selected prototype IDs,
 trainer refreshes those existing tensor-cache rows through
 `routing_index_existing_row_refresh.v1` and a CPU ID-to-row map. The old normal
-`add()+rebuild()` after selected sleep replay is retired; full rebuild remains
-only as a fallback for missing IDs, dirty cache, checkpoint restore, or
-bootstrap.
+`add()+rebuild()` after selected sleep replay is retired, including missing-ID
+or dirty-cache recovery inside selected replay. Those cases now report deferred
+recovery without inserting rows or rebuilding. Full rebuild remains only for
+checkpoint restore, bootstrap, explicit offline repair, or benchmark-local
+diagnostics.
 
-The focused report
-`reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json`
-passed with exact top-1 recall for `16` updated rows in a `65536`-row index, no
-bounded-path rebuild, `row_lookup_mode=host_id_row_map`, and mean latency
-`5.006260 ms` versus `133.747880 ms` for the retired rebuild baseline.
+The deferred-recovery refresh report
+`reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json`
+passed with exact top-1 recall for `16` updated rows in a `65536`-row index, `1`
+missing row deferred and kept absent, no bounded-path rebuild,
+`row_lookup_mode=host_id_row_map`, and mean latency `4.171690 ms` versus
+`118.414640 ms` for the retired rebuild baseline. The sharded report passed at
+`13.348040 ms` versus `140.566380 ms`, with `16` direct shard and merged
+updates.
 
-The paired protection run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json`
-processed `524288` tokens at `6022.776 tokens/sec`,
-`tick_duration_ms.p95=21.373`, `train_compute=0.134715 ms/token`,
-`prepare_training=0.007044 ms/token`, and `finalize_total=0.006512 ms/token`.
+The accepted deferred-recovery protection rerun
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
+processed `524288` tokens at `5943.512 tokens/sec`,
+`tick_duration_ms.p95=22.097`, `train_compute=0.136627 ms/token`,
+`prepare_training=0.007218 ms/token`, and `finalize_total=0.006603 ms/token`.
 Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
 output candidates, cached `65526` transition rows, kept
 `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
-recorded zero graph/native sequence failures. Prewarm took `327.237 s`; CPU max
-was `31%`; GPU max was `25%`, so velocity reported contention observed. RTX
-3060 memory stayed flat at `1967 MiB`, so this is same-band live-tick
-protection evidence, not a new throughput ceiling.
+recorded zero graph/native sequence failures. Prewarm took `325.352 s`; CPU max
+was `28%`; GPU max was `19%`; velocity reported contention not observed; and
+RTX 3060 memory stayed flat at `1878 MiB`, so this is same-band live-tick
+protection evidence, not a new throughput ceiling. A first same-slice run at
+`5688.783 tokens/sec` is rejected as primary evidence because velocity observed
+CPU contention at `99%`.
 
 ## Bucket Consolidation Cache Lookup
 

@@ -79,45 +79,59 @@ class HierarchicalAssemblyIndex:
             .astype(np.float32, copy=False)
         )
         missing_positions: list[int] = []
+        row_lookup_miss_count = 0
         direct_updates = 0
         cache_ready = not bool(self._torch_cache_dirty)
+        if not cache_ready:
+            return {
+                "surface": "routing_index_existing_row_refresh.v1",
+                "requested_update_count": int(len(ids)),
+                "direct_update_count": 0,
+                "missing_id_count": 0,
+                "row_lookup_miss_count": 0,
+                "skipped_update_count": int(len(ids)),
+                "row_lookup_mode": "host_id_row_map",
+                "recovery_required": True,
+                "recovery_reason": "routing_tensor_cache_dirty",
+                "cache_dirty_after": bool(self._torch_cache_dirty),
+                "cache_generation": int(self._torch_cache_generation),
+            }
         for position, vec_id in enumerate(ids.tolist()):
             key = int(vec_id)
             if key not in self._vector_store:
                 missing_positions.append(int(position))
                 continue
-            self._vector_store[key] = normalized_cpu[position].copy()
-            if cache_ready:
-                row = self._torch_row_by_id.get(key)
-                if (
-                    row is not None
-                    and 0 <= int(row) < int(self._torch_ids.numel())
-                    and int(self._torch_ids[int(row)].item()) == key
-                ):
-                    self._torch_vectors[int(row)].copy_(
-                        normalized_tensor[position].to(self._torch_vectors.device)
-                    )
-                    direct_updates += 1
-                else:
-                    cache_ready = False
-                    self._torch_cache_dirty = True
-        fallback_rebuild = False
-        if missing_positions:
-            missing_index = np.asarray(missing_positions, dtype=np.int64)
-            self.add(vectors[missing_index], ids[missing_index].astype(np.int64))
-            fallback_rebuild = True
-        elif not cache_ready:
-            self._torch_cache_dirty = True
-            fallback_rebuild = True
-        else:
+            row = self._torch_row_by_id.get(key)
+            if (
+                row is not None
+                and 0 <= int(row) < int(self._torch_ids.numel())
+                and int(self._torch_ids[int(row)].item()) == key
+            ):
+                self._vector_store[key] = normalized_cpu[position].copy()
+                self._torch_vectors[int(row)].copy_(
+                    normalized_tensor[position].to(self._torch_vectors.device)
+                )
+                direct_updates += 1
+            else:
+                row_lookup_miss_count += 1
+        if direct_updates > 0:
             self._torch_cache_generation += 1
+        skipped_updates = int(len(missing_positions) + row_lookup_miss_count)
+        recovery_required = bool(skipped_updates > 0)
         return {
             "surface": "routing_index_existing_row_refresh.v1",
             "requested_update_count": int(len(ids)),
             "direct_update_count": int(direct_updates),
             "missing_id_count": int(len(missing_positions)),
+            "row_lookup_miss_count": int(row_lookup_miss_count),
+            "skipped_update_count": int(skipped_updates),
             "row_lookup_mode": "host_id_row_map",
-            "full_rebuild_required": bool(fallback_rebuild),
+            "recovery_required": recovery_required,
+            "recovery_reason": (
+                "missing_or_unmapped_existing_row"
+                if recovery_required
+                else None
+            ),
             "cache_dirty_after": bool(self._torch_cache_dirty),
             "cache_generation": int(self._torch_cache_generation),
         }
@@ -330,7 +344,26 @@ class ShardedHierarchicalAssemblyIndex:
                 "requested_update_count": 0,
                 "direct_update_count": 0,
                 "missing_id_count": 0,
-                "full_rebuild_required": False,
+                "row_lookup_miss_count": 0,
+                "skipped_update_count": 0,
+                "recovery_required": False,
+                "recovery_reason": None,
+                "cache_dirty_after": bool(self._merged_torch_cache_dirty),
+                "cache_generation": int(self._merged_torch_cache_generation),
+                "shard_reports": [],
+            }
+        if bool(self._merged_torch_cache_dirty):
+            return {
+                "surface": "routing_index_existing_row_refresh.v1",
+                "requested_update_count": int(len(ids)),
+                "direct_update_count": 0,
+                "merged_direct_update_count": 0,
+                "missing_id_count": 0,
+                "row_lookup_miss_count": 0,
+                "skipped_update_count": int(len(ids)),
+                "row_lookup_mode": "host_id_row_map",
+                "recovery_required": True,
+                "recovery_reason": "routing_merged_tensor_cache_dirty",
                 "cache_dirty_after": bool(self._merged_torch_cache_dirty),
                 "cache_generation": int(self._merged_torch_cache_generation),
                 "shard_reports": [],
@@ -339,55 +372,87 @@ class ShardedHierarchicalAssemblyIndex:
         for position, vec_id in enumerate(ids.tolist()):
             shard_id = self.shard_for_id(int(vec_id))
             shard_positions.setdefault(shard_id, []).append(position)
-        shard_reports: list[dict[str, Any]] = []
+        valid_positions: Dict[int, List[int]] = {}
         missing_total = 0
-        direct_total = 0
-        rebuild_required = False
+        row_lookup_miss_total = 0
+        merged_row_lookup_miss_count = 0
+        skipped_total = 0
         for shard_id, positions in shard_positions.items():
+            shard = self.shards[shard_id]
+            for position in positions:
+                key = int(ids[position])
+                if key not in shard._vector_store:
+                    missing_total += 1
+                    skipped_total += 1
+                    continue
+                shard_row = shard._torch_row_by_id.get(key)
+                if (
+                    bool(shard._torch_cache_dirty)
+                    or shard_row is None
+                    or not (0 <= int(shard_row) < int(shard._torch_ids.numel()))
+                    or int(shard._torch_ids[int(shard_row)].item()) != key
+                ):
+                    row_lookup_miss_total += 1
+                    skipped_total += 1
+                    continue
+                merged_row = self._merged_torch_row_by_id.get(key)
+                if (
+                    merged_row is None
+                    or not (
+                        0 <= int(merged_row) < int(self._merged_torch_ids.numel())
+                    )
+                    or int(self._merged_torch_ids[int(merged_row)].item()) != key
+                ):
+                    merged_row_lookup_miss_count += 1
+                    skipped_total += 1
+                    continue
+                valid_positions.setdefault(shard_id, []).append(position)
+        shard_reports: list[dict[str, Any]] = []
+        direct_total = 0
+        for shard_id, positions in valid_positions.items():
             position_index = np.asarray(positions, dtype=np.int64)
             shard_report = self.shards[shard_id].update_existing(
                 vectors[position_index],
                 ids[position_index].astype(np.int64),
             )
             shard_reports.append({"shard_id": int(shard_id), **shard_report})
-            missing_total += int(shard_report.get("missing_id_count", 0) or 0)
-            direct_total += int(shard_report.get("direct_update_count", 0) or 0)
-            rebuild_required = rebuild_required or bool(
-                shard_report.get("full_rebuild_required")
+            row_lookup_miss_total += int(
+                shard_report.get("row_lookup_miss_count", 0) or 0
             )
+            skipped_total += int(shard_report.get("skipped_update_count", 0) or 0)
+            direct_total += int(shard_report.get("direct_update_count", 0) or 0)
         normalized_tensor = F.normalize(vectors.detach().float(), dim=1)
         merged_direct_updates = 0
-        if not bool(self._merged_torch_cache_dirty) and not rebuild_required:
-            for position, vec_id in enumerate(ids.tolist()):
-                key = int(vec_id)
-                row = self._merged_torch_row_by_id.get(key)
-                if (
-                    row is not None
-                    and 0 <= int(row) < int(self._merged_torch_ids.numel())
-                    and int(self._merged_torch_ids[int(row)].item()) == key
-                ):
-                    self._merged_torch_vectors[int(row)].copy_(
-                        normalized_tensor[position].to(
-                            self._merged_torch_vectors.device
-                        )
+        for positions in valid_positions.values():
+            for position in positions:
+                key = int(ids[position])
+                row = self._merged_torch_row_by_id[key]
+                self._merged_torch_vectors[int(row)].copy_(
+                    normalized_tensor[position].to(
+                        self._merged_torch_vectors.device
                     )
-                    merged_direct_updates += 1
-                else:
-                    rebuild_required = True
-                    break
-        if rebuild_required:
-            self._merged_torch_cache_dirty = True
+                )
+                merged_direct_updates += 1
+        if merged_direct_updates > 0:
             self._merged_torch_cache_generation += 1
-        else:
-            self._merged_torch_cache_generation += 1
+        recovery_required = bool(skipped_total > 0)
         return {
             "surface": "routing_index_existing_row_refresh.v1",
             "requested_update_count": int(len(ids)),
             "direct_update_count": int(direct_total),
             "merged_direct_update_count": int(merged_direct_updates),
             "missing_id_count": int(missing_total),
+            "row_lookup_miss_count": int(
+                row_lookup_miss_total + merged_row_lookup_miss_count
+            ),
+            "skipped_update_count": int(skipped_total),
             "row_lookup_mode": "host_id_row_map",
-            "full_rebuild_required": bool(rebuild_required),
+            "recovery_required": bool(recovery_required),
+            "recovery_reason": (
+                "missing_or_unmapped_existing_row"
+                if recovery_required
+                else None
+            ),
             "cache_dirty_after": bool(self._merged_torch_cache_dirty),
             "cache_generation": int(self._merged_torch_cache_generation),
             "shard_reports": shard_reports,

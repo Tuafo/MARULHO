@@ -97,6 +97,7 @@ def run_benchmark(
     entries: int,
     dim: int,
     update_count: int,
+    missing_update_count: int,
     runs: int,
     shards: int,
     seed: int,
@@ -120,11 +121,22 @@ def run_benchmark(
         device=device,
         seed=seed,
     )
-    update_ids = np.arange(int(update_count), dtype=np.int64)
+    existing_update_ids = np.arange(int(update_count), dtype=np.int64)
+    missing_update_ids = (
+        np.arange(
+            int(entries),
+            int(entries) + int(missing_update_count),
+            dtype=np.int64,
+        )
+        if int(missing_update_count) > 0
+        else np.empty(0, dtype=np.int64)
+    )
+    update_ids = np.concatenate([existing_update_ids, missing_update_ids])
+    total_update_count = int(len(update_ids))
 
     def _full() -> dict[str, Any]:
         update_vectors = _update_vectors(
-            update_count=update_count,
+            update_count=total_update_count,
             dim=dim,
             device=device,
             seed=seed + 10_000,
@@ -140,17 +152,19 @@ def run_benchmark(
             if shards <= 1
             else bool(full_index.stats().get("merged_torch_cache_dirty", False)),
             "top1_matches": _top1_matches(full_index, update_vectors, update_ids),
+            "missing_update_count": int(missing_update_count),
         }
 
     def _bounded() -> dict[str, Any]:
         update_vectors = _update_vectors(
-            update_count=update_count,
+            update_count=total_update_count,
             dim=dim,
             device=device,
             seed=seed + 10_000,
         )
         rebuild_count_before = int(bounded_index.stats()["rebuild_count"])
         report = dict(bounded_index.update_existing(update_vectors, update_ids))
+        bounded_size = int(bounded_index.ntotal)
         return {
             **report,
             "rebuild_count_delta": int(
@@ -158,9 +172,11 @@ def run_benchmark(
             ),
             "top1_matches": _top1_matches(
                 bounded_index,
-                update_vectors,
-                update_ids,
+                update_vectors[: int(update_count)],
+                existing_update_ids,
             ),
+            "missing_update_count": int(missing_update_count),
+            "missing_ids_absent": bool(bounded_size == int(entries)),
         }
 
     full_elapsed, full_rows = _measure(_full, runs=runs)
@@ -174,8 +190,18 @@ def run_benchmark(
         "full_top1_matches": bool(full_last.get("top1_matches")),
         "bounded_no_full_rebuild": bool(
             int(bounded_last.get("rebuild_count_delta", -1)) == 0
-            and not bool(bounded_last.get("full_rebuild_required", True))
             and not bool(bounded_last.get("cache_dirty_after", True))
+        ),
+        "bounded_deferred_missing_recovery": bool(
+            int(bounded_last.get("missing_id_count", -1)) == int(missing_update_count)
+            and int(bounded_last.get("skipped_update_count", -1))
+            == int(missing_update_count)
+            and bool(bounded_last.get("recovery_required")) == (
+                int(missing_update_count) > 0
+            )
+        ),
+        "bounded_missing_ids_absent": bool(
+            bounded_last.get("missing_ids_absent", False)
         ),
         "bounded_row_map_lookup": bool(
             bounded_last.get("row_lookup_mode") == "host_id_row_map"
@@ -189,6 +215,8 @@ def run_benchmark(
         quality["bounded_top1_matches"]
         and quality["full_top1_matches"]
         and quality["bounded_no_full_rebuild"]
+        and quality["bounded_deferred_missing_recovery"]
+        and quality["bounded_missing_ids_absent"]
         and quality["bounded_row_map_lookup"]
         and quality["full_path_rebuilt"]
         and bounded_stats["mean_ms"] < full_stats["mean_ms"]
@@ -205,15 +233,19 @@ def run_benchmark(
         "entries": int(entries),
         "dim": int(dim),
         "update_count": int(update_count),
+        "missing_update_count": int(missing_update_count),
+        "requested_update_count": int(total_update_count),
         "runs": int(runs),
         "shards": int(shards),
         "selection_criteria": [
             "selected_sleep_replay_updated_prototype_ids",
             "routing_cache_ready",
-            "existing_column_ids_only",
+            "existing_column_ids_update_in_place",
+            "missing_or_unmapped_ids_defer_recovery",
         ],
         "memory_budget": {
             "selected_rows_updated": int(update_count),
+            "selected_rows_deferred": int(missing_update_count),
             "full_rebuild_rows_retired": int(entries),
             "archival_storage_device": "cpu",
             "routing_row_lookup_metadata_device": "cpu",
@@ -231,6 +263,9 @@ def run_benchmark(
             "runs_every_token": False,
             "active_replay_window_only": True,
             "routing_index_full_rebuild": False,
+            "routing_index_deferred_recovery": bool(
+                int(missing_update_count) > 0
+            ),
             "global_candidate_scan": False,
             "hidden_language_reasoning": False,
         },
@@ -256,6 +291,7 @@ def main() -> None:
     parser.add_argument("--entries", type=int, default=65_536)
     parser.add_argument("--dim", type=int, default=64)
     parser.add_argument("--update-count", type=int, default=16)
+    parser.add_argument("--missing-update-count", type=int, default=1)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--shards", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260621)
@@ -266,6 +302,7 @@ def main() -> None:
         entries=args.entries,
         dim=args.dim,
         update_count=args.update_count,
+        missing_update_count=args.missing_update_count,
         runs=args.runs,
         shards=args.shards,
         seed=args.seed,
@@ -278,16 +315,19 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} entries={entries} update_count={updates} "
-        "full_mean_ms={full_ms:.6f} bounded_mean_ms={bounded_ms:.6f} "
-        "bounded_rebuild={bounded_rebuild}".format(
+        "missing_update_count={missing_updates} full_mean_ms={full_ms:.6f} "
+        "bounded_mean_ms={bounded_ms:.6f} bounded_rebuild_delta={bounded_rebuild} "
+        "deferred={deferred}".format(
             pass_gate=report["pass"],
             entries=report["entries"],
             updates=report["update_count"],
+            missing_updates=report["missing_update_count"],
             full_ms=report["latency"]["retired_full_rebuild"]["mean_ms"],
             bounded_ms=report["latency"]["bounded_existing_row_refresh"]["mean_ms"],
             bounded_rebuild=report["last_bounded_refresh"].get(
-                "full_rebuild_required"
+                "rebuild_count_delta"
             ),
+            deferred=report["last_bounded_refresh"].get("recovery_required"),
         )
     )
 

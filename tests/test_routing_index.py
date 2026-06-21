@@ -279,6 +279,147 @@ class RoutingIndexTests(unittest.TestCase):
                 )
             )
 
+    def test_existing_row_refresh_defers_missing_ids_without_rebuild(self) -> None:
+        index = HierarchicalAssemblyIndex(
+            dim=2,
+            rebuild_threshold=16,
+            device=torch.device("cpu"),
+        )
+        index.add(
+            torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
+            np.array([0, 1], dtype=np.int64),
+        )
+        index.routing_tensor_cache()
+        rebuild_count = int(index.stats()["rebuild_count"])
+        generation = index.routing_tensor_cache_generation()
+
+        update_vectors = torch.tensor(
+            [[0.1, 0.9], [0.9, 0.1]],
+            dtype=torch.float32,
+        )
+        report = index.update_existing(
+            update_vectors,
+            np.array([1, 99], dtype=np.int64),
+        )
+
+        self.assertEqual(index.ntotal, 2)
+        self.assertEqual(int(index.stats()["rebuild_count"]), rebuild_count)
+        self.assertFalse(index.routing_tensor_cache_is_dirty())
+        self.assertGreater(index.routing_tensor_cache_generation(), generation)
+        self.assertEqual(report["direct_update_count"], 1)
+        self.assertEqual(report["missing_id_count"], 1)
+        self.assertEqual(report["skipped_update_count"], 1)
+        self.assertNotIn("full_rebuild_required", report)
+        self.assertTrue(report["recovery_required"])
+        self.assertEqual(
+            report["recovery_reason"],
+            "missing_or_unmapped_existing_row",
+        )
+        found_ids, _ = index.search_tensors(update_vectors[:1], k=1)
+        self.assertEqual(found_ids.tolist(), [[1]])
+        self.assertNotIn(99, index._vector_store)
+
+    def test_existing_row_refresh_defers_dirty_cache_without_mutation(self) -> None:
+        index = HierarchicalAssemblyIndex(
+            dim=2,
+            rebuild_threshold=16,
+            device=torch.device("cpu"),
+        )
+        index.add(
+            torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
+            np.array([0, 1], dtype=np.int64),
+        )
+        original = index._vector_store[1].copy()
+
+        report = index.update_existing(
+            torch.tensor([[0.7, 0.3]], dtype=torch.float32),
+            np.array([1], dtype=np.int64),
+        )
+
+        self.assertEqual(report["direct_update_count"], 0)
+        self.assertEqual(report["skipped_update_count"], 1)
+        self.assertNotIn("full_rebuild_required", report)
+        self.assertTrue(report["recovery_required"])
+        self.assertEqual(report["recovery_reason"], "routing_tensor_cache_dirty")
+        self.assertTrue(index.routing_tensor_cache_is_dirty())
+        self.assertTrue(np.allclose(index._vector_store[1], original))
+
+    def test_sharded_existing_row_refresh_defers_missing_ids_without_rebuild(self) -> None:
+        index = ShardedHierarchicalAssemblyIndex(
+            dim=2,
+            n_shards=2,
+            rebuild_threshold=16,
+            device=torch.device("cpu"),
+        )
+        index.add(
+            torch.tensor(
+                [[1.0, 0.0], [0.0, 1.0], [0.8, 0.2], [0.2, 0.8]],
+                dtype=torch.float32,
+            ),
+            np.array([0, 1, 2, 3], dtype=np.int64),
+        )
+        index.routing_tensor_cache()
+        rebuild_count = int(index.stats()["rebuild_count"])
+        generation = index.routing_tensor_cache_generation()
+
+        update_vectors = torch.tensor(
+            [[0.1, 0.9], [0.9, 0.1]],
+            dtype=torch.float32,
+        )
+        report = index.update_existing(
+            update_vectors,
+            np.array([1, 99], dtype=np.int64),
+        )
+
+        self.assertEqual(index.ntotal, 4)
+        self.assertEqual(int(index.stats()["rebuild_count"]), rebuild_count)
+        self.assertFalse(index.routing_tensor_cache_is_dirty())
+        self.assertGreater(index.routing_tensor_cache_generation(), generation)
+        self.assertEqual(report["direct_update_count"], 1)
+        self.assertEqual(report["merged_direct_update_count"], 1)
+        self.assertEqual(report["missing_id_count"], 1)
+        self.assertEqual(report["skipped_update_count"], 1)
+        self.assertNotIn("full_rebuild_required", report)
+        self.assertTrue(report["recovery_required"])
+        found_ids, _ = index.search_tensors(update_vectors[:1], k=1)
+        self.assertEqual(found_ids.tolist(), [[1]])
+        self.assertNotIn(99, index.shards[index.shard_for_id(99)]._vector_store)
+
+    def test_sharded_existing_row_refresh_defers_dirty_merged_cache_without_mutation(self) -> None:
+        index = ShardedHierarchicalAssemblyIndex(
+            dim=2,
+            n_shards=2,
+            rebuild_threshold=16,
+            device=torch.device("cpu"),
+        )
+        index.add(
+            torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32),
+            np.array([0, 1], dtype=np.int64),
+        )
+        original = index.shards[index.shard_for_id(1)]._vector_store[1].copy()
+
+        report = index.update_existing(
+            torch.tensor([[0.7, 0.3]], dtype=torch.float32),
+            np.array([1], dtype=np.int64),
+        )
+
+        self.assertEqual(report["direct_update_count"], 0)
+        self.assertEqual(report["merged_direct_update_count"], 0)
+        self.assertEqual(report["skipped_update_count"], 1)
+        self.assertNotIn("full_rebuild_required", report)
+        self.assertTrue(report["recovery_required"])
+        self.assertEqual(
+            report["recovery_reason"],
+            "routing_merged_tensor_cache_dirty",
+        )
+        self.assertTrue(index.routing_tensor_cache_is_dirty())
+        self.assertTrue(
+            np.allclose(
+                index.shards[index.shard_for_id(1)]._vector_store[1],
+                original,
+            )
+        )
+
     def test_torch_cache_rebuild_preserves_addresses_when_shape_is_stable(self) -> None:
         index = HierarchicalAssemblyIndex(
             dim=2,

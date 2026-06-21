@@ -42,8 +42,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-source-tick-sleep-replay-deferred.json
   - reports/bounded_replay_window_20260620/live-memory-summary-projection.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json
-  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-refresh.json
-  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-replay-routing-index-refresh.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json
+  - reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery-sharded.json
+  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json
   - reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
 ---
@@ -102,13 +103,18 @@ updates only those existing tensor-cache rows through
 `routing_index_existing_row_refresh.v1`. `HierarchicalAssemblyIndex` and the
 sharded wrapper keep CPU ID-to-row maps for routing-cache metadata while active
 routing vectors/ids remain on the index device. Full routing-index rebuild is
-reserved for explicit missing-ID, dirty-cache, checkpoint, or bootstrap
-fallback. The `65536`-row benchmark refreshed `16` selected rows in
-`5.006260 ms` mean versus `133.747880 ms` for the retired rebuild path, and the
-paired `524288`-token run stayed same-band at `6022.776 tokens/sec` with
-bounded `12/65536` route rows and zero graph/native sequence failures. Service
-surfaces may report the refresh mode, row lookup mode, and rebuild fallback
-flag, but they do not select replay rows or decide routing maintenance.
+reserved for checkpoint restore, bootstrap, explicit offline repair, or
+benchmark-local diagnostics. Missing IDs, dirty caches, or missing row-update
+APIs now report deferred recovery and do not call `add()+rebuild()` inside
+selected replay. The refreshed `65536`-row benchmark updated `16` selected rows,
+deferred `1` missing row, and kept exact top-1 recall in `4.171690 ms` mean
+versus `118.414640 ms` for the retired rebuild baseline; the sharded variant
+passed at `13.348040 ms` versus `140.566380 ms`. The accepted `524288`-token
+rerun stayed same-band at `5943.512 tokens/sec` with bounded `12/65536` route
+rows, CPU max `28%`, GPU max `19%`, flat `1878 MiB` RTX 3060 memory, and zero
+graph/native sequence failures. Service surfaces may report the refresh mode,
+row lookup mode, deferred recovery flag, and skipped-update count, but they do
+not select replay rows or decide routing maintenance.
 
 Sleep replay now has the same bounded-window accounting. `DualMemoryStore.select_replay_window(...)` reports `bounded_replay_window_selection.v1` before any replay mutation. Deep sleep passes checkpointed `column_anchors` as candidate bucket ids, so a positive-pressure replay window scores only entries reachable through the memory store's bucket-to-entry index. That bucket-indexed path now caps candidates before scoring by recent round-robin across anchor buckets and records `candidate_window_policy=recent_bucket_round_robin_candidate_pool`, `candidate_window_limit`, `candidate_index_available_count`, and scored `candidate_index_count`; a hot bucket can make more entries available, but it cannot make the selector score every stored entry. `DualMemoryStore.recall_replay_window(...)` reports `bounded_replay_window_recall.v1` as a non-mutating slow-path operator over the selected entries: routing-key and input-pattern recall stay CPU-resident, `runs_live_tick=false`, and no plasticity is applied. The report records candidate bucket ids/count, candidate entries scored, selected count, CPU archival/score placement, and whether the lower-level selector used `bucket_indexed_candidate_window` or blocked unscoped selection with `bucket_index_scope_required`. There is no runtime diagnostic global score/candidate branch. Production deep replay no longer mutates from the unscoped global scorer: no-anchor and zero-pressure bucket cases record `unscoped_global_fallback_retired=true` and apply `0` replay updates. The former list-only replay/SFA helpers are now removed: callers use `select_replay_window(...)` and `sample_for_sfa_with_report(...)` so bounded reports are retained; unscoped SFA now reports `selected_replay_window_required`. The capped-window long run processed `262144` tokens at `6148.125 tokens/sec`, kept route scoring bounded at `12/65536`, cached `65526` transition rows, reported no observed contention, held GPU memory flat at `1848 MiB`, and had zero graph/native/sequence failures.
 
