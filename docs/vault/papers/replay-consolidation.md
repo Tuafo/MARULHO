@@ -2524,3 +2524,43 @@ bounded `12/65536` route rows, `65526` cached transition rows,
 `state_transition_runs_all_columns=false`, no observed contention, CPU max
 `38%`, GPU max `13%`, RTX memory `1775->1775 MiB`, and zero graph/native
 sequence failures.
+
+## Query Row-Access Retirement
+
+The same research boundary now applies inside explicit query recall after the
+candidate window is chosen. Modern Hopfield recall remains a bounded local
+operator; CLS, continual replay, synaptic tagging/capture, latent replay, and
+sparse replay do not justify a query runner reading archival arrays directly
+beside the memory-store API.
+
+MARULHO therefore keeps candidate selection on
+`bounded_query_memory_match_candidates.v1`, then reads scoring rows through
+`bounded_query_memory_match_row.v1`. Raw text is opt-in and only fetched for
+returned similarity matches unless text ranking explicitly requires candidate
+payloads. Query-episode neighbor stitching uses
+`bounded_query_neighbor_source_row.v1`. `query_runner.py` has no production
+references to `slow_buffer`, `slow_raw_windows`, routing keys, input patterns,
+bucket ids, timestamps, importance, or replay counts.
+
+The focused report
+`reports/bounded_replay_window_20260622/query-memory-store-owned-row-access.json`
+preserved selected-index parity with the diagnostic eager payload path
+(`[0, 16, 32, 48, 64]`), loaded `5` raw text payloads instead of `192`,
+and reduced mean latency from `42.525 ms` to `33.718 ms` (`1.261x`). The query
+report read `197` bounded rows (`192` scoring rows plus `5` text payload rows),
+kept archival/score placement on CPU, and reported no global scan, no live
+tick, no every-token work, no mutation/plasticity, and no hidden language
+reasoning.
+
+The paired replay quality report
+`reports/bounded_replay_window_20260622/synthetic-query-row-access.json` kept
+sleep associative recall bounded to `4` selected-window queries with mean best
+input-pattern distance `5.960464477539063e-08`. The no-profile hot-path rerun
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-row-access-noprofile-rerun.json`
+processed `524288` tokens at `5935.802 tokens/sec`, p95 tick `21.734 ms`,
+`train_compute=0.135751 ms/token`, `prepare_training=0.007080 ms/token`, and
+`finalize_total=0.006814 ms/token`, with bounded `12/65536` route rows,
+`65526` cached transition rows, CUDA selected on the RTX 3060, RTX memory
+`1952->1954 MiB`, and zero graph/native/sequence failures. Velocity observed
+GPU-side contention during the run, so this is same-band protection and
+retirement evidence, not a clean speed ceiling.

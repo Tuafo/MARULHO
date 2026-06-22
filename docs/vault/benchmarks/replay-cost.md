@@ -2738,3 +2738,45 @@ kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Velocity reported no observed
 contention, CPU max `38%`, GPU max `13%`, GPU memory utilization max `18%`, and
 RTX memory `1775->1775 MiB`.
+
+## Query Row-Access Retirement
+
+The query memory matcher now uses one store-owned row path after bounded
+candidate selection. Scoring rows come from `bounded_query_memory_match_row.v1`
+with text payload omitted; text payload rows are fetched only for returned
+matches unless text ranking explicitly requires candidate payloads. Query
+episode stitching uses `bounded_query_neighbor_source_row.v1`.
+
+Focused query payload report:
+
+`python -m marulho.evaluation.query_memory_payload_benchmark --output reports\bounded_replay_window_20260622\query-memory-store-owned-row-access.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 5 --iterations 16`
+
+Result: `passed=true`; selected indices matched the diagnostic eager payload
+path (`[0, 16, 32, 48, 64]`), raw text payloads dropped from `192` to `5`,
+and mean latency improved from `42.525 ms` to `33.718 ms` (`1.261x`). The
+bounded query report recorded `query_row_read_count=197`, no invalid row
+reads, CPU archival/score placement, no global scan, no live/every-token work,
+no mutation/plasticity, and no language reasoning.
+
+Replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260622\synthetic-query-row-access.json`
+
+Result: positive-pressure sleep recall stayed bounded to the selected replay
+window with `4` queries and mean best input-pattern distance
+`5.960464477539063e-08`. Zero-pressure and no-anchor controls ran `0` recall
+queries.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-row-access-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens at `5935.802 tokens/sec`, p95 tick
+`21.734 ms`, `train_compute=0.135751 ms/token`,
+`prepare_training=0.007080 ms/token`, and
+`finalize_total=0.006814 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity observed GPU-side
+contention, so this is same-band protection evidence rather than a new speed
+ceiling.

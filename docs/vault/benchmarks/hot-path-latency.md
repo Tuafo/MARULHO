@@ -5705,3 +5705,58 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native sequence failures. Velocity
 reported no observed contention, CPU max `43%`, GPU max `13%`, GPU memory
 utilization max `18%`, and RTX memory `1915->1913 MiB`.
+
+## Query Row-Access Retirement Protection
+
+This run protects the live tick after retiring direct query-runner reads of
+slow-memory row arrays. Query recall remains slow-path: routing selects a
+bounded candidate window, `DualMemoryStore.query_match_row(...)` serves scoring
+and opt-in text payload rows, and `query_runner.py` has no production
+references to slow-memory archive arrays.
+
+Focused quality/latency:
+
+`python -m marulho.evaluation.query_memory_payload_benchmark --output reports\bounded_replay_window_20260622\query-memory-store-owned-row-access.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 5 --iterations 16`
+
+Result: `passed=true`; selected indices matched the diagnostic eager payload
+path (`[0, 16, 32, 48, 64]`), raw text payloads fell from `192` candidates to
+`5` returned matches, and mean latency fell from `42.525 ms` to `33.718 ms`
+(`1.261x`). Runtime Truth reported `bounded_query_memory_match_row.v1`,
+`query_row_reader_owned_by_store=true`,
+`direct_slow_memory_array_reads_retired=true`, `query_row_read_count=197`, no
+invalid query rows, CPU archival/score placement, no global candidate/score
+scan, no live tick, no mutation/plasticity, and no language reasoning.
+
+Replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260622\synthetic-query-row-access.json`
+
+Result: positive-pressure sleep recall stayed inside the selected bucket window
+with `4` bounded queries and mean best input-pattern distance
+`5.960464477539063e-08`. Zero-pressure and no-anchor controls ran `0` queries
+and made no recall-quality claim.
+
+Profiled diagnostic hot-path run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-row-access.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens at `5794.484 tokens/sec`,
+`train_compute=0.138632 ms/token`, `prepare_training=0.007353 ms/token`, and
+`finalize_total=0.007082 ms/token`. This run is kept as profiled diagnostic
+evidence, not the accepted throughput gate.
+
+Accepted no-profile protection rerun:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-row-access-noprofile-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.326399 s` at
+`5935.802 tokens/sec`, p95 tick `21.734 ms`,
+`train_compute=0.135751 ms/token`, `prepare_training=0.007080 ms/token`, and
+`finalize_total=0.006814 ms/token`. Prewarm took `356.115 s` and
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported CPU max `82%`,
+GPU max `33%`, GPU memory utilization max `23%`, and RTX memory
+`1952->1954 MiB`, so this is noisy same-band protection evidence, not a clean
+speed ceiling.

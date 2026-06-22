@@ -302,6 +302,22 @@ reduced mean latency from `33.612 ms` to `25.881 ms`. The report records
 transition rows, flat GPU memory (`1874->1878 MiB`), no observed contention,
 and zero graph/native/sequence failures.
 
+The query runner no longer reads slow-memory row arrays directly after that
+candidate window is selected. `DualMemoryStore.query_match_row(...)` serves
+scoring rows and opt-in text payload rows under
+`bounded_query_memory_match_row.v1`, while
+`DualMemoryStore.query_neighbor_source_row(...)` serves source-neighbor text for
+episode stitching under `bounded_query_neighbor_source_row.v1`. The fresh
+report
+`reports/bounded_replay_window_20260622/query-memory-store-owned-row-access.json`
+kept the diagnostic selected indices `[0, 16, 32, 48, 64]`, loaded `5` raw text
+payloads instead of `192`, read `197` bounded rows, reduced mean latency from
+`42.525 ms` to `33.718 ms`, and reported no global scan, live tick, mutation,
+plasticity, or language reasoning. The paired no-profile 524288-token run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-row-access-noprofile-rerun.json`
+stayed in the noisy maintained band at `5935.802 tokens/sec`, with bounded
+`12/65536` route rows and zero graph/native sequence failures.
+
 Concept-frontier source acquisition now uses that selected-window contract too.
 `concept_frontier_metrics_with_report(...)` emits
 `bounded_concept_frontier_memory_metrics.v1`: routing supplies candidate bucket

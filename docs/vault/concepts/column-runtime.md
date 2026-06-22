@@ -1990,3 +1990,21 @@ at `12/65536`, `65526` cached transition rows,
 `state_transition_runs_all_columns=false`, no observed contention, CPU max
 `43%`, GPU max `13%`, RTX memory `1915->1913 MiB`, and zero graph/native
 sequence failures.
+
+## Query Row-Access Boundary
+
+Explicit query recall now has one maintained slow-memory row path after routing
+selects the candidate window. `DualMemoryStore.query_match_row(...)` owns
+scoring and optional text payload reads under
+`bounded_query_memory_match_row.v1`; `DualMemoryStore.query_neighbor_source_row(...)`
+owns neighboring source text reads for query episode stitching under
+`bounded_query_neighbor_source_row.v1`. The query runner consumes those row
+surfaces and store summary stats instead of reading slow-memory arrays.
+
+The row path is CPU archival/source work, not live column execution. The
+focused query report read `197` bounded rows for a `192`-candidate window and
+returned `5` text payloads, preserving selected indices while reducing mean
+latency from `42.525 ms` to `33.718 ms`. The long no-profile check stayed in
+the noisy maintained band at `5935.802 tokens/sec` with route scoring bounded
+to `12/65536`, `65526` cached transition rows, CUDA active on the RTX 3060,
+and zero graph/native/sequence failures.

@@ -38,11 +38,14 @@ class _SyntheticMemoryStore:
         self.slow_input_patterns = [base for _ in range(self.capacity)]
         self.slow_routing_keys = [None for _ in range(self.capacity)]
         self.slow_raw_windows = _SyntheticTextSequence("query memory episode", self.capacity)
+        self.slow_texts = self.slow_raw_windows
+        self.slow_metadata = [{} for _ in range(self.capacity)]
         self.slow_bucket_ids = [int(index % self.bucket_count) for index in range(self.capacity)]
         self.slow_importance = [1.0 for _ in range(self.capacity)]
         self.slow_entry_timestamps = [0 for _ in range(self.capacity)]
         self.slow_replay_count = [0 for _ in range(self.capacity)]
         self.replay_entry_calls: list[int] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
         self.last_query_memory_match_report: dict[str, Any] = {}
 
     def replay_scores_for_indices(
@@ -97,6 +100,42 @@ class _SyntheticMemoryStore:
         }
         self.last_query_memory_match_report = report
         return report
+
+    def query_match_row(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
+        index = int(idx)
+        self.query_match_row_calls.append((index, bool(include_text_payload)))
+        text = self.slow_raw_windows[index]
+        return {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": index,
+            "assembly": self.slow_buffer[index],
+            "input_pattern": self.slow_input_patterns[index],
+            "routing_key": self.slow_routing_keys[index],
+            "bucket_id": self.slow_bucket_ids[index],
+            "importance": self.slow_importance[index],
+            "capture_tag": 0.0,
+            "tag_strength": 0.0,
+            "prp_level": 0.0,
+            "capture_strength": 0.0,
+            "consolidation_level": 0.0,
+            "age_tokens": max(0, int(current_token or 0) - int(self.slow_entry_timestamps[index])),
+            "replay_count": self.slow_replay_count[index],
+            "raw_window": text if include_text_payload else None,
+            "text": text if include_text_payload else None,
+            "metadata": {} if include_text_payload else None,
+            "raw_text_payload_loaded": bool(include_text_payload),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
 
     def replay_entry(
         self,
@@ -216,6 +255,7 @@ def run_benchmark(
         legacy_selected = list(legacy["selected_indices"])
 
         store.replay_entry_calls.clear()
+        store.query_match_row_calls.clear()
         started = time.perf_counter()
         bounded_matches, bounded_report = query_runner.memory_matches_with_report(
             trainer,
@@ -227,7 +267,9 @@ def run_benchmark(
             candidate_bucket_ids=candidate_bucket_ids,
         )
         bounded_latencies.append((time.perf_counter() - started) * 1000.0)
-        bounded_payload_counts.append(int(len(store.replay_entry_calls)))
+        bounded_payload_counts.append(
+            int(sum(1 for _index, include_text in store.query_match_row_calls if include_text))
+        )
         bounded_selected = [
             int(match.get("memory_index", -1))
             for match in bounded_matches
@@ -240,6 +282,10 @@ def run_benchmark(
     report_gate_pass = bool(
         bounded_report.get("raw_text_payload_policy")
         == "returned_similarity_matches_only"
+        and bounded_report.get("query_row_surface")
+        == "bounded_query_memory_match_row.v1"
+        and bool(bounded_report.get("query_row_reader_owned_by_store"))
+        and bool(bounded_report.get("direct_slow_memory_array_reads_retired"))
         and not bool(bounded_report.get("global_candidate_scan"))
         and not bool(bounded_report.get("global_score_scan"))
         and not bool(bounded_report.get("language_reasoning"))

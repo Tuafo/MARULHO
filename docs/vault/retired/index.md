@@ -33,6 +33,7 @@ related_benchmarks: []
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
 - [Plasticity Runtime State Full Snapshot](plasticity-runtime-state-full-snapshot.md)
 - [Query Recent Entry Text Support Fallback](query-recent-entry-text-support-fallback.md)
+- [Query Runner Direct Slow Memory Row Reads](query-runner-direct-slow-memory-row-reads.md)
 - [Raw Caller Window Replay Artifact Recording](raw-caller-window-replay-artifact-recording.md)
 - [Readout Known Hash Report Dropping Path](readout-known-hash-report-dropping-path.md)
 - [Readout Ledger Broad Snapshot Normalization](readout-ledger-broad-snapshot-normalization.md)

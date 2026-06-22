@@ -203,11 +203,17 @@ def _merge_adjacent_text_windows(windows: Sequence[str], *, min_overlap: int = 2
 def _memory_window_count(memory_store: Any | None) -> int:
     if memory_store is None:
         return 0
-    windows = getattr(memory_store, "slow_raw_windows", None)
-    try:
-        return len(windows)
-    except TypeError:
-        return 0
+    summary = getattr(memory_store, "live_summary_stats", None)
+    if callable(summary):
+        try:
+            return int(summary().get("size", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _memory_store_size(memory_store: Any | None) -> int:
+    return _memory_window_count(memory_store)
 
 
 def _bounded_episode_source_text(
@@ -241,28 +247,23 @@ def _bounded_episode_source_text(
     radius = max(0, int(neighbor_radius))
     start = max(0, center - radius)
     stop = min(window_count - 1, center + radius)
-    windows = getattr(memory_store, "slow_raw_windows", None)
-    metadata_rows = getattr(memory_store, "slow_metadata", None)
+    source_row = getattr(memory_store, "query_neighbor_source_row", None)
+    if not callable(source_row):
+        return fallback, []
     source_windows: list[str] = []
     indices: list[int] = []
     for index in range(start, stop + 1):
-        try:
-            metadata = metadata_rows[index] if metadata_rows is not None else None
-        except (TypeError, IndexError, KeyError):
-            metadata = None
-        if (
-            isinstance(metadata, Mapping)
-            and str(metadata.get("source_type", "")).strip()
-            == "explicit_feed_source_episode"
-        ):
-            continue
         if index not in window_cache:
             try:
-                value = windows[index]
-            except (TypeError, IndexError, KeyError):
-                value = None
-            window_cache[index] = "" if value is None else str(value)
-            loaded_indices.add(index)
+                row = source_row(
+                    int(index),
+                    skip_source_types=("explicit_feed_source_episode",),
+                )
+            except (TypeError, ValueError, IndexError, KeyError):
+                row = {}
+            window_cache[index] = str(row.get("text") or "")
+            if bool(row.get("raw_text_payload_loaded")):
+                loaded_indices.add(index)
         text = window_cache[index]
         if text:
             source_windows.append(text)
@@ -437,7 +438,7 @@ def admit_bounded_feed_source_episodes(
 ) -> dict[str, Any]:
     started = time.perf_counter()
     store = trainer.model.memory_store
-    memory_size_before = len(getattr(store, "slow_buffer", []))
+    memory_size_before = _memory_store_size(store)
     candidates, selection_report = _bounded_feed_source_episode_candidates(
         text,
         max_source_episodes=max_source_episodes,
@@ -508,7 +509,7 @@ def admit_bounded_feed_source_episodes(
         admitted_indices.append(int(memory_index))
         admitted_bucket_ids.append(int(bucket_id))
 
-    memory_size_after = len(getattr(store, "slow_buffer", []))
+    memory_size_after = _memory_store_size(store)
     admitted_count = len(admitted_indices)
     return {
         "surface": "bounded_feed_source_episode_admission.v1",
@@ -625,7 +626,7 @@ def feed_text(
         source_admission_report = _empty_feed_source_episode_admission_report(
             status="disabled",
             fallback_reason="source_episode_admission_disabled",
-            memory_size=len(trainer.model.memory_store.slow_buffer),
+            memory_size=_memory_store_size(trainer.model.memory_store),
             token_count=int(trainer.token_count),
             max_source_episodes=source_episode_budget,
             max_chars_per_episode=source_episode_max_chars,
@@ -636,7 +637,7 @@ def feed_text(
         "token_count": int(trainer.token_count),
         "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
         "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
-        "memory_buffer_size": int(len(trainer.model.memory_store.slow_buffer)),
+        "memory_buffer_size": int(_memory_store_size(trainer.model.memory_store)),
         "source_memory_admission_report": source_admission_report,
         "source_memory_admission_count": int(source_admission_report.get("admitted_count", 0)),
         "source_memory_candidate_count": int(source_admission_report.get("candidate_episode_count", 0)),
@@ -786,9 +787,26 @@ def memory_matches_with_report(
         )
     if not hasattr(store, "collect_query_memory_match_indices"):
         report = _empty_query_memory_match_report(
-            memory_size=len(getattr(store, "slow_buffer", [])),
+            memory_size=_memory_store_size(store),
             requested_count=candidate_limit,
             fallback_reason="memory_store_missing_bounded_query_match_collector",
+        )
+        return [], report
+    query_row_reader = getattr(store, "query_match_row", None)
+    if not callable(query_row_reader):
+        report = _empty_query_memory_match_report(
+            memory_size=_memory_store_size(store),
+            requested_count=candidate_limit,
+            fallback_reason="memory_store_missing_bounded_query_match_row_reader",
+        )
+        report.update(
+            {
+                "surface": "bounded_query_memory_match.v1",
+                "candidate_surface": "bounded_query_memory_match_candidates.v1",
+                "query_row_surface": "bounded_query_memory_match_row.v1",
+                "query_row_reader_owned_by_store": False,
+                "direct_slow_memory_array_reads_retired": True,
+            }
         )
         return [], report
 
@@ -797,16 +815,14 @@ def memory_matches_with_report(
         max_candidates=candidate_limit,
         scope="query_runner_memory_matches",
     )
-    candidate_indices = [
-        int(index)
-        for index in candidate_report.get("match_indices", [])
-        if 0 <= int(index) < len(store.slow_buffer)
-    ]
-    initial_candidate_index_count = int(len(candidate_indices))
-    replay_scores = store.replay_scores_for_indices(
-        candidate_indices,
-        trainer.token_count,
-    )
+    raw_candidate_indices: list[int] = []
+    for raw_index in candidate_report.get("match_indices", []):
+        try:
+            raw_candidate_indices.append(int(raw_index))
+        except (TypeError, ValueError):
+            continue
+    candidate_indices: list[int] = []
+    initial_candidate_index_count = int(len(raw_candidate_indices))
     ordered_focus_terms = _dedupe_terms(focus_terms)
     term_match_cache = _SemanticTermMatchCache()
     text_ranking_required = bool(query_terms or ordered_focus_terms or memory_priority)
@@ -814,11 +830,72 @@ def memory_matches_with_report(
     candidate_rows: list[dict[str, Any]] = []
     raw_text_payload_count = 0
     raw_text_payload_cache_hits = 0
+    query_row_read_count = 0
+    query_row_cache_hits = 0
+    invalid_query_row_count = 0
+    query_row_cache: dict[int, dict[str, Any]] = (
+        replay_entry_cache if replay_entry_cache is not None else {}
+    )
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
+    def _read_query_row(idx: int, *, include_text_payload: bool) -> dict[str, Any] | None:
+        nonlocal raw_text_payload_count
+        nonlocal raw_text_payload_cache_hits
+        nonlocal query_row_read_count
+        nonlocal query_row_cache_hits
+        nonlocal invalid_query_row_count
+        cached = query_row_cache.get(int(idx))
+        if cached is not None and (
+            not include_text_payload or bool(cached.get("raw_text_payload_loaded"))
+        ):
+            query_row_cache_hits += 1
+            if include_text_payload:
+                raw_text_payload_cache_hits += 1
+            return cached
+        try:
+            row = query_row_reader(
+                int(idx),
+                current_token=trainer.token_count,
+                include_text_payload=include_text_payload,
+            )
+        except (TypeError, ValueError, IndexError, KeyError):
+            invalid_query_row_count += 1
+            return None
+        query_row_read_count += 1
+        row = dict(row)
+        previous = query_row_cache.get(int(idx))
+        if previous is not None:
+            merged = dict(previous)
+            merged.update(row)
+            row = merged
+        query_row_cache[int(idx)] = row
+        if include_text_payload and bool(row.get("raw_text_payload_loaded")):
+            raw_text_payload_count += 1
+        return row
+
+    replay_scores = store.replay_scores_for_indices(
+        raw_candidate_indices,
+        trainer.token_count,
+    )
+
     def _finish(result_matches: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         report = dict(candidate_report)
+        selection_budget = dict(report.get("selection_budget") or {})
+        selection_budget.update(
+            {
+                "query_row_candidate_read_budget_entries": int(
+                    len(raw_candidate_indices)
+                ),
+                "query_row_text_payload_budget_entries": int(
+                    len(candidate_indices) if text_ranking_required else limit
+                ),
+                "query_row_total_read_budget_entries": int(
+                    len(raw_candidate_indices)
+                    + (len(candidate_indices) if text_ranking_required else limit)
+                ),
+            }
+        )
         report.update(
             {
                 "surface": "bounded_query_memory_match.v1",
@@ -848,11 +925,19 @@ def memory_matches_with_report(
                     if text_ranking_required
                     else "returned_similarity_matches_only"
                 ),
+                "query_row_surface": "bounded_query_memory_match_row.v1",
+                "query_row_access_policy": "explicit_bounded_query_candidate_indices_only",
+                "query_row_reader_owned_by_store": True,
+                "query_row_read_count": int(query_row_read_count),
+                "query_row_cache_hits": int(query_row_cache_hits),
+                "query_row_invalid_index_count": int(invalid_query_row_count),
+                "direct_slow_memory_array_reads_retired": True,
                 "language_reasoning": False,
                 "runs_live_tick": False,
                 "mutates_runtime_state": False,
                 "applies_plasticity": False,
                 "archival_storage_device": "cpu",
+                "selection_budget": selection_budget,
             }
         )
         return result_matches, report
@@ -864,27 +949,15 @@ def memory_matches_with_report(
         evidence_pattern: torch.Tensor,
         replay_priority: float,
     ) -> dict[str, Any]:
-        nonlocal raw_text_payload_count, raw_text_payload_cache_hits
-        replay_entry: dict[str, Any] | None = None
-        if replay_entry_cache is not None:
-            replay_entry = replay_entry_cache.get(int(idx))
+        replay_entry = _read_query_row(idx, include_text_payload=True)
         if replay_entry is None:
-            replay_entry = store.replay_entry(
-                idx,
-                current_token=trainer.token_count,
-                include_text_payload=True,
-            )
-            raw_text_payload_count += 1
-            if replay_entry_cache is not None:
-                replay_entry_cache[int(idx)] = replay_entry
-        else:
-            raw_text_payload_cache_hits += 1
+            return {}
         capture_tag = float(replay_entry.get("capture_tag", 0.0))
         prp_level = float(replay_entry.get("prp_level", 0.0))
         capture_strength = float(replay_entry.get("capture_strength", 0.0))
         consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
-        text = replay_entry.get("text") or store.slow_raw_windows[idx]
-        raw_window = replay_entry.get("raw_window") or store.slow_raw_windows[idx]
+        text = replay_entry.get("text") or replay_entry.get("raw_window") or ""
+        raw_window = replay_entry.get("raw_window") or text
         replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
         source_name = " ".join(str(replay_metadata.get("source_name", "")).split()).strip()
         source_type = " ".join(str(replay_metadata.get("source_type", "")).split()).strip()
@@ -900,22 +973,22 @@ def memory_matches_with_report(
         return {
             "memory_index": int(idx),
             "similarity": float(similarity),
-            "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
+            "bucket_id": None if replay_entry.get("bucket_id") is None else int(replay_entry.get("bucket_id")),
             "raw_window": raw_window,
             "text": text,
             "metadata": dict(replay_metadata),
             "source_name": source_name,
             "source_type": source_type,
             "provider": provider,
-            "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
-            "importance": float(store.slow_importance[idx]),
+            "age_tokens": int(replay_entry.get("age_tokens", 0) or 0),
+            "importance": float(replay_entry.get("importance", 0.0) or 0.0),
             "tag_strength": float(capture_tag),
             "capture_tag": float(capture_tag),
             "prp_level": float(prp_level),
             "capture_strength": float(capture_strength),
             "consolidation_level": consolidation_level,
             "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
-            "replay_count": int(store.slow_replay_count[idx]),
+            "replay_count": int(replay_entry.get("replay_count", 0) or 0),
             "replay_priority": float(replay_priority),
             "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
             "query_overlap": int(query_overlap),
@@ -928,26 +1001,33 @@ def memory_matches_with_report(
         }
 
     def _score_index(idx: int) -> None:
-        ref_key = store.slow_routing_keys[idx]
-        ref_input = store.slow_input_patterns[idx]
+        row = _read_query_row(idx, include_text_payload=False)
+        if row is None:
+            return
+        ref_key = row.get("routing_key")
+        ref_input = row.get("input_pattern")
+        assembly = row.get("assembly")
         if isinstance(ref_key, torch.Tensor):
             similarity = cosine_similarity(query_key, ref_key.float())
         elif isinstance(ref_input, torch.Tensor):
             similarity = cosine_similarity(query_input, ref_input.float())
+        elif isinstance(assembly, torch.Tensor):
+            similarity = cosine_similarity(query_input, assembly.float())
         else:
-            similarity = cosine_similarity(query_input, store.slow_buffer[idx].float())
+            return
 
-        evidence_pattern = ref_input.float() if isinstance(ref_input, torch.Tensor) else store.slow_buffer[idx].float()
+        evidence_pattern = ref_input.float() if isinstance(ref_input, torch.Tensor) else assembly.float()
         replay_priority = float(replay_scores.get(int(idx), 0.0))
+        candidate_indices.append(int(idx))
         if text_ranking_required:
-            matches.append(
-                _build_match(
-                    idx,
-                    similarity=float(similarity),
-                    evidence_pattern=evidence_pattern,
-                    replay_priority=replay_priority,
-                )
+            match = _build_match(
+                idx,
+                similarity=float(similarity),
+                evidence_pattern=evidence_pattern,
+                replay_priority=replay_priority,
             )
+            if match:
+                matches.append(match)
         else:
             candidate_rows.append(
                 {
@@ -958,7 +1038,7 @@ def memory_matches_with_report(
                 }
             )
 
-    for idx in candidate_indices:
+    for idx in raw_candidate_indices:
         _score_index(idx)
 
     if not text_ranking_required:
@@ -1247,6 +1327,12 @@ def build_memory_episodes_with_report(
             if loaded_neighbor_indices
             else "preselected_memory_match_text_only"
         ),
+        "neighbor_row_surface": "bounded_query_neighbor_source_row.v1",
+        "neighbor_row_reader_owned_by_store": bool(
+            memory_store is not None
+            and callable(getattr(memory_store, "query_neighbor_source_row", None))
+        ),
+        "direct_slow_memory_array_reads_retired": True,
         "neighbor_window_index_count": int(len(selected_neighbor_indices)),
         "neighbor_window_indices": sorted(selected_neighbor_indices)[:64],
         "neighbor_window_index_sample_limit": 64,

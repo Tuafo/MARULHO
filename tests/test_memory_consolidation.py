@@ -336,6 +336,75 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertIsNone(replay_entry["text"])
         self.assertIsNone(replay_entry["metadata"])
 
+    def test_query_match_row_is_store_owned_and_text_payload_opt_in(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        pattern = torch.tensor([0.0, 1.0], dtype=torch.float32)
+        store.update(
+            assembly,
+            importance=1.0,
+            token_count=12,
+            bucket_id=1,
+            input_pattern=pattern,
+            routing_key=assembly,
+            raw_window="bounded query raw window",
+            text="bounded query expanded text",
+            metadata={"source_type": "unit"},
+            capture_tag=0.4,
+        )
+
+        score_row = store.query_match_row(
+            0,
+            current_token=12,
+            include_text_payload=False,
+        )
+        text_row = store.query_match_row(
+            0,
+            current_token=12,
+            include_text_payload=True,
+        )
+
+        self.assertEqual(score_row["surface"], "bounded_query_memory_match_row.v1")
+        self.assertIsInstance(score_row["assembly"], torch.Tensor)
+        self.assertIsInstance(score_row["input_pattern"], torch.Tensor)
+        self.assertIsInstance(score_row["routing_key"], torch.Tensor)
+        self.assertIsNone(score_row["raw_window"])
+        self.assertIsNone(score_row["text"])
+        self.assertFalse(score_row["raw_text_payload_loaded"])
+        self.assertFalse(score_row["global_candidate_scan"])
+        self.assertFalse(score_row["global_score_scan"])
+        self.assertFalse(score_row["mutates_runtime_state"])
+        self.assertEqual(text_row["raw_window"], "bounded query raw window")
+        self.assertEqual(text_row["text"], "bounded query expanded text")
+        self.assertEqual(text_row["metadata"], {"source_type": "unit"})
+        self.assertTrue(text_row["raw_text_payload_loaded"])
+
+    def test_query_neighbor_source_row_skips_explicit_source_episode_payload(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        store.update(
+            torch.tensor([1.0, 0.0], dtype=torch.float32),
+            importance=1.0,
+            token_count=12,
+            bucket_id=1,
+            input_pattern=torch.tensor([0.0, 1.0], dtype=torch.float32),
+            routing_key=torch.tensor([1.0, 0.0], dtype=torch.float32),
+            raw_window="fragment payload",
+            metadata={"source_type": "explicit_feed_source_episode"},
+        )
+
+        row = store.query_neighbor_source_row(
+            0,
+            skip_source_types=("explicit_feed_source_episode",),
+        )
+
+        self.assertEqual(row["surface"], "bounded_query_neighbor_source_row.v1")
+        self.assertEqual(row["status"], "skipped_source_type")
+        self.assertEqual(row["text"], "")
+        self.assertFalse(row["raw_text_payload_loaded"])
+        self.assertFalse(row["global_candidate_scan"])
+        self.assertFalse(row["global_score_scan"])
+        self.assertFalse(row["language_reasoning"])
+
     def test_memory_store_device_report_marks_archival_storage_cpu(self) -> None:
         store = DualMemoryStore(capacity=8)
         store.update(

@@ -16,12 +16,15 @@ class _FakeMemoryStore:
         self.slow_input_patterns = [item.clone() for item in self.slow_buffer]
         self.slow_routing_keys = [None for _ in texts]
         self.slow_raw_windows = list(texts)
+        self.slow_texts = list(texts)
         self.slow_metadata = [{} for _ in texts]
         self.slow_bucket_ids = [index % 8 for index, _text in enumerate(texts)]
         self.slow_importance = [1.0 for _ in texts]
         self.slow_entry_timestamps = [0 for _ in texts]
         self.slow_replay_count = [0 for _ in texts]
         self.replay_entry_calls: list[int] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
+        self.query_neighbor_source_row_calls: list[int] = []
         self.last_query_memory_match_report: dict[str, object] = {}
 
     def replay_scores_for_indices(
@@ -77,6 +80,77 @@ class _FakeMemoryStore:
         self.last_query_memory_match_report = report
         return report
 
+    def query_match_row(
+        self,
+        idx: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, object]:
+        index = int(idx)
+        self.query_match_row_calls.append((index, bool(include_text_payload)))
+        text = self.slow_raw_windows[index]
+        return {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": index,
+            "assembly": self.slow_buffer[index],
+            "input_pattern": self.slow_input_patterns[index],
+            "routing_key": self.slow_routing_keys[index],
+            "bucket_id": self.slow_bucket_ids[index],
+            "importance": self.slow_importance[index],
+            "capture_tag": 0.0,
+            "tag_strength": 0.0,
+            "prp_level": 0.0,
+            "capture_strength": 0.0,
+            "consolidation_level": 0.0,
+            "age_tokens": max(0, int(current_token or 0) - int(self.slow_entry_timestamps[index])),
+            "replay_count": self.slow_replay_count[index],
+            "raw_window": text if include_text_payload else None,
+            "text": text if include_text_payload else None,
+            "metadata": dict(self.slow_metadata[index]) if include_text_payload else None,
+            "raw_text_payload_loaded": bool(include_text_payload),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
+
+    def query_neighbor_source_row(
+        self,
+        idx: int,
+        *,
+        skip_source_types: tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        index = int(idx)
+        self.query_neighbor_source_row_calls.append(index)
+        metadata = dict(self.slow_metadata[index])
+        if str(metadata.get("source_type", "")).strip() in set(skip_source_types):
+            return {
+                "surface": "bounded_query_neighbor_source_row.v1",
+                "status": "skipped_source_type",
+                "memory_index": index,
+                "text": "",
+                "metadata": metadata,
+                "raw_text_payload_loaded": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "language_reasoning": False,
+            }
+        return {
+            "surface": "bounded_query_neighbor_source_row.v1",
+            "status": "loaded",
+            "memory_index": index,
+            "text": self.slow_raw_windows[index],
+            "metadata": metadata,
+            "raw_text_payload_loaded": True,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+        }
+
     def replay_entry(
         self,
         idx: int,
@@ -96,6 +170,9 @@ class _FakeMemoryStore:
             "raw_window": self.slow_raw_windows[idx],
             "metadata": {},
         }
+
+    def live_summary_stats(self) -> dict[str, object]:
+        return {"size": len(self.slow_buffer)}
 
 
 class _FakeRoutingIndex:
@@ -195,10 +272,17 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertEqual(report["replay_priority_score_count"], 5)
         self.assertEqual(report["raw_text_payload_policy"], "candidate_window_text_ranking")
         self.assertEqual(report["raw_text_payload_count"], 5)
+        self.assertEqual(report["query_row_surface"], "bounded_query_memory_match_row.v1")
+        self.assertTrue(report["query_row_reader_owned_by_store"])
+        self.assertTrue(report["direct_slow_memory_array_reads_retired"])
         self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["runs_live_tick"])
-        self.assertLessEqual(max(trainer.model.memory_store.replay_entry_calls), 4)
+        self.assertFalse(trainer.model.memory_store.replay_entry_calls)
+        self.assertLessEqual(
+            max(index for index, _loaded in trainer.model.memory_store.query_match_row_calls),
+            4,
+        )
 
     def test_memory_matches_does_not_widen_to_recent_entries_for_text_support(self) -> None:
         trainer = _FakeTrainer(
@@ -256,7 +340,15 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertEqual(report["raw_text_payload_count"], 4)
         self.assertTrue(report["raw_text_payload_loaded"])
         self.assertFalse(report["language_reasoning"])
-        self.assertEqual(trainer.model.memory_store.replay_entry_calls, [0, 1, 2, 3])
+        self.assertFalse(trainer.model.memory_store.replay_entry_calls)
+        self.assertEqual(
+            [
+                index
+                for index, include_text in trainer.model.memory_store.query_match_row_calls
+                if include_text
+            ],
+            [0, 1, 2, 3],
+        )
 
     def test_memory_matches_preserves_literal_and_inflection_matches(self) -> None:
         trainer = _FakeTrainer(

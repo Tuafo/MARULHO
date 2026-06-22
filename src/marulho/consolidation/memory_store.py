@@ -2225,6 +2225,175 @@ class DualMemoryStore:
             entry.update({"raw_window": None, "text": None, "metadata": None})
         return entry
 
+    @staticmethod
+    def _sequence_item(
+        values: Sequence[Any],
+        index: int,
+        default: Any = None,
+    ) -> Any:
+        try:
+            return values[int(index)]
+        except (TypeError, IndexError, KeyError):
+            return default
+
+    def query_match_row(
+        self,
+        index: int,
+        current_token: Optional[int] = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
+        """Read one bounded query-match row without advancing STC state."""
+
+        idx = int(index)
+        if idx < 0 or idx >= len(self.slow_buffer):
+            raise IndexError(f"Memory index out of range: {index}")
+
+        token_marker = self._state_token if current_token is None else int(current_token)
+        assembly = self._sequence_item(self.slow_buffer, idx)
+        input_pattern = self._sequence_item(self.slow_input_patterns, idx)
+        routing_key = self._sequence_item(self.slow_routing_keys, idx)
+        bucket_id = self._sequence_item(self.slow_bucket_ids, idx)
+        importance = float(self._sequence_item(self.slow_importance, idx, 1.0) or 1.0)
+        capture_tag = float(max(0.0, self._sequence_item(self.slow_capture_tag, idx, 0.0) or 0.0))
+        prp_level = float(max(0.0, self._available_prp(idx)))
+        consolidation = float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    float(self._sequence_item(self.slow_consolidation_level, idx, 0.0) or 0.0),
+                ),
+            )
+        )
+        last_replay_token = int(
+            self._sequence_item(self.slow_last_replay_token, idx, token_marker) or token_marker
+        )
+        entry_token = int(
+            self._sequence_item(self.slow_entry_timestamps, idx, token_marker) or token_marker
+        )
+        row = {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": int(idx),
+            "row_access_policy": "explicit_bounded_query_candidate_index",
+            "read_only": True,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_policy": "payload_omitted",
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "assembly": assembly.detach() if isinstance(assembly, torch.Tensor) else None,
+            "input_pattern": input_pattern.detach() if isinstance(input_pattern, torch.Tensor) else None,
+            "routing_key": routing_key.detach() if isinstance(routing_key, torch.Tensor) else None,
+            "bucket_id": bucket_id,
+            "importance": importance,
+            "tag_strength": capture_tag,
+            "capture_tag": capture_tag,
+            "prp_level": prp_level,
+            "capture_strength": float(max(0.0, capture_tag * prp_level)),
+            "consolidation_level": consolidation,
+            "consolidation_gap": float(max(0.0, 1.0 - consolidation)),
+            "replay_count": int(self._sequence_item(self.slow_replay_count, idx, 0) or 0),
+            "tokens_since_last_replay": int(max(0, token_marker - last_replay_token)),
+            "age_tokens": int(max(0, token_marker - entry_token)),
+            "raw_window": None,
+            "text": None,
+            "metadata": None,
+        }
+        if include_text_payload:
+            raw_window = self._sequence_item(self.slow_raw_windows, idx)
+            text = self._sequence_item(self.slow_texts, idx)
+            if text is None:
+                text = raw_window
+            metadata = self._sequence_item(self.slow_metadata, idx)
+            row.update(
+                {
+                    "raw_window": raw_window,
+                    "text": text,
+                    "metadata": None if metadata is None else dict(metadata),
+                    "raw_text_payload_loaded": bool(raw_window is not None or text is not None),
+                    "raw_text_payload_policy": "explicit_query_match_row_payload",
+                }
+            )
+        return row
+
+    def query_neighbor_source_row(
+        self,
+        index: int,
+        *,
+        skip_source_types: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Read one bounded neighbor source row for query episode stitching."""
+
+        idx = int(index)
+        if idx < 0 or idx >= len(self.slow_buffer):
+            return {
+                "surface": "bounded_query_neighbor_source_row.v1",
+                "status": "missing",
+                "memory_index": int(idx),
+                "text": "",
+                "metadata": None,
+                "raw_text_payload_loaded": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "language_reasoning": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+            }
+
+        metadata = self._sequence_item(self.slow_metadata, idx)
+        metadata_map = None if metadata is None else dict(metadata)
+        source_type = (
+            ""
+            if metadata_map is None
+            else str(metadata_map.get("source_type", "")).strip()
+        )
+        if source_type in {str(item).strip() for item in skip_source_types}:
+            return {
+                "surface": "bounded_query_neighbor_source_row.v1",
+                "status": "skipped_source_type",
+                "memory_index": int(idx),
+                "text": "",
+                "metadata": metadata_map,
+                "source_type": source_type,
+                "raw_text_payload_loaded": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "language_reasoning": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+            }
+        text = self._sequence_item(self.slow_raw_windows, idx)
+        return {
+            "surface": "bounded_query_neighbor_source_row.v1",
+            "status": "loaded" if text else "empty",
+            "memory_index": int(idx),
+            "text": "" if text is None else str(text),
+            "metadata": metadata_map,
+            "source_type": source_type,
+            "raw_text_payload_loaded": bool(text),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+        }
+
     def _score_replay_index(
         self,
         idx: int,
