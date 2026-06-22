@@ -220,8 +220,13 @@ Python peak versus `12.287186 MiB`, and kept CUDA allocation/reservation deltas
 at `0`. The paired `524288`-token protection runs succeeded without contention
 or graph/native sequence failures and kept route scoring bounded at `12/65536`,
 but measured `5642.888` and `5736.332 tokens/sec`, below stronger recent
-6k-ish runs. Treat them as live-tick protection evidence for this control-plane
-cleanup, not durable completion proof.
+6k-ish runs. A same-shape audit then compared `fbb788de` at
+`6120.090 tokens/sec` with current HEAD at `6112.120 tokens/sec`, both with
+bounded route scoring, no observed contention, no snapshot polling, flat RTX
+3060 memory, and zero graph/native sequence failures. Treat the low pair as
+variance evidence rather than a confirmed regression in the bounded
+runtime-state slice. The current tree has same-band live-tick protection
+evidence, but this remains short of durable goal-completion proof.
 
 Readout-ledger snapshots now have their own bounded display source window
 instead of reusing all-family normalization. `snapshot(...)` reads only the

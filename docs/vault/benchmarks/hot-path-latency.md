@@ -5122,9 +5122,34 @@ again kept route scoring at `12/65536`, cached `65526` transition rows, kept
 `state_transition_runs_all_columns=false`, and recorded zero graph/native
 sequence failures. Velocity reported no observed contention (`cpu max=24%`,
 `gpu max=13%`, GPU memory utilization max `18%`), and RTX 3060 memory stayed
-flat at `2095 MiB`. This is live-tick protection evidence for the bounded
-runtime-state slice, but it is below the stronger recent 6k-ish runs, so it is
-not durable completion proof or a speed-ceiling claim.
+flat at `2095 MiB`.
+
+Throughput audit:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-fbb788de-baseline.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The same-shape `fbb788de` baseline processed `524288` tokens in `85.666714 s`
+at `6120.090 tokens/sec`, `tick_duration_ms.p95=20.933`,
+`train_compute=0.132186 ms/token`, `prepare_training=0.006561 ms/token`, and
+`finalize_total=0.006583 ms/token`. Prewarm took `313.799 s`; velocity reported
+no observed contention (`cpu max=10%`, `gpu max=13%`), route scoring stayed
+bounded at `12/65536`, cached rows stayed `65526`, graph/native sequence
+failures were `0`, and RTX 3060 memory stayed flat at `1611 MiB`.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-current-after-baseline.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+The current-tree rerun processed `524288` tokens in `85.778421 s` at
+`6112.120 tokens/sec`, `tick_duration_ms.p95=20.833`,
+`train_compute=0.132573 ms/token`, `prepare_training=0.006644 ms/token`, and
+`finalize_total=0.006510 ms/token`. Prewarm took `297.117 s`; velocity reported
+no observed contention (`cpu max=59%`, `gpu max=17%`), route scoring stayed
+bounded at `12/65536`, cached rows stayed `65526`,
+`state_transition_runs_all_columns=false`, graph/native sequence failures were
+`0`, snapshot polling stayed disabled, and RTX 3060 memory stayed effectively
+flat at `1612->1613 MiB`. The low `5642.888` and `5736.332 tokens/sec` runs are
+kept as variance evidence, not as a confirmed regression in the bounded
+runtime-state slice. This audit restores same-band live-tick protection evidence
+for the current tree, but it is still not durable goal-completion proof.
 
 ## Sleep Replay Routing-Index Refresh
 
