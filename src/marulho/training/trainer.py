@@ -28,6 +28,10 @@ from marulho.training.cognitive_boundary_controller import (
 from marulho.training.column_scheduler import ColumnWakePlan
 from marulho.training.column_transition_runtime import ColumnTransitionRuntime
 from marulho.training.cuda_graph_route_transition import MAX_QUANTUM_INPUT_TOKENS
+from marulho.training.replay_anchor_window import (
+    SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
+    sleep_replay_anchor_bucket_source_window,
+)
 
 
 class MarulhoTrainer:
@@ -2865,12 +2869,12 @@ class MarulhoTrainer:
     def _sleep_replay_candidate_bucket_ids(
         self,
         mode: str,
-    ) -> list[int] | None:
-        if mode not in {"micro", "deep", "repair"}:
-            return None
-        if not self.column_anchors:
-            return []
-        return sorted(int(bucket_id) for bucket_id in self.column_anchors)
+    ) -> tuple[list[int] | None, dict[str, Any]]:
+        return sleep_replay_anchor_bucket_source_window(
+            self,
+            mode=mode,
+            max_buckets=SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        )
 
     def _refresh_sleep_replay_routing_index(
         self,
@@ -2992,7 +2996,9 @@ class MarulhoTrainer:
         else:
             raise ValueError(f"Unknown sleep mode: {mode}")
 
-        candidate_bucket_ids = self._sleep_replay_candidate_bucket_ids(mode)
+        candidate_bucket_ids, anchor_bucket_source_window = (
+            self._sleep_replay_candidate_bucket_ids(mode)
+        )
         selection_report = self.model.memory_store.select_replay_window(
             n=steps,
             current_token=self.token_count,
@@ -3040,6 +3046,38 @@ class MarulhoTrainer:
                 global_fallback_blocked_reason is not None
             ),
             "global_fallback_blocked_reason": global_fallback_blocked_reason,
+            "anchor_bucket_source_window": dict(anchor_bucket_source_window),
+            "candidate_bucket_source_window": dict(anchor_bucket_source_window),
+            "anchor_bucket_source_window_surface": anchor_bucket_source_window.get(
+                "surface"
+            ),
+            "anchor_bucket_source_total_count": int(
+                anchor_bucket_source_window.get("anchor_bucket_source_total_count", 0)
+                or 0
+            ),
+            "anchor_bucket_window_limit": int(
+                anchor_bucket_source_window.get("anchor_bucket_window_limit", 0) or 0
+            ),
+            "anchor_bucket_window_count": int(
+                anchor_bucket_source_window.get("anchor_bucket_window_count", 0) or 0
+            ),
+            "anchor_bucket_source_truncated_count": int(
+                anchor_bucket_source_window.get(
+                    "anchor_bucket_source_truncated_count",
+                    0,
+                )
+                or 0
+            ),
+            "anchor_bucket_source_read_count": int(
+                anchor_bucket_source_window.get("anchor_bucket_source_read_count", 0)
+                or 0
+            ),
+            "anchor_bucket_source_window_policy": anchor_bucket_source_window.get(
+                "window_policy"
+            ),
+            "anchor_source_full_scan": bool(
+                anchor_bucket_source_window.get("anchor_source_full_scan", False)
+            ),
             "sleep_replay_applied_count": 0,
             "sleep_replay_mutates_runtime_state": False,
             "sleep_replay_applies_plasticity": False,

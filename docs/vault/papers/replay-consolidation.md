@@ -1146,6 +1146,41 @@ The velocity sampler observed borderline GPU contention at `20%`, so this is
 accepted as hot-path protection and same-band throughput evidence, not a clean
 hardware ceiling.
 
+Sleep replay now consumes the same shared anchor-source operator before
+calling `DualMemoryStore.select_replay_window(...)`. The previous trainer path
+constructed a sorted list of every checkpointed `column_anchors` bucket, so the
+store selector no longer scanned all memory entries but the source bucket set
+still scaled with retained anchors. `replay_anchor_window.py` now owns that
+logic for both HF replay-query and trainer sleep replay. The sleep surface is
+`bounded_sleep_replay_anchor_bucket_source_window.v1`: it takes at most `16`
+reverse-recency anchor buckets, records total/source/window counts and selected
+anchor metadata, keeps archival metadata and source selection on CPU, reports no
+live tick, no every-token work, no global score/candidate scan, no raw replay
+text, no hidden language reasoning, and `anchor_source_full_scan=false`.
+
+The focused benchmark
+`reports/bounded_replay_window_20260622/sleep-replay-anchor-source-window-bounded.json`
+used `8192` retained anchors and `64` iterations. The retired sorted
+all-anchor source averaged `0.892263 ms`; the bounded source averaged
+`0.037825 ms` (`23.589x`), read `16/8192` anchors, selected the newest anchor
+source window with hit rate `1.0`, and the follow-up sleep-window selector chose
+positive replay entries from those newest anchors with hit rate `1.0`. Full
+selection latency moved from `7.797869 ms` with the retired all-anchor source to
+`0.104864 ms` with the bounded source. CUDA was available but unused for
+archival/source selection, with `0.0 MiB` allocation delta.
+
+The paired `524288`-token protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-anchor-source-window.json`
+processed `524288` tokens at `6135.629 tokens/sec`, with
+`train_compute=0.132272 ms/token`, `prepare_training=0.006595 ms/token`,
+`finalize_total=0.006411 ms/token`, bounded `12/65536` route rows, `10` output
+candidates, `65526` cached transition rows, and
+`state_transition_runs_all_columns=false`. Graph and native sequence failures
+were `0`; RTX 3060 memory moved from `1615 MiB` to `1614 MiB`. The environment
+sampler observed GPU utilization at the `20%` contention threshold, so this is
+accepted as same-band live-tick protection and retirement evidence for the
+all-anchor sleep source pass, not as a new speed ceiling.
+
 SNN Readout Evidence Ledger normalization now follows the same selected-source
 rule before replay/readout review methods or ledger status snapshots touch
 retained event history. The old normalizer built `list(...)` for every retained

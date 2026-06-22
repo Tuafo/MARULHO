@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from array import array
 import math
+from typing import Any
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,9 @@ from marulho.training.memory_consolidation_runner import (
     build_memory_consolidation_gate,
 )
 from marulho.training.model import MarulhoModel
+from marulho.training.replay_anchor_window import (
+    SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
+)
 from marulho.training.trainer import MarulhoTrainer
 
 
@@ -1399,6 +1403,110 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(query_collection["query_count"], 4)
         self.assertFalse(query_collection["global_candidate_scan"])
         self.assertFalse(query_collection["runs_live_tick"])
+
+    def test_sleep_replay_caps_anchor_bucket_source_window_before_selection(self) -> None:
+        set_seed(10)
+        cfg = MarulhoConfig(
+            n_columns=32,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=64,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 128
+
+        for bucket in range(24):
+            trainer.column_anchors[bucket] = {
+                "prototype": trainer.model.competitive.prototypes[bucket]
+                .detach()
+                .clone(),
+                "input_weights": trainer.model.competitive.input_weights[bucket]
+                .detach()
+                .clone(),
+                "strength": 2.0,
+                "captured_at_token": bucket + 1,
+                "captured_source_index": bucket,
+                "capture_sequence": bucket,
+            }
+
+        captured_kwargs: dict[str, Any] = {}
+
+        def _empty_selection(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+            captured_kwargs.update(kwargs)
+            bucket_ids = list(kwargs.get("candidate_bucket_ids") or [])
+            return {
+                "surface": "bounded_replay_window_selection.v1",
+                "status": "empty",
+                "scope": kwargs.get("scope"),
+                "strategy": kwargs.get("strategy"),
+                "selected_indices": [],
+                "selected_count": 0,
+                "selected_score_max": 0.0,
+                "candidate_scope": "bucket_indexed_candidate_window",
+                "candidate_bucket_ids": bucket_ids,
+                "candidate_bucket_count": len(bucket_ids),
+                "bounded_by_bucket_index": True,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "score_device": "cpu",
+            }
+
+        with patch.object(
+            trainer.model.memory_store,
+            "select_replay_window",
+            side_effect=_empty_selection,
+        ):
+            updates = trainer.run_sleep_maintenance(mode="deep", cycles=1)
+
+        expected_anchor_buckets = list(range(23, 7, -1))
+        report = trainer._last_sleep_replay_selection_report
+        source_window = report["anchor_bucket_source_window"]
+
+        self.assertEqual(updates, 0)
+        self.assertEqual(
+            captured_kwargs["candidate_bucket_ids"],
+            expected_anchor_buckets,
+        )
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_sleep_replay_anchor_bucket_source_window.v1",
+        )
+        self.assertEqual(source_window["mode"], "deep")
+        self.assertEqual(source_window["scope"], "deep_sleep_slow_path")
+        self.assertEqual(source_window["anchor_bucket_source_total_count"], 24)
+        self.assertEqual(
+            source_window["anchor_bucket_window_limit"],
+            SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        )
+        self.assertEqual(source_window["anchor_bucket_window_count"], 16)
+        self.assertEqual(source_window["anchor_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(source_window["anchor_bucket_source_truncated_count"], 8)
+        self.assertEqual(source_window["anchor_bucket_source_read_count"], 16)
+        self.assertFalse(source_window["anchor_source_full_scan"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["global_score_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertFalse(source_window["raw_text_payload_loaded"])
+        self.assertFalse(source_window["language_reasoning"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        self.assertEqual(source_window["source_window_selection_device"], "cpu")
+        self.assertFalse(source_window["gpu_resident_archival_metadata"])
+        self.assertEqual(
+            report["anchor_bucket_source_window_surface"],
+            "bounded_sleep_replay_anchor_bucket_source_window.v1",
+        )
+        self.assertEqual(report["anchor_bucket_source_total_count"], 24)
+        self.assertEqual(report["anchor_bucket_window_count"], 16)
+        self.assertEqual(report["anchor_bucket_source_truncated_count"], 8)
+        self.assertFalse(report["anchor_source_full_scan"])
+        self.assertFalse(report["sleep_replay_text_payload_loaded"])
+        self.assertFalse(report["sleep_replay_language_reasoning"])
 
     def test_reconstruction_guard_rolls_back_harmful_replay_cycle(self) -> None:
         set_seed(7)

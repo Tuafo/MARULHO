@@ -1308,6 +1308,32 @@ sustained band at `6376.873 tokens/sec` with bounded `12/65536` route rows,
 failures; the environment sampler did mark borderline GPU contention, so the
 claim is live-tick protection rather than a clean speed ceiling.
 
+Trainer sleep replay now uses that same shared anchor-source boundary before
+calling `DualMemoryStore.select_replay_window(...)`. The old trainer source
+helper sorted every checkpointed `column_anchors` bucket before the store's
+bounded candidate selector ran. `sleep_replay_anchor_bucket_source_window(...)`
+now emits `bounded_sleep_replay_anchor_bucket_source_window.v1`, takes at most
+`16` reverse-recency anchor buckets, and carries the report into
+`_last_sleep_replay_selection_report` as `anchor_bucket_source_window`. The
+report records total/source/window counts, selected anchor metadata, CPU
+archival/source placement, no live tick, no every-token work, no global
+candidate/score scan, no raw replay text, no hidden language reasoning, and
+`anchor_source_full_scan=false`.
+
+The focused sleep benchmark
+`reports/bounded_replay_window_20260622/sleep-replay-anchor-source-window-bounded.json`
+used `8192` anchors and kept the maintained window at `16`: source latency
+fell from `0.892263 ms` to `0.037825 ms`, full sleep-window selection fell from
+`7.797869 ms` to `0.104864 ms`, newest-anchor source and selected replay-bucket
+hit rates were both `1.0`, and CUDA allocation stayed at `0.0 MiB`. The paired
+`524288`-token protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-anchor-source-window.json`
+stayed in band at `6135.629 tokens/sec`, with `train_compute=0.132272 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, zero
+graph/native sequence failures, and RTX 3060 memory `1615->1614 MiB`. GPU
+utilization touched the `20%` contention threshold, so this is protection
+evidence and all-anchor source retirement, not a speed promotion.
+
 Strong-capture slow-memory admission is now cadenced instead of every-strong.
 The column/runtime path still keeps device strong-event evidence for threshold
 crossings, but archival writes are selected by

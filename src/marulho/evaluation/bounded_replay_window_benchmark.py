@@ -11,7 +11,6 @@ import torch
 from marulho.config.model_config import MarulhoConfig
 from marulho.reporting.io import write_json_file
 from marulho.training.memory_consolidation_runner import (
-    _anchor_bucket_source_window,
     _parse_repair_strength_schedule,
     _run_reconstruction_guarded_sleep_maintenance,
     build_memory_consolidation_gate,
@@ -19,6 +18,9 @@ from marulho.training.memory_consolidation_runner import (
     mean_assembly_overlap,
 )
 from marulho.training.model import MarulhoModel
+from marulho.training.replay_anchor_window import (
+    replay_query_anchor_bucket_source_window,
+)
 from marulho.training.runner_utils import set_seed
 from marulho.training.trainer import MarulhoTrainer
 
@@ -48,7 +50,7 @@ def _bounded_replay_recall_summary(
     *,
     max_candidates: int,
 ) -> dict[str, Any]:
-    candidate_bucket_ids, source_window = _anchor_bucket_source_window(
+    candidate_bucket_ids, source_window = replay_query_anchor_bucket_source_window(
         trainer,
         scope="synthetic_replay_recall_benchmark",
     )

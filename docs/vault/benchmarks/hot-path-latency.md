@@ -5359,3 +5359,36 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 3060, and recorded zero graph/native sequence failures. Prewarm took
 `335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+## Sleep Replay Anchor Source Window Protection
+
+Sleep replay now bounds retained anchor source selection before the store
+selector runs. The retired trainer helper sorted every checkpointed
+`column_anchors` bucket, while the active
+`bounded_sleep_replay_anchor_bucket_source_window.v1` reads at most `16`
+reverse-recency anchors, reports source/window counts, keeps archival metadata
+on CPU, and states no live tick, no every-token work, no raw replay text, no
+hidden language reasoning, no global candidate/score scan, and
+`anchor_source_full_scan=false`.
+
+The focused report
+`reports/bounded_replay_window_20260622/sleep-replay-anchor-source-window-bounded.json`
+used `8192` anchors and `64` iterations. Source selection latency fell from
+`0.892263 ms` to `0.037825 ms` (`23.589x`), full sleep-window selection fell
+from `7.797869 ms` to `0.104864 ms`, newest-anchor source hit rate was `1.0`,
+selected replay-bucket hit rate was `1.0`, and the active source read exactly
+`16/8192` anchors. CUDA was available but unused for archival/source work, with
+`0.0 MiB` allocation delta.
+
+The paired protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-anchor-source-window.json`
+processed `524288` tokens in `85.449752 s` at `6135.629 tokens/sec`,
+`train_compute=0.132272 ms/token`, `prepare_training=0.006595 ms/token`, and
+`finalize_total=0.006411 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`297.090 s`; velocity reported CPU max `23%`, GPU max `20%`, GPU memory
+utilization max `22%`, and RTX memory `1615->1614 MiB`. Because GPU utilization
+touched the configured contention threshold, treat this as same-band live-tick
+protection and retired all-anchor source evidence, not a speed ceiling.
