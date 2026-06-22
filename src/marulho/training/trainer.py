@@ -2746,15 +2746,14 @@ class MarulhoTrainer:
 
         for raw_idx in replay_idx:
             idx = int(raw_idx)
-            replay_entry = self.model.memory_store.replay_entry(
+            repair_row = self.model.memory_store.sleep_repair_replay_row(
                 idx,
                 current_token=self.token_count,
-                include_text_payload=False,
             )
-            assembly = replay_entry["assembly"]
-            input_pattern = replay_entry["input_pattern"]
-            stored_routing_key = replay_entry["routing_key"]
-            stored_bucket_id = replay_entry["bucket_id"]
+            assembly = repair_row["assembly"]
+            input_pattern = repair_row["input_pattern"]
+            stored_routing_key = repair_row["routing_key"]
+            stored_bucket_id = repair_row["bucket_id"]
 
             if not isinstance(assembly, torch.Tensor):
                 invalid_trace_skips += 1
@@ -3037,7 +3036,7 @@ class MarulhoTrainer:
         for raw_idx in replay_idx[:query_limit]:
             idx = int(raw_idx)
             try:
-                replay_entry = self.model.memory_store.replay_recall_row(
+                replay_recall_row = self.model.memory_store.replay_recall_row(
                     idx,
                     current_token=self.token_count,
                     include_text_payload=False,
@@ -3047,15 +3046,15 @@ class MarulhoTrainer:
                 missing_routing_key_count += 1
                 continue
             query_row_read_count += 1
-            query_row_surfaces.add(str(replay_entry.get("surface") or "unknown"))
-            if bool(replay_entry.get("stc_state_advance")):
+            query_row_surfaces.add(str(replay_recall_row.get("surface") or "unknown"))
+            if bool(replay_recall_row.get("stc_state_advance")):
                 query_row_state_advance_count += 1
-            if bool(replay_entry.get("mutates_runtime_state")):
+            if bool(replay_recall_row.get("mutates_runtime_state")):
                 query_row_mutation_count += 1
-            if bool(replay_entry.get("applies_plasticity")):
+            if bool(replay_recall_row.get("applies_plasticity")):
                 query_row_plasticity_count += 1
-            routing_key = replay_entry.get("routing_key")
-            input_pattern = replay_entry.get("input_pattern")
+            routing_key = replay_recall_row.get("routing_key")
+            input_pattern = replay_recall_row.get("input_pattern")
             if not isinstance(routing_key, torch.Tensor):
                 if isinstance(input_pattern, torch.Tensor):
                     routing_key = (
@@ -3627,15 +3626,14 @@ class MarulhoTrainer:
             }
 
             for idx in replay_idx:
-                replay_entry = self.model.memory_store.replay_entry(
+                repair_row = self.model.memory_store.sleep_repair_replay_row(
                     idx,
                     current_token=self.token_count,
-                    include_text_payload=False,
                 )
-                assembly = replay_entry["assembly"]
-                input_pattern = replay_entry["input_pattern"]
-                stored_routing_key = replay_entry["routing_key"]
-                stored_bucket_id = replay_entry["bucket_id"]
+                assembly = repair_row["assembly"]
+                input_pattern = repair_row["input_pattern"]
+                stored_routing_key = repair_row["routing_key"]
+                stored_bucket_id = repair_row["bucket_id"]
 
                 if not isinstance(assembly, torch.Tensor):
                     continue

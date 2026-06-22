@@ -22,7 +22,6 @@ class _FakeMemoryStore:
         self.slow_importance = [1.0 for _ in texts]
         self.slow_entry_timestamps = [0 for _ in texts]
         self.slow_replay_count = [0 for _ in texts]
-        self.replay_entry_calls: list[int] = []
         self.query_match_row_calls: list[tuple[int, bool]] = []
         self.query_neighbor_source_row_calls: list[int] = []
         self.last_query_memory_match_report: dict[str, object] = {}
@@ -151,26 +150,6 @@ class _FakeMemoryStore:
             "language_reasoning": False,
         }
 
-    def replay_entry(
-        self,
-        idx: int,
-        current_token: int | None = None,
-        *,
-        include_text_payload: bool = False,
-    ) -> dict[str, object]:
-        self.replay_entry_calls.append(int(idx))
-        if not include_text_payload:
-            return {
-                "text": None,
-                "raw_window": None,
-                "metadata": None,
-            }
-        return {
-            "text": self._texts[idx],
-            "raw_window": self.slow_raw_windows[idx],
-            "metadata": {},
-        }
-
     def live_summary_stats(self) -> dict[str, object]:
         return {"size": len(self.slow_buffer)}
 
@@ -278,7 +257,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["runs_live_tick"])
-        self.assertFalse(trainer.model.memory_store.replay_entry_calls)
+        self.assertFalse(hasattr(trainer.model.memory_store, "replay_entry"))
         self.assertLessEqual(
             max(index for index, _loaded in trainer.model.memory_store.query_match_row_calls),
             4,
@@ -340,7 +319,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertEqual(report["raw_text_payload_count"], 4)
         self.assertTrue(report["raw_text_payload_loaded"])
         self.assertFalse(report["language_reasoning"])
-        self.assertFalse(trainer.model.memory_store.replay_entry_calls)
+        self.assertFalse(hasattr(trainer.model.memory_store, "replay_entry"))
         self.assertEqual(
             [
                 index
@@ -523,7 +502,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
     def test_context_memory_match_report_aggregates_per_context_cache_hits(self) -> None:
         trainer = _FakeTrainer([f"context memory episode {index}" for index in range(64)])
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
-        replay_entry_cache: dict[int, dict[str, object]] = {}
+        query_row_cache: dict[int, dict[str, object]] = {}
 
         first_matches, first_report = query_runner.memory_matches_with_report(
             trainer,
@@ -532,7 +511,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             top_k=4,
             top_chars=1,
             memory_candidate_limit=16,
-            replay_entry_cache=replay_entry_cache,
+            query_row_cache=query_row_cache,
         )
         second_matches, second_report = query_runner.memory_matches_with_report(
             trainer,
@@ -541,7 +520,7 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
             top_k=4,
             top_chars=1,
             memory_candidate_limit=16,
-            replay_entry_cache=replay_entry_cache,
+            query_row_cache=query_row_cache,
         )
         aggregate = query_runner.build_context_memory_match_report(
             [

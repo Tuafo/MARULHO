@@ -706,10 +706,11 @@ failures, and no observed contention. CPU max was `33%`, GPU utilization max
 
 The replay text/SFA boundary cleanup removes old implementation shapes from the
 same slow-window path. Sleep replay now calls
-`DualMemoryStore.replay_entry(..., include_text_payload=False)`, so deep
-candidate repair and anchored repair receive tensor payloads only; raw windows,
-expanded text, and metadata remain available to explicit query/display callers
-but are not loaded by replay consolidation. `bounded_replay_window_selection.v1`
+`DualMemoryStore.sleep_repair_replay_row(...)` for mutating repair and
+`DualMemoryStore.replay_recall_row(...)` for read-only recall, so replay receives
+tensor payloads only; raw windows, expanded text, and metadata remain available
+to explicit query/display callers but are not loaded by replay consolidation.
+`bounded_replay_window_selection.v1`
 and `bounded_replay_window_recall.v1` record `raw_text_payload_loaded=false` and
 `language_reasoning=false`; sleep replay records
 `sleep_replay_text_payload_loaded=false`,
@@ -2437,36 +2438,45 @@ with a larger grounded replay corpus. Do not broaden a schedule or revive
 unscoped helper scans without a target-specific quality gate and a clean
 long-run check proving replay remains slow-window work.
 
-## Explicit Replay Text Payload Opt-In
+## Generic Replay Entry API Retired
 
-The implicit raw-text default on `DualMemoryStore.replay_entry(...)` is retired.
-The maintained path returns tensor and replay metadata by default; raw text
-payloads require `include_text_payload=True` after a bounded query/source-bank
-or context readout window selects entries.
+The generic `DualMemoryStore.replay_entry(...)` method is retired and removed.
+Production row reads now use explicit APIs: `sleep_repair_replay_row(...)` for
+mutating tensor-only repair, `replay_recall_row(...)` for read-only sleep
+recall, and `query_match_row(...)` for query/source-bank/context recall.
 
-Focused benchmark:
+Focused benchmarks:
 
-`python -m marulho.evaluation.replay_entry_text_payload_opt_in_benchmark --entries 65536 --buckets 16 --read-count 192 --candidate-limit 192 --top-k 5 --runs 25 --output reports\bounded_replay_window_20260620\replay-entry-text-payload-opt-in.json`
+`python -m marulho.evaluation.query_memory_payload_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\query-memory-payload-query-row-no-replay-entry.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 5 --iterations 16`
 
-Result: `passed=true`; default replay-entry reads loaded `0/192` raw text
-payloads, explicit opt-in loaded `192/192`, and bounded query readout loaded
-`5` returned-match payloads. Runtime Truth fields report no global
-candidate/score scan, no live tick, no every-token cadence, CPU archival
-placement, and `language_reasoning=false`.
+`python -m marulho.evaluation.context_memory_match_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\context-memory-query-row-cache-no-replay-entry.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 8 --context-count 2 --text-repeats 64 --iterations 24 --min-speedup 1.0`
+
+`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-repair-replay-row-api-retired.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --seed 31 --min-prepare-speedup 1.0`
+
+Results: query payload parity passed with selected indices `[0, 16, 32, 48,
+64]`, bounded text payloads `5` instead of `192`, and
+`returned_similarity_matches_only`; context parity passed for both contexts
+with `8` payloads instead of `16` and `8` cache hits; sleep repair passed with
+quality delta `0.076463`, `1.954494x` input-prepare speedup, `8` missing-key
+deferrals, `0` dense input-assembly calls, CPU archival metadata, CUDA active
+compute, and no global scan/live tick/every-token/raw-text/language-reasoning
+work.
 
 Hot-path protection:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-replay-entry-api-retired-noprofile.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
 
-Result: `success=true`, `524288` tokens in `87.470800 s`,
-`5993.863 tokens/sec`, `tick_duration_ms.p95=21.555`,
-`train_compute=0.135543 ms/token`, `prepare_training=0.006947 ms/token`, and
-`finalize_total=0.006613 ms/token`. Prewarm took `320.045 s`. Runtime Truth
+Result: `success=true`, `524288` tokens in `88.210694 s`,
+`5943.588 tokens/sec`, `tick_duration_ms.p95=21.790`,
+`train_compute=0.135432 ms/token`, `prepare_training=0.007129 ms/token`, and
+`finalize_total=0.006927 ms/token`. Prewarm took `366.516 s`. Runtime Truth
 kept route scoring at `12/65536` input rows and `10` output candidates, cached
 `65526` transition rows, kept `state_transition_runs_all_columns=false`, and
-recorded zero graph/native sequence failures. CPU max was `33%`; GPU max was
-`15%`, so velocity reported no observed contention. RTX 3060 memory stayed flat
-at `1878->1879 MiB`.
+recorded zero graph/native/sequence failures. CPU max was `27%`; GPU max was
+`13%`, so velocity reported no observed contention. RTX 3060 memory went from
+`1995 MiB` before to `1815 MiB` after. A profiled same-code run succeeded at
+`5826.202 tokens/sec` with `train_compute=0.137768 ms/token` but is secondary
+because profiling was enabled and velocity observed GPU contention at `21%`.
 
 ## Replay Sample Single Path
 

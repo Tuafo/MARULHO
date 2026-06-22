@@ -104,10 +104,9 @@ def _measure_input_prepare(
 ) -> float:
     started = time.perf_counter()
     for index in indices:
-        entry = trainer.model.memory_store.replay_entry(
+        entry = trainer.model.memory_store.sleep_repair_replay_row(
             int(index),
             current_token=trainer.token_count,
-            include_text_payload=False,
         )
         input_pattern = entry.get("input_pattern")
         if not isinstance(input_pattern, torch.Tensor):
@@ -124,10 +123,9 @@ def _mean_anchor_distance(
 ) -> float:
     distances: list[float] = []
     for index, bucket_id in enumerate(bucket_ids):
-        entry = trainer.model.memory_store.replay_entry(
+        entry = trainer.model.memory_store.sleep_repair_replay_row(
             index,
             current_token=trainer.token_count,
-            include_text_payload=False,
         )
         routing_key = entry.get("routing_key")
         if not isinstance(routing_key, torch.Tensor):
@@ -159,10 +157,9 @@ def _mean_anchor_distance(
 def _routing_key_count(trainer: MarulhoTrainer, indices: list[int]) -> int:
     count = 0
     for index in indices:
-        entry = trainer.model.memory_store.replay_entry(
+        entry = trainer.model.memory_store.sleep_repair_replay_row(
             int(index),
             current_token=trainer.token_count,
-            include_text_payload=False,
         )
         if isinstance(entry.get("routing_key"), torch.Tensor):
             count += 1
@@ -240,6 +237,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         require_routing_key=True,
     )
     repair_report = dict(trainer._last_sleep_replay_selection_report)
+    repair_selected_indices = [
+        int(index) for index in list(repair_report.get("selected_indices") or [])
+    ]
+    repair_missing_routing_key_count = max(
+        0,
+        int(len(repair_selected_indices))
+        - int(_routing_key_count(trainer, repair_selected_indices)),
+    )
 
     legacy_mean = float(statistics.fmean(legacy_latencies)) if legacy_latencies else 0.0
     bounded_mean = float(statistics.fmean(bounded_latencies)) if bounded_latencies else 0.0
@@ -252,7 +257,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         and int(repair_report.get("sleep_replay_bounded_input_prepare_count", 0))
         >= int(updates)
         and int(repair_report.get("sleep_replay_missing_routing_key_deferred_count", -1))
-        == int(selected_missing_routing_key_count)
+        == int(repair_missing_routing_key_count)
         and "sleep_replay_stored_assembly_projection_fallback_count"
         not in repair_report
         and int(dense_call_count) == 0
@@ -273,6 +278,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "selected_count": int(len(selected_indices)),
         "selected_stored_routing_key_count": int(selected_stored_routing_key_count),
         "selected_missing_routing_key_count": int(selected_missing_routing_key_count),
+        "repair_selected_count": int(len(repair_selected_indices)),
+        "repair_missing_routing_key_count": int(repair_missing_routing_key_count),
         "updates": int(updates),
         "quality": {
             "before": float(quality_before),

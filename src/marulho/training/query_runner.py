@@ -768,7 +768,7 @@ def memory_matches_with_report(
     memory_priority: Mapping[object, object] | None = None,
     memory_candidate_limit: int | None = None,
     candidate_bucket_ids: Sequence[int] | None = None,
-    replay_entry_cache: dict[int, dict[str, Any]] | None = None,
+    query_row_cache: dict[int, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     store = trainer.model.memory_store
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
@@ -833,8 +833,8 @@ def memory_matches_with_report(
     query_row_read_count = 0
     query_row_cache_hits = 0
     invalid_query_row_count = 0
-    query_row_cache: dict[int, dict[str, Any]] = (
-        replay_entry_cache if replay_entry_cache is not None else {}
+    row_cache: dict[int, dict[str, Any]] = (
+        query_row_cache if query_row_cache is not None else {}
     )
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
@@ -845,7 +845,7 @@ def memory_matches_with_report(
         nonlocal query_row_read_count
         nonlocal query_row_cache_hits
         nonlocal invalid_query_row_count
-        cached = query_row_cache.get(int(idx))
+        cached = row_cache.get(int(idx))
         if cached is not None and (
             not include_text_payload or bool(cached.get("raw_text_payload_loaded"))
         ):
@@ -864,12 +864,12 @@ def memory_matches_with_report(
             return None
         query_row_read_count += 1
         row = dict(row)
-        previous = query_row_cache.get(int(idx))
+        previous = row_cache.get(int(idx))
         if previous is not None:
             merged = dict(previous)
             merged.update(row)
             row = merged
-        query_row_cache[int(idx)] = row
+        row_cache[int(idx)] = row
         if include_text_payload and bool(row.get("raw_text_payload_loaded")):
             raw_text_payload_count += 1
         return row
@@ -949,19 +949,19 @@ def memory_matches_with_report(
         evidence_pattern: torch.Tensor,
         replay_priority: float,
     ) -> dict[str, Any]:
-        replay_entry = _read_query_row(idx, include_text_payload=True)
-        if replay_entry is None:
+        query_row = _read_query_row(idx, include_text_payload=True)
+        if query_row is None:
             return {}
-        capture_tag = float(replay_entry.get("capture_tag", 0.0))
-        prp_level = float(replay_entry.get("prp_level", 0.0))
-        capture_strength = float(replay_entry.get("capture_strength", 0.0))
-        consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
-        text = replay_entry.get("text") or replay_entry.get("raw_window") or ""
-        raw_window = replay_entry.get("raw_window") or text
-        replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
-        source_name = " ".join(str(replay_metadata.get("source_name", "")).split()).strip()
-        source_type = " ".join(str(replay_metadata.get("source_type", "")).split()).strip()
-        provider = " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower()
+        capture_tag = float(query_row.get("capture_tag", 0.0))
+        prp_level = float(query_row.get("prp_level", 0.0))
+        capture_strength = float(query_row.get("capture_strength", 0.0))
+        consolidation_level = float(query_row.get("consolidation_level", 0.0))
+        text = query_row.get("text") or query_row.get("raw_window") or ""
+        raw_window = query_row.get("raw_window") or text
+        row_metadata = query_row.get("metadata") if isinstance(query_row.get("metadata"), Mapping) else {}
+        source_name = " ".join(str(row_metadata.get("source_name", "")).split()).strip()
+        source_type = " ".join(str(row_metadata.get("source_type", "")).split()).strip()
+        provider = " ".join(str(row_metadata.get("provider", "")).split()).strip().lower()
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
         matched_query_terms = term_match_cache.match_terms(query_terms, str(text or "")) if query_terms else []
         query_overlap = len(matched_query_terms)
@@ -973,22 +973,22 @@ def memory_matches_with_report(
         return {
             "memory_index": int(idx),
             "similarity": float(similarity),
-            "bucket_id": None if replay_entry.get("bucket_id") is None else int(replay_entry.get("bucket_id")),
+            "bucket_id": None if query_row.get("bucket_id") is None else int(query_row.get("bucket_id")),
             "raw_window": raw_window,
             "text": text,
-            "metadata": dict(replay_metadata),
+            "metadata": dict(row_metadata),
             "source_name": source_name,
             "source_type": source_type,
             "provider": provider,
-            "age_tokens": int(replay_entry.get("age_tokens", 0) or 0),
-            "importance": float(replay_entry.get("importance", 0.0) or 0.0),
+            "age_tokens": int(query_row.get("age_tokens", 0) or 0),
+            "importance": float(query_row.get("importance", 0.0) or 0.0),
             "tag_strength": float(capture_tag),
             "capture_tag": float(capture_tag),
             "prp_level": float(prp_level),
             "capture_strength": float(capture_strength),
             "consolidation_level": consolidation_level,
             "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
-            "replay_count": int(replay_entry.get("replay_count", 0) or 0),
+            "replay_count": int(query_row.get("replay_count", 0) or 0),
             "replay_priority": float(replay_priority),
             "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
             "query_overlap": int(query_overlap),
@@ -1491,7 +1491,7 @@ def build_context_comparison(
 
     comparisons: list[dict[str, Any]] = []
     context_memory_reports: list[dict[str, Any]] = []
-    replay_entry_cache: dict[int, dict[str, Any]] = {}
+    query_row_cache: dict[int, dict[str, Any]] = {}
     for label, context_value in (("context_a", context_a), ("context_b", context_b)):
         primed = prime_context(trainer, encoder, context_value)
         routing_key = trainer.routing_key_for_pattern(pattern_vec)
@@ -1502,7 +1502,7 @@ def build_context_comparison(
             routing_key,
             top_k_memories,
             top_chars,
-            replay_entry_cache=replay_entry_cache,
+            query_row_cache=query_row_cache,
         )
         memory_match_report = {
             **dict(memory_match_report),

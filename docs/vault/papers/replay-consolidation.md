@@ -693,10 +693,10 @@ at `12/65536`, cached `65526` state-transition rows, had zero
 graph/native/sequence failures, and reported no observed contention.
 
 The replay text/SFA boundary cleanup makes the "no hidden language reasoning"
-claim concrete. Sleep replay now asks `DualMemoryStore.replay_entry(...)` for
-tensor payloads only by passing `include_text_payload=false`; deep candidate
-repair and anchored repair do not receive `raw_window`, expanded text, or
-metadata. Selection and recall reports expose `raw_text_payload_loaded=false`
+claim concrete. Sleep replay now uses `DualMemoryStore.sleep_repair_replay_row(...)`
+for mutating tensor repair and `DualMemoryStore.replay_recall_row(...)` for
+read-only recall; neither path exposes `raw_window`, expanded text, or metadata.
+Selection and recall reports expose `raw_text_payload_loaded=false`
 and `language_reasoning=false`, while the sleep replay report exposes
 `sleep_replay_text_payload_loaded=false`,
 `sleep_replay_language_reasoning=false`, and
@@ -2214,30 +2214,24 @@ protection rather than a clean speed ceiling.
 - [Replay Cost](../benchmarks/replay-cost.md)
 - [Hot Path Latency](../benchmarks/hot-path-latency.md)
 
-## Explicit Replay Text Payload Opt-In
+## Generic Replay Entry Retired
 
-`DualMemoryStore.replay_entry(...)` is tensor-only by default now. Raw replay
-text, expanded text, and metadata require `include_text_payload=True`, and
-production query/source-bank/context readout uses that opt-in only after a
-bounded candidate or returned-match window already exists. This keeps
-modern-Hopfield-style recall as local tensor association over selected traces,
-not as hidden language reasoning through replay text.
+`DualMemoryStore.replay_entry(...)` is removed. Production replay/recall row
+access is now named by purpose: `sleep_repair_replay_row(...)` for mutating
+sleep repair, `replay_recall_row(...)` for read-only sleep recall, and
+`query_match_row(...)` for query/source-bank/context recall. This keeps
+modern-Hopfield-style recall as a local operator over selected traces, not as a
+generic hidden replay-text or mutating row side path.
 
-The benchmark
-`reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json`
-passed on a `65536`-entry store: default replay-entry reads loaded `0/192` raw
-text payloads, explicit opt-in loaded `192/192`, and bounded query readout
-loaded `5` returned-match payloads with no global candidate/score scan, no live
-tick, no every-token cadence, CPU archival placement, and
-`language_reasoning=false`.
-
-The paired protection run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json`
-processed `524288` tokens at `5993.863 tokens/sec` with
-`tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded
-`12/65536` route rows, cached `65526` transition rows, RTX 3060 memory
-`1878->1879 MiB`, no observed contention, and zero graph/native sequence
-failures.
+Fresh cleanup reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260622\` passed: query payload
+parity loaded `5` bounded text payloads instead of `192`; context comparison
+kept selected-index parity while loading `8` payloads instead of `16` and
+reusing `8` query-row cache hits; sleep repair improved mean anchor distance by
+`0.076463`, reached `1.954494x` input-prepare speedup, deferred `8` missing-key
+rows, made `0` dense input-assembly calls, kept archive metadata on CPU, used
+CUDA only for active repair compute, and reported no global scan, live tick,
+every-token work, raw replay text, or language reasoning.
 
 ## Replay Sample Single Path
 
@@ -2421,9 +2415,10 @@ observed contention, CPU max `12%`, GPU max `19%`, and RTX 3060 memory
 bounded recall quality evidence, not a startup-speed claim.
 
 The read-only row follow-up retires `DualMemoryStore.replay_entry(...)` as the
-query reader for associative recall. Focused tests prove the recall path does
-not call `replay_entry` and does not advance `_state_token`, capture tags, local
-PRP, global PRP, or bucket PRP. The external local replay report
+query reader for associative recall, and the generic API is now removed. Focused
+tests prove the recall path does not call a mutating repair row and does not
+advance `_state_token`, capture tags, local PRP, global PRP, or bucket PRP. The
+external local replay report
 `..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
 passed the positive-pressure arm with `1` query, mean best input-pattern
 distance `5.96046447753906e-08`, `query_row_state_advance_count=0`,

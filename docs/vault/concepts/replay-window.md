@@ -504,8 +504,9 @@ passed positive-pressure recall with `1` query, mean best input-pattern distance
 `5.96046447753906e-08`, `query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
 `recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
-`mutates_runtime_state=false`. Mutating `replay_entry(...)` remains available
-only for explicit replay/consolidation paths.
+`mutates_runtime_state=false`. The generic mutating `replay_entry(...)` API is
+now removed; explicit repair uses `sleep_repair_replay_row(...)`, while
+read-only recall keeps `replay_recall_row(...)`.
 
 ## Relationships
 

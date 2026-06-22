@@ -47,7 +47,7 @@ class _MemoryStore:
         self.slow_importance = [1.0 for _ in self._texts]
         self.slow_entry_timestamps = list(range(capacity))
         self.slow_replay_count = [0 for _ in self._texts]
-        self.replay_entry_calls: list[int] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
         self.recent_collector_call_count = 0
         self.recent_collector_indices: list[int] = []
         self.last_query_memory_match_report: dict[str, Any] = {}
@@ -139,20 +139,42 @@ class _MemoryStore:
             "archival_storage_device": "cpu",
         }
 
-    def replay_entry(
+    def query_match_row(
         self,
         idx: int,
         current_token: int | None = None,
         *,
         include_text_payload: bool = False,
     ) -> dict[str, Any]:
-        self.replay_entry_calls.append(int(idx))
-        if not include_text_payload:
-            return {"text": None, "raw_window": None, "metadata": None}
+        index = int(idx)
+        self.query_match_row_calls.append((index, bool(include_text_payload)))
         return {
-            "text": self._texts[idx],
-            "raw_window": self.slow_raw_windows[idx],
-            "metadata": {},
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": index,
+            "assembly": self.slow_buffer[index],
+            "input_pattern": self.slow_input_patterns[index],
+            "routing_key": self.slow_routing_keys[index],
+            "bucket_id": self.slow_bucket_ids[index],
+            "importance": self.slow_importance[index],
+            "capture_tag": 0.0,
+            "tag_strength": 0.0,
+            "prp_level": 0.0,
+            "capture_strength": 0.0,
+            "consolidation_level": 0.0,
+            "age_tokens": max(
+                0,
+                int(current_token or 0) - int(self.slow_entry_timestamps[index]),
+            ),
+            "replay_count": self.slow_replay_count[index],
+            "text": self._texts[index] if include_text_payload else None,
+            "raw_window": self.slow_raw_windows[index] if include_text_payload else None,
+            "metadata": {} if include_text_payload else None,
+            "raw_text_payload_loaded": bool(include_text_payload),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
         }
 
 
@@ -245,7 +267,15 @@ def run_benchmark(
     recent_call_count = (
         0 if last_store is None else int(last_store.recent_collector_call_count)
     )
-    replay_entry_calls = [] if last_store is None else list(last_store.replay_entry_calls)
+    query_text_payload_rows = (
+        []
+        if last_store is None
+        else [
+            int(index)
+            for index, include_text in last_store.query_match_row_calls
+            if include_text
+        ]
+    )
 
     pass_checks = {
         "surface": last_report.get("surface") == "bounded_query_memory_match.v1",
@@ -258,7 +288,7 @@ def run_benchmark(
             str(key).startswith("recent_fallback") for key in report_keys
         ),
         "returned_inside_bucket_window": returned_indices == [0],
-        "raw_text_loaded_only_for_candidate": replay_entry_calls == [0],
+        "raw_text_loaded_only_for_candidate": query_text_payload_rows == [0],
         "global_candidate_scan_false": last_report.get("global_candidate_scan") is False,
         "global_score_scan_false": last_report.get("global_score_scan") is False,
         "runs_live_tick_false": last_report.get("runs_live_tick") is False,

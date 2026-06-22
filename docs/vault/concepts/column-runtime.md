@@ -543,7 +543,8 @@ Target-aware replay-strength search now sits inside `reconstruction_guarded_repl
 
 Sleep replay now also has explicit replay-text and SFA boundaries. Query and
 display paths may still request stored `raw_window`/`text` payloads, but sleep
-replay calls `DualMemoryStore.replay_entry(..., include_text_payload=False)`.
+repair calls `DualMemoryStore.sleep_repair_replay_row(...)`, which has no text
+payload option.
 Selection and recall reports record `raw_text_payload_loaded=false` and
 `language_reasoning=false`; sleep replay records
 `sleep_replay_text_payload_loaded=false`,
@@ -1823,29 +1824,24 @@ same-band throughput protection rather than a clean speed ceiling.
 - [Pruning](pruning.md)
 - [Core module](../modules/core.md)
 
-## Explicit Replay Text Payload Opt-In
+## Generic Replay Entry Retired
 
-Replay-entry access is tensor-first by default. `DualMemoryStore.replay_entry(...)`
-returns assembly/input/routing/STC/consolidation metadata without raw text unless
-a caller passes `include_text_payload=True`. Sleep replay continues to use tensor
-payloads only, while query/source-bank/context readout must opt in to text only
-inside an already bounded candidate or returned-match window.
+The generic `DualMemoryStore.replay_entry(...)` API is removed. Production row
+access is purpose-named: `sleep_repair_replay_row(...)` is the mutating
+tensor-only sleep repair row, `replay_recall_row(...)` is read-only sleep
+recall, and `query_match_row(...)` is query/source-bank/context recall. Text
+payloads only enter through explicit bounded query/source rows after candidate
+selection.
 
-The focused report
-`reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json`
-used a `65536`-entry store and passed `explicit_replay_entry_text_payload_opt_in.v1`:
-default replay-entry reads loaded `0/192` raw text payloads, explicit opt-in
-loaded `192/192`, and bounded query readout loaded only `5` returned-match
-payloads with CPU archival placement, no global scans, no live tick, and
-`language_reasoning=false`.
-
-The hot-path protection report
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json`
-kept the live tick in the maintained band at `5993.863 tokens/sec`,
-`tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded
-`12/65536` route rows, cached `65526` transition rows, RTX 3060 memory
-`1878->1879 MiB`, no observed contention, and zero graph/native sequence
-failures.
+Fresh external reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260622\` passed the cleanup gate:
+query payload parity kept selected indices `[0, 16, 32, 48, 64]` while loading
+`5` bounded text payloads instead of `192`; context comparison kept the same
+selected indices across two contexts while loading `8` payloads instead of `16`
+and reusing `8` query-row cache hits; sleep repair improved mean anchor distance
+by `0.076463`, reached `1.954494x` input-prepare speedup, deferred `8`
+missing-key rows, made `0` dense input-assembly calls, and kept global scan,
+live tick, every-token work, raw text, and language reasoning false.
 
 ## Replay Sample Single Path
 

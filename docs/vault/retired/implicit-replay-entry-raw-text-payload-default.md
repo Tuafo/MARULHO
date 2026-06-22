@@ -4,7 +4,9 @@ status: retired
 related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/training/query_runner.py
-  - ../../../src/marulho/evaluation/replay_entry_text_payload_opt_in_benchmark.py
+  - ../../../src/marulho/evaluation/query_memory_payload_benchmark.py
+  - ../../../src/marulho/evaluation/context_memory_match_benchmark.py
+  - ../../../src/marulho/evaluation/sleep_repair_replay_bounded_benchmark.py
 related_docs:
   - ../../retired-paths.md
   - ../papers/replay-consolidation.md
@@ -14,17 +16,22 @@ related_docs:
 related_papers:
   - ../papers/replay-consolidation.md
 related_benchmarks:
-  - reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260622/query-memory-payload-query-row-no-replay-entry.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260622/context-memory-query-row-cache-no-replay-entry.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260622/sleep-repair-replay-row-api-retired.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-entry-api-retired-noprofile.json
 ---
 
 # Implicit Replay Entry Raw Text Payload Default
 
-`DualMemoryStore.replay_entry(...)` no longer returns raw replay text, expanded text, or metadata by default. The old default made text payload loading the easiest path for future replay/recall callers, even though sleep replay had already opted out explicitly.
+`DualMemoryStore.replay_entry(...)` is fully retired and removed. The first retirement made raw text opt-in, but keeping the generic mutating row reader still left a side-door API beside the promoted bounded row readers.
 
-The maintained API is tensor-first. Callers get assembly, input pattern, routing key, bucket, STC, PRP, consolidation, and replay-priority metadata by default. Raw text payloads require `include_text_payload=True`, and production query/source-bank/context readout uses that opt-in only after bounded candidate or returned-match selection.
+The maintained row APIs are named by purpose: `sleep_repair_replay_row(...)` is the mutating tensor-only slow repair row, `replay_recall_row(...)` is read-only sleep recall, and `query_match_row(...)` is query/source-bank/context recall. Text payloads are available only through explicit bounded query/source rows after selection.
 
-The benchmark `reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json` passed on a `65536`-entry store. Default replay-entry reads loaded `0/192` raw text payloads; explicit opt-in loaded `192/192`; bounded query readout still loaded `5` returned-match payloads while reporting no global candidate/score scan, no live tick, no every-token cadence, CPU archival placement, and `language_reasoning=false`.
+Current external checks:
 
-The paired hot-path report `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json` processed `524288` tokens at `5993.863 tokens/sec`, `tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`, bounded route scoring at `12/65536`, cached `65526` transition rows, RTX 3060 memory `1878->1879 MiB`, no observed contention, and zero graph/native sequence failures.
+- `..\..\MARULHO_reports\bounded_replay_window_20260622\query-memory-payload-query-row-no-replay-entry.json`: selected indices matched the diagnostic eager payload path, bounded text payloads were `5` instead of `192`, and the report used `returned_similarity_matches_only`.
+- `..\..\MARULHO_reports\bounded_replay_window_20260622\context-memory-query-row-cache-no-replay-entry.json`: two context reads preserved selected indices, loaded `8` payloads instead of `16`, and reused `8` query-row cache hits.
+- `..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-repair-replay-row-api-retired.json`: sleep repair used `sleep_repair_replay_row(...)`, improved mean anchor distance by `0.076463`, deferred `8` missing routing-key rows, made `0` dense input-assembly calls, and kept raw text/language reasoning/global scan/live tick flags false.
 
-Reopen only with a reviewed API contract that preserves explicit source-window budgets, no hidden language reasoning through replay text, and long-run live-tick protection.
+Reopen only as a new named row API with explicit source budget, mutation/read-only semantics, CPU archival placement, no hidden language reasoning through replay text, and repeated long-run live-tick protection.

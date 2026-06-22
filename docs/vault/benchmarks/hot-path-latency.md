@@ -2846,7 +2846,8 @@ target-specific replay-strength budget defaults.
 The replay text/SFA cleanup changes only slow-window replay and memory-store
 reporting, but it still gets a current long-run gate because the goal requires
 throughput to stay in the same band. Sleep replay now loads tensor payloads only
-from `DualMemoryStore.replay_entry(..., include_text_payload=False)` and reports
+from `DualMemoryStore.sleep_repair_replay_row(...)` for mutating repair and
+`DualMemoryStore.replay_recall_row(...)` for read-only recall, and reports
 `sleep_replay_text_payload_loaded=false`,
 `sleep_replay_language_reasoning=false`, and
 `sleep_replay_text_payload_policy=sleep_replay_uses_tensor_payloads_only`.
@@ -5382,34 +5383,32 @@ was `28%`; GPU max was `25%`, so velocity reported contention observed. RTX
 3060 memory stayed flat at `1963->1964 MiB`, so this is same-band live-tick
 protection evidence, not a new throughput ceiling.
 
-## Explicit Replay Text Payload Opt-In
+## Generic Replay Entry API Retired
 
-`DualMemoryStore.replay_entry(...)` is no longer a raw-text payload API by
-default. Default replay-entry reads return tensor/STC/consolidation metadata
-only; query/source-bank/context readout explicitly opts into raw text only after
-bounded candidate or returned-match selection.
+`DualMemoryStore.replay_entry(...)` is removed. The active row readers are
+purpose-specific: `sleep_repair_replay_row(...)`, `replay_recall_row(...)`, and
+`query_match_row(...)`. Focused reports in
+`..\..\MARULHO_reports\bounded_replay_window_20260622\` proved query/context
+selected-index parity and sleep-repair quality while keeping raw text out of
+replay repair.
 
-The focused report
-`reports/bounded_replay_window_20260620/replay-entry-text-payload-opt-in.json`
-passed over a `65536`-entry archive: default replay-entry reads loaded `0/192`
-raw text payloads, explicit opt-in loaded `192/192`, and bounded query readout
-loaded `5` returned-match payloads with no global candidate/score scan, no live
-tick, no every-token cadence, CPU archival placement, and
-`language_reasoning=false`. This is API-boundary protection evidence; the
-long-run gate for this slice is the paired continuous runtime run, not the
-focused payload benchmark.
-
-The paired continuous runtime report
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-replay-entry-text-payload-opt-in.json`
-processed `524288` tokens in `87.470800 s` at `5993.863 tokens/sec`,
-`tick_duration_ms.p95=21.555`, `train_compute=0.135543 ms/token`,
-`prepare_training=0.006947 ms/token`, and `finalize_total=0.006613 ms/token`.
-Prewarm took `320.045 s`. Runtime Truth kept route scoring bounded at
+The accepted no-profile continuous runtime report
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-replay-entry-api-retired-noprofile.json`
+processed `524288` tokens in `88.210694 s` at `5943.588 tokens/sec`,
+`tick_duration_ms.p95=21.790`, `train_compute=0.135432 ms/token`,
+`prepare_training=0.007129 ms/token`, and `finalize_total=0.006927 ms/token`.
+Prewarm took `366.516 s`. Runtime Truth kept route scoring bounded at
 `12/65536` input rows and `10` output candidates, cached `65526` transition
 rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
-3060, and recorded zero graph/native sequence failures. CPU max was `33%`; GPU
-max was `15%`, so velocity reported no observed contention. RTX 3060 memory
-stayed flat at `1878->1879 MiB`.
+3060, and recorded zero graph/native/sequence failures. CPU max was `27%`; GPU
+max was `13%`, so velocity reported no observed contention. RTX memory went
+from `1995 MiB` before to `1815 MiB` after.
+
+The profiled same-code run
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-replay-entry-api-retired.json`
+also succeeded but is secondary: `5826.202 tokens/sec`,
+`train_compute=0.137768 ms/token`, p95 tick `22.663 ms`, and velocity observed
+GPU contention at `21%`.
 
 ## Replay Sample Single Path Protection
 

@@ -542,36 +542,36 @@ def bank_memory_matches_with_report(
     for row in selected_rows:
         idx = int(row["memory_index"])
         source_bank_text_row_read_count += 1
-        replay_entry = _read_source_bank_row(idx, include_text_payload=True)
-        if replay_entry is None:
+        source_row = _read_source_bank_row(idx, include_text_payload=True)
+        if source_row is None:
             continue
-        replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
-        text = replay_entry.get("text") or replay_entry.get("raw_window") or ""
-        raw_window = replay_entry.get("raw_window") or text
-        consolidation_level = float(replay_entry.get("consolidation_level", 0.0) or 0.0)
+        row_metadata = source_row.get("metadata") if isinstance(source_row.get("metadata"), Mapping) else {}
+        text = source_row.get("text") or source_row.get("raw_window") or ""
+        raw_window = source_row.get("raw_window") or text
+        consolidation_level = float(source_row.get("consolidation_level", 0.0) or 0.0)
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
         returned.append(
             {
                 "memory_index": idx,
                 "similarity": float(row.get("similarity", 0.0)),
-                "bucket_id": replay_entry.get("bucket_id"),
+                "bucket_id": source_row.get("bucket_id"),
                 "raw_window": raw_window,
                 "text": text,
-                "metadata": dict(replay_metadata),
-                "source_name": " ".join(str(replay_metadata.get("source_name", "")).split()).strip(),
-                "source_type": " ".join(str(replay_metadata.get("source_type", "")).split()).strip(),
-                "provider": " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower(),
+                "metadata": dict(row_metadata),
+                "source_name": " ".join(str(row_metadata.get("source_name", "")).split()).strip(),
+                "source_type": " ".join(str(row_metadata.get("source_type", "")).split()).strip(),
+                "provider": " ".join(str(row_metadata.get("provider", "")).split()).strip().lower(),
                 "age_tokens": int(
-                    max(0, int(replay_entry.get("age_tokens", 0) or 0))
+                    max(0, int(source_row.get("age_tokens", 0) or 0))
                 ),
-                "importance": float(replay_entry.get("importance", 0.0) or 0.0),
-                "tag_strength": float(replay_entry.get("capture_tag", 0.0)),
-                "capture_tag": float(replay_entry.get("capture_tag", 0.0)),
-                "prp_level": float(replay_entry.get("prp_level", 0.0)),
-                "capture_strength": float(replay_entry.get("capture_strength", 0.0)),
+                "importance": float(source_row.get("importance", 0.0) or 0.0),
+                "tag_strength": float(source_row.get("capture_tag", 0.0)),
+                "capture_tag": float(source_row.get("capture_tag", 0.0)),
+                "prp_level": float(source_row.get("prp_level", 0.0)),
+                "capture_strength": float(source_row.get("capture_strength", 0.0)),
                 "consolidation_level": consolidation_level,
                 "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
-                "replay_count": int(replay_entry.get("replay_count", 0) or 0),
+                "replay_count": int(source_row.get("replay_count", 0) or 0),
                 "replay_priority": float(row.get("replay_priority", 0.0)),
                 "top_chars": top_feature_details(row["evidence_pattern"], 1, representation)
                 if isinstance(row.get("evidence_pattern"), torch.Tensor)

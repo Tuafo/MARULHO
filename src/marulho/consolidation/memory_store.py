@@ -2157,14 +2157,12 @@ class DualMemoryStore:
         self._invalidate_summary_cache()
         return tagged
 
-    def replay_entry(
+    def sleep_repair_replay_row(
         self,
         index: int,
         current_token: Optional[int] = None,
-        *,
-        include_text_payload: bool = False,
     ) -> dict[str, Any]:
-        """Return replay tensors; raw text payloads require an explicit opt-in."""
+        """Return mutating sleep-repair tensors without raw replay text."""
 
         idx = int(index)
         if idx < 0 or idx >= len(self.slow_buffer):
@@ -2178,7 +2176,9 @@ class DualMemoryStore:
         consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
         input_pattern = self.slow_input_patterns[idx]
         routing_key = self.slow_routing_keys[idx]
-        entry = {
+        return {
+            "surface": "bounded_sleep_repair_replay_row.v1",
+            "row_reader": "DualMemoryStore.sleep_repair_replay_row",
             "assembly": self.slow_buffer[idx].detach().clone(),
             "input_pattern": input_pattern.detach().clone() if isinstance(input_pattern, torch.Tensor) else None,
             "routing_key": routing_key.detach().clone() if isinstance(routing_key, torch.Tensor) else None,
@@ -2204,20 +2204,18 @@ class DualMemoryStore:
                 if idx < len(self.slow_ripple_strength)
                 else 1.0
             ),
+            "raw_window": None,
+            "text": None,
+            "metadata": None,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_policy": "sleep_repair_tensor_payload_only",
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "archival_storage_device": "cpu",
         }
-        if include_text_payload:
-            entry.update(
-                {
-                    "raw_window": self.slow_raw_windows[idx],
-                    "text": self.slow_texts[idx],
-                    "metadata": None
-                    if self.slow_metadata[idx] is None
-                    else dict(self.slow_metadata[idx]),
-                }
-            )
-        else:
-            entry.update({"raw_window": None, "text": None, "metadata": None})
-        return entry
 
     def replay_recall_row(
         self,

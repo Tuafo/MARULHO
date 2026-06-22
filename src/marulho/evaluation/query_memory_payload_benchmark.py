@@ -44,7 +44,6 @@ class _SyntheticMemoryStore:
         self.slow_importance = [1.0 for _ in range(self.capacity)]
         self.slow_entry_timestamps = [0 for _ in range(self.capacity)]
         self.slow_replay_count = [0 for _ in range(self.capacity)]
-        self.replay_entry_calls: list[int] = []
         self.query_match_row_calls: list[tuple[int, bool]] = []
         self.last_query_memory_match_report: dict[str, Any] = {}
 
@@ -137,24 +136,6 @@ class _SyntheticMemoryStore:
             "mutates_runtime_state": False,
         }
 
-    def replay_entry(
-        self,
-        idx: int,
-        current_token: int | None = None,
-        *,
-        include_text_payload: bool = False,
-    ) -> dict[str, Any]:
-        index = int(idx)
-        self.replay_entry_calls.append(index)
-        text = self.slow_raw_windows[index]
-        if not include_text_payload:
-            return {"text": None, "raw_window": None, "metadata": None}
-        return {
-            "text": text,
-            "raw_window": text,
-            "metadata": {},
-        }
-
 
 def _trainer_for_store(store: _SyntheticMemoryStore) -> Any:
     return SimpleNamespace(
@@ -171,7 +152,9 @@ def _diagnostic_eager_payload(
     candidate_limit: int,
     top_k: int,
 ) -> dict[str, Any]:
-    store.replay_entry_calls.clear()
+    initial_text_reads = sum(
+        1 for _index, include_text in store.query_match_row_calls if include_text
+    )
     started = time.perf_counter()
     candidate_report = store.collect_query_memory_match_indices(
         candidate_bucket_ids=candidate_bucket_ids,
@@ -185,13 +168,13 @@ def _diagnostic_eager_payload(
     for index in candidate_indices:
         evidence_pattern = store.slow_input_patterns[int(index)].float()
         similarity = query_runner.cosine_similarity(query_pattern, evidence_pattern)
-        entry = store.replay_entry(
+        row = store.query_match_row(
             int(index),
             current_token=1024,
             include_text_payload=True,
         )
-        raw_window = str(entry.get("raw_window", ""))
-        text = str(entry.get("text", ""))
+        raw_window = str(row.get("raw_window", ""))
+        text = str(row.get("text", ""))
         complete_sentence, clipped_overlap = query_runner.episode_quality(
             text,
             raw_window,
@@ -217,7 +200,14 @@ def _diagnostic_eager_payload(
     return {
         "selected_indices": [int(item["memory_index"]) for item in rows[:top_k]],
         "latency_ms": float(latency_ms),
-        "raw_text_payload_count": int(len(store.replay_entry_calls)),
+        "raw_text_payload_count": int(
+            sum(
+                1
+                for _index, include_text in store.query_match_row_calls
+                if include_text
+            )
+            - initial_text_reads
+        ),
         "candidate_report": candidate_report,
     }
 
@@ -244,6 +234,7 @@ def run_benchmark(
     bounded_report: dict[str, Any] = {}
 
     for _ in range(max(1, int(iterations))):
+        store.query_match_row_calls.clear()
         legacy = _diagnostic_eager_payload(
             store,
             candidate_bucket_ids=candidate_bucket_ids,
@@ -254,7 +245,6 @@ def run_benchmark(
         legacy_payload_counts.append(int(legacy["raw_text_payload_count"]))
         legacy_selected = list(legacy["selected_indices"])
 
-        store.replay_entry_calls.clear()
         store.query_match_row_calls.clear()
         started = time.perf_counter()
         bounded_matches, bounded_report = query_runner.memory_matches_with_report(

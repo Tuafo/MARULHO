@@ -189,17 +189,17 @@ class MemoryConsolidationTests(unittest.TestCase):
         restored = DualMemoryStore(capacity=8)
         restored.restore(store.snapshot())
 
-        default_entry = restored.replay_entry(0, current_token=12)
-        self.assertIsNone(default_entry["raw_window"])
-        self.assertIsNone(default_entry["text"])
+        default_row = restored.query_match_row(0, current_token=12)
+        self.assertIsNone(default_row["raw_window"])
+        self.assertIsNone(default_row["text"])
 
-        replay_entry = restored.replay_entry(
+        query_row = restored.query_match_row(
             0,
             current_token=12,
             include_text_payload=True,
         )
-        self.assertEqual(replay_entry["raw_window"], "purrs safe.")
-        self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
+        self.assertEqual(query_row["raw_window"], "purrs safe.")
+        self.assertEqual(query_row["text"], "a cat purrs when it feels safe.")
 
     def test_runtime_concept_memory_lookup_uses_explicit_indices_without_archive_iteration(self) -> None:
         store = DualMemoryStore(capacity=16)
@@ -306,7 +306,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             8,
         )
 
-    def test_replay_entry_can_exclude_text_payload_for_sleep_replay(self) -> None:
+    def test_sleep_repair_replay_row_excludes_text_payload(self) -> None:
         store = DualMemoryStore(capacity=8)
         assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
         pattern = torch.tensor([0.0, 1.0], dtype=torch.float32)
@@ -323,18 +323,21 @@ class MemoryConsolidationTests(unittest.TestCase):
             capture_tag=0.4,
         )
 
-        replay_entry = store.replay_entry(
+        repair_row = store.sleep_repair_replay_row(
             0,
             current_token=12,
-            include_text_payload=False,
         )
 
-        self.assertIsInstance(replay_entry["assembly"], torch.Tensor)
-        self.assertIsInstance(replay_entry["input_pattern"], torch.Tensor)
-        self.assertIsInstance(replay_entry["routing_key"], torch.Tensor)
-        self.assertIsNone(replay_entry["raw_window"])
-        self.assertIsNone(replay_entry["text"])
-        self.assertIsNone(replay_entry["metadata"])
+        self.assertEqual(repair_row["surface"], "bounded_sleep_repair_replay_row.v1")
+        self.assertIsInstance(repair_row["assembly"], torch.Tensor)
+        self.assertIsInstance(repair_row["input_pattern"], torch.Tensor)
+        self.assertIsInstance(repair_row["routing_key"], torch.Tensor)
+        self.assertIsNone(repair_row["raw_window"])
+        self.assertIsNone(repair_row["text"])
+        self.assertIsNone(repair_row["metadata"])
+        self.assertFalse(repair_row["raw_text_payload_loaded"])
+        self.assertFalse(repair_row["language_reasoning"])
+        self.assertFalse(hasattr(store, "replay_entry"))
 
     def test_replay_recall_row_is_read_only_and_text_payload_opt_in(self) -> None:
         store = DualMemoryStore(capacity=8)
@@ -882,7 +885,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
         tagged = store.tag_recent_entries(current_token=2, window_tokens=1, strength=2.0)
         scores_before = store.replay_scores_for_indices([0, 1], current_token=2)
-        tagged_entry = store.replay_entry(1, current_token=2)
+        tagged_entry = store.sleep_repair_replay_row(1, current_token=2)
 
         self.assertEqual(tagged, 1)
         self.assertGreater(tagged_entry["prp_level"], 0.0)
@@ -890,7 +893,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertGreater(float(scores_before[1]), float(scores_before[0]))
 
         store.consolidate_replay([1], current_token=3, blend=0.5, protein_synthesis_level=1.25)
-        consolidated_entry = store.replay_entry(1, current_token=3)
+        consolidated_entry = store.sleep_repair_replay_row(1, current_token=3)
 
         self.assertGreater(consolidated_entry["consolidation_level"], 0.0)
         self.assertLess(consolidated_entry["capture_tag"], 2.0)
@@ -1004,7 +1007,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
 
         store.tag_recent_entries(current_token=0, window_tokens=1, strength=1.0)
-        decayed_entry = store.replay_entry(0, current_token=10)
+        decayed_entry = store.sleep_repair_replay_row(0, current_token=10)
 
         self.assertAlmostEqual(decayed_entry["capture_tag"], 0.5, places=4)
 
@@ -2168,7 +2171,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_quality_after"],
         )
 
-    def test_associative_recall_uses_read_only_replay_rows_not_replay_entry(self) -> None:
+    def test_associative_recall_uses_read_only_rows_not_sleep_repair_rows(self) -> None:
         set_seed(7)
         cfg = MarulhoConfig(
             n_columns=8,
@@ -2200,8 +2203,10 @@ class MemoryConsolidationTests(unittest.TestCase):
 
         with patch.object(
             store,
-            "replay_entry",
-            side_effect=AssertionError("associative recall must not use replay_entry"),
+            "sleep_repair_replay_row",
+            side_effect=AssertionError(
+                "associative recall must not use mutating sleep repair rows"
+            ),
         ):
             report = trainer._sleep_replay_associative_recall(
                 [replay_index],

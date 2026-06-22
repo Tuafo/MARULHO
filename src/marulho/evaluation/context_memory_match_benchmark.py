@@ -50,7 +50,7 @@ class _SyntheticMemoryStore:
         self.slow_importance = [1.0 for _ in range(self.capacity)]
         self.slow_entry_timestamps = [0 for _ in range(self.capacity)]
         self.slow_replay_count = [0 for _ in range(self.capacity)]
-        self.replay_entry_calls: list[int] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
         self.last_query_memory_match_report: dict[str, Any] = {}
 
     def replay_scores_for_indices(
@@ -111,23 +111,43 @@ class _SyntheticMemoryStore:
         self.last_query_memory_match_report = report
         return report
 
-    def replay_entry(
+    def query_match_row(
         self,
         idx: int,
         current_token: int | None = None,
         *,
         include_text_payload: bool = False,
     ) -> dict[str, Any]:
-        _ = current_token
         index = int(idx)
-        self.replay_entry_calls.append(index)
+        self.query_match_row_calls.append((index, bool(include_text_payload)))
         text = self.slow_raw_windows[index]
-        if not include_text_payload:
-            return {"text": None, "raw_window": None, "metadata": None}
         return {
-            "text": text,
-            "raw_window": text,
-            "metadata": {},
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": index,
+            "assembly": self.slow_buffer[index],
+            "input_pattern": self.slow_input_patterns[index],
+            "routing_key": self.slow_routing_keys[index],
+            "bucket_id": self.slow_bucket_ids[index],
+            "importance": self.slow_importance[index],
+            "capture_tag": 0.0,
+            "tag_strength": 0.0,
+            "prp_level": 0.0,
+            "capture_strength": 0.0,
+            "consolidation_level": 0.0,
+            "age_tokens": max(
+                0,
+                int(current_token or 0) - int(self.slow_entry_timestamps[index]),
+            ),
+            "replay_count": self.slow_replay_count[index],
+            "text": text if include_text_payload else None,
+            "raw_window": text if include_text_payload else None,
+            "metadata": {} if include_text_payload else None,
+            "raw_text_payload_loaded": bool(include_text_payload),
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
         }
 
 
@@ -176,7 +196,7 @@ def _run_reported_context(
     candidate_bucket_ids: Sequence[int],
 ) -> dict[str, Any]:
     pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
-    replay_entry_cache: dict[int, dict[str, Any]] = {}
+    query_row_cache: dict[int, dict[str, Any]] = {}
     reports: list[dict[str, Any]] = []
     selected_by_context: list[list[int]] = []
     started = time.perf_counter()
@@ -189,7 +209,7 @@ def _run_reported_context(
             top_chars=1,
             memory_candidate_limit=candidate_limit,
             candidate_bucket_ids=candidate_bucket_ids,
-            replay_entry_cache=replay_entry_cache,
+            query_row_cache=query_row_cache,
         )
         reports.append({**dict(report), "context_label": f"context_{context_index}"})
         selected_by_context.append([int(match["memory_index"]) for match in matches])
@@ -218,7 +238,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     aggregate_report: dict[str, Any] = {}
 
     for _ in range(max(1, int(args.iterations))):
-        store.replay_entry_calls.clear()
+        store.query_match_row_calls.clear()
         legacy = _run_report_dropping_context(
             trainer,
             context_count=args.context_count,
@@ -227,10 +247,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             candidate_bucket_ids=candidate_bucket_ids,
         )
         legacy_latencies.append(float(legacy["latency_ms"]))
-        legacy_payload_counts.append(len(store.replay_entry_calls))
+        legacy_payload_counts.append(
+            sum(1 for _index, include_text in store.query_match_row_calls if include_text)
+        )
         legacy_selected = list(legacy["selected_by_context"])
 
-        store.replay_entry_calls.clear()
+        store.query_match_row_calls.clear()
         bounded = _run_reported_context(
             trainer,
             context_count=args.context_count,
@@ -239,7 +261,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             candidate_bucket_ids=candidate_bucket_ids,
         )
         bounded_latencies.append(float(bounded["latency_ms"]))
-        bounded_payload_counts.append(len(store.replay_entry_calls))
+        bounded_payload_counts.append(
+            sum(1 for _index, include_text in store.query_match_row_calls if include_text)
+        )
         bounded_selected = list(bounded["selected_by_context"])
         aggregate_report = dict(bounded["aggregate_report"])
 
