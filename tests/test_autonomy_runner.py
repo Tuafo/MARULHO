@@ -227,8 +227,11 @@ class AutonomySelectionTests(unittest.TestCase):
     def test_probe_gap_exposes_bank_memory_match_report(self) -> None:
         bank_report = {
             "surface": "bounded_source_bank_memory_match.v1",
-            "candidate_scope": "source_bank_probe_memory_recall_window",
+            "candidate_scope": "source_bank_merged_probe_memory_recall_window",
+            "candidate_window_policy": "merged_probe_bucket_indexed_candidate_window",
             "candidate_index_count": 4,
+            "merged_probe_candidate_window": True,
+            "per_probe_query_match_call_count": 0,
             "raw_text_payload_count": 1,
             "runs_live_tick": False,
             "language_reasoning": False,

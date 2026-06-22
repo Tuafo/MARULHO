@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 import torch.nn.functional as F
@@ -13,9 +13,10 @@ from marulho.gap_planner import (
     tokenize_terms,
 )
 from .concepts import ConceptStore
-from marulho.training.query_runner import memory_matches_with_report as retrieve_memory_matches_with_report
+from marulho.training.query_runner import episode_quality, top_feature_details
 
 SOURCE_BANK_SIGNATURE_PROBE_LIMIT = 16
+SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT = 192
 
 
 def _clamp01(value: float) -> float:
@@ -111,8 +112,8 @@ def _empty_bank_memory_match_report(
         "memories_per_probe": int(per_probe_limit),
         "max_matches": int(max(1, max_matches)),
         "candidate_surface": "bounded_query_memory_match.v1",
-        "candidate_window_policy": "per_probe_bucket_indexed_candidate_window",
-        "candidate_scope": "source_bank_probe_memory_recall_window",
+        "candidate_window_policy": "merged_probe_bucket_indexed_candidate_window",
+        "candidate_scope": "source_bank_merged_probe_memory_recall_window",
         "candidate_bucket_ids": [],
         "candidate_bucket_count": 0,
         "candidate_index_available_count": 0,
@@ -126,7 +127,9 @@ def _empty_bank_memory_match_report(
         "raw_text_payload_loaded": False,
         "raw_text_payload_count": 0,
         "raw_text_payload_cache_hits": 0,
-        "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+        "raw_text_payload_policy": "returned_merged_probe_matches_only",
+        "merged_probe_candidate_window": True,
+        "per_probe_query_match_call_count": 0,
         "global_score_scan": False,
         "global_candidate_scan": False,
         "runs_live_tick": False,
@@ -144,7 +147,7 @@ def _empty_bank_memory_match_report(
             "probe_budget": int(max(0, requested_probe_count)),
             "per_probe_return_budget": int(per_probe_limit),
             "returned_match_limit": int(max(1, max_matches)),
-            "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+            "raw_text_payload_policy": "returned_merged_probe_matches_only",
         },
         "probe_reports": [],
     }
@@ -155,6 +158,54 @@ def _record_bank_memory_match_report(trainer: Any, report: dict[str, Any]) -> No
     recorder = getattr(store, "record_bank_memory_match_report", None)
     if callable(recorder):
         recorder(report)
+
+
+def _bank_candidate_bucket_ids(
+    trainer: Any,
+    routing_key: torch.Tensor,
+    *,
+    max_buckets: int,
+) -> list[int]:
+    routing_index = getattr(getattr(trainer, "model", None), "routing_index", None)
+    if routing_index is None or not hasattr(routing_index, "search_tensors"):
+        return []
+    try:
+        candidate_ids, _ = routing_index.search_tensors(
+            routing_key.detach().unsqueeze(0),
+            k=max(1, int(max_buckets)),
+        )
+    except Exception:
+        return []
+    if not isinstance(candidate_ids, torch.Tensor) or candidate_ids.numel() <= 0:
+        return []
+    return [
+        int(value)
+        for value in candidate_ids[0].detach().cpu().flatten().tolist()
+    ]
+
+
+def _candidate_evidence_pattern(store: Any, idx: int) -> torch.Tensor | None:
+    for values_name in ("slow_routing_keys", "slow_input_patterns", "slow_buffer"):
+        values = getattr(store, values_name, [])
+        try:
+            values_count = len(values)
+        except TypeError:
+            continue
+        if idx < 0 or idx >= values_count:
+            continue
+        value = values[idx]
+        if isinstance(value, torch.Tensor):
+            return value.detach().float().cpu()
+    return None
+
+
+def _safe_sequence_value(values: Any, idx: int, default: Any = None) -> Any:
+    try:
+        if idx < 0 or idx >= len(values):
+            return default
+        return values[idx]
+    except (TypeError, IndexError):
+        return default
 
 
 def bank_memory_matches_with_report(
@@ -169,14 +220,14 @@ def bank_memory_matches_with_report(
     store = getattr(getattr(trainer, "model", None), "memory_store", None)
     memory_size = int(len(getattr(store, "slow_buffer", []))) if store is not None else 0
     bank_name = str(getattr(bank, "name", ""))
-    if trainer is None:
+    if trainer is None or store is None:
         report = _empty_bank_memory_match_report(
             bank_name=bank_name,
             memory_size=memory_size,
             requested_probe_count=probe_samples,
             memories_per_probe=memories_per_probe,
             max_matches=max_matches,
-            fallback_reason="missing_trainer",
+            fallback_reason="missing_trainer_or_memory_store",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
         )
         return [], report
@@ -196,103 +247,282 @@ def bank_memory_matches_with_report(
         _record_bank_memory_match_report(trainer, report)
         return [], report
 
-    aggregated: dict[int, dict[str, Any]] = {}
-    replay_entry_cache: dict[int, dict[str, Any]] = {}
-    probe_reports: list[dict[str, Any]] = []
-    candidate_buckets: set[int] = set()
-    candidate_indices: set[int] = set()
-    candidate_available_total = 0
-    candidate_count_total = 0
-    similarity_score_total = 0
-    replay_priority_score_total = 0
-    raw_text_payload_count = 0
-    raw_text_payload_cache_hits = 0
-    global_score_scan = False
-    global_candidate_scan = False
-    fallback_reasons: list[str] = []
+    if not hasattr(store, "collect_query_memory_match_indices"):
+        report = _empty_bank_memory_match_report(
+            bank_name=bank_name,
+            memory_size=memory_size,
+            requested_probe_count=probe_samples,
+            memories_per_probe=memories_per_probe,
+            max_matches=max_matches,
+            fallback_reason="memory_store_missing_bounded_query_match_collector",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        _record_bank_memory_match_report(trainer, report)
+        return [], report
 
+    per_probe_limit = max(1, int(memories_per_probe))
+    returned_limit = max(1, int(max_matches))
+    max_bucket_count = max(
+        per_probe_limit,
+        int(getattr(getattr(trainer, "config", None), "k_routing", per_probe_limit)),
+    )
+    probe_reports: list[dict[str, Any]] = []
+    active_probe_reports: list[dict[str, Any]] = []
+    probe_routing_keys: list[torch.Tensor] = []
+    scored_probe_indices: list[int] = []
+    candidate_bucket_ids: list[int] = []
+    seen_buckets: set[int] = set()
+    fallback_reasons: list[str] = []
     for probe_idx in probe_indices:
         pattern = probe_patterns[probe_idx]
-        routing_key = trainer.routing_key_for_pattern(pattern)
-        matches, match_report = retrieve_memory_matches_with_report(
+        routing_key = trainer.routing_key_for_pattern(pattern).detach().float().cpu()
+        if float(routing_key.norm().item()) <= 1e-8:
+            reason = f"empty_probe_routing_key:{probe_idx}"
+            fallback_reasons.append(reason)
+            probe_reports.append(
+                {
+                    "probe_index": int(probe_idx),
+                    "candidate_bucket_ids": [],
+                    "candidate_bucket_count": 0,
+                    "candidate_window_policy": "merged_probe_bucket_union_before_scoring",
+                    "per_probe_query_match_call": False,
+                    "fallback_reason": reason,
+                }
+            )
+            continue
+        probe_routing_keys.append(routing_key)
+        scored_probe_indices.append(int(probe_idx))
+        buckets = _bank_candidate_bucket_ids(
             trainer,
-            pattern,
             routing_key,
-            top_k=memories_per_probe,
-            top_chars=1,
-            replay_entry_cache=replay_entry_cache,
+            max_buckets=max_bucket_count,
         )
+        for bucket in buckets:
+            bucket_int = int(bucket)
+            if bucket_int not in seen_buckets:
+                seen_buckets.add(bucket_int)
+                candidate_bucket_ids.append(bucket_int)
         probe_report = {
             "probe_index": int(probe_idx),
-            "surface": match_report.get("surface"),
-            "candidate_surface": match_report.get("candidate_surface"),
-            "candidate_scope": match_report.get("candidate_scope"),
-            "candidate_bucket_ids": [
-                int(bucket)
-                for bucket in match_report.get("candidate_bucket_ids", [])
-            ],
-            "candidate_index_available_count": int(
-                match_report.get("candidate_index_available_count", 0) or 0
-            ),
-            "candidate_index_count": int(
-                match_report.get("candidate_index_count", 0) or 0
-            ),
-            "similarity_score_count": int(
-                match_report.get("similarity_score_count", 0) or 0
-            ),
-            "replay_priority_score_count": int(
-                match_report.get("replay_priority_score_count", 0) or 0
-            ),
-            "returned_count": int(match_report.get("returned_count", 0) or 0),
-            "raw_text_payload_count": int(
-                match_report.get("raw_text_payload_count", 0) or 0
-            ),
-            "raw_text_payload_cache_hits": int(
-                match_report.get("raw_text_payload_cache_hits", 0) or 0
-            ),
-            "fallback_reason": match_report.get("fallback_reason"),
+            "candidate_bucket_ids": [int(bucket) for bucket in buckets],
+            "candidate_bucket_count": int(len(buckets)),
+            "candidate_window_policy": "merged_probe_bucket_union_before_scoring",
+            "per_probe_query_match_call": False,
         }
         probe_reports.append(probe_report)
-        candidate_available_total += int(probe_report["candidate_index_available_count"])
-        candidate_count_total += int(probe_report["candidate_index_count"])
-        similarity_score_total += int(probe_report["similarity_score_count"])
-        replay_priority_score_total += int(probe_report["replay_priority_score_count"])
-        raw_text_payload_count += int(probe_report["raw_text_payload_count"])
-        raw_text_payload_cache_hits += int(probe_report["raw_text_payload_cache_hits"])
-        global_score_scan = global_score_scan or bool(match_report.get("global_score_scan"))
-        global_candidate_scan = global_candidate_scan or bool(match_report.get("global_candidate_scan"))
-        fallback_reason = match_report.get("fallback_reason")
-        if fallback_reason is not None and str(fallback_reason) not in fallback_reasons:
-            fallback_reasons.append(str(fallback_reason))
-        for bucket in probe_report["candidate_bucket_ids"]:
-            candidate_buckets.add(int(bucket))
-        for index in match_report.get("match_indices", []):
-            candidate_indices.add(int(index))
-        for match in matches:
-            memory_index = match.get("memory_index")
-            if not isinstance(memory_index, int):
-                continue
-            existing = aggregated.get(memory_index)
-            if existing is None or float(match.get("similarity", 0.0)) > float(existing.get("similarity", 0.0)):
-                updated = dict(match)
-                updated["probe_indices"] = [int(probe_idx)]
-                aggregated[memory_index] = updated
-            else:
-                indices = list(existing.get("probe_indices") or [])
-                if int(probe_idx) not in indices:
-                    indices.append(int(probe_idx))
-                    existing["probe_indices"] = indices
+        active_probe_reports.append(probe_report)
 
-    ranked = sorted(
-        aggregated.values(),
+    if not probe_routing_keys or not candidate_bucket_ids:
+        report = _empty_bank_memory_match_report(
+            bank_name=bank_name,
+            memory_size=memory_size,
+            requested_probe_count=probe_samples,
+            memories_per_probe=memories_per_probe,
+            max_matches=max_matches,
+            fallback_reason=";".join(fallback_reasons) or "empty_merged_probe_bucket_window",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        report.update(
+            {
+                "probe_count": int(len(probe_indices)),
+                "scored_probe_count": int(len(scored_probe_indices)),
+                "probe_indices": [int(index) for index in probe_indices],
+                "probe_reports": probe_reports,
+                "merged_probe_candidate_window": True,
+                "per_probe_query_match_call_count": 0,
+            }
+        )
+        _record_bank_memory_match_report(trainer, report)
+        return [], report
+
+    candidate_limit = min(
+        SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT,
+        max(
+            32,
+            returned_limit * 8,
+            per_probe_limit * max(1, len(probe_routing_keys)) * 8,
+        ),
+    )
+    candidate_report = dict(
+        store.collect_query_memory_match_indices(
+            candidate_bucket_ids=candidate_bucket_ids,
+            max_candidates=candidate_limit,
+            scope="source_bank_merged_probe_memory_match",
+        )
+    )
+    candidate_indices = [
+        int(index)
+        for index in candidate_report.get("match_indices", [])
+        if 0 <= int(index) < len(getattr(store, "slow_buffer", []))
+    ]
+    if not candidate_indices:
+        report = _empty_bank_memory_match_report(
+            bank_name=bank_name,
+            memory_size=memory_size,
+            requested_probe_count=probe_samples,
+            memories_per_probe=memories_per_probe,
+            max_matches=max_matches,
+            fallback_reason=str(candidate_report.get("fallback_reason") or "empty_merged_probe_candidate_window"),
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        report.update(
+            {
+                "probe_count": int(len(probe_indices)),
+                "scored_probe_count": int(len(scored_probe_indices)),
+                "probe_indices": [int(index) for index in probe_indices],
+                "candidate_surface": candidate_report.get("surface"),
+                "candidate_window_policy": "merged_probe_bucket_indexed_candidate_window",
+                "candidate_scope": "source_bank_merged_probe_memory_recall_window",
+                "candidate_bucket_ids": candidate_bucket_ids,
+                "candidate_bucket_count": int(len(candidate_bucket_ids)),
+                "candidate_index_available_count": int(candidate_report.get("candidate_index_available_count", 0) or 0),
+                "probe_reports": probe_reports,
+                "merged_probe_candidate_window": True,
+                "per_probe_query_match_call_count": 0,
+            }
+        )
+        _record_bank_memory_match_report(trainer, report)
+        return [], report
+
+    candidate_vectors: list[torch.Tensor] = []
+    vector_candidate_indices: list[int] = []
+    for idx in candidate_indices:
+        evidence_pattern = _candidate_evidence_pattern(store, idx)
+        if evidence_pattern is None or float(evidence_pattern.norm().item()) <= 1e-8:
+            continue
+        candidate_vectors.append(evidence_pattern)
+        vector_candidate_indices.append(int(idx))
+
+    if not candidate_vectors:
+        report = _empty_bank_memory_match_report(
+            bank_name=bank_name,
+            memory_size=memory_size,
+            requested_probe_count=probe_samples,
+            memories_per_probe=memories_per_probe,
+            max_matches=max_matches,
+            fallback_reason="empty_candidate_evidence_vectors",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        report.update(
+            {
+                "probe_count": int(len(probe_indices)),
+                "scored_probe_count": int(len(scored_probe_indices)),
+                "probe_indices": [int(index) for index in probe_indices],
+                "candidate_bucket_ids": candidate_bucket_ids,
+                "candidate_bucket_count": int(len(candidate_bucket_ids)),
+                "candidate_index_count": int(len(candidate_indices)),
+                "probe_reports": probe_reports,
+                "merged_probe_candidate_window": True,
+                "per_probe_query_match_call_count": 0,
+            }
+        )
+        _record_bank_memory_match_report(trainer, report)
+        return [], report
+
+    probe_matrix = F.normalize(torch.stack(probe_routing_keys), dim=1)
+    candidate_matrix = F.normalize(torch.stack(candidate_vectors), dim=1)
+    similarity_matrix = torch.matmul(probe_matrix, candidate_matrix.t())
+    replay_scores = store.replay_scores_for_indices(vector_candidate_indices, trainer.token_count)
+    selected_by_index: dict[int, dict[str, Any]] = {}
+    for probe_position, probe_idx in enumerate(scored_probe_indices):
+        row = similarity_matrix[probe_position]
+        ranked_positions = sorted(
+            range(len(vector_candidate_indices)),
+            key=lambda position: (float(row[position].item()), -int(position)),
+            reverse=True,
+        )[:per_probe_limit]
+        selected_indices: list[int] = []
+        for position in ranked_positions:
+            idx = int(vector_candidate_indices[position])
+            selected_indices.append(idx)
+            similarity = float(row[position].item())
+            existing = selected_by_index.get(idx)
+            if existing is None or similarity > float(existing.get("similarity", 0.0)):
+                selected_by_index[idx] = {
+                    "memory_index": idx,
+                    "similarity": similarity,
+                    "evidence_pattern": candidate_vectors[position],
+                    "replay_priority": float(replay_scores.get(idx, 0.0)),
+                    "probe_indices": [int(probe_idx)],
+                }
+            else:
+                existing_probe_indices = list(existing.get("probe_indices") or [])
+                if int(probe_idx) not in existing_probe_indices:
+                    existing_probe_indices.append(int(probe_idx))
+                    existing["probe_indices"] = existing_probe_indices
+        if probe_position < len(active_probe_reports):
+            active_probe_reports[probe_position]["selected_candidate_indices"] = selected_indices
+            active_probe_reports[probe_position]["selected_candidate_count"] = int(len(selected_indices))
+
+    ranked_rows = sorted(
+        selected_by_index.values(),
         key=lambda item: (
             float(item.get("similarity", 0.0)),
-            float(item.get("capture_strength", 0.0)),
-            float(item.get("importance", 0.0)),
+            float(item.get("replay_priority", 0.0)),
+            float(_safe_sequence_value(getattr(store, "slow_importance", []), int(item["memory_index"]), 0.0) or 0.0),
+            -int(item["memory_index"]),
         ),
         reverse=True,
     )
-    returned = ranked[: max(1, int(max_matches))]
+    selected_rows = ranked_rows[:returned_limit]
+    representation = getattr(getattr(trainer, "config", None), "input_representation", "order_weighted_ascii")
+    raw_text_payload_count = 0
+    returned: list[dict[str, Any]] = []
+    for row in selected_rows:
+        idx = int(row["memory_index"])
+        replay_entry = store.replay_entry(idx, current_token=trainer.token_count, include_text_payload=True)
+        raw_text_payload_count += 1
+        replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
+        text = replay_entry.get("text") or _safe_sequence_value(getattr(store, "slow_raw_windows", []), idx, "")
+        raw_window = replay_entry.get("raw_window") or _safe_sequence_value(getattr(store, "slow_raw_windows", []), idx, "")
+        consolidation_level = float(
+            replay_entry.get(
+                "consolidation_level",
+                _safe_sequence_value(getattr(store, "slow_consolidation_level", []), idx, 0.0) or 0.0,
+            )
+        )
+        complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
+        returned.append(
+            {
+                "memory_index": idx,
+                "similarity": float(row.get("similarity", 0.0)),
+                "bucket_id": _safe_sequence_value(getattr(store, "slow_bucket_ids", []), idx),
+                "raw_window": raw_window,
+                "text": text,
+                "metadata": dict(replay_metadata),
+                "source_name": " ".join(str(replay_metadata.get("source_name", "")).split()).strip(),
+                "source_type": " ".join(str(replay_metadata.get("source_type", "")).split()).strip(),
+                "provider": " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower(),
+                "age_tokens": int(
+                    max(
+                        0,
+                        int(getattr(trainer, "token_count", 0))
+                        - int(_safe_sequence_value(getattr(store, "slow_entry_timestamps", []), idx, 0) or 0),
+                    )
+                ),
+                "importance": float(_safe_sequence_value(getattr(store, "slow_importance", []), idx, 0.0) or 0.0),
+                "tag_strength": float(replay_entry.get("capture_tag", 0.0)),
+                "capture_tag": float(replay_entry.get("capture_tag", 0.0)),
+                "prp_level": float(replay_entry.get("prp_level", 0.0)),
+                "capture_strength": float(replay_entry.get("capture_strength", 0.0)),
+                "consolidation_level": consolidation_level,
+                "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
+                "replay_count": int(_safe_sequence_value(getattr(store, "slow_replay_count", []), idx, 0) or 0),
+                "replay_priority": float(row.get("replay_priority", 0.0)),
+                "top_chars": top_feature_details(row["evidence_pattern"], 1, representation)
+                if isinstance(row.get("evidence_pattern"), torch.Tensor)
+                else [],
+                "query_overlap": 0,
+                "matched_query_terms": [],
+                "focus_overlap": 0,
+                "matched_focus_terms": [],
+                "memory_focus_priority": 0.0,
+                "complete_sentence": int(complete_sentence),
+                "clipped_overlap": int(clipped_overlap),
+                "probe_indices": [int(value) for value in list(row.get("probe_indices") or [])],
+            }
+        )
+
     latency_ms = (time.perf_counter() - started_time) * 1000.0
     report = {
         "surface": "bounded_source_bank_memory_match.v1",
@@ -302,28 +532,33 @@ def bank_memory_matches_with_report(
         "memory_size": int(memory_size),
         "requested_probe_count": int(max(0, probe_samples)),
         "probe_count": int(len(probe_indices)),
+        "scored_probe_count": int(len(scored_probe_indices)),
         "probe_indices": [int(index) for index in probe_indices],
-        "memories_per_probe": int(max(1, memories_per_probe)),
-        "max_matches": int(max(1, max_matches)),
-        "candidate_surface": "bounded_query_memory_match.v1",
-        "candidate_window_policy": "per_probe_bucket_indexed_candidate_window",
-        "candidate_scope": "source_bank_probe_memory_recall_window",
-        "candidate_bucket_ids": sorted(candidate_buckets),
-        "candidate_bucket_count": int(len(candidate_buckets)),
-        "candidate_index_available_count": int(candidate_available_total),
-        "candidate_index_count": int(candidate_count_total),
-        "unique_candidate_index_count": int(len(candidate_indices)),
-        "similarity_score_count": int(similarity_score_total),
-        "replay_priority_score_count": int(replay_priority_score_total),
+        "memories_per_probe": int(per_probe_limit),
+        "max_matches": int(returned_limit),
+        "candidate_surface": candidate_report.get("surface"),
+        "candidate_window_policy": "merged_probe_bucket_indexed_candidate_window",
+        "candidate_scope": "source_bank_merged_probe_memory_recall_window",
+        "candidate_bucket_ids": candidate_bucket_ids,
+        "candidate_bucket_count": int(len(candidate_bucket_ids)),
+        "candidate_index_available_count": int(candidate_report.get("candidate_index_available_count", 0) or 0),
+        "candidate_index_count": int(len(candidate_indices)),
+        "unique_candidate_index_count": int(len(set(candidate_indices))),
+        "similarity_score_count": int(len(vector_candidate_indices) * len(probe_routing_keys)),
+        "replay_priority_score_count": int(len(replay_scores)),
+        "merged_probe_candidate_window": True,
+        "per_probe_query_match_call_count": 0,
+        "retired_per_probe_query_match_call_count": int(len(probe_indices)),
+        "candidate_window_limit": int(candidate_limit),
         "match_indices": [int(item["memory_index"]) for item in returned],
-        "result_count": int(len(ranked)),
+        "result_count": int(len(ranked_rows)),
         "returned_count": int(len(returned)),
         "raw_text_payload_loaded": bool(raw_text_payload_count > 0),
         "raw_text_payload_count": int(raw_text_payload_count),
-        "raw_text_payload_cache_hits": int(raw_text_payload_cache_hits),
-        "raw_text_payload_policy": "shared_returned_similarity_matches_only",
-        "global_score_scan": bool(global_score_scan),
-        "global_candidate_scan": bool(global_candidate_scan),
+        "raw_text_payload_cache_hits": 0,
+        "raw_text_payload_policy": "returned_merged_probe_matches_only",
+        "global_score_scan": bool(candidate_report.get("global_score_scan")),
+        "global_candidate_scan": bool(candidate_report.get("global_candidate_scan")),
         "runs_live_tick": False,
         "runs_every_token": False,
         "mutates_runtime_state": False,
@@ -337,9 +572,12 @@ def bank_memory_matches_with_report(
         "selection_budget": {
             "memory_budget_entries": int(memory_size),
             "probe_budget": int(max(0, probe_samples)),
-            "per_probe_return_budget": int(max(1, memories_per_probe)),
-            "returned_match_limit": int(max(1, max_matches)),
-            "raw_text_payload_policy": "shared_returned_similarity_matches_only",
+            "per_probe_return_budget": int(per_probe_limit),
+            "returned_match_limit": int(returned_limit),
+            "candidate_bucket_budget": int(max_bucket_count),
+            "candidate_window_limit": int(candidate_limit),
+            "candidate_window_cap": int(SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT),
+            "raw_text_payload_policy": "returned_merged_probe_matches_only",
         },
         "probe_reports": probe_reports,
     }

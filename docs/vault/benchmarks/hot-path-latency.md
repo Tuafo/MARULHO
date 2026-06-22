@@ -45,6 +45,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-524288-i32-query-memory-payload.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-noprofile-rerun.json
@@ -3025,36 +3026,41 @@ observed contention: CPU max `22%`, GPU utilization max `17%`, GPU memory
 utilization max `14%`, and GPU memory stayed flat at `1805 MiB` before and
 after measurement.
 
-### Bounded Source-Bank Memory Match, 2026-06-18
+### Merged Source-Bank Memory Match, 2026-06-22
 
-The source-bank memory-match slice makes source acquisition recall auditable at
-the bank-planning layer. `bank_memory_matches_with_report(...)` samples capped
-source-bank probes, runs each probe through `bounded_query_memory_match.v1`,
-shares returned replay-entry payloads across probes, and records
-`bounded_source_bank_memory_match.v1` with candidate totals, unique match count,
-payload cache hits, CPU archival/score placement, no global scans,
-`runs_live_tick=false`, and `language_reasoning=false`. The paired benchmark
-`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
-preserved selected indices against the diagnostic legacy path, reduced raw text
-payload loads from `32` to `4`, and reduced mean latency from `194.259 ms` to
-`179.366 ms` over a `65536`-entry archive.
+The source-bank memory-match slice now makes source acquisition recall
+auditable at the bank-planning layer with one merged local associative window.
+`bank_memory_matches_with_report(...)` samples capped source-bank probes,
+unions routing-index bucket ids, asks the memory store for one CPU
+bucket-indexed candidate window capped at `192`, vector-scores sampled probes
+against that window, and loads raw text only for returned matches. The report
+records `bounded_source_bank_memory_match.v1` with
+`merged_probe_candidate_window=true`, `per_probe_query_match_call_count=0`,
+candidate/window budgets, CPU archival/score placement, no global scans,
+`runs_live_tick=false`, `runs_every_token=false`, and
+`language_reasoning=false`. The paired benchmark
+`reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
+preserved selected indices against the retired per-probe diagnostic path,
+reduced raw text payload loads from `32` to `4`, and reduced mean latency from
+`560.177 ms` to `106.543 ms` (`5.258x`) over a `65536`-entry archive. CUDA was
+available but archival recall allocated/reserved `0.0 MiB`.
 
-The clean 65536-column 524288-token protection rerun was:
+The clean 65536-column 524288-token protection run was:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 
-It processed `524288` tokens at `6524.395 tokens/sec`, with
-`train_compute=0.124824 ms/token`, `prepare_training=0.006321 ms/token`,
-`finalize_total=0.005793 ms/token`, and `tick_duration_ms.p95=18.989`.
+It processed `524288` tokens at `6129.933 tokens/sec`, with
+`train_compute=0.132126 ms/token`, `prepare_training=0.006695 ms/token`,
+`finalize_total=0.006421 ms/token`, and `tick_duration_ms.p95=20.698`.
 Runtime Truth stayed bounded at `route_input_rows_scored=12/65536`,
 `route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
 `state_transition_runs_all_columns=false`. Graph, native sequence, and native
 burst failures were all `0`, with `32767` conditional sequence-loop successes
-covering `524272` tokens. The velocity surface reported no observed
-contention: CPU max `12%`, GPU utilization max `10%`, GPU memory utilization
-max `10%`, and GPU memory moved from `1833 MiB` before measurement to
-`1798 MiB` after measurement. This proves source-bank recall reporting did not
-add a live-tick tax; it does not make source-bank recall every-token work.
+covering `524272` tokens. The velocity surface reported mild GPU contention:
+CPU max `41%`, GPU utilization max `21%` against a `20%` threshold, GPU memory
+utilization max `22%`, and GPU memory stayed flat at `1763 MiB`. This is
+same-band live-tick protection evidence under mild contention, not a clean
+speed ceiling, and it does not make source-bank recall every-token work.
 
 ### Bounded ConceptStore Signature Lookup, 2026-06-18
 

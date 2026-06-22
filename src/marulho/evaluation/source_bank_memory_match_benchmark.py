@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import statistics
 import time
+import tracemalloc
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -223,8 +224,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             max_matches=args.max_matches,
         )
 
+    cuda_available = torch.cuda.is_available()
+    cuda_allocated_before = torch.cuda.memory_allocated() if cuda_available else 0
+    cuda_reserved_before = torch.cuda.memory_reserved() if cuda_available else 0
+    tracemalloc.start()
     legacy_latencies, legacy_results = _measure(legacy_call, args.iterations)
     bounded_latencies, bounded_results = _measure(bounded_call, args.iterations)
+    _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    cuda_allocated_after = torch.cuda.memory_allocated() if cuda_available else 0
+    cuda_reserved_after = torch.cuda.memory_reserved() if cuda_available else 0
     legacy_matches, legacy_report = legacy_results[-1]
     bounded_matches, bounded_report = bounded_results[-1]
     legacy_indices = [int(match["memory_index"]) for match in legacy_matches]
@@ -269,6 +278,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "device": {
             "archival_storage_device": bounded_report.get("archival_storage_device"),
             "score_device": bounded_report.get("score_device"),
+            "active_replay_cuda_required": False,
+            "cuda_available": bool(cuda_available),
+            "cuda_memory_allocated_delta_mib": float(
+                (cuda_allocated_after - cuda_allocated_before) / (1024.0 * 1024.0)
+            ),
+            "cuda_memory_reserved_delta_mib": float(
+                (cuda_reserved_after - cuda_reserved_before) / (1024.0 * 1024.0)
+            ),
+            "python_traced_peak_mib": float(peak_bytes / (1024.0 * 1024.0)),
         },
     }
 

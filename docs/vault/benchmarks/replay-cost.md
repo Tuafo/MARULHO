@@ -76,6 +76,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
+  - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -280,6 +282,10 @@ Replay selection, rehearsal, and artifact-review cost checks.
   `PYTHONPATH=src python -m marulho.evaluation.source_bank_memory_match_benchmark --output reports\bounded_replay_window_20260618\source-bank-memory-match-bounded.json --capacity 65536 --bucket-count 16 --probe-samples 8 --memories-per-probe 4 --max-matches 16 --payload-repeats 24 --iterations 16`
 - Hot-path protection for bounded source-bank memory match:
   `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 720 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+- Merged source-bank memory match benchmark:
+  `PYTHONPATH=src python -m marulho.evaluation.source_bank_memory_match_benchmark --output reports\bounded_replay_window_20260622\source-bank-merged-probe-window.json --capacity 65536 --bucket-count 16 --probe-samples 8 --memories-per-probe 4 --max-matches 16 --payload-repeats 24 --iterations 32`
+- Hot-path protection for merged source-bank memory match:
+  `PYTHONPATH=src python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 - Bounded frontier-gap planner tests:
   `PYTHONPATH=src python -m pytest tests\test_gap_planner.py tests\test_memory_consolidation.py::MemoryConsolidationTests::test_frontier_gap_collection_uses_bounded_recent_index -q`
 - Bounded frontier-gap planner benchmark:
@@ -959,25 +965,33 @@ current tree in the same band as the committed baseline (`6303.548` versus
 transition rows, flat `1789 MiB` GPU memory, no observed contention, and zero
 graph/native/sequence failures.
 
-The source-bank memory-match follow-up applies the same selected-window rule to
-the bank-level acquisition plan. `bank_memory_matches_with_report(...)` samples
-bounded probe patterns, delegates each probe to `bounded_query_memory_match.v1`,
-shares a replay-entry payload cache across probes, and records
-`bounded_source_bank_memory_match.v1` with probe count, per-probe candidate
-windows, total and unique candidate counts, raw text payload loads/cache hits,
-CPU archival/score placement, no global scans, `runs_live_tick=false`, and
+The source-bank memory-match follow-up now uses one bank-level merged candidate
+window instead of delegating each sampled probe to the query-memory matcher.
+`bank_memory_matches_with_report(...)` samples bounded source-bank probes,
+unions routing-index bucket ids, asks the memory store for one CPU
+bucket-indexed candidate window capped at `192`, vector-scores sampled probes
+against that local window, and loads raw text only for returned matches. It
+records `bounded_source_bank_memory_match.v1` with `merged_probe_candidate_window=true`,
+`per_probe_query_match_call_count=0`, `retired_per_probe_query_match_call_count`,
+candidate/window budgets, CPU archival/score placement, no global scans,
+`runs_live_tick=false`, `runs_every_token=false`, and
 `language_reasoning=false`. The benchmark
-`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
-compared the new path with a diagnostic no-cache legacy aggregation over
-`65536` archival entries and `8` probes: selected indices matched exactly,
-`quality.min=1.0`, raw text payload loads dropped from `32` to `4` with `28`
-cache hits, and mean latency improved from `194.259 ms` to `179.366 ms`
-(`1.083x`). The matching clean 524288-token hot-path rerun
-`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
-processed `6524.395 tokens/sec`, with `train_compute=0.124824 ms/token`,
-bounded `12/65536` route rows, `65526` cached transition rows, no observed
-contention, GPU memory `1833->1798 MiB`, and zero graph/native/sequence
-failures.
+`reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
+compared the merged path with the retired per-probe diagnostic aggregation over
+`65536` archival entries and `8` probes: selected indices still matched
+(`quality.min=1.0`), the bounded path scored `192` candidates and `1536`
+probe-candidate similarities, raw text payload loads were `4` returned matches
+instead of `32`, and mean latency improved from `560.177 ms` to `106.543 ms`
+(`5.258x`). Archival storage and scoring remained CPU-resident, CUDA was
+available but archival recall allocated/reserved `0.0 MiB`, and traced Python
+peak allocation was `3.059 MiB`. The 524288-token protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json`
+stayed in the same 6k-ish band at `6129.933 tokens/sec`, with
+`train_compute=0.132126 ms/token`, `prepare_training=0.006695 ms/token`,
+`finalize_total=0.006421 ms/token`, `tick_duration_ms.p95=20.698`, bounded
+`12/65536` route rows, `65526` cached transition rows, mild GPU contention
+observed (`21%` against a `20%` threshold), flat `1763 MiB` GPU memory, and
+zero graph/native/sequence failures.
 
 The ConceptStore signature lookup follow-up removes the remaining
 archive-materializing access shape from semantic observation. Concept evidence

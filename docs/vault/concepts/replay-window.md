@@ -32,6 +32,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
+  - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -131,10 +133,12 @@ signatures from already-selected evidence. Recent replay setup uses
   window. They can compare probe-bank signatures against selected memory
   routing keys for novelty/uncertainty/support, but they must not iterate every
   `slow_routing_keys` entry.
-- Source-bank semantic recall must aggregate bounded per-probe query-memory
-  matches. It may sample source-bank probe patterns, but each probe must use a
-  capped bucket-indexed candidate window, share returned replay-entry payloads
-  across probes, report total versus unique candidate counts, and keep
+- Source-bank semantic recall must merge sampled probe bucket ids into one
+  bounded bank-level candidate window before scoring. It may sample source-bank
+  probe patterns, but production recall must not call the query-memory matcher
+  once per probe; it must collect one capped bucket-indexed window, report
+  `merged_probe_candidate_window=true`, `per_probe_query_match_call_count=0`,
+  candidate/window budgets, CPU archival/score placement, and keep
   `runs_live_tick=false`, `runs_every_token=false`, and
   `language_reasoning=false`.
 - Semantic frontier-gap planning must also follow a selected candidate window.
@@ -329,18 +333,21 @@ graph/native/sequence failures.
 
 Source-bank semantic recall now records the same selected-window contract at
 the bank-planning layer. `bank_memory_matches_with_report(...)` samples a
-capped probe set, delegates each probe to `bounded_query_memory_match.v1`,
-shares returned replay-entry payloads across probes, and emits
-`bounded_source_bank_memory_match.v1`. The benchmark
-`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
+capped probe set, unions routing-index bucket ids, collects one CPU candidate
+window capped at `192`, and scores sampled probes against that local window
+before loading raw text for returned matches. It emits
+`bounded_source_bank_memory_match.v1` with merged-window truth and zero
+per-probe query-matcher calls. The benchmark
+`reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
 used `8` probes over a `65536`-entry store, preserved selected indices against
-the diagnostic legacy path (`quality.min=1.0`), reduced raw text payload loads
-from `32` to `4` with `28` cache hits, and reduced mean latency from
-`194.259 ms` to `179.366 ms`. The matching 524288-token hot-path rerun
-`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
-processed `6524.395 tokens/sec`, kept bounded `12/65536` route rows, cached
-`65526` transition rows, reported no observed contention, kept archival recall
-metadata on CPU, and had zero graph/native/sequence failures.
+the retired per-probe diagnostic path (`quality.min=1.0`), reduced raw text
+payload loads from `32` to `4`, and reduced mean latency from `560.177 ms` to
+`106.543 ms`. The matching 524288-token hot-path run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json`
+processed `6129.933 tokens/sec`, kept bounded `12/65536` route rows, cached
+`65526` transition rows, reported mild GPU contention (`21%` against a `20%`
+threshold), kept archival recall metadata on CPU, and had zero
+graph/native/sequence failures.
 
 ConceptStore memory-signature lookup now follows the same evidence-window rule.
 `ConceptStore.observe(...)` emits `bounded_concept_memory_signature_lookup.v1`

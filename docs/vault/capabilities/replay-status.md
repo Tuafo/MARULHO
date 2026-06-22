@@ -24,6 +24,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
+  - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260617/concept-signature-lookup-bounded.json
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-signature-lookup-clean-gate.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
@@ -69,11 +71,12 @@ Current bounded selection evidence:
   signature, collects a capped bucket-indexed memory window, and computes
   novelty/uncertainty/support only over those selected entries.
 - `bounded_source_bank_memory_match.v1` is emitted from source-bank semantic
-  gap planning. It samples bounded source-bank probes, delegates per-probe
-  recall to `bounded_query_memory_match.v1`, shares returned replay-entry
-  payloads across probes, and reports candidate totals, unique candidate count,
-  CPU archival/score placement, no global scans, `runs_live_tick=false`,
-  `runs_every_token=false`, and `language_reasoning=false`.
+  gap planning. It samples bounded source-bank probes, unions routing-index
+  bucket ids, collects one CPU candidate window capped at `192`, scores probes
+  against that local window, and reports merged-window truth, zero per-probe
+  query-matcher calls, candidate budgets, CPU archival/score placement, no
+  global scans, `runs_live_tick=false`, `runs_every_token=false`, and
+  `language_reasoning=false`.
 - `bounded_concept_memory_signature_lookup.v1` is emitted from ConceptStore
   semantic observation. It resolves memory signatures only from
   already-selected evidence indices, caps each source at `8` unique indices,
@@ -154,16 +157,16 @@ Current bounded selection evidence:
   keeps the live tick protected at `6148.846 tokens/sec`, bounded
   `12/65536` route rows, flat `1805 MiB` GPU memory, no observed contention,
   and zero graph/native failures.
-- `reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
-  proves source-bank semantic recall now emits
-  `bounded_source_bank_memory_match.v1`, preserves selected indices against the
-  diagnostic no-cache legacy aggregation (`quality.min=1.0`), reduces duplicate
-  raw text payload loads from `32` to `4`, and reports CPU archival/scoring
-  with no global candidate or score scan.
-- `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
-  keeps the longer live tick protected at `6524.395 tokens/sec`, bounded
-  `12/65536` route rows, GPU memory `1833->1798 MiB`, no observed contention,
-  and zero graph/native failures.
+- `reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
+  proves source-bank semantic recall now uses one merged candidate window,
+  preserves selected indices against the retired per-probe diagnostic path
+  (`quality.min=1.0`), reduces raw text payload loads from `32` to `4`, cuts
+  mean latency from `560.177 ms` to `106.543 ms`, and reports CPU
+  archival/scoring with no global candidate or score scan.
+- `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json`
+  keeps the longer live tick protected at `6129.933 tokens/sec`, bounded
+  `12/65536` route rows, flat `1763 MiB` GPU memory, mild GPU contention
+  observed (`21%` against a `20%` threshold), and zero graph/native failures.
 - `reports/bounded_replay_window_20260618/runtime-concept-memory-lookup-bounded.json`
   proves cadenced runtime concept memory lookup is store-owned and bounded to
   trainer-provided `memory_index` evidence. It preserves selected-index parity

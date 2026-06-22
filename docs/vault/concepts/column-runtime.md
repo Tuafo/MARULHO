@@ -65,6 +65,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json
   - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window.json
   - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window-rerun.json
+  - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
 ---
 
 # Column Runtime
@@ -450,17 +452,23 @@ The source-bank signature that seeds that frontier metric is now bounded too. `c
 
 Source-bank semantic recall also stays in the slow-path acquisition boundary.
 `bank_memory_matches_with_report(...)` samples bounded source-bank probes,
-delegates each probe to `bounded_query_memory_match.v1`, and emits
-`bounded_source_bank_memory_match.v1` with per-probe windows, candidate totals,
-unique candidate count, payload cache hits, CPU archival/score placement, and
-no global scans. The 65536-entry benchmark
-`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
-kept selected indices identical to the diagnostic legacy path while reducing
-raw text payload loads from `32` to `4`; the 524288-token protection rerun
-`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json`
+unions their routing-index bucket ids, collects one CPU candidate window capped
+at `192`, and scores probes against that local associative window before
+loading raw text for returned matches only. It emits
+`bounded_source_bank_memory_match.v1` with merged-window truth,
+`per_probe_query_match_call_count=0`, candidate budgets, CPU archival/score
+placement, no global scans, `runs_live_tick=false`, and
+`language_reasoning=false`. The 65536-entry benchmark
+`reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
+kept selected indices identical to the retired per-probe diagnostic path,
+reduced mean latency from `560.177 ms` to `106.543 ms`, and kept archival
+recall off CUDA (`0.0 MiB` allocation/reservation). The 524288-token protection
+run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json`
 kept route scoring bounded at `12/65536`, cached `65526` state-transition rows,
-and reached `6524.395 tokens/sec` with no observed contention. This is
-source-acquisition evidence and not a live scheduler, topology, or mutation
+and reached `6129.933 tokens/sec` with mild GPU contention observed (`21%`
+against a `20%` threshold). This is source-acquisition protection evidence, not
+a clean speed ceiling, and not a live scheduler, topology, or mutation
 authority.
 
 ConceptStore signature lookup also stays bounded to already-selected evidence.

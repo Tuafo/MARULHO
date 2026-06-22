@@ -45,6 +45,7 @@ related_benchmarks: []
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)
 - [Sleep Replay All Anchor Source Pass](sleep-replay-all-anchor-source-pass.md)
 - [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
+- [Source Bank Per Probe Query Recall](source-bank-per-probe-query-recall.md)
 - [Source Tick Sleep Replay Fallback](source-tick-sleep-replay-fallback.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
 - [Status Applied Synapse Provenance Broad Key Scan](status-applied-synapse-provenance-broad-key-scan.md)

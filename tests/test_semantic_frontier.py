@@ -115,7 +115,7 @@ class SemanticFrontierTests(unittest.TestCase):
         self.assertFalse(hasattr(frontier, "bank_memory_matches"))
         self.assertNotIn("bank_memory_matches", frontier.__all__)
 
-    def test_bank_memory_matches_aggregates_bounded_probe_reports_and_payload_cache(self) -> None:
+    def test_bank_memory_matches_uses_one_merged_probe_candidate_window(self) -> None:
         trainer = _FakeTrainer([f"memory episode {index}" for index in range(64)])
         bank = SimpleNamespace(
             name="bank",
@@ -138,12 +138,18 @@ class SemanticFrontierTests(unittest.TestCase):
         self.assertEqual([match["memory_index"] for match in matches], [0, 1])
         self.assertEqual(report["surface"], "bounded_source_bank_memory_match.v1")
         self.assertEqual(report["probe_count"], 2)
+        self.assertEqual(report["scored_probe_count"], 2)
         self.assertEqual(report["candidate_index_count"], 64)
-        self.assertEqual(report["unique_candidate_index_count"], 32)
-        self.assertEqual(report["similarity_score_count"], 64)
+        self.assertEqual(report["unique_candidate_index_count"], 64)
+        self.assertEqual(report["candidate_window_policy"], "merged_probe_bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_scope"], "source_bank_merged_probe_memory_recall_window")
+        self.assertTrue(report["merged_probe_candidate_window"])
+        self.assertEqual(report["per_probe_query_match_call_count"], 0)
+        self.assertEqual(report["retired_per_probe_query_match_call_count"], 2)
+        self.assertEqual(report["similarity_score_count"], 128)
         self.assertEqual(report["raw_text_payload_count"], 2)
-        self.assertEqual(report["raw_text_payload_cache_hits"], 2)
-        self.assertEqual(report["raw_text_payload_policy"], "shared_returned_similarity_matches_only")
+        self.assertEqual(report["raw_text_payload_cache_hits"], 0)
+        self.assertEqual(report["raw_text_payload_policy"], "returned_merged_probe_matches_only")
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["global_score_scan"])
         self.assertFalse(report["runs_live_tick"])
@@ -153,6 +159,37 @@ class SemanticFrontierTests(unittest.TestCase):
             trainer.model.memory_store.last_bank_memory_match_report["match_indices"],
             [0, 1],
         )
+
+    def test_bank_memory_matches_keeps_scored_probe_indices_aligned_after_empty_probe(self) -> None:
+        trainer = _FakeTrainer([f"memory episode {index}" for index in range(64)])
+        bank = SimpleNamespace(
+            name="bank",
+            probe_patterns=[
+                torch.tensor([0.0, 0.0], dtype=torch.float32),
+                torch.tensor([1.0, 0.0], dtype=torch.float32),
+            ],
+            probe_raw_windows=["empty probe", "memory probe"],
+            train_raw_windows=[],
+        )
+
+        matches, report = bank_memory_matches_with_report(
+            trainer,
+            bank,
+            probe_samples=2,
+            memories_per_probe=2,
+            max_matches=8,
+        )
+
+        self.assertEqual([match["memory_index"] for match in matches], [0, 1])
+        self.assertEqual(report["probe_count"], 2)
+        self.assertEqual(report["scored_probe_count"], 1)
+        self.assertEqual(report["similarity_score_count"], 64)
+        self.assertEqual(report["per_probe_query_match_call_count"], 0)
+        self.assertEqual(report["retired_per_probe_query_match_call_count"], 2)
+        self.assertEqual(report["probe_reports"][0]["fallback_reason"], "empty_probe_routing_key:0")
+        self.assertEqual(report["probe_reports"][1]["selected_candidate_indices"], [0, 1])
+        self.assertEqual(matches[0]["probe_indices"], [1])
+        self.assertEqual(matches[1]["probe_indices"], [1])
 
     def test_bank_gap_plan_exposes_bank_memory_match_report(self) -> None:
         trainer = _FakeTrainer(["submarine ballast control.", "garden soil."])

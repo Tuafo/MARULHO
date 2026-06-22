@@ -340,14 +340,19 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "surface": "bounded_source_bank_memory_match.v1",
                 "status": "matched",
                 "scope": "source_bank_semantic_recall_slow_path",
-                "candidate_scope": "source_bank_probe_memory_recall_window",
-                "candidate_window_policy": "per_probe_bucket_indexed_candidate_window",
+                "candidate_scope": "source_bank_merged_probe_memory_recall_window",
+                "candidate_window_policy": "merged_probe_bucket_indexed_candidate_window",
                 "probe_count": 2,
+                "scored_probe_count": 2,
                 "candidate_index_count": 10,
-                "unique_candidate_index_count": 5,
+                "unique_candidate_index_count": 10,
+                "merged_probe_candidate_window": True,
+                "per_probe_query_match_call_count": 0,
+                "retired_per_probe_query_match_call_count": 2,
                 "match_indices": [9, 8],
                 "raw_text_payload_count": 2,
-                "raw_text_payload_cache_hits": 1,
+                "raw_text_payload_cache_hits": 0,
+                "raw_text_payload_policy": "returned_merged_probe_matches_only",
                 "runs_live_tick": False,
                 "language_reasoning": False,
                 "global_candidate_scan": False,
@@ -484,10 +489,16 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             )
             self.assertEqual(
                 restored_bank_report["candidate_scope"],
-                "source_bank_probe_memory_recall_window",
+                "source_bank_merged_probe_memory_recall_window",
             )
+            self.assertEqual(
+                restored_bank_report["candidate_window_policy"],
+                "merged_probe_bucket_indexed_candidate_window",
+            )
+            self.assertTrue(restored_bank_report["merged_probe_candidate_window"])
+            self.assertEqual(restored_bank_report["per_probe_query_match_call_count"], 0)
             self.assertEqual(restored_bank_report["match_indices"], [9, 8])
-            self.assertEqual(restored_bank_report["raw_text_payload_cache_hits"], 1)
+            self.assertEqual(restored_bank_report["raw_text_payload_cache_hits"], 0)
             self.assertFalse(restored_bank_report["runs_live_tick"])
             self.assertFalse(restored_bank_report["language_reasoning"])
             restored_runtime_concept_lookup_report = (

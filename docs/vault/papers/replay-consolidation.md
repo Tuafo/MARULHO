@@ -80,6 +80,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
+  - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -279,20 +281,28 @@ surface `bounded_frontier_gap_selection.v1` records the candidate budget,
 global scan flags, archival CPU placement, `runs_live_tick=false`, and
 `language_reasoning=false`.
 
-Source-bank semantic recall now has the same explicit report boundary.
-`bank_memory_matches_with_report(...)` samples a capped set of source-bank
-probes, runs each probe through `bounded_query_memory_match.v1`, and emits
-`bounded_source_bank_memory_match.v1` with per-probe candidate windows,
-candidate counts, unique matched indices, raw text payload loads/cache hits,
-CPU archival and score placement, no global scans, `runs_live_tick=false`, and
+Source-bank semantic recall now has one explicit merged candidate-window
+boundary. `bank_memory_matches_with_report(...)` samples a capped set of
+source-bank probes, unions their routing-index bucket ids, collects one CPU
+bucket-indexed candidate window capped at `192`, vector-scores probes against
+that local associative window, and emits `bounded_source_bank_memory_match.v1`
+with `merged_probe_candidate_window=true`,
+`per_probe_query_match_call_count=0`, candidate/window budgets, raw text loaded
+only for returned matches, CPU archival and score placement, no global scans,
+`runs_live_tick=false`, `runs_every_token=false`, and
 `language_reasoning=false`. The benchmark
-`reports/bounded_replay_window_20260618/source-bank-memory-match-bounded.json`
-kept selected indices identical to the diagnostic legacy path while reducing
-duplicate replay text payload loads from `32` to `4` with `28` shared-cache
-hits and reducing mean latency from `194.259 ms` to `179.366 ms` over a
-`65536`-entry archive. The matching clean 524288-token hot-path rerun stayed in
-band at `6524.395 tokens/sec` with bounded `12/65536` route rows, `65526`
-cached transition rows, no observed contention, and GPU memory `1833->1798 MiB`.
+`reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
+kept selected indices identical to the retired per-probe diagnostic path
+(`quality.min=1.0`), scored `192` candidates and `1536` local similarities,
+loaded `4` returned raw text payloads instead of `32`, and reduced mean
+latency from `560.177 ms` to `106.543 ms` (`5.258x`) over a `65536`-entry
+archive. CUDA was available but archival recall used `0.0 MiB` CUDA
+allocation/reservation. The refreshed 524288-token hot-path run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json`
+stayed in band at `6129.933 tokens/sec`, with `train_compute=0.132126 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, no observed
+CPU contention, mild GPU contention (`21%` against a `20%` threshold), and flat
+GPU memory at `1763 MiB`.
 
 Awake-ripple replay tagging is treated as selected synaptic tagging/capture
 metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
@@ -1695,7 +1705,7 @@ selected-window SFA correction, capped pre-score replay candidate windows,
 capped replay query collection, bounded query-memory
 readout, returned-only query text payloads, bounded concept-frontier metrics,
 bounded semantic frontier-gap planning, bounded recent tag/anchor setup,
-bounded source-bank semantic recall, bounded runtime concept memory lookup,
+merged bounded source-bank semantic recall, bounded runtime concept memory lookup,
 bounded context-comparison memory recall, reported SFA sampling, bounded
 query-memory episode readout, bounded source-episode admission,
 bounded replay-plan source windows, bounded replay-query anchor-source windows,
