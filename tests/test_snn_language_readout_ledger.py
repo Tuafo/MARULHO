@@ -89,6 +89,39 @@ def test_readout_ledger_state_migrates_legacy_memory_fields_once() -> None:
     )
 
 
+def test_readout_ledger_state_migrates_legacy_consolidation_fields_once() -> None:
+    legacy_event = {"snn_language_readout_consolidation_event_hash": "3" * 64}
+    migrated = normalize_snn_language_readout_ledger_state(
+        {
+            "autonomous_snn_language_thought_consolidation_events": [
+                legacy_event
+            ],
+            "total_autonomous_snn_language_thought_consolidation_count": 1,
+            "last_autonomous_snn_language_thought_consolidated_at": (
+                "2026-06-22T00:02:00+00:00"
+            ),
+        }
+    )
+
+    assert migrated["snn_language_readout_consolidation_events"] == [
+        legacy_event
+    ]
+    assert migrated["total_snn_language_readout_consolidation_count"] == 1
+    assert (
+        migrated["last_snn_language_readout_consolidated_at"]
+        == "2026-06-22T00:02:00+00:00"
+    )
+    assert "autonomous_snn_language_thought_consolidation_events" not in migrated
+    assert (
+        "total_autonomous_snn_language_thought_consolidation_count"
+        not in migrated
+    )
+    assert (
+        "last_autonomous_snn_language_thought_consolidated_at"
+        not in migrated
+    )
+
+
 def _ready_draft() -> dict[str, object]:
     return _ready_draft_for("prediction-hash-1", "evaluation-hash-1", "weights-hash-1", ["memory pressure"])
 
@@ -6926,8 +6959,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_consolidation_design = (
-        ledger.autonomous_snn_language_thought_consolidation_design(
+    blocked_snn_language_readout_consolidation_design = (
+        ledger.snn_language_readout_consolidation_design(
             snn_language_readout_memory_event_review=(
                 blocked_snn_language_readout_memory_event_review
             ),
@@ -6941,8 +6974,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_consolidation_design = (
-        ledger.autonomous_snn_language_thought_consolidation_design(
+    snn_language_readout_consolidation_design = (
+        ledger.snn_language_readout_consolidation_design(
             snn_language_readout_memory_event_review=(
                 snn_language_readout_memory_event_review
             ),
@@ -6956,50 +6989,50 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_consolidation_preflight = (
-        ledger.autonomous_snn_language_thought_consolidation_preflight(
-            autonomous_snn_language_thought_consolidation_design=(
-                blocked_snn_language_thought_consolidation_design
+    blocked_snn_language_readout_consolidation_preflight = (
+        ledger.snn_language_readout_consolidation_preflight(
+            snn_language_readout_consolidation_design=(
+                blocked_snn_language_readout_consolidation_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_consolidation_executor": True
+                "snn_language_readout_consolidation_executor": True
             },
         )
     )
-    snn_language_thought_consolidation_preflight = (
-        ledger.autonomous_snn_language_thought_consolidation_preflight(
-            autonomous_snn_language_thought_consolidation_design=(
-                snn_language_thought_consolidation_design
+    snn_language_readout_consolidation_preflight = (
+        ledger.snn_language_readout_consolidation_preflight(
+            snn_language_readout_consolidation_design=(
+                snn_language_readout_consolidation_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_consolidation_executor": True
+                "snn_language_readout_consolidation_executor": True
             },
         )
     )
-    blocked_snn_language_thought_consolidation_executor = (
-        ledger.execute_autonomous_snn_language_thought_consolidation(
-            autonomous_snn_language_thought_consolidation_preflight=(
-                blocked_snn_language_thought_consolidation_preflight
+    blocked_snn_language_readout_consolidation_executor = (
+        ledger.execute_snn_language_readout_consolidation(
+            snn_language_readout_consolidation_preflight=(
+                blocked_snn_language_readout_consolidation_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    snn_language_thought_consolidation_executor = (
-        ledger.execute_autonomous_snn_language_thought_consolidation(
-            autonomous_snn_language_thought_consolidation_preflight=(
-                snn_language_thought_consolidation_preflight
+    snn_language_readout_consolidation_executor = (
+        ledger.execute_snn_language_readout_consolidation(
+            snn_language_readout_consolidation_preflight=(
+                snn_language_readout_consolidation_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    blocked_snn_language_thought_consolidation_event_review = (
-        ledger.autonomous_snn_language_thought_consolidation_event_review(
-            autonomous_snn_language_thought_consolidation_executor=(
-                blocked_snn_language_thought_consolidation_executor
+    blocked_snn_language_readout_consolidation_event_review = (
+        ledger.snn_language_readout_consolidation_event_review(
+            snn_language_readout_consolidation_executor=(
+                blocked_snn_language_readout_consolidation_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -7010,10 +7043,10 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_consolidation_event_review = (
-        ledger.autonomous_snn_language_thought_consolidation_event_review(
-            autonomous_snn_language_thought_consolidation_executor=(
-                snn_language_thought_consolidation_executor
+    snn_language_readout_consolidation_event_review = (
+        ledger.snn_language_readout_consolidation_event_review(
+            snn_language_readout_consolidation_executor=(
+                snn_language_readout_consolidation_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -7026,8 +7059,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     blocked_snn_language_thought_structural_plasticity_design = (
         ledger.autonomous_snn_language_thought_structural_plasticity_design(
-            autonomous_snn_language_thought_consolidation_event_review=(
-                blocked_snn_language_thought_consolidation_event_review
+            snn_language_readout_consolidation_event_review=(
+                blocked_snn_language_readout_consolidation_event_review
             ),
             structural_policy={
                 "structural_scope": "thought_trace_sparse_capacity",
@@ -7042,8 +7075,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     snn_language_thought_structural_plasticity_design = (
         ledger.autonomous_snn_language_thought_structural_plasticity_design(
-            autonomous_snn_language_thought_consolidation_event_review=(
-                snn_language_thought_consolidation_event_review
+            snn_language_readout_consolidation_event_review=(
+                snn_language_readout_consolidation_event_review
             ),
             structural_policy={
                 "structural_scope": "thought_trace_sparse_capacity",
@@ -9485,7 +9518,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         expected_count=1,
     )
     assert snn_language_readout_memory_event_review["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_consolidation_design"
+        "eligible_for_snn_language_readout_consolidation_design"
     ] is True
     assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
@@ -9496,362 +9529,362 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_consolidation_design["accepted"] is False
+    assert blocked_snn_language_readout_consolidation_design["accepted"] is False
     assert (
-        blocked_snn_language_thought_consolidation_design[
+        blocked_snn_language_readout_consolidation_design[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_consolidation_design["promotion_gate"][
+    assert blocked_snn_language_readout_consolidation_design["promotion_gate"][
         "required_evidence"
     ]["readout_memory_event_review_ready"] is False
-    assert snn_language_thought_consolidation_design["surface"] == (
-        "snn_language_autonomous_snn_language_thought_consolidation_design.v1"
+    assert snn_language_readout_consolidation_design["surface"] == (
+        "snn_language_readout_consolidation_design.v1"
     )
-    assert snn_language_thought_consolidation_design["accepted"] is True
-    assert snn_language_thought_consolidation_design["ready"] is True
+    assert snn_language_readout_consolidation_design["accepted"] is True
+    assert snn_language_readout_consolidation_design["ready"] is True
     assert len(
-        snn_language_thought_consolidation_design[
-            "thought_consolidation_design_hash"
+        snn_language_readout_consolidation_design[
+            "readout_consolidation_design_hash"
         ]
     ) == 64
     assert (
-        snn_language_thought_consolidation_design["requires_operator_approval"]
+        snn_language_readout_consolidation_design["requires_operator_approval"]
         is False
     )
-    assert snn_language_thought_consolidation_design["advisory"] is True
-    assert snn_language_thought_consolidation_design["executable"] is False
+    assert snn_language_readout_consolidation_design["advisory"] is True
+    assert snn_language_readout_consolidation_design["executable"] is False
     assert (
-        snn_language_thought_consolidation_design["records_ledger_event"]
+        snn_language_readout_consolidation_design["records_ledger_event"]
         is False
     )
-    assert snn_language_thought_consolidation_design["mutates_runtime_state"] is False
-    assert snn_language_thought_consolidation_design["runs_replay"] is False
-    assert snn_language_thought_consolidation_design["writes_checkpoint"] is False
-    assert snn_language_thought_consolidation_design["generates_text"] is True
-    assert snn_language_thought_consolidation_design["decodes_text"] is True
+    assert snn_language_readout_consolidation_design["mutates_runtime_state"] is False
+    assert snn_language_readout_consolidation_design["runs_replay"] is False
+    assert snn_language_readout_consolidation_design["writes_checkpoint"] is False
+    assert snn_language_readout_consolidation_design["generates_text"] is True
+    assert snn_language_readout_consolidation_design["decodes_text"] is True
     assert (
-        snn_language_thought_consolidation_design["trains_runtime_model"]
+        snn_language_readout_consolidation_design["trains_runtime_model"]
         is False
     )
-    assert snn_language_thought_consolidation_design["applies_plasticity"] is False
-    assert snn_language_thought_consolidation_design["resizes_network"] is False
-    assert snn_language_thought_consolidation_design["prunes_network"] is False
-    thought_consolidation_body = snn_language_thought_consolidation_design[
-        "autonomous_snn_language_thought_consolidation_design"
+    assert snn_language_readout_consolidation_design["applies_plasticity"] is False
+    assert snn_language_readout_consolidation_design["resizes_network"] is False
+    assert snn_language_readout_consolidation_design["prunes_network"] is False
+    readout_consolidation_body = snn_language_readout_consolidation_design[
+        "snn_language_readout_consolidation_design"
     ]
     assert (
-        thought_consolidation_body["consolidation_scope"]
+        readout_consolidation_body["consolidation_scope"]
         == "local_trace_reinforcement"
     )
     assert (
-        thought_consolidation_body["consolidation_route"]
+        readout_consolidation_body["consolidation_route"]
         == "deferred_local_trace"
     )
-    assert thought_consolidation_body["candidate_update_count"] == 2
-    assert len(thought_consolidation_body["candidate_updates"]) == 2
+    assert readout_consolidation_body["candidate_update_count"] == 2
+    assert len(readout_consolidation_body["candidate_updates"]) == 2
     assert all(
         item["applied_to_runtime"] is False
-        for item in thought_consolidation_body["candidate_updates"]
+        for item in readout_consolidation_body["candidate_updates"]
     )
-    assert thought_consolidation_body["replay_allowed"] is False
-    assert thought_consolidation_body["plasticity_allowed"] is False
-    assert thought_consolidation_body["training_allowed"] is False
-    assert thought_consolidation_body["checkpoint_allowed"] is False
-    assert thought_consolidation_body["resize_allowed"] is False
-    assert thought_consolidation_body["prune_allowed"] is False
-    assert thought_consolidation_body["fact_promotion_allowed"] is False
-    assert thought_consolidation_body["action_allowed"] is False
-    assert thought_consolidation_body["cognition_substrate_claimed"] is False
-    assert snn_language_thought_consolidation_design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_consolidation_preflight"
+    assert readout_consolidation_body["replay_allowed"] is False
+    assert readout_consolidation_body["plasticity_allowed"] is False
+    assert readout_consolidation_body["training_allowed"] is False
+    assert readout_consolidation_body["checkpoint_allowed"] is False
+    assert readout_consolidation_body["resize_allowed"] is False
+    assert readout_consolidation_body["prune_allowed"] is False
+    assert readout_consolidation_body["fact_promotion_allowed"] is False
+    assert readout_consolidation_body["action_allowed"] is False
+    assert readout_consolidation_body["cognition_substrate_claimed"] is False
+    assert snn_language_readout_consolidation_design["promotion_gate"][
+        "eligible_for_snn_language_readout_consolidation_preflight"
     ] is True
-    assert snn_language_thought_consolidation_design["promotion_gate"][
+    assert snn_language_readout_consolidation_design["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_consolidation_design["promotion_gate"][
+    assert snn_language_readout_consolidation_design["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_consolidation_design["promotion_gate"][
+    assert snn_language_readout_consolidation_design["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_consolidation_preflight["accepted"] is False
+    assert blocked_snn_language_readout_consolidation_preflight["accepted"] is False
     assert (
-        blocked_snn_language_thought_consolidation_preflight[
+        blocked_snn_language_readout_consolidation_preflight[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_consolidation_preflight["promotion_gate"][
+    assert blocked_snn_language_readout_consolidation_preflight["promotion_gate"][
         "required_evidence"
-    ]["thought_consolidation_design_ready"] is False
-    assert snn_language_thought_consolidation_preflight["surface"] == (
-        "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1"
+    ]["readout_consolidation_design_ready"] is False
+    assert snn_language_readout_consolidation_preflight["surface"] == (
+        "snn_language_readout_consolidation_preflight.v1"
     )
-    assert snn_language_thought_consolidation_preflight["accepted"] is True
-    assert snn_language_thought_consolidation_preflight["ready"] is True
-    assert len(snn_language_thought_consolidation_preflight["preflight_hash"]) == 64
+    assert snn_language_readout_consolidation_preflight["accepted"] is True
+    assert snn_language_readout_consolidation_preflight["ready"] is True
+    assert len(snn_language_readout_consolidation_preflight["preflight_hash"]) == 64
     assert (
-        snn_language_thought_consolidation_preflight["requires_operator_approval"]
+        snn_language_readout_consolidation_preflight["requires_operator_approval"]
         is False
     )
-    assert snn_language_thought_consolidation_preflight["advisory"] is True
-    assert snn_language_thought_consolidation_preflight["executable"] is True
+    assert snn_language_readout_consolidation_preflight["advisory"] is True
+    assert snn_language_readout_consolidation_preflight["executable"] is True
     assert (
-        snn_language_thought_consolidation_preflight["records_ledger_event"]
+        snn_language_readout_consolidation_preflight["records_ledger_event"]
         is False
     )
-    assert snn_language_thought_consolidation_preflight["mutates_runtime_state"] is False
-    assert snn_language_thought_consolidation_preflight["runs_replay"] is False
-    assert snn_language_thought_consolidation_preflight["writes_checkpoint"] is False
-    assert snn_language_thought_consolidation_preflight["generates_text"] is True
-    assert snn_language_thought_consolidation_preflight["decodes_text"] is True
+    assert snn_language_readout_consolidation_preflight["mutates_runtime_state"] is False
+    assert snn_language_readout_consolidation_preflight["runs_replay"] is False
+    assert snn_language_readout_consolidation_preflight["writes_checkpoint"] is False
+    assert snn_language_readout_consolidation_preflight["generates_text"] is True
+    assert snn_language_readout_consolidation_preflight["decodes_text"] is True
     assert (
-        snn_language_thought_consolidation_preflight["trains_runtime_model"]
+        snn_language_readout_consolidation_preflight["trains_runtime_model"]
         is False
     )
-    assert snn_language_thought_consolidation_preflight["applies_plasticity"] is False
-    assert snn_language_thought_consolidation_preflight["resizes_network"] is False
-    assert snn_language_thought_consolidation_preflight["prunes_network"] is False
-    thought_consolidation_preflight_body = (
-        snn_language_thought_consolidation_preflight[
-            "autonomous_snn_language_thought_consolidation_preflight"
+    assert snn_language_readout_consolidation_preflight["applies_plasticity"] is False
+    assert snn_language_readout_consolidation_preflight["resizes_network"] is False
+    assert snn_language_readout_consolidation_preflight["prunes_network"] is False
+    readout_consolidation_preflight_body = (
+        snn_language_readout_consolidation_preflight[
+            "snn_language_readout_consolidation_preflight"
         ]
     )
-    assert thought_consolidation_preflight_body["requested_device"] == "cuda:0"
-    assert thought_consolidation_preflight_body["requires_cuda"] is True
-    assert thought_consolidation_preflight_body["cuda_satisfied"] is True
-    assert thought_consolidation_preflight_body["executor_ready"] is True
-    assert thought_consolidation_preflight_body["execution_allowed"] is True
-    assert thought_consolidation_preflight_body["candidate_update_count"] == 2
-    assert len(thought_consolidation_preflight_body["candidate_updates"]) == 2
+    assert readout_consolidation_preflight_body["requested_device"] == "cuda:0"
+    assert readout_consolidation_preflight_body["requires_cuda"] is True
+    assert readout_consolidation_preflight_body["cuda_satisfied"] is True
+    assert readout_consolidation_preflight_body["executor_ready"] is True
+    assert readout_consolidation_preflight_body["execution_allowed"] is True
+    assert readout_consolidation_preflight_body["candidate_update_count"] == 2
+    assert len(readout_consolidation_preflight_body["candidate_updates"]) == 2
     assert all(
         item["applied_to_runtime"] is False
-        for item in thought_consolidation_preflight_body["candidate_updates"]
+        for item in readout_consolidation_preflight_body["candidate_updates"]
     )
-    assert thought_consolidation_preflight_body["replay_allowed"] is False
-    assert thought_consolidation_preflight_body["plasticity_allowed"] is False
-    assert thought_consolidation_preflight_body["training_allowed"] is False
-    assert thought_consolidation_preflight_body["checkpoint_allowed"] is False
-    assert thought_consolidation_preflight_body["resize_allowed"] is False
-    assert thought_consolidation_preflight_body["prune_allowed"] is False
-    assert thought_consolidation_preflight_body["fact_promotion_allowed"] is False
-    assert thought_consolidation_preflight_body["action_allowed"] is False
+    assert readout_consolidation_preflight_body["replay_allowed"] is False
+    assert readout_consolidation_preflight_body["plasticity_allowed"] is False
+    assert readout_consolidation_preflight_body["training_allowed"] is False
+    assert readout_consolidation_preflight_body["checkpoint_allowed"] is False
+    assert readout_consolidation_preflight_body["resize_allowed"] is False
+    assert readout_consolidation_preflight_body["prune_allowed"] is False
+    assert readout_consolidation_preflight_body["fact_promotion_allowed"] is False
+    assert readout_consolidation_preflight_body["action_allowed"] is False
     assert (
-        thought_consolidation_preflight_body["cognition_substrate_claimed"]
+        readout_consolidation_preflight_body["cognition_substrate_claimed"]
         is False
     )
-    assert snn_language_thought_consolidation_preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_consolidation_executor"
+    assert snn_language_readout_consolidation_preflight["promotion_gate"][
+        "eligible_for_snn_language_readout_consolidation_executor"
     ] is True
-    assert snn_language_thought_consolidation_preflight["promotion_gate"][
+    assert snn_language_readout_consolidation_preflight["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_consolidation_preflight["promotion_gate"][
+    assert snn_language_readout_consolidation_preflight["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_consolidation_preflight["promotion_gate"][
+    assert snn_language_readout_consolidation_preflight["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_consolidation_executor["accepted"] is False
+    assert blocked_snn_language_readout_consolidation_executor["accepted"] is False
     assert (
-        blocked_snn_language_thought_consolidation_executor[
+        blocked_snn_language_readout_consolidation_executor[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_consolidation_executor["promotion_gate"][
+    assert blocked_snn_language_readout_consolidation_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_consolidation_executor["source_window"],
-        field="autonomous_snn_language_thought_consolidation_events",
+        blocked_snn_language_readout_consolidation_executor["source_window"],
+        field="snn_language_readout_consolidation_events",
         expected_count=0,
     )
-    assert snn_language_thought_consolidation_executor["surface"] == (
-        "snn_language_autonomous_snn_language_thought_consolidation_executor.v1"
+    assert snn_language_readout_consolidation_executor["surface"] == (
+        "snn_language_readout_consolidation_executor.v1"
     )
-    assert snn_language_thought_consolidation_executor["accepted"] is True
-    assert snn_language_thought_consolidation_executor["ready"] is True
+    assert snn_language_readout_consolidation_executor["accepted"] is True
+    assert snn_language_readout_consolidation_executor["ready"] is True
     assert len(
-        snn_language_thought_consolidation_executor[
-            "autonomous_snn_language_thought_consolidation_event_hash"
+        snn_language_readout_consolidation_executor[
+            "snn_language_readout_consolidation_event_hash"
         ]
     ) == 64
     assert (
-        snn_language_thought_consolidation_executor["requires_operator_approval"]
+        snn_language_readout_consolidation_executor["requires_operator_approval"]
         is False
     )
-    assert snn_language_thought_consolidation_executor["advisory"] is False
-    assert snn_language_thought_consolidation_executor["executable"] is True
+    assert snn_language_readout_consolidation_executor["advisory"] is False
+    assert snn_language_readout_consolidation_executor["executable"] is True
     assert (
-        snn_language_thought_consolidation_executor["records_ledger_event"]
+        snn_language_readout_consolidation_executor["records_ledger_event"]
         is True
     )
-    assert snn_language_thought_consolidation_executor["mutates_runtime_state"] is True
-    assert snn_language_thought_consolidation_executor["runs_replay"] is False
-    assert snn_language_thought_consolidation_executor["writes_checkpoint"] is False
-    assert snn_language_thought_consolidation_executor["generates_text"] is True
-    assert snn_language_thought_consolidation_executor["decodes_text"] is True
+    assert snn_language_readout_consolidation_executor["mutates_runtime_state"] is True
+    assert snn_language_readout_consolidation_executor["runs_replay"] is False
+    assert snn_language_readout_consolidation_executor["writes_checkpoint"] is False
+    assert snn_language_readout_consolidation_executor["generates_text"] is True
+    assert snn_language_readout_consolidation_executor["decodes_text"] is True
     assert (
-        snn_language_thought_consolidation_executor["trains_runtime_model"]
+        snn_language_readout_consolidation_executor["trains_runtime_model"]
         is False
     )
-    assert snn_language_thought_consolidation_executor["applies_plasticity"] is True
-    assert snn_language_thought_consolidation_executor["resizes_network"] is False
-    assert snn_language_thought_consolidation_executor["prunes_network"] is False
-    thought_consolidation_event = snn_language_thought_consolidation_executor[
-        "autonomous_snn_language_thought_consolidation_event"
+    assert snn_language_readout_consolidation_executor["applies_plasticity"] is True
+    assert snn_language_readout_consolidation_executor["resizes_network"] is False
+    assert snn_language_readout_consolidation_executor["prunes_network"] is False
+    readout_consolidation_event = snn_language_readout_consolidation_executor[
+        "snn_language_readout_consolidation_event"
     ]
-    assert thought_consolidation_event["applies_plasticity"] is True
-    assert thought_consolidation_event["candidate_update_count"] == 2
-    assert len(thought_consolidation_event["candidate_updates"]) == 2
+    assert readout_consolidation_event["applies_plasticity"] is True
+    assert readout_consolidation_event["candidate_update_count"] == 2
+    assert len(readout_consolidation_event["candidate_updates"]) == 2
     assert all(
         item["applied_to_runtime"] is True
-        for item in thought_consolidation_event["candidate_updates"]
+        for item in readout_consolidation_event["candidate_updates"]
     )
-    assert thought_consolidation_event["runs_replay"] is False
-    assert thought_consolidation_event["writes_checkpoint"] is False
-    assert thought_consolidation_event["trains_runtime_model"] is False
-    assert thought_consolidation_event["resizes_network"] is False
-    assert thought_consolidation_event["prunes_network"] is False
-    assert thought_consolidation_event["promotes_fact"] is False
-    assert thought_consolidation_event["executes_action"] is False
-    assert thought_consolidation_event["cognition_substrate_claimed"] is False
+    assert readout_consolidation_event["runs_replay"] is False
+    assert readout_consolidation_event["writes_checkpoint"] is False
+    assert readout_consolidation_event["trains_runtime_model"] is False
+    assert readout_consolidation_event["resizes_network"] is False
+    assert readout_consolidation_event["prunes_network"] is False
+    assert readout_consolidation_event["promotes_fact"] is False
+    assert readout_consolidation_event["executes_action"] is False
+    assert readout_consolidation_event["cognition_substrate_claimed"] is False
     assert (
-        ledger_state["total_autonomous_snn_language_thought_consolidation_count"]
+        ledger_state["total_snn_language_readout_consolidation_count"]
         == 1
     )
     assert (
-        len(ledger_state["autonomous_snn_language_thought_consolidation_events"])
+        len(ledger_state["snn_language_readout_consolidation_events"])
         == 1
     )
     _assert_record_family_source_window(
-        snn_language_thought_consolidation_executor["source_window"],
-        field="autonomous_snn_language_thought_consolidation_events",
+        snn_language_readout_consolidation_executor["source_window"],
+        field="snn_language_readout_consolidation_events",
         expected_count=0,
     )
-    assert snn_language_thought_consolidation_executor["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_consolidation_event_review"
+    assert snn_language_readout_consolidation_executor["promotion_gate"][
+        "eligible_for_snn_language_readout_consolidation_event_review"
     ] is True
-    assert snn_language_thought_consolidation_executor["promotion_gate"][
+    assert snn_language_readout_consolidation_executor["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_consolidation_executor["promotion_gate"][
+    assert snn_language_readout_consolidation_executor["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_consolidation_executor["promotion_gate"][
+    assert snn_language_readout_consolidation_executor["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_consolidation_event_review["accepted"] is False
+    assert blocked_snn_language_readout_consolidation_event_review["accepted"] is False
     assert (
-        blocked_snn_language_thought_consolidation_event_review[
+        blocked_snn_language_readout_consolidation_event_review[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_consolidation_event_review["promotion_gate"][
+    assert blocked_snn_language_readout_consolidation_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_consolidation_event_review["source_window"],
-        field="autonomous_snn_language_thought_consolidation_events",
+        blocked_snn_language_readout_consolidation_event_review["source_window"],
+        field="snn_language_readout_consolidation_events",
         expected_count=1,
     )
-    assert snn_language_thought_consolidation_event_review["surface"] == (
-        "snn_language_autonomous_snn_language_thought_consolidation_event_review.v1"
+    assert snn_language_readout_consolidation_event_review["surface"] == (
+        "snn_language_readout_consolidation_event_review.v1"
     )
-    assert snn_language_thought_consolidation_event_review["accepted"] is True
-    assert snn_language_thought_consolidation_event_review["ready"] is True
-    assert len(snn_language_thought_consolidation_event_review["review_hash"]) == 64
+    assert snn_language_readout_consolidation_event_review["accepted"] is True
+    assert snn_language_readout_consolidation_event_review["ready"] is True
+    assert len(snn_language_readout_consolidation_event_review["review_hash"]) == 64
     assert (
-        snn_language_thought_consolidation_event_review[
+        snn_language_readout_consolidation_event_review[
             "requires_operator_approval"
         ]
         is False
     )
-    assert snn_language_thought_consolidation_event_review["advisory"] is True
-    assert snn_language_thought_consolidation_event_review["executable"] is False
+    assert snn_language_readout_consolidation_event_review["advisory"] is True
+    assert snn_language_readout_consolidation_event_review["executable"] is False
     assert (
-        snn_language_thought_consolidation_event_review["records_ledger_event"]
+        snn_language_readout_consolidation_event_review["records_ledger_event"]
         is False
     )
     assert (
-        snn_language_thought_consolidation_event_review["mutates_runtime_state"]
+        snn_language_readout_consolidation_event_review["mutates_runtime_state"]
         is False
     )
-    assert snn_language_thought_consolidation_event_review["runs_replay"] is False
-    assert snn_language_thought_consolidation_event_review["writes_checkpoint"] is False
-    assert snn_language_thought_consolidation_event_review["generates_text"] is True
-    assert snn_language_thought_consolidation_event_review["decodes_text"] is True
+    assert snn_language_readout_consolidation_event_review["runs_replay"] is False
+    assert snn_language_readout_consolidation_event_review["writes_checkpoint"] is False
+    assert snn_language_readout_consolidation_event_review["generates_text"] is True
+    assert snn_language_readout_consolidation_event_review["decodes_text"] is True
     assert (
-        snn_language_thought_consolidation_event_review["trains_runtime_model"]
+        snn_language_readout_consolidation_event_review["trains_runtime_model"]
         is False
     )
-    assert snn_language_thought_consolidation_event_review["applies_plasticity"] is True
-    assert snn_language_thought_consolidation_event_review["resizes_network"] is False
-    assert snn_language_thought_consolidation_event_review["prunes_network"] is False
-    thought_consolidation_event_review = (
-        snn_language_thought_consolidation_event_review[
-            "autonomous_snn_language_thought_consolidation_event_review"
+    assert snn_language_readout_consolidation_event_review["applies_plasticity"] is True
+    assert snn_language_readout_consolidation_event_review["resizes_network"] is False
+    assert snn_language_readout_consolidation_event_review["prunes_network"] is False
+    readout_consolidation_event_review = (
+        snn_language_readout_consolidation_event_review[
+            "snn_language_readout_consolidation_event_review"
         ]
     )
-    assert thought_consolidation_event_review["event_recorded_in_ledger"] is True
+    assert readout_consolidation_event_review["event_recorded_in_ledger"] is True
     assert (
-        thought_consolidation_event_review[
-            "autonomous_snn_language_thought_consolidation_event_hash"
+        readout_consolidation_event_review[
+            "snn_language_readout_consolidation_event_hash"
         ]
-        == thought_consolidation_event[
-            "autonomous_snn_language_thought_consolidation_event_hash"
+        == readout_consolidation_event[
+            "snn_language_readout_consolidation_event_hash"
         ]
     )
     assert (
-        thought_consolidation_event_review["consolidation_scope"]
+        readout_consolidation_event_review["consolidation_scope"]
         == "local_trace_reinforcement"
     )
     assert (
-        thought_consolidation_event_review["consolidation_route"]
+        readout_consolidation_event_review["consolidation_route"]
         == "deferred_local_trace"
     )
-    assert thought_consolidation_event_review["requested_device"] == "cuda:0"
-    assert thought_consolidation_event_review["candidate_update_count"] == 2
-    assert len(thought_consolidation_event_review["candidate_updates"]) == 2
+    assert readout_consolidation_event_review["requested_device"] == "cuda:0"
+    assert readout_consolidation_event_review["candidate_update_count"] == 2
+    assert len(readout_consolidation_event_review["candidate_updates"]) == 2
     assert all(
         item["applied_to_runtime"] is True
         and item["applied_in_ledger"] is True
-        for item in thought_consolidation_event_review["candidate_updates"]
+        for item in readout_consolidation_event_review["candidate_updates"]
     )
-    assert thought_consolidation_event_review["plasticity_applied"] is True
-    assert thought_consolidation_event_review["runtime_state_mutated"] is True
-    assert thought_consolidation_event_review["local_only"] is True
-    assert thought_consolidation_event_review["normalization"] is True
-    assert thought_consolidation_event_review["replay_allowed"] is False
-    assert thought_consolidation_event_review["training_allowed"] is False
-    assert thought_consolidation_event_review["checkpoint_allowed"] is False
-    assert thought_consolidation_event_review["resize_allowed"] is False
-    assert thought_consolidation_event_review["prune_allowed"] is False
-    assert thought_consolidation_event_review["fact_promotion_allowed"] is False
-    assert thought_consolidation_event_review["action_allowed"] is False
+    assert readout_consolidation_event_review["plasticity_applied"] is True
+    assert readout_consolidation_event_review["runtime_state_mutated"] is True
+    assert readout_consolidation_event_review["local_only"] is True
+    assert readout_consolidation_event_review["normalization"] is True
+    assert readout_consolidation_event_review["replay_allowed"] is False
+    assert readout_consolidation_event_review["training_allowed"] is False
+    assert readout_consolidation_event_review["checkpoint_allowed"] is False
+    assert readout_consolidation_event_review["resize_allowed"] is False
+    assert readout_consolidation_event_review["prune_allowed"] is False
+    assert readout_consolidation_event_review["fact_promotion_allowed"] is False
+    assert readout_consolidation_event_review["action_allowed"] is False
     assert (
-        thought_consolidation_event_review["cognition_substrate_claimed"]
+        readout_consolidation_event_review["cognition_substrate_claimed"]
         is False
     )
     _assert_record_family_source_window(
-        snn_language_thought_consolidation_event_review["source_window"],
-        field="autonomous_snn_language_thought_consolidation_events",
+        snn_language_readout_consolidation_event_review["source_window"],
+        field="snn_language_readout_consolidation_events",
         expected_count=1,
     )
-    assert snn_language_thought_consolidation_event_review["promotion_gate"][
+    assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
     ] is True
-    assert snn_language_thought_consolidation_event_review["promotion_gate"][
+    assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_consolidation_event_review["promotion_gate"][
+    assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_consolidation_event_review["promotion_gate"][
+    assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
     assert blocked_snn_language_thought_structural_plasticity_design[

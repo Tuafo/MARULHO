@@ -68,7 +68,7 @@ SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "autonomous_snn_language_decoding_events",
     "snn_language_readout_surface_events",
     "snn_language_readout_memory_events",
-    "autonomous_snn_language_thought_consolidation_events",
+    "snn_language_readout_consolidation_events",
     "autonomous_snn_language_thought_structural_plasticity_events",
 )
 SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS = (
@@ -114,7 +114,7 @@ SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS = (
     "total_autonomous_snn_language_decoding_count",
     "total_snn_language_readout_surface_count",
     "total_snn_language_readout_memory_count",
-    "total_autonomous_snn_language_thought_consolidation_count",
+    "total_snn_language_readout_consolidation_count",
     "total_autonomous_snn_language_thought_structural_plasticity_count",
 )
 SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
@@ -139,7 +139,7 @@ SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
     "last_autonomous_snn_language_decoded_at",
     "last_snn_language_readout_surface_recorded_at",
     "last_snn_language_readout_memory_recorded_at",
-    "last_autonomous_snn_language_thought_consolidated_at",
+    "last_snn_language_readout_consolidated_at",
     "last_autonomous_snn_language_thought_structural_plasticity_applied_at",
 )
 SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES = (
@@ -166,6 +166,18 @@ SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES = (
     (
         "last_autonomous_snn_language_thought_memory_recorded_at",
         "last_snn_language_readout_memory_recorded_at",
+    ),
+    (
+        "autonomous_snn_language_thought_consolidation_events",
+        "snn_language_readout_consolidation_events",
+    ),
+    (
+        "total_autonomous_snn_language_thought_consolidation_count",
+        "total_snn_language_readout_consolidation_count",
+    ),
+    (
+        "last_autonomous_snn_language_thought_consolidated_at",
+        "last_snn_language_readout_consolidated_at",
     ),
 )
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
@@ -24662,11 +24674,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_consolidation_design"
+                        "ready_for_snn_language_readout_consolidation_design"
                         if ready
                         else "blocked_missing_snn_language_readout_memory_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_consolidation_design": ready,
+                    "eligible_for_snn_language_readout_consolidation_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
                     "eligible_for_replay_memory": False,
@@ -24677,7 +24689,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_consolidation_design"
+                        "snn_language_readout_consolidation_design"
                         if ready
                         else "collect_snn_language_readout_memory_event_evidence"
                     ),
@@ -24685,13 +24697,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_consolidation_design(
+    def snn_language_readout_consolidation_design(
         self,
         *,
         snn_language_readout_memory_event_review: Mapping[str, Any],
         consolidation_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Design bounded local thought consolidation without applying plasticity."""
+        """Design bounded local readout consolidation without applying plasticity."""
 
         review_artifact = dict(snn_language_readout_memory_event_review or {})
         gate = (
@@ -24871,7 +24883,7 @@ class SNNLanguageReadoutEvidenceLedger:
             and bool(review_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_consolidation_design"
+                    "eligible_for_snn_language_readout_consolidation_design"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -24937,7 +24949,7 @@ class SNNLanguageReadoutEvidenceLedger:
         design = {
             "consolidation_scope": consolidation_scope,
             "consolidation_route": consolidation_route,
-            "thought_consolidation_design_hash": consolidation_design_hash,
+            "readout_consolidation_design_hash": consolidation_design_hash,
             "memory_trace_hash": memory_trace_hash,
             "snn_language_readout_memory_event_hash": memory_event_hash,
             "readout_memory_event_review_hash": memory_event_review_hash,
@@ -24978,19 +24990,19 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_consolidation_design"
+                "terminus_snn_language_readout_consolidation_design"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_consolidation_design.v1"
+                "snn_language_readout_consolidation_design.v1"
             ),
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_consolidation_design"
+                "snn_language_readout_consolidation_design"
             ),
             "available": bool(review_artifact),
             "ready": ready,
             "accepted": ready,
-            "thought_consolidation_design_hash": consolidation_design_hash,
+            "readout_consolidation_design_hash": consolidation_design_hash,
             "requires_operator_approval": False,
             "owned_by_marulho": True,
             "external_dependency": False,
@@ -25014,14 +25026,14 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_consolidation_design": design,
+            "snn_language_readout_consolidation_design": design,
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_consolidation_preflight"
+                    "ready_for_snn_language_readout_consolidation_preflight"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_consolidation_design_evidence"
+                    else "blocked_missing_snn_language_readout_consolidation_design_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_consolidation_preflight": ready,
+                "eligible_for_snn_language_readout_consolidation_preflight": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -25032,36 +25044,36 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_consolidation_preflight"
+                    "snn_language_readout_consolidation_preflight"
                     if ready
-                    else "collect_snn_language_thought_consolidation_design_evidence"
+                    else "collect_snn_language_readout_consolidation_design_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def autonomous_snn_language_thought_consolidation_preflight(
+    def snn_language_readout_consolidation_preflight(
         self,
         *,
-        autonomous_snn_language_thought_consolidation_design: Mapping[str, Any],
+        snn_language_readout_consolidation_design: Mapping[str, Any],
         expected_state_revision: int,
         device_evidence: Mapping[str, Any] | None = None,
         executor_capabilities: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Preflight bounded thought consolidation without applying updates."""
+        """Preflight bounded readout consolidation without applying updates."""
 
         before_revision = int(self._runtime_state.state_revision)
-        design_artifact = dict(autonomous_snn_language_thought_consolidation_design or {})
+        design_artifact = dict(snn_language_readout_consolidation_design or {})
         gate = (
             design_artifact.get("promotion_gate")
             if isinstance(design_artifact.get("promotion_gate"), Mapping)
             else {}
         )
         body = (
-            design_artifact.get("autonomous_snn_language_thought_consolidation_design")
+            design_artifact.get("snn_language_readout_consolidation_design")
             if isinstance(
                 design_artifact.get(
-                    "autonomous_snn_language_thought_consolidation_design"
+                    "snn_language_readout_consolidation_design"
                 ),
                 Mapping,
             )
@@ -25083,11 +25095,11 @@ class SNNLanguageReadoutEvidenceLedger:
         ) or torch.cuda.is_available()
         cuda_satisfied = (not requires_cuda) or cuda_evidence_available
         executor_ready = bool(
-            capabilities.get("autonomous_snn_language_thought_consolidation_executor")
+            capabilities.get("snn_language_readout_consolidation_executor")
         )
         design_hash = str(
-            design_artifact.get("thought_consolidation_design_hash")
-            or body.get("thought_consolidation_design_hash")
+            design_artifact.get("readout_consolidation_design_hash")
+            or body.get("readout_consolidation_design_hash")
             or ""
         )
         memory_trace_hash = str(body.get("memory_trace_hash") or "")
@@ -25137,9 +25149,9 @@ class SNNLanguageReadoutEvidenceLedger:
         homeostatic_decay = float(body.get("homeostatic_decay", 0.0) or 0.0)
         preflight_hash = self._sha256_json(
             {
-                "surface": "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1",
+                "surface": "snn_language_readout_consolidation_preflight.v1",
                 "state_revision": before_revision,
-                "thought_consolidation_design_hash": design_hash,
+                "readout_consolidation_design_hash": design_hash,
                 "memory_trace_hash": memory_trace_hash,
                 "memory_event_hash": memory_event_hash,
                 "requested_device": requested_device,
@@ -25148,13 +25160,13 @@ class SNNLanguageReadoutEvidenceLedger:
             }
         )
         required = {
-            "thought_consolidation_design_available": design_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_consolidation_design.v1",
-            "thought_consolidation_design_ready": bool(design_artifact.get("accepted"))
+            "readout_consolidation_design_available": design_artifact.get("surface")
+            == "snn_language_readout_consolidation_design.v1",
+            "readout_consolidation_design_ready": bool(design_artifact.get("accepted"))
             and bool(design_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_consolidation_preflight"
+                    "eligible_for_snn_language_readout_consolidation_preflight"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -25212,7 +25224,7 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         ready = all(required.values())
         preflight = {
-            "thought_consolidation_design_hash": design_hash,
+            "readout_consolidation_design_hash": design_hash,
             "memory_trace_hash": memory_trace_hash,
             "snn_language_readout_memory_event_hash": memory_event_hash,
             "readout_memory_event_review_hash": memory_event_review_hash,
@@ -25252,14 +25264,14 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_consolidation_preflight"
+                "terminus_snn_language_readout_consolidation_preflight"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1"
+                "snn_language_readout_consolidation_preflight.v1"
             ),
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_consolidation_preflight"
+                "snn_language_readout_consolidation_preflight"
             ),
             "available": bool(design_artifact),
             "ready": ready,
@@ -25288,16 +25300,16 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_consolidation_preflight": preflight,
+            "snn_language_readout_consolidation_preflight": preflight,
             "observed_state_revision": before_revision,
             "expected_state_revision": int(expected_state_revision),
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_consolidation_executor"
+                    "ready_for_snn_language_readout_consolidation_executor"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_consolidation_preflight_evidence"
+                    else "blocked_missing_snn_language_readout_consolidation_preflight_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_consolidation_executor": ready,
+                "eligible_for_snn_language_readout_consolidation_executor": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -25308,27 +25320,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_consolidation_executor"
+                    "snn_language_readout_consolidation_executor"
                     if ready
-                    else "collect_snn_language_thought_consolidation_preflight_evidence"
+                    else "collect_snn_language_readout_consolidation_preflight_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def execute_autonomous_snn_language_thought_consolidation(
+    def execute_snn_language_readout_consolidation(
         self,
         *,
-        autonomous_snn_language_thought_consolidation_preflight: Mapping[str, Any],
+        snn_language_readout_consolidation_preflight: Mapping[str, Any],
         expected_state_revision: int,
         execution_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Apply bounded local thought consolidation as a ledgered plasticity event."""
+        """Apply bounded local readout consolidation as a ledgered plasticity event."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             preflight = dict(
-                autonomous_snn_language_thought_consolidation_preflight or {}
+                snn_language_readout_consolidation_preflight or {}
             )
             gate = (
                 preflight.get("promotion_gate")
@@ -25337,11 +25349,11 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             body = (
                 preflight.get(
-                    "autonomous_snn_language_thought_consolidation_preflight"
+                    "snn_language_readout_consolidation_preflight"
                 )
                 if isinstance(
                     preflight.get(
-                        "autonomous_snn_language_thought_consolidation_preflight"
+                        "snn_language_readout_consolidation_preflight"
                     ),
                     Mapping,
                 )
@@ -25392,7 +25404,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 if str(value)
             ]
             preflight_hash = str(preflight.get("preflight_hash") or "")
-            design_hash = str(body.get("thought_consolidation_design_hash") or "")
+            design_hash = str(body.get("readout_consolidation_design_hash") or "")
             memory_trace_hash = str(body.get("memory_trace_hash") or "")
             memory_event_hash = str(
                 body.get("snn_language_readout_memory_event_hash") or ""
@@ -25402,15 +25414,15 @@ class SNNLanguageReadoutEvidenceLedger:
             homeostatic_decay = float(body.get("homeostatic_decay", 0.0) or 0.0)
             event = {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_consolidation_event"
+                    "terminus_snn_language_readout_consolidation_event"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_consolidation_event.v1"
+                    "snn_language_readout_consolidation_event.v1"
                 ),
                 "state_revision": before_revision,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
-                "thought_consolidation_preflight_hash": preflight_hash,
-                "thought_consolidation_design_hash": design_hash,
+                "readout_consolidation_preflight_hash": preflight_hash,
+                "readout_consolidation_design_hash": design_hash,
                 "memory_trace_hash": memory_trace_hash,
                 "snn_language_readout_memory_event_hash": (
                     memory_event_hash
@@ -25453,20 +25465,20 @@ class SNNLanguageReadoutEvidenceLedger:
                     for key, value in event.items()
                     if key != "recorded_at"
                     and key
-                    != "autonomous_snn_language_thought_consolidation_event_hash"
+                    != "snn_language_readout_consolidation_event_hash"
                 }
             )
-            event["autonomous_snn_language_thought_consolidation_event_hash"] = (
+            event["snn_language_readout_consolidation_event_hash"] = (
                 event_hash
             )
             required = {
                 "preflight_surface_available": preflight.get("surface")
-                == "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1",
+                == "snn_language_readout_consolidation_preflight.v1",
                 "preflight_ready": bool(preflight.get("accepted"))
                 and bool(preflight.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_consolidation_executor"
+                        "eligible_for_snn_language_readout_consolidation_executor"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -25525,15 +25537,15 @@ class SNNLanguageReadoutEvidenceLedger:
             accepted = all(required.values())
             ledger_summary, source_window = (
                 self._record_family_current_summary_with_report(
-                    field="autonomous_snn_language_thought_consolidation_events",
+                    field="snn_language_readout_consolidation_events",
                     duplicate_key=(
-                        "autonomous_snn_language_thought_consolidation_event_hash"
+                        "snn_language_readout_consolidation_event_hash"
                     ),
                     total_count_key=(
-                        "total_autonomous_snn_language_thought_consolidation_count"
+                        "total_snn_language_readout_consolidation_count"
                     ),
                     timestamp_key=(
-                        "last_autonomous_snn_language_thought_consolidated_at"
+                        "last_snn_language_readout_consolidated_at"
                     ),
                 )
             )
@@ -25542,17 +25554,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 duplicate, ledger_summary, source_window = (
                     self._append_record_family_window(
                         field=(
-                            "autonomous_snn_language_thought_consolidation_events"
+                            "snn_language_readout_consolidation_events"
                         ),
                         event=event,
                         duplicate_key=(
-                            "autonomous_snn_language_thought_consolidation_event_hash"
+                            "snn_language_readout_consolidation_event_hash"
                         ),
                         total_count_key=(
-                            "total_autonomous_snn_language_thought_consolidation_count"
+                            "total_snn_language_readout_consolidation_count"
                         ),
                         timestamp_key=(
-                            "last_autonomous_snn_language_thought_consolidated_at"
+                            "last_snn_language_readout_consolidated_at"
                         ),
                         timestamp_value=event["recorded_at"],
                     )
@@ -25561,20 +25573,20 @@ class SNNLanguageReadoutEvidenceLedger:
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_consolidation_executor"
+                    "terminus_snn_language_readout_consolidation_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_consolidation_executor.v1"
+                    "snn_language_readout_consolidation_executor.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "execute_autonomous_snn_language_thought_consolidation"
+                    "execute_snn_language_readout_consolidation"
                 ),
                 "available": bool(preflight),
                 "ready": accepted,
                 "accepted": accepted,
                 "duplicate": duplicate,
-                "autonomous_snn_language_thought_consolidation_event_hash": (
+                "snn_language_readout_consolidation_event_hash": (
                     event_hash
                 ),
                 "requires_operator_approval": False,
@@ -25602,22 +25614,22 @@ class SNNLanguageReadoutEvidenceLedger:
                 "generated_text_returned": accepted,
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
-                "autonomous_snn_language_thought_consolidation_event": (
+                "snn_language_readout_consolidation_event": (
                     event if accepted else None
                 ),
                 "ledger_summary": ledger_summary,
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "autonomous_snn_language_thought_consolidation_recorded"
+                        "snn_language_readout_consolidation_recorded"
                         if accepted and not duplicate
                         else (
-                            "duplicate_autonomous_snn_language_thought_consolidation_already_recorded"
+                            "duplicate_snn_language_readout_consolidation_already_recorded"
                             if accepted
-                            else "blocked_missing_autonomous_snn_language_thought_consolidation_executor_evidence"
+                            else "blocked_missing_snn_language_readout_consolidation_executor_evidence"
                         )
                     ),
-                    "eligible_for_autonomous_snn_language_thought_consolidation_event_review": (
+                    "eligible_for_snn_language_readout_consolidation_event_review": (
                         accepted
                     ),
                     "eligible_for_language_generation": False,
@@ -25630,27 +25642,27 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_consolidation_event_review"
+                        "snn_language_readout_consolidation_event_review"
                         if accepted
-                        else "collect_snn_language_thought_consolidation_execution_evidence"
+                        else "collect_snn_language_readout_consolidation_execution_evidence"
                     ),
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_consolidation_event_review(
+    def snn_language_readout_consolidation_event_review(
         self,
         *,
-        autonomous_snn_language_thought_consolidation_executor: Mapping[str, Any],
+        snn_language_readout_consolidation_executor: Mapping[str, Any],
         expected_state_revision: int,
         review_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Review a recorded bounded SNN thought-consolidation plasticity event."""
+        """Review a recorded bounded SNN readout-consolidation plasticity event."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             executor = dict(
-                autonomous_snn_language_thought_consolidation_executor or {}
+                snn_language_readout_consolidation_executor or {}
             )
             gate = (
                 executor.get("promotion_gate")
@@ -25660,12 +25672,12 @@ class SNNLanguageReadoutEvidenceLedger:
             event = (
                 dict(
                     executor.get(
-                        "autonomous_snn_language_thought_consolidation_event"
+                        "snn_language_readout_consolidation_event"
                     )
                 )
                 if isinstance(
                     executor.get(
-                        "autonomous_snn_language_thought_consolidation_event"
+                        "snn_language_readout_consolidation_event"
                     ),
                     Mapping,
                 )
@@ -25693,13 +25705,13 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             event_hash = str(
                 event.get(
-                    "autonomous_snn_language_thought_consolidation_event_hash"
+                    "snn_language_readout_consolidation_event_hash"
                 )
                 or ""
             )
             executor_event_hash = str(
                 executor.get(
-                    "autonomous_snn_language_thought_consolidation_event_hash"
+                    "snn_language_readout_consolidation_event_hash"
                 )
                 or ""
             )
@@ -25740,10 +25752,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 if str(value)
             ]
             preflight_hash = str(
-                event.get("thought_consolidation_preflight_hash") or ""
+                event.get("readout_consolidation_preflight_hash") or ""
             )
             design_hash = str(
-                event.get("thought_consolidation_design_hash") or ""
+                event.get("readout_consolidation_design_hash") or ""
             )
             memory_trace_hash = str(event.get("memory_trace_hash") or "")
             memory_event_hash = str(
@@ -25757,9 +25769,9 @@ class SNNLanguageReadoutEvidenceLedger:
                 event.get("homeostatic_decay", 0.0) or 0.0
             )
             source_events, source_window = self._record_family_window_with_report(
-                field="autonomous_snn_language_thought_consolidation_events",
+                field="snn_language_readout_consolidation_events",
                 duplicate_key=(
-                    "autonomous_snn_language_thought_consolidation_event_hash"
+                    "snn_language_readout_consolidation_event_hash"
                 ),
             )
             recorded_event = next(
@@ -25768,7 +25780,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     for item in source_events
                     if str(
                         item.get(
-                            "autonomous_snn_language_thought_consolidation_event_hash"
+                            "snn_language_readout_consolidation_event_hash"
                         )
                         or ""
                     )
@@ -25779,11 +25791,11 @@ class SNNLanguageReadoutEvidenceLedger:
             event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
             required = {
                 "executor_surface_available": executor.get("surface")
-                == "snn_language_autonomous_snn_language_thought_consolidation_executor.v1",
+                == "snn_language_readout_consolidation_executor.v1",
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_consolidation_event_review"
+                        "eligible_for_snn_language_readout_consolidation_event_review"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -25871,11 +25883,11 @@ class SNNLanguageReadoutEvidenceLedger:
             review = {
                 "event_recorded_in_ledger": event_recorded_in_ledger,
                 "event_revision": event_revision if event else None,
-                "autonomous_snn_language_thought_consolidation_event_hash": (
+                "snn_language_readout_consolidation_event_hash": (
                     event_hash
                 ),
-                "thought_consolidation_preflight_hash": preflight_hash,
-                "thought_consolidation_design_hash": design_hash,
+                "readout_consolidation_preflight_hash": preflight_hash,
+                "readout_consolidation_design_hash": design_hash,
                 "memory_trace_hash": memory_trace_hash,
                 "snn_language_readout_memory_event_hash": (
                     memory_event_hash
@@ -25921,29 +25933,26 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
-                        "consolidation_event_review.v1"
+                        "snn_language_readout_consolidation_event_review.v1"
                     ),
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
                     "required_evidence": required,
-                    "autonomous_snn_language_thought_consolidation_event_review": (
+                    "snn_language_readout_consolidation_event_review": (
                         review
                     ),
                 }
             )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
-                    "consolidation_event_review"
+                    "terminus_snn_language_readout_consolidation_event_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
-                    "consolidation_event_review.v1"
+                    "snn_language_readout_consolidation_event_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_consolidation_event_review"
+                    "snn_language_readout_consolidation_event_review"
                 ),
                 "available": bool(executor),
                 "ready": ready,
@@ -25972,11 +25981,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "literal_text_returned": ready,
                 "generated_text_returned": ready,
-                "autonomous_snn_language_thought_consolidation_event_hash": (
+                "snn_language_readout_consolidation_event_hash": (
                     event_hash
                 ),
                 "memory_trace_hash": memory_trace_hash,
-                "autonomous_snn_language_thought_consolidation_event_review": (
+                "snn_language_readout_consolidation_event_review": (
                     review
                 ),
                 "source_window": source_window,
@@ -25984,7 +25993,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "status": (
                         "ready_for_autonomous_snn_language_thought_structural_plasticity_design"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_consolidation_event_evidence"
+                        else "blocked_missing_snn_language_readout_consolidation_event_evidence"
                     ),
                     "eligible_for_autonomous_snn_language_thought_structural_plasticity_design": ready,
                     "eligible_for_language_generation": False,
@@ -25999,7 +26008,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "next_gate": (
                         "autonomous_snn_language_thought_structural_plasticity_design"
                         if ready
-                        else "collect_snn_language_thought_consolidation_event_evidence"
+                        else "collect_snn_language_readout_consolidation_event_evidence"
                     ),
                     "required_evidence": required,
                 },
@@ -26008,13 +26017,13 @@ class SNNLanguageReadoutEvidenceLedger:
     def autonomous_snn_language_thought_structural_plasticity_design(
         self,
         *,
-        autonomous_snn_language_thought_consolidation_event_review: Mapping[str, Any],
+        snn_language_readout_consolidation_event_review: Mapping[str, Any],
         structural_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Design bounded thought-driven structural plasticity without mutation."""
 
         review_artifact = dict(
-            autonomous_snn_language_thought_consolidation_event_review or {}
+            snn_language_readout_consolidation_event_review or {}
         )
         gate = (
             review_artifact.get("promotion_gate")
@@ -26024,12 +26033,12 @@ class SNNLanguageReadoutEvidenceLedger:
         review = (
             dict(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_consolidation_event_review"
+                    "snn_language_readout_consolidation_event_review"
                 )
             )
             if isinstance(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_consolidation_event_review"
+                    "snn_language_readout_consolidation_event_review"
                 ),
                 Mapping,
             )
@@ -26078,14 +26087,14 @@ class SNNLanguageReadoutEvidenceLedger:
             max(0, int(policy.get("max_prune_synapses", 4) or 4)),
         )
         consolidation_event_hash = str(
-            review.get("autonomous_snn_language_thought_consolidation_event_hash")
+            review.get("snn_language_readout_consolidation_event_hash")
             or ""
         )
         consolidation_preflight_hash = str(
-            review.get("thought_consolidation_preflight_hash") or ""
+            review.get("readout_consolidation_preflight_hash") or ""
         )
         consolidation_design_hash = str(
-            review.get("thought_consolidation_design_hash") or ""
+            review.get("readout_consolidation_design_hash") or ""
         )
         memory_trace_hash = str(review.get("memory_trace_hash") or "")
         memory_event_hash = str(
@@ -26198,9 +26207,9 @@ class SNNLanguageReadoutEvidenceLedger:
             "structural_scope": structural_scope,
             "structural_route": structural_route,
             "consolidation_event_review_hash": review_hash,
-            "thought_consolidation_event_hash": consolidation_event_hash,
-            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
-            "thought_consolidation_design_hash": consolidation_design_hash,
+            "readout_consolidation_event_hash": consolidation_event_hash,
+            "readout_consolidation_preflight_hash": consolidation_preflight_hash,
+            "readout_consolidation_design_hash": consolidation_design_hash,
             "memory_trace_hash": memory_trace_hash,
             "readout_memory_event_hash": memory_event_hash,
             "requested_device": requested_device,
@@ -26213,7 +26222,7 @@ class SNNLanguageReadoutEvidenceLedger:
         structural_design_hash = self._sha256_json(structural_design_material)
         required = {
             "consolidation_event_review_available": review_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_consolidation_event_review.v1",
+            == "snn_language_readout_consolidation_event_review.v1",
             "consolidation_event_review_ready": bool(review_artifact.get("accepted"))
             and bool(review_artifact.get("ready"))
             and bool(
@@ -26305,11 +26314,11 @@ class SNNLanguageReadoutEvidenceLedger:
             "structural_route": structural_route,
             "thought_structural_plasticity_design_hash": structural_design_hash,
             "consolidation_event_review_hash": review_hash,
-            "autonomous_snn_language_thought_consolidation_event_hash": (
+            "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
             ),
-            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
-            "thought_consolidation_design_hash": consolidation_design_hash,
+            "readout_consolidation_preflight_hash": consolidation_preflight_hash,
+            "readout_consolidation_design_hash": consolidation_design_hash,
             "memory_trace_hash": memory_trace_hash,
             "snn_language_readout_memory_event_hash": memory_event_hash,
             "requested_device": requested_device,
@@ -26457,14 +26466,14 @@ class SNNLanguageReadoutEvidenceLedger:
             body.get("consolidation_event_review_hash") or ""
         )
         consolidation_event_hash = str(
-            body.get("autonomous_snn_language_thought_consolidation_event_hash")
+            body.get("snn_language_readout_consolidation_event_hash")
             or ""
         )
         consolidation_preflight_hash = str(
-            body.get("thought_consolidation_preflight_hash") or ""
+            body.get("readout_consolidation_preflight_hash") or ""
         )
         consolidation_design_hash = str(
-            body.get("thought_consolidation_design_hash") or ""
+            body.get("readout_consolidation_design_hash") or ""
         )
         memory_trace_hash = str(body.get("memory_trace_hash") or "")
         memory_event_hash = str(
@@ -26507,11 +26516,11 @@ class SNNLanguageReadoutEvidenceLedger:
             "structural_route": str(body.get("structural_route") or ""),
             "thought_structural_plasticity_design_hash": design_hash,
             "consolidation_event_review_hash": consolidation_event_review_hash,
-            "autonomous_snn_language_thought_consolidation_event_hash": (
+            "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
             ),
-            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
-            "thought_consolidation_design_hash": consolidation_design_hash,
+            "readout_consolidation_preflight_hash": consolidation_preflight_hash,
+            "readout_consolidation_design_hash": consolidation_design_hash,
             "memory_trace_hash": memory_trace_hash,
             "snn_language_readout_memory_event_hash": memory_event_hash,
             "observed_state_revision": before_revision,
@@ -26776,7 +26785,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 body.get("consolidation_event_review_hash") or ""
             )
             consolidation_event_hash = str(
-                body.get("autonomous_snn_language_thought_consolidation_event_hash")
+                body.get("snn_language_readout_consolidation_event_hash")
                 or ""
             )
             memory_trace_hash = str(body.get("memory_trace_hash") or "")
@@ -26818,7 +26827,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "consolidation_event_review_hash": (
                     consolidation_event_review_hash
                 ),
-                "autonomous_snn_language_thought_consolidation_event_hash": (
+                "snn_language_readout_consolidation_event_hash": (
                     consolidation_event_hash
                 ),
                 "memory_trace_hash": memory_trace_hash,
@@ -27157,7 +27166,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 event.get("consolidation_event_review_hash") or ""
             )
             consolidation_event_hash = str(
-                event.get("autonomous_snn_language_thought_consolidation_event_hash")
+                event.get("snn_language_readout_consolidation_event_hash")
                 or ""
             )
             memory_trace_hash = str(event.get("memory_trace_hash") or "")
@@ -27318,7 +27327,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "consolidation_event_review_hash": (
                     consolidation_event_review_hash
                 ),
-                "autonomous_snn_language_thought_consolidation_event_hash": (
+                "snn_language_readout_consolidation_event_hash": (
                     consolidation_event_hash
                 ),
                 "memory_trace_hash": memory_trace_hash,
@@ -27559,7 +27568,7 @@ class SNNLanguageReadoutEvidenceLedger:
             review.get("thought_structural_plasticity_design_hash") or ""
         )
         consolidation_event_hash = str(
-            review.get("autonomous_snn_language_thought_consolidation_event_hash")
+            review.get("snn_language_readout_consolidation_event_hash")
             or ""
         )
         memory_trace_hash = str(review.get("memory_trace_hash") or "")
@@ -27678,7 +27687,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 structural_preflight_hash
             ),
             "thought_structural_plasticity_design_hash": structural_design_hash,
-            "autonomous_snn_language_thought_consolidation_event_hash": (
+            "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
             ),
             "memory_trace_hash": memory_trace_hash,

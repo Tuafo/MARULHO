@@ -705,23 +705,23 @@ class RuntimeFacade:
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_consolidation_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_design(
+    def snn_language_readout_consolidation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_consolidation_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_consolidation_preflight(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_preflight(
+    def snn_language_readout_consolidation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_consolidation_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_consolidation_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_consolidation(
+    def snn_language_readout_consolidation_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_snn_language_readout_consolidation(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_consolidation_event_review(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_event_review(
+    def snn_language_readout_consolidation_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_consolidation_event_review(
             **kwargs
         )
 

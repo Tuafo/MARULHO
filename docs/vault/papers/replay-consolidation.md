@@ -176,6 +176,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json
   - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window.json
   - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window-rerun.json
+  - reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-consolidation-canonical.json
 ---
 
 # Replay/consolidation
@@ -1830,9 +1832,9 @@ CUDA runtime on RTX 3060, and GPU memory `2044->2047 MiB`. The replay/ledger
 benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
 
-SNN language decoding through thought structural plasticity now follows the same
-single-family ledger boundary. Decoding, readout-surface, readout-memory,
-thought-consolidation, and thought-structural-plasticity executor/review pairs
+SNN language decoding through the remaining thought structural-plasticity path
+now follows the same single-family ledger boundary. Decoding, readout-surface,
+readout-memory, readout-consolidation, and thought-structural-plasticity executor/review pairs
 read only their target event family, return
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and do not normalize
 all retained readout/replay ledger families. The benchmark
@@ -2324,6 +2326,41 @@ processed `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
 observed contention, CPU max `12%`, GPU max `19%`, and RTX 3060 memory
 `1709->1707 MiB`. Prewarm took `304.955 s`, so this is hot-tick protection and
 bounded recall quality evidence, not a startup-speed claim.
+
+## Readout Consolidation Naming Retirement
+
+Modern Hopfield-style recall and replay research supports local associative
+operators only after a bounded source family or replay window has been selected.
+Complementary learning systems, continual replay, synaptic tagging/capture, and
+sparse replay do not justify keeping hidden-thought vocabulary as a second
+production path. MARULHO therefore retires the active
+`autonomous_snn_language_thought_consolidation_*` API/facade/ledger chain and
+keeps readout consolidation on the canonical
+`snn_language_readout_consolidation_*` path. Old persisted checkpoint fields
+migrate once to `snn_language_readout_consolidation_events`,
+`total_snn_language_readout_consolidation_count`, and
+`last_snn_language_readout_consolidated_at`.
+
+The focused benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`
+passed with bounded mean `371.891600 ms` versus the benchmark-local retired
+diagnostic `5302.309467 ms` (`16x` source-work reduction). The downstream
+autonomous-chain comparison stayed bounded at `921.487733 ms` versus
+`19456.105067 ms`. Archival/source/review placement stays CPU-resident, CUDA
+was available but unused for ledger archival work, and the path reports no
+live tick, every-token work, replay execution, raw replay text, hidden language
+reasoning, or GPU-resident archival metadata.
+
+The `524288`-token hot-path protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-consolidation-canonical.json`
+stayed same-band at `5938.794 tokens/sec`, p95 tick `22.043 ms`,
+`train_compute=0.135649 ms/token`, `prepare_training=0.007072 ms/token`, and
+`finalize_total=0.006942 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, observed no contention, moved GPU memory `1829->1828 MiB`, and recorded
+zero graph/native/sequence failures. Prewarm took `316.785 s`, so this is
+live-tick protection evidence, not startup-speed evidence.
 
 ## Query Fallback Retirement And Bundle Source Windows
 

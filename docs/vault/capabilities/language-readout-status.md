@@ -30,16 +30,24 @@ related_benchmarks: []
             readout-surface fields once; status should not treat those legacy
             names as live capability evidence.
 
-            The readout-memory chain is canonical in production as
+            The readout-memory and readout-consolidation chains are canonical in production as
             `snn_language_readout_memory_design`,
             `snn_language_readout_memory_preflight`,
             `execute_snn_language_readout_memory`, and
-            `snn_language_readout_memory_event_review`. Checkpoint load/save
+            `snn_language_readout_memory_event_review`, followed by
+            `snn_language_readout_consolidation_design`,
+            `snn_language_readout_consolidation_preflight`,
+            `execute_snn_language_readout_consolidation`, and
+            `snn_language_readout_consolidation_event_review`. Checkpoint load/save
             migrates legacy `autonomous_snn_language_thought_memory_*` state to
-            readout-memory fields once; no active API/facade/ledger call alias
-            keeps the old production path alive. The current source-window
-            benchmark is
-            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`.
+            readout-memory fields and legacy
+            `autonomous_snn_language_thought_consolidation_*` state to
+            readout-consolidation fields once; no active API/facade/ledger call
+            alias keeps either old production path alive. The current
+            source-window benchmarks are
+            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`
+            and
+            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`.
 
             `snn_language_readout_corpus_evaluation.v1` is now the first bounded corpus-level report for next-readout trajectories. Runtime Truth exposes the latest saved report as `snn_language_readout_corpus_runtime_truth.v1`, including available/trained/grounded/device status, mutation absence, latency, memory/VRAM cost, and the promote/reject reason. Missing reports remain a rejection/collection state, not a hidden live generator.
 

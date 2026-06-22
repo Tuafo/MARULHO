@@ -138,6 +138,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
     def test_checkpoint_save_migrates_legacy_readout_ledger_state(self) -> None:
         legacy_surface_event = {"snn_language_readout_surface_event_hash": "1" * 64}
         legacy_memory_event = {"snn_language_readout_memory_event_hash": "2" * 64}
+        legacy_consolidation_event = {
+            "snn_language_readout_consolidation_event_hash": "3" * 64
+        }
         legacy_ledger_state = {
             "autonomous_snn_language_thought_surface_events": [legacy_surface_event],
             "total_autonomous_snn_language_thought_surface_count": 1,
@@ -148,6 +151,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             "total_autonomous_snn_language_thought_memory_count": 1,
             "last_autonomous_snn_language_thought_memory_recorded_at": (
                 "2026-06-22T00:01:00+00:00"
+            ),
+            "autonomous_snn_language_thought_consolidation_events": [
+                legacy_consolidation_event
+            ],
+            "total_autonomous_snn_language_thought_consolidation_count": 1,
+            "last_autonomous_snn_language_thought_consolidated_at": (
+                "2026-06-22T00:02:00+00:00"
             ),
         }
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -196,6 +206,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             saved_ledger_state["last_snn_language_readout_memory_recorded_at"],
             "2026-06-22T00:01:00+00:00",
         )
+        self.assertEqual(
+            saved_ledger_state["snn_language_readout_consolidation_events"],
+            [legacy_consolidation_event],
+        )
+        self.assertEqual(
+            saved_ledger_state["total_snn_language_readout_consolidation_count"],
+            1,
+        )
+        self.assertEqual(
+            saved_ledger_state["last_snn_language_readout_consolidated_at"],
+            "2026-06-22T00:02:00+00:00",
+        )
         self.assertNotIn(
             "autonomous_snn_language_thought_surface_events",
             saved_ledger_state,
@@ -218,6 +240,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertNotIn(
             "last_autonomous_snn_language_thought_memory_recorded_at",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "autonomous_snn_language_thought_consolidation_events",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "total_autonomous_snn_language_thought_consolidation_count",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "last_autonomous_snn_language_thought_consolidated_at",
             saved_ledger_state,
         )
 
@@ -292,6 +326,53 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn(
             "snn_language_autonomous_snn_language_thought_memory_design",
             internalized_memory_payload,
+        )
+        readout_consolidation_payload = {
+            "artifact_kind": "terminus_snn_language_readout_consolidation_design",
+            "surface": "snn_language_readout_consolidation_design.v1",
+            "snn_language_readout_consolidation_design": {
+                "consolidation_scope": "local_trace_update",
+                "consolidation_route": "readout_memory_to_local_update",
+                "readout_consolidation_design_hash": "3" * 64,
+                "snn_language_readout_memory_event_hash": "2" * 64,
+            },
+            "promotion_gate": {
+                "eligible_for_snn_language_readout_consolidation_preflight": True,
+                "next_gate": "snn_language_readout_consolidation_preflight",
+            },
+        }
+
+        public_consolidation_payload = _public_snn_language_payload(
+            readout_consolidation_payload
+        )
+        public_consolidation_text = json.dumps(
+            public_consolidation_payload,
+            sort_keys=True,
+        )
+
+        self.assertNotIn(
+            "autonomous_snn_language_thought_consolidation",
+            public_consolidation_text,
+        )
+        self.assertNotIn("thought_consolidation", public_consolidation_text)
+        self.assertIn(
+            "snn_language_readout_consolidation_design",
+            public_consolidation_text,
+        )
+        internalized_consolidation_payload = _internal_snn_language_payload(
+            public_consolidation_payload
+        )
+        self.assertEqual(
+            internalized_consolidation_payload["surface"],
+            "snn_language_readout_consolidation_design.v1",
+        )
+        self.assertIn(
+            "snn_language_readout_consolidation_design",
+            internalized_consolidation_payload,
+        )
+        self.assertNotIn(
+            "snn_language_autonomous_snn_language_thought_consolidation_design",
+            internalized_consolidation_payload,
         )
 
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:

@@ -321,7 +321,6 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
     ("autonomous_snn_language_thought", "snn_language_readout"),
     ("language_thought", "language_readout"),
-    ("thought_consolidation", "readout_consolidation"),
     ("thought_structural", "readout_structural"),
     ("thought_capacity", "readout_capacity"),
     ("thought_newborn", "readout_newborn"),
@@ -334,12 +333,9 @@ _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("terminus_snn_language_readout_newborn", "terminus_snn_language_autonomous_snn_language_thought_newborn"),
     ("terminus_snn_language_readout_capacity", "terminus_snn_language_autonomous_snn_language_thought_capacity"),
     ("terminus_snn_language_readout_structural", "terminus_snn_language_autonomous_snn_language_thought_structural"),
-    ("terminus_snn_language_readout_consolidation", "terminus_snn_language_autonomous_snn_language_thought_consolidation"),
     ("snn_language_readout_newborn", "snn_language_autonomous_snn_language_thought_newborn"),
     ("snn_language_readout_capacity", "snn_language_autonomous_snn_language_thought_capacity"),
     ("snn_language_readout_structural", "snn_language_autonomous_snn_language_thought_structural"),
-    ("snn_language_readout_consolidation", "snn_language_autonomous_snn_language_thought_consolidation"),
-    ("readout_consolidation", "thought_consolidation"),
     ("readout_structural", "thought_structural"),
     ("readout_capacity", "thought_capacity"),
     ("readout_newborn", "thought_newborn"),
@@ -2065,7 +2061,7 @@ def create_app(
     def terminus_snn_language_consolidation_design(
         request: SNNLanguageConsolidationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_consolidation_design(
+        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_design(
             snn_language_readout_memory_event_review=(
                 _internal_snn_language_payload(request.snn_language_memory_event_review)
             ),
@@ -2076,8 +2072,8 @@ def create_app(
     def terminus_snn_language_consolidation_preflight(
         request: SNNLanguageConsolidationPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_consolidation_preflight(
-            autonomous_snn_language_thought_consolidation_design=(
+        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_preflight(
+            snn_language_readout_consolidation_design=(
                 _internal_snn_language_payload(request.snn_language_consolidation_design)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2089,8 +2085,8 @@ def create_app(
     def terminus_snn_language_consolidation_executor(
         request: SNNLanguageConsolidationExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_consolidation_executor(
-            autonomous_snn_language_thought_consolidation_preflight=(
+        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_executor(
+            snn_language_readout_consolidation_preflight=(
                 _internal_snn_language_payload(request.snn_language_consolidation_preflight)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2101,8 +2097,8 @@ def create_app(
     def terminus_snn_language_consolidation_event_review(
         request: SNNLanguageConsolidationEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_consolidation_event_review(
-            autonomous_snn_language_thought_consolidation_executor=(
+        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_event_review(
+            snn_language_readout_consolidation_executor=(
                 _internal_snn_language_payload(request.snn_language_consolidation_executor)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2114,7 +2110,7 @@ def create_app(
         request: SNNLanguageStructuralPlasticityDesignRequest,
     ) -> dict[str, Any]:
         return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_design(
-            autonomous_snn_language_thought_consolidation_event_review=(
+            snn_language_readout_consolidation_event_review=(
                 _internal_snn_language_payload(request.snn_language_consolidation_event_review)
             ),
             structural_policy=_internal_snn_language_payload(request.structural_policy),

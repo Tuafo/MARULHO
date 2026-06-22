@@ -58,7 +58,7 @@ _AUTONOMOUS_CHAIN_COMPONENT_NAMES = (
     "language_decoding",
     "readout_surface",
     "readout_memory",
-    "thought_consolidation",
+    "readout_consolidation",
     "thought_structural_plasticity",
 )
 
@@ -131,7 +131,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_snn_language_decoding_count": count,
             "total_snn_language_readout_surface_count": count,
             "total_snn_language_readout_memory_count": count,
-            "total_autonomous_snn_language_thought_consolidation_count": count,
+            "total_snn_language_readout_consolidation_count": count,
             "total_autonomous_snn_language_thought_structural_plasticity_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
@@ -188,7 +188,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "last_snn_language_readout_memory_recorded_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
-            "last_autonomous_snn_language_thought_consolidated_at": (
+            "last_snn_language_readout_consolidated_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_snn_language_thought_structural_plasticity_applied_at": (
@@ -1531,7 +1531,7 @@ def _snn_language_readout_memory_event() -> dict[str, Any]:
     }
 
 
-def _autonomous_snn_language_thought_consolidation_event() -> dict[str, Any]:
+def _snn_language_readout_consolidation_event() -> dict[str, Any]:
     candidate_updates = [
         {
             "local_learning_target_hash": "46" * 32,
@@ -1540,14 +1540,14 @@ def _autonomous_snn_language_thought_consolidation_event() -> dict[str, Any]:
         }
     ]
     return {
-        "autonomous_snn_language_thought_consolidation_event_hash": "51" * 32,
-        "autonomous_snn_language_thought_consolidation_event_id": (
-            "benchmark-snn-language-thought-consolidation"
+        "snn_language_readout_consolidation_event_hash": "51" * 32,
+        "snn_language_readout_consolidation_event_id": (
+            "benchmark-snn-language-readout-consolidation"
         ),
         "recorded_at": "2026-06-19T00:00:04+00:00",
         "state_revision": 15,
-        "thought_consolidation_preflight_hash": "52" * 32,
-        "thought_consolidation_design_hash": "53" * 32,
+        "readout_consolidation_preflight_hash": "52" * 32,
+        "readout_consolidation_design_hash": "53" * 32,
         "memory_trace_hash": "45" * 32,
         "snn_language_readout_memory_event_hash": "41" * 32,
         "consolidation_scope": "local_trace_reinforcement",
@@ -1598,7 +1598,7 @@ def _autonomous_snn_language_thought_structural_plasticity_event() -> dict[str, 
         "thought_structural_plasticity_preflight_hash": "62" * 32,
         "thought_structural_plasticity_design_hash": "63" * 32,
         "consolidation_event_review_hash": "64" * 32,
-        "autonomous_snn_language_thought_consolidation_event_hash": "51" * 32,
+        "snn_language_readout_consolidation_event_hash": "51" * 32,
         "memory_trace_hash": "45" * 32,
         "snn_language_readout_memory_event_hash": "41" * 32,
         "structural_scope": "thought_trace_sparse_capacity",
@@ -1746,16 +1746,16 @@ def _snn_language_thought_family_specs() -> tuple[dict[str, Any], ...]:
             "timestamp_value_key": "recorded_at",
         },
         {
-            "name": "thought_consolidation",
-            "field": "autonomous_snn_language_thought_consolidation_events",
-            "event": _autonomous_snn_language_thought_consolidation_event(),
+            "name": "readout_consolidation",
+            "field": "snn_language_readout_consolidation_events",
+            "event": _snn_language_readout_consolidation_event(),
             "duplicate_key": (
-                "autonomous_snn_language_thought_consolidation_event_hash"
+                "snn_language_readout_consolidation_event_hash"
             ),
             "total_count_key": (
-                "total_autonomous_snn_language_thought_consolidation_count"
+                "total_snn_language_readout_consolidation_count"
             ),
-            "timestamp_key": "last_autonomous_snn_language_thought_consolidated_at",
+            "timestamp_key": "last_snn_language_readout_consolidated_at",
             "timestamp_value_key": "recorded_at",
         },
         {
@@ -4060,7 +4060,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_snn_language_decoding_events"
                 "+snn_language_readout_surface_events"
                 "+snn_language_readout_memory_events"
-                "+autonomous_snn_language_thought_consolidation_events"
+                "+snn_language_readout_consolidation_events"
                 "+autonomous_snn_language_thought_structural_plasticity_events"
             ),
             "selection_criteria": [

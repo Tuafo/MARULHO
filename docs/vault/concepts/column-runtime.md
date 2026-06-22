@@ -203,6 +203,19 @@ allocation/reservation. The paired `524288`-token run stayed in band at
 transition rows, and recorded zero graph/native sequence failures with
 borderline `21%` GPU contention.
 
+The 2026-06-22 readout-consolidation cleanup keeps that source-window rule but
+removes another thought-era production name. `snn_language_readout_consolidation_*`
+is now the single active consolidation chain through API, facade, ledger, and
+checkpoint save state; old `autonomous_snn_language_thought_consolidation_*`
+fields migrate once on load/save. The focused benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`
+kept bounded mean `371.891600 ms` versus `5302.309467 ms` for the retired
+diagnostic (`16x` less source work), while the `524288`-token protection run
+stayed same-band at `5938.794 tokens/sec`, p95 `22.043 ms`, bounded `12/65536`
+route rows, no observed contention, GPU memory `1829->1828 MiB`, and zero
+graph/native/sequence failures. This is slow-path ledger consolidation
+evidence, not live-tick replay execution.
+
 SNN language plasticity runtime-state now follows the same source-window rule.
 `SNNLanguagePlasticityApplicationExecutor.snapshot()` no longer starts by
 deep-copying the complete retained transition memory. It builds
@@ -1577,7 +1590,7 @@ and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `2044->2047 MiB`.
 
 SNN language decoding, readout-surface, readout-memory,
-thought-consolidation, and thought-structural-plasticity now stay on the same
+readout-consolidation, and the remaining thought-structural-plasticity path now stay on the same
 one-path ledger boundary. Execution/review reads only the target downstream
 language/readout event family, reports
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and updates only
