@@ -26,21 +26,25 @@ class _SyntheticBank:
 
 class _SyntheticMemoryStore:
     def __init__(self, *, capacity: int, bucket_count: int, payload_repeats: int) -> None:
-        self.slow_buffer = [torch.tensor([1.0, 0.0], dtype=torch.float32) for _ in range(capacity)]
-        self.slow_input_patterns = [item.clone() for item in self.slow_buffer]
-        self.slow_routing_keys = [torch.tensor([1.0, 0.0], dtype=torch.float32) for _ in range(capacity)]
-        self.slow_raw_windows = [f"source bank memory episode {index}" for index in range(capacity)]
-        self.slow_bucket_ids = [index % max(1, int(bucket_count)) for index in range(capacity)]
-        self.slow_importance = [1.0 for _ in range(capacity)]
-        self.slow_entry_timestamps = [0 for _ in range(capacity)]
-        self.slow_replay_count = [0 for _ in range(capacity)]
-        self.slow_consolidation_level = [0.25 for _ in range(capacity)]
+        self._row_assemblies = [torch.tensor([1.0, 0.0], dtype=torch.float32) for _ in range(capacity)]
+        self._row_input_patterns = [item.clone() for item in self._row_assemblies]
+        self._row_routing_keys = [torch.tensor([1.0, 0.0], dtype=torch.float32) for _ in range(capacity)]
+        self._row_texts = [f"source bank memory episode {index}" for index in range(capacity)]
+        self._row_bucket_ids = [index % max(1, int(bucket_count)) for index in range(capacity)]
+        self._row_importance = [1.0 for _ in range(capacity)]
+        self._row_timestamps = [0 for _ in range(capacity)]
+        self._row_replay_count = [0 for _ in range(capacity)]
+        self._row_consolidation_level = [0.25 for _ in range(capacity)]
         self.payload_repeats = max(1, int(payload_repeats))
-        self.replay_entry_calls: list[int] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
         self.last_bank_memory_match_report: dict[str, Any] = {}
 
     def replay_scores_for_indices(self, indices: list[int], current_token: int) -> dict[int, float]:
         return {int(index): 0.0 for index in indices}
+
+    def live_summary_stats(self, current_token: int | None = None) -> dict[str, Any]:
+        _ = current_token
+        return {"size": len(self._row_assemblies)}
 
     def collect_query_memory_match_indices(
         self,
@@ -53,14 +57,14 @@ class _SyntheticMemoryStore:
         bucket_set = set(buckets)
         candidates = [
             index
-            for index, bucket_id in enumerate(self.slow_bucket_ids)
+            for index, bucket_id in enumerate(self._row_bucket_ids)
             if int(bucket_id) in bucket_set
         ][: max(0, int(max_candidates))]
         return {
             "surface": "bounded_query_memory_match_candidates.v1",
             "status": "collected" if candidates else "empty",
             "scope": scope,
-            "memory_size": len(self.slow_buffer),
+            "memory_size": len(self._row_assemblies),
             "requested_count": int(max_candidates),
             "candidate_window_limit": int(max_candidates),
             "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
@@ -68,7 +72,7 @@ class _SyntheticMemoryStore:
             "candidate_bucket_ids": buckets,
             "candidate_bucket_count": len(buckets),
             "candidate_index_available_count": sum(
-                1 for bucket_id in self.slow_bucket_ids if int(bucket_id) in bucket_set
+                1 for bucket_id in self._row_bucket_ids if int(bucket_id) in bucket_set
             ),
             "candidate_index_count": len(candidates),
             "match_indices": candidates,
@@ -81,19 +85,50 @@ class _SyntheticMemoryStore:
             "fallback_reason": None if candidates else "empty_query_candidate_window",
         }
 
-    def replay_entry(
+    def query_match_row(
         self,
         idx: int,
         current_token: int | None = None,
         *,
         include_text_payload: bool = False,
     ) -> dict[str, Any]:
-        self.replay_entry_calls.append(int(idx))
-        base = self.slow_raw_windows[int(idx)]
+        _ = current_token
+        index = int(idx)
+        self.query_match_row_calls.append((index, bool(include_text_payload)))
+        base = self._row_texts[index]
         text = " ".join(base for _ in range(self.payload_repeats))
-        if not include_text_payload:
-            return {"text": None, "raw_window": None, "metadata": None}
-        return {"text": text, "raw_window": base, "metadata": {}}
+        row: dict[str, Any] = {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": index,
+            "read_only": True,
+            "assembly": self._row_assemblies[index],
+            "input_pattern": self._row_input_patterns[index],
+            "routing_key": self._row_routing_keys[index],
+            "bucket_id": self._row_bucket_ids[index],
+            "importance": self._row_importance[index],
+            "capture_tag": 0.0,
+            "capture_strength": 0.0,
+            "prp_level": 0.0,
+            "consolidation_level": self._row_consolidation_level[index],
+            "replay_count": self._row_replay_count[index],
+            "age_tokens": int(max(0, int(current_token or 0) - int(self._row_timestamps[index]))),
+            "raw_window": None,
+            "text": None,
+            "metadata": None,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
+        if include_text_payload:
+            row.update(
+                {
+                    "text": text,
+                    "raw_window": base,
+                    "metadata": {},
+                    "raw_text_payload_loaded": True,
+                }
+            )
+        return row
 
     def record_bank_memory_match_report(self, report: dict[str, Any]) -> dict[str, Any]:
         self.last_bank_memory_match_report = dict(report)
@@ -205,7 +240,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     def legacy_call() -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        trainer.model.memory_store.replay_entry_calls = []
+        trainer.model.memory_store.query_match_row_calls = []
         return _diagnostic_legacy_bank_memory_matches_no_cache(
             trainer,
             bank,
@@ -215,7 +250,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     def bounded_call() -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        trainer.model.memory_store.replay_entry_calls = []
+        trainer.model.memory_store.query_match_row_calls = []
         return bank_memory_matches_with_report(
             trainer,
             bank,
@@ -244,6 +279,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     passed = (
         legacy_indices == bounded_indices
         and int(bounded_report.get("raw_text_payload_count", 0)) <= len(set(bounded_indices))
+        and bool(bounded_report.get("source_bank_row_reader_owned_by_store"))
+        and not bool(bounded_report.get("replay_entry_reader_used"))
+        and bool(bounded_report.get("direct_slow_memory_array_reads_retired"))
+        and not bool(bounded_report.get("stc_state_advance"))
         and not bool(bounded_report.get("global_candidate_scan"))
         and not bool(bounded_report.get("global_score_scan"))
         and not bool(bounded_report.get("runs_live_tick"))

@@ -43,6 +43,7 @@ class _BenchmarkFrontierStore:
             self._consolidation,
         )
         self.collect_calls = 0
+        self.query_match_row_calls: list[tuple[int, bool]] = []
 
     def _raw_window(self, index: int) -> str:
         if index in self.frontier_indices:
@@ -59,9 +60,41 @@ class _BenchmarkFrontierStore:
     def _consolidation(self, index: int) -> float:
         return 0.05 if index in self.frontier_indices else 0.90
 
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
+    def query_match_row(
+        self,
+        index: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
         _ = current_token
-        return float(self.slow_capture_tag[int(idx)])
+        idx = int(index)
+        self.query_match_row_calls.append((idx, bool(include_text_payload)))
+        raw_window = self.slow_raw_windows[idx]
+        capture = float(self.slow_capture_tag[idx])
+        row: dict[str, Any] = {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": idx,
+            "read_only": True,
+            "importance": float(self.slow_importance[idx]),
+            "capture_tag": capture,
+            "capture_strength": capture,
+            "consolidation_level": float(self.slow_consolidation_level[idx]),
+            "raw_window": None,
+            "text": None,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
+        if include_text_payload:
+            row.update(
+                {
+                    "raw_window": raw_window,
+                    "text": raw_window,
+                    "raw_text_payload_loaded": bool(raw_window),
+                }
+            )
+        return row
 
     def collect_frontier_gap_indices(
         self,
@@ -242,6 +275,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         quality_min >= float(args.min_quality)
         and not bool(selection_report.get("global_candidate_scan"))
         and not bool(selection_report.get("global_score_scan"))
+        and bool(selection_report.get("frontier_row_reader_owned_by_store"))
+        and bool(selection_report.get("direct_slow_memory_array_reads_retired"))
+        and not bool(selection_report.get("effective_capture_reader_used"))
+        and not bool(selection_report.get("stc_state_advance"))
         and int(selection_report.get("candidate_index_count", 0) or 0) <= candidate_window
     )
     missing_collector = _missing_collector_gate(int(args.capacity))

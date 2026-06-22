@@ -184,28 +184,26 @@ def _bank_candidate_bucket_ids(
     ]
 
 
-def _candidate_evidence_pattern(store: Any, idx: int) -> torch.Tensor | None:
-    for values_name in ("slow_routing_keys", "slow_input_patterns", "slow_buffer"):
-        values = getattr(store, values_name, [])
-        try:
-            values_count = len(values)
-        except TypeError:
-            continue
-        if idx < 0 or idx >= values_count:
-            continue
-        value = values[idx]
+def _row_evidence_pattern(row: Mapping[str, Any]) -> torch.Tensor | None:
+    for key in ("routing_key", "input_pattern", "assembly"):
+        value = row.get(key)
         if isinstance(value, torch.Tensor):
-            return value.detach().float().cpu()
+            vector = value.detach().float().cpu()
+            if float(vector.norm().item()) > 1e-8:
+                return vector
     return None
 
 
-def _safe_sequence_value(values: Any, idx: int, default: Any = None) -> Any:
-    try:
-        if idx < 0 or idx >= len(values):
-            return default
-        return values[idx]
-    except (TypeError, IndexError):
-        return default
+def _store_memory_size(store: Any, current_token: int | None = None) -> int:
+    summary = getattr(store, "live_summary_stats", None)
+    if callable(summary):
+        try:
+            report = summary(current_token=current_token)
+            if isinstance(report, Mapping):
+                return max(0, int(report.get("size", 0) or 0))
+        except (TypeError, ValueError, AttributeError):
+            return 0
+    return 0
 
 
 def bank_memory_matches_with_report(
@@ -218,7 +216,11 @@ def bank_memory_matches_with_report(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     started_time = time.perf_counter()
     store = getattr(getattr(trainer, "model", None), "memory_store", None)
-    memory_size = int(len(getattr(store, "slow_buffer", []))) if store is not None else 0
+    memory_size = (
+        _store_memory_size(store, getattr(trainer, "token_count", None))
+        if store is not None
+        else 0
+    )
     bank_name = str(getattr(bank, "name", ""))
     if trainer is None or store is None:
         report = _empty_bank_memory_match_report(
@@ -256,6 +258,27 @@ def bank_memory_matches_with_report(
             max_matches=max_matches,
             fallback_reason="memory_store_missing_bounded_query_match_collector",
             latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        _record_bank_memory_match_report(trainer, report)
+        return [], report
+    query_row_reader = getattr(store, "query_match_row", None)
+    if not callable(query_row_reader):
+        report = _empty_bank_memory_match_report(
+            bank_name=bank_name,
+            memory_size=memory_size,
+            requested_probe_count=probe_samples,
+            memories_per_probe=memories_per_probe,
+            max_matches=max_matches,
+            fallback_reason="memory_store_missing_bounded_query_match_row_reader",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+        )
+        report.update(
+            {
+                "source_bank_row_surface": "bounded_query_memory_match_row.v1",
+                "source_bank_row_reader_owned_by_store": False,
+                "direct_slow_memory_array_reads_retired": True,
+                "replay_entry_reader_used": False,
+            }
         )
         _record_bank_memory_match_report(trainer, report)
         return [], report
@@ -353,7 +376,7 @@ def bank_memory_matches_with_report(
     candidate_indices = [
         int(index)
         for index in candidate_report.get("match_indices", [])
-        if 0 <= int(index) < len(getattr(store, "slow_buffer", []))
+        if int(index) >= 0
     ]
     if not candidate_indices:
         report = _empty_bank_memory_match_report(
@@ -386,8 +409,56 @@ def bank_memory_matches_with_report(
 
     candidate_vectors: list[torch.Tensor] = []
     vector_candidate_indices: list[int] = []
+    candidate_row_cache: dict[int, dict[str, Any]] = {}
+    source_bank_row_read_count = 0
+    source_bank_row_cache_hits = 0
+    invalid_source_bank_row_count = 0
+    source_bank_candidate_row_read_count = 0
+    source_bank_text_row_read_count = 0
+    raw_text_payload_count = 0
+    raw_text_payload_cache_hits = 0
+
+    def _read_source_bank_row(idx: int, *, include_text_payload: bool) -> dict[str, Any] | None:
+        nonlocal source_bank_row_read_count
+        nonlocal source_bank_row_cache_hits
+        nonlocal invalid_source_bank_row_count
+        nonlocal raw_text_payload_count
+        nonlocal raw_text_payload_cache_hits
+        cached = candidate_row_cache.get(int(idx))
+        if cached is not None and (
+            not include_text_payload or bool(cached.get("raw_text_payload_loaded"))
+        ):
+            source_bank_row_cache_hits += 1
+            if include_text_payload:
+                raw_text_payload_cache_hits += 1
+            return cached
+        try:
+            row = query_row_reader(
+                int(idx),
+                current_token=trainer.token_count,
+                include_text_payload=include_text_payload,
+            )
+        except (TypeError, ValueError, IndexError, KeyError):
+            invalid_source_bank_row_count += 1
+            return None
+        source_bank_row_read_count += 1
+        row = dict(row)
+        previous = candidate_row_cache.get(int(idx))
+        if previous is not None:
+            merged = dict(previous)
+            merged.update(row)
+            row = merged
+        candidate_row_cache[int(idx)] = row
+        if include_text_payload and bool(row.get("raw_text_payload_loaded")):
+            raw_text_payload_count += 1
+        return row
+
     for idx in candidate_indices:
-        evidence_pattern = _candidate_evidence_pattern(store, idx)
+        source_bank_candidate_row_read_count += 1
+        candidate_row = _read_source_bank_row(idx, include_text_payload=False)
+        if candidate_row is None:
+            continue
+        evidence_pattern = _row_evidence_pattern(candidate_row)
         if evidence_pattern is None or float(evidence_pattern.norm().item()) <= 1e-8:
             continue
         candidate_vectors.append(evidence_pattern)
@@ -442,6 +513,7 @@ def bank_memory_matches_with_report(
                     "memory_index": idx,
                     "similarity": similarity,
                     "evidence_pattern": candidate_vectors[position],
+                    "importance": float(candidate_row_cache.get(idx, {}).get("importance", 0.0) or 0.0),
                     "replay_priority": float(replay_scores.get(idx, 0.0)),
                     "probe_indices": [int(probe_idx)],
                 }
@@ -459,34 +531,30 @@ def bank_memory_matches_with_report(
         key=lambda item: (
             float(item.get("similarity", 0.0)),
             float(item.get("replay_priority", 0.0)),
-            float(_safe_sequence_value(getattr(store, "slow_importance", []), int(item["memory_index"]), 0.0) or 0.0),
+            float(item.get("importance", 0.0) or 0.0),
             -int(item["memory_index"]),
         ),
         reverse=True,
     )
     selected_rows = ranked_rows[:returned_limit]
     representation = getattr(getattr(trainer, "config", None), "input_representation", "order_weighted_ascii")
-    raw_text_payload_count = 0
     returned: list[dict[str, Any]] = []
     for row in selected_rows:
         idx = int(row["memory_index"])
-        replay_entry = store.replay_entry(idx, current_token=trainer.token_count, include_text_payload=True)
-        raw_text_payload_count += 1
+        source_bank_text_row_read_count += 1
+        replay_entry = _read_source_bank_row(idx, include_text_payload=True)
+        if replay_entry is None:
+            continue
         replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
-        text = replay_entry.get("text") or _safe_sequence_value(getattr(store, "slow_raw_windows", []), idx, "")
-        raw_window = replay_entry.get("raw_window") or _safe_sequence_value(getattr(store, "slow_raw_windows", []), idx, "")
-        consolidation_level = float(
-            replay_entry.get(
-                "consolidation_level",
-                _safe_sequence_value(getattr(store, "slow_consolidation_level", []), idx, 0.0) or 0.0,
-            )
-        )
+        text = replay_entry.get("text") or replay_entry.get("raw_window") or ""
+        raw_window = replay_entry.get("raw_window") or text
+        consolidation_level = float(replay_entry.get("consolidation_level", 0.0) or 0.0)
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
         returned.append(
             {
                 "memory_index": idx,
                 "similarity": float(row.get("similarity", 0.0)),
-                "bucket_id": _safe_sequence_value(getattr(store, "slow_bucket_ids", []), idx),
+                "bucket_id": replay_entry.get("bucket_id"),
                 "raw_window": raw_window,
                 "text": text,
                 "metadata": dict(replay_metadata),
@@ -494,20 +562,16 @@ def bank_memory_matches_with_report(
                 "source_type": " ".join(str(replay_metadata.get("source_type", "")).split()).strip(),
                 "provider": " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower(),
                 "age_tokens": int(
-                    max(
-                        0,
-                        int(getattr(trainer, "token_count", 0))
-                        - int(_safe_sequence_value(getattr(store, "slow_entry_timestamps", []), idx, 0) or 0),
-                    )
+                    max(0, int(replay_entry.get("age_tokens", 0) or 0))
                 ),
-                "importance": float(_safe_sequence_value(getattr(store, "slow_importance", []), idx, 0.0) or 0.0),
+                "importance": float(replay_entry.get("importance", 0.0) or 0.0),
                 "tag_strength": float(replay_entry.get("capture_tag", 0.0)),
                 "capture_tag": float(replay_entry.get("capture_tag", 0.0)),
                 "prp_level": float(replay_entry.get("prp_level", 0.0)),
                 "capture_strength": float(replay_entry.get("capture_strength", 0.0)),
                 "consolidation_level": consolidation_level,
                 "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
-                "replay_count": int(_safe_sequence_value(getattr(store, "slow_replay_count", []), idx, 0) or 0),
+                "replay_count": int(replay_entry.get("replay_count", 0) or 0),
                 "replay_priority": float(row.get("replay_priority", 0.0)),
                 "top_chars": top_feature_details(row["evidence_pattern"], 1, representation)
                 if isinstance(row.get("evidence_pattern"), torch.Tensor)
@@ -555,8 +619,19 @@ def bank_memory_matches_with_report(
         "returned_count": int(len(returned)),
         "raw_text_payload_loaded": bool(raw_text_payload_count > 0),
         "raw_text_payload_count": int(raw_text_payload_count),
-        "raw_text_payload_cache_hits": 0,
+        "raw_text_payload_cache_hits": int(raw_text_payload_cache_hits),
         "raw_text_payload_policy": "returned_merged_probe_matches_only",
+        "source_bank_row_surface": "bounded_query_memory_match_row.v1",
+        "source_bank_row_access_policy": "explicit_bounded_source_bank_candidate_indices_only",
+        "source_bank_row_reader_owned_by_store": True,
+        "source_bank_row_read_count": int(source_bank_row_read_count),
+        "source_bank_row_cache_hits": int(source_bank_row_cache_hits),
+        "source_bank_row_invalid_index_count": int(invalid_source_bank_row_count),
+        "source_bank_candidate_row_read_count": int(source_bank_candidate_row_read_count),
+        "source_bank_text_payload_row_read_count": int(source_bank_text_row_read_count),
+        "direct_slow_memory_array_reads_retired": True,
+        "replay_entry_reader_used": False,
+        "stc_state_advance": False,
         "global_score_scan": bool(candidate_report.get("global_score_scan")),
         "global_candidate_scan": bool(candidate_report.get("global_candidate_scan")),
         "runs_live_tick": False,
@@ -578,6 +653,9 @@ def bank_memory_matches_with_report(
             "candidate_window_limit": int(candidate_limit),
             "candidate_window_cap": int(SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT),
             "raw_text_payload_policy": "returned_merged_probe_matches_only",
+            "source_bank_candidate_row_read_budget_entries": int(len(candidate_indices)),
+            "source_bank_text_payload_row_read_budget_entries": int(returned_limit),
+            "source_bank_total_row_read_budget_entries": int(len(candidate_indices) + returned_limit),
         },
         "probe_reports": probe_reports,
     }
@@ -598,7 +676,11 @@ def bank_gap_plan(
         store = getattr(getattr(trainer, "model", None), "memory_store", None)
         memory_match_report = _empty_bank_memory_match_report(
             bank_name=str(getattr(bank, "name", "")),
-            memory_size=int(len(getattr(store, "slow_buffer", []))) if store is not None else 0,
+            memory_size=(
+                _store_memory_size(store, getattr(trainer, "token_count", None))
+                if store is not None
+                else 0
+            ),
             requested_probe_count=probe_samples,
             memories_per_probe=memories_per_probe,
             max_matches=1,

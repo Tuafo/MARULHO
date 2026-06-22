@@ -115,7 +115,7 @@ class _IndexOnlyKeys:
         return len(self._values)
 
     def __iter__(self):
-        raise AssertionError("frontier metrics must not scan all slow_routing_keys")
+        raise AssertionError("frontier metrics must not scan all row routing keys")
 
 
 class _FrontierRoutingIndex:
@@ -130,8 +130,8 @@ class _FrontierRoutingIndex:
 
 class _FrontierMemoryStore:
     def __init__(self) -> None:
-        self.slow_buffer = [torch.zeros(2) for _ in range(6)]
-        self.slow_routing_keys = _IndexOnlyKeys(
+        self._row_assemblies = [torch.zeros(2) for _ in range(6)]
+        self._row_routing_keys = _IndexOnlyKeys(
             [
                 torch.tensor([1.0, 0.0]),
                 torch.tensor([0.99, 0.01]),
@@ -141,8 +141,13 @@ class _FrontierMemoryStore:
                 torch.tensor([0.0, -1.0]),
             ]
         )
-        self.slow_consolidation_level = [0.9, 0.2, 0.8, 0.4, 0.1, 0.1]
+        self._row_consolidation_level = [0.9, 0.2, 0.8, 0.4, 0.1, 0.1]
         self.collect_calls: list[dict[str, object]] = []
+        self.query_match_row_calls: list[tuple[int, bool]] = []
+
+    def live_summary_stats(self, current_token: int | None = None) -> dict[str, object]:
+        _ = current_token
+        return {"size": len(self._row_assemblies)}
 
     def collect_query_memory_match_indices(self, *, candidate_bucket_ids, max_candidates: int, scope: str):
         self.collect_calls.append(
@@ -156,7 +161,7 @@ class _FrontierMemoryStore:
             "surface": "bounded_query_memory_match_candidates.v1",
             "status": "collected",
             "scope": scope,
-            "memory_size": len(self.slow_buffer),
+            "memory_size": len(self._row_assemblies),
             "requested_count": int(max_candidates),
             "candidate_window_limit": int(max_candidates),
             "candidate_window_policy": "recent_bucket_round_robin_candidate_pool",
@@ -174,8 +179,31 @@ class _FrontierMemoryStore:
             "archival_storage_device": "cpu",
         }
 
-    def _effective_capture_strength(self, index: int, current_token: int) -> float:
-        return {1: 0.8, 3: 0.6}.get(int(index), 0.0)
+    def query_match_row(
+        self,
+        index: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, object]:
+        _ = current_token, include_text_payload
+        idx = int(index)
+        self.query_match_row_calls.append((idx, bool(include_text_payload)))
+        capture = {1: 0.8, 3: 0.6}.get(idx, 0.0)
+        return {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": idx,
+            "read_only": True,
+            "routing_key": self._row_routing_keys[idx],
+            "input_pattern": self._row_routing_keys[idx],
+            "assembly": self._row_assemblies[idx],
+            "capture_tag": capture,
+            "capture_strength": capture,
+            "consolidation_level": self._row_consolidation_level[idx],
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
 
 
 class AutonomySelectionTests(unittest.TestCase):
@@ -212,6 +240,12 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
         self.assertEqual(report["candidate_index_count"], 2)
         self.assertEqual(report["score_count"], 2)
+        self.assertEqual(report["frontier_row_surface"], "bounded_query_memory_match_row.v1")
+        self.assertTrue(report["frontier_row_reader_owned_by_store"])
+        self.assertEqual(report["frontier_row_read_count"], 2)
+        self.assertTrue(report["direct_slow_memory_array_reads_retired"])
+        self.assertFalse(report["effective_capture_reader_used"])
+        self.assertFalse(report["stc_state_advance"])
         self.assertEqual(report["source_probe_count"], 40)
         self.assertEqual(report["source_probe_window_limit"], 16)
         self.assertEqual(report["source_probe_index_count"], 16)
@@ -223,6 +257,7 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertFalse(report["runs_live_tick"])
         self.assertEqual(report["selection_budget"]["candidate_window_entries"], 32)
         self.assertEqual(store.collect_calls[0]["candidate_bucket_ids"], [1, 3])
+        self.assertEqual(store.query_match_row_calls, [(1, False), (3, False)])
 
     def test_probe_gap_exposes_bank_memory_match_report(self) -> None:
         bank_report = {

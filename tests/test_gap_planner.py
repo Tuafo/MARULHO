@@ -13,17 +13,17 @@ from marulho.semantics.frontier import build_bank_query_text
 
 
 class _FrontierCollectorMixin:
-    slow_raw_windows: list[str]
+    _row_texts: list[str]
 
     def collect_frontier_gap_indices(self, *, current_token: int, max_candidates: int, scope: str) -> dict[str, object]:
         _ = current_token
         limit = max(0, int(max_candidates))
-        indices = list(range(min(len(self.slow_raw_windows), limit)))
+        indices = list(range(min(len(self._row_texts), limit)))
         return {
             "surface": "bounded_frontier_gap_candidates.v1",
             "status": "collected" if indices else "empty",
             "scope": str(scope),
-            "memory_size": len(self.slow_raw_windows),
+            "memory_size": len(self._row_texts),
             "current_token": int(current_token),
             "requested_count": int(max_candidates),
             "candidate_window_limit": int(max_candidates),
@@ -31,8 +31,8 @@ class _FrontierCollectorMixin:
             "candidate_scope": "test_bounded_fixture_window",
             "candidate_bucket_ids": [],
             "candidate_bucket_count": 0,
-            "candidate_index_available_count": len(self.slow_raw_windows),
-            "candidate_index_available_count_is_lower_bound": len(self.slow_raw_windows) > len(indices),
+            "candidate_index_available_count": len(self._row_texts),
+            "candidate_index_available_count_is_lower_bound": len(self._row_texts) > len(indices),
             "candidate_index_count": len(indices),
             "candidate_indices": indices,
             "global_score_scan": False,
@@ -46,92 +46,87 @@ class _FrontierCollectorMixin:
             "fallback_reason": None,
         }
 
+    def query_match_row(
+        self,
+        index: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, object]:
+        _ = current_token
+        idx = int(index)
+        raw_window = self._row_texts[idx]
+        capture = float(self._row_capture_tag[idx])
+        row: dict[str, object] = {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": idx,
+            "read_only": True,
+            "importance": float(self._row_importance[idx]),
+            "capture_tag": capture,
+            "capture_strength": capture,
+            "consolidation_level": float(self._row_consolidation_level[idx]),
+            "raw_window": None,
+            "text": None,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
+        if include_text_payload:
+            row.update(
+                {
+                    "raw_window": raw_window,
+                    "text": raw_window,
+                    "raw_text_payload_loaded": bool(raw_window),
+                }
+            )
+        return row
+
 
 class _FakeMemoryStore(_FrontierCollectorMixin):
     def __init__(self) -> None:
-        self.slow_raw_windows = [
+        self._row_texts = [
             "river bank current water",
             "credit loan deposit account",
             "shore reeds current mud",
         ]
-        self.slow_importance = [0.5, 1.0, 0.4]
-        self.slow_capture_tag = [0.2, 0.9, 0.1]
-        self.slow_consolidation_level = [0.8, 0.1, 0.9]
-
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
-        _ = current_token
-        return float(self.slow_capture_tag[idx])
+        self._row_importance = [0.5, 1.0, 0.4]
+        self._row_capture_tag = [0.2, 0.9, 0.1]
+        self._row_consolidation_level = [0.8, 0.1, 0.9]
 
 
 class _FragmentMemoryStore(_FrontierCollectorMixin):
     def __init__(self) -> None:
-        self.slow_raw_windows = [
+        self._row_texts = [
             "t-sellers,",
             "rs - Short",
             "rt-sellers",
             "ort-seller",
         ]
-        self.slow_importance = [0.8, 0.9, 0.7, 0.6]
-        self.slow_capture_tag = [0.8, 0.9, 0.7, 0.6]
-        self.slow_consolidation_level = [0.1, 0.2, 0.3, 0.2]
-
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
-        _ = current_token
-        return float(self.slow_capture_tag[idx])
+        self._row_importance = [0.8, 0.9, 0.7, 0.6]
+        self._row_capture_tag = [0.8, 0.9, 0.7, 0.6]
+        self._row_consolidation_level = [0.1, 0.2, 0.3, 0.2]
 
 
 class _PrefixMemoryStore(_FrontierCollectorMixin):
     def __init__(self) -> None:
-        self.slow_raw_windows = [
+        self._row_texts = [
             "neut",
             "neutr",
             "neutra",
             "neutral signal",
         ]
-        self.slow_importance = [0.8, 0.9, 0.7, 1.0]
-        self.slow_capture_tag = [0.8, 0.9, 0.7, 1.0]
-        self.slow_consolidation_level = [0.1, 0.2, 0.3, 0.2]
-
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
-        _ = current_token
-        return float(self.slow_capture_tag[idx])
-
-
-class _IndexOnlySequence:
-    def __init__(self, size: int, values: dict[int, object], default: object) -> None:
-        self.size = int(size)
-        self.values = dict(values)
-        self.default = default
-
-    def __len__(self) -> int:
-        return self.size
-
-    def __getitem__(self, index: int) -> object:
-        if int(index) < 0 or int(index) >= self.size:
-            raise IndexError(index)
-        return self.values.get(int(index), self.default)
-
-    def __iter__(self):
-        raise AssertionError("frontier planning must not iterate the full archive")
+        self._row_importance = [0.8, 0.9, 0.7, 1.0]
+        self._row_capture_tag = [0.8, 0.9, 0.7, 1.0]
+        self._row_consolidation_level = [0.1, 0.2, 0.3, 0.2]
 
 
 class _MissingCollectorMemoryStore:
     def __init__(self) -> None:
-        self.slow_raw_windows = _IndexOnlySequence(
-            65_536,
-            {
-                65_520: "credit loan deposit account",
-                12: "river bank current water",
-            },
-            "",
-        )
-        self.slow_importance = _IndexOnlySequence(65_536, {65_520: 1.0}, 0.0)
-        self.slow_capture_tag = _IndexOnlySequence(65_536, {65_520: 0.9}, 0.0)
-        self.slow_consolidation_level = _IndexOnlySequence(65_536, {65_520: 0.1}, 0.0)
+        self.size = 65_536
 
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
+    def live_summary_stats(self, current_token: int | None = None) -> dict[str, object]:
         _ = current_token
-        return float(self.slow_capture_tag[idx])
+        return {"size": self.size}
 
 
 class _BoundedFrontierMemoryStore:
@@ -139,30 +134,14 @@ class _BoundedFrontierMemoryStore:
         self.size = 65_536
         self.selected_indices = [65_520, 12, 65_534]
         self.collect_calls = 0
-        self.slow_raw_windows = _IndexOnlySequence(
-            self.size,
-            {
-                65_520: "credit loan deposit account",
-                12: "river bank current water",
-                65_534: "shore reeds current mud",
-            },
-            "",
-        )
-        self.slow_importance = _IndexOnlySequence(
-            self.size,
-            {65_520: 1.0, 12: 0.4, 65_534: 0.3},
-            0.0,
-        )
-        self.slow_capture_tag = _IndexOnlySequence(
-            self.size,
-            {65_520: 0.9, 12: 0.2, 65_534: 0.1},
-            0.0,
-        )
-        self.slow_consolidation_level = _IndexOnlySequence(
-            self.size,
-            {65_520: 0.1, 12: 0.8, 65_534: 0.9},
-            0.0,
-        )
+        self._row_text_by_index = {
+            65_520: "credit loan deposit account",
+            12: "river bank current water",
+            65_534: "shore reeds current mud",
+        }
+        self._row_importance_by_index = {65_520: 1.0, 12: 0.4, 65_534: 0.3}
+        self._row_capture_by_index = {65_520: 0.9, 12: 0.2, 65_534: 0.1}
+        self._row_consolidation_by_index = {65_520: 0.1, 12: 0.8, 65_534: 0.9}
 
     def collect_frontier_gap_indices(self, *, current_token: int, max_candidates: int, scope: str) -> dict[str, object]:
         self.collect_calls += 1
@@ -194,9 +173,40 @@ class _BoundedFrontierMemoryStore:
             "fallback_reason": None,
         }
 
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
+    def query_match_row(
+        self,
+        index: int,
+        current_token: int | None = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, object]:
         _ = current_token
-        return float(self.slow_capture_tag[idx])
+        idx = int(index)
+        raw_window = self._row_text_by_index.get(idx, "")
+        capture = float(self._row_capture_by_index.get(idx, 0.0))
+        row: dict[str, object] = {
+            "surface": "bounded_query_memory_match_row.v1",
+            "memory_index": idx,
+            "read_only": True,
+            "importance": float(self._row_importance_by_index.get(idx, 0.0)),
+            "capture_tag": capture,
+            "capture_strength": capture,
+            "consolidation_level": float(self._row_consolidation_by_index.get(idx, 0.0)),
+            "raw_window": None,
+            "text": None,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+        }
+        if include_text_payload:
+            row.update(
+                {
+                    "raw_window": raw_window,
+                    "text": raw_window,
+                    "raw_text_payload_loaded": bool(raw_window),
+                }
+            )
+        return row
 
 
 class GapPlannerTests(unittest.TestCase):
@@ -336,6 +346,12 @@ class GapPlannerTests(unittest.TestCase):
         self.assertFalse(report["global_candidate_scan"])
         self.assertFalse(report["global_score_scan"])
         self.assertTrue(report["raw_text_payload_loaded"])
+        self.assertEqual(report["frontier_row_surface"], "bounded_query_memory_match_row.v1")
+        self.assertTrue(report["frontier_row_reader_owned_by_store"])
+        self.assertEqual(report["frontier_row_read_count"], len(store.selected_indices))
+        self.assertTrue(report["direct_slow_memory_array_reads_retired"])
+        self.assertFalse(report["effective_capture_reader_used"])
+        self.assertFalse(report["stc_state_advance"])
         self.assertFalse(report["language_reasoning"])
 
     def test_frontier_gap_plan_reconstructs_phrase_queries_from_fragment_windows(self) -> None:

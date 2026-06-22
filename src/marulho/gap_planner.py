@@ -321,22 +321,6 @@ def plan_query_gaps(
     }
 
 
-def _sequence_len(value: Any) -> int:
-    try:
-        return max(0, int(len(value)))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _sequence_value(value: Any, index: int, default: Any = None) -> Any:
-    try:
-        if int(index) < 0 or int(index) >= len(value):
-            return default
-        return value[int(index)]
-    except (TypeError, ValueError, IndexError, KeyError):
-        return default
-
-
 def _empty_frontier_candidate_report(
     *,
     memory_size: int,
@@ -396,9 +380,15 @@ def _frontier_candidate_report(
             )
         )
 
-    windows = getattr(memory_store, "slow_raw_windows", None)
+    memory_size = 0
+    summary = getattr(memory_store, "live_summary_stats", None)
+    if callable(summary):
+        try:
+            memory_size = int((summary(current_token=int(current_token)) or {}).get("size", 0))
+        except (TypeError, ValueError, AttributeError):
+            memory_size = 0
     return _empty_frontier_candidate_report(
-        memory_size=_sequence_len(windows),
+        memory_size=memory_size,
         current_token=current_token,
         requested_count=requested_count,
         fallback_reason="memory_store_missing_bounded_frontier_collector",
@@ -425,29 +415,57 @@ def _frontier_scored_entries_with_report(
         for index in list(candidate_report.get("candidate_indices") or [])
         if int(index) >= 0
     ]
-    windows = getattr(memory_store, "slow_raw_windows", None) if memory_store is not None else None
-    importance_values = getattr(memory_store, "slow_importance", None) if memory_store is not None else None
-    capture_values = getattr(memory_store, "slow_capture_tag", None) if memory_store is not None else None
-    consolidation_values = (
-        getattr(memory_store, "slow_consolidation_level", None)
-        if memory_store is not None
-        else None
-    )
+    row_reader = getattr(memory_store, "query_match_row", None) if memory_store is not None else None
+    if candidate_indices and not callable(row_reader):
+        selection_report = {
+            **candidate_report,
+            "surface": "bounded_frontier_gap_selection.v1",
+            "status": "empty",
+            "score_count": 0,
+            "selected_indices": [],
+            "selected_count": 0,
+            "frontier_window_count": 0,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_count": 0,
+            "raw_text_payload_policy": "selected_frontier_candidate_indices_only",
+            "frontier_row_surface": "bounded_query_memory_match_row.v1",
+            "frontier_row_reader_owned_by_store": False,
+            "frontier_row_read_count": 0,
+            "frontier_row_invalid_index_count": 0,
+            "direct_slow_memory_array_reads_retired": True,
+            "effective_capture_reader_used": False,
+            "stc_state_advance": False,
+            "language_reasoning": False,
+            "quality_metric": "frontier_pressure_score_over_bounded_candidates",
+            "fallback_reason": "memory_store_missing_bounded_frontier_row_reader",
+        }
+        return [], selection_report
 
     scored_entries: list[tuple[float, str, int]] = []
+    row_read_count = 0
+    invalid_row_count = 0
     text_payload_count = 0
     for idx in candidate_indices:
-        raw_window = _sequence_value(windows, idx)
+        try:
+            row = row_reader(
+                int(idx),
+                current_token=int(current_token),
+                include_text_payload=True,
+            )
+        except (TypeError, ValueError, IndexError, KeyError):
+            invalid_row_count += 1
+            continue
+        row_read_count += 1
+        row = dict(row)
+        raw_window = row.get("raw_window") or row.get("text") or ""
         text = _normalize_text(raw_window)
         if not text:
             continue
-        text_payload_count += 1
-        importance = float(_sequence_value(importance_values, idx, 0.0) or 0.0)
-        if hasattr(memory_store, "_effective_capture_strength"):
-            capture = float(memory_store._effective_capture_strength(idx, current_token))
-        else:
-            capture = float(_sequence_value(capture_values, idx, 0.0) or 0.0)
-        consolidation = float(_sequence_value(consolidation_values, idx, 0.0) or 0.0)
+        if bool(row.get("raw_text_payload_loaded")):
+            text_payload_count += 1
+        importance = float(row.get("importance", 0.0) or 0.0)
+        capture = float(row.get("capture_strength", row.get("capture_tag", 0.0)) or 0.0)
+        consolidation = float(row.get("consolidation_level", 0.0) or 0.0)
         frontier_pressure = max(0.0, capture - consolidation) + 0.5 * max(0.0, 1.0 - consolidation)
         score = max(1e-6, importance) * (1.0 + frontier_pressure)
         scored_entries.append((score, text, int(idx)))
@@ -469,9 +487,22 @@ def _frontier_scored_entries_with_report(
         "raw_text_payload_loaded": bool(text_payload_count > 0),
         "raw_text_payload_count": int(text_payload_count),
         "raw_text_payload_policy": "selected_frontier_candidate_indices_only",
+        "frontier_row_surface": "bounded_query_memory_match_row.v1",
+        "frontier_row_access_policy": "explicit_bounded_frontier_candidate_indices_only",
+        "frontier_row_reader_owned_by_store": True,
+        "frontier_row_read_count": int(row_read_count),
+        "frontier_row_invalid_index_count": int(invalid_row_count),
+        "direct_slow_memory_array_reads_retired": True,
+        "effective_capture_reader_used": False,
+        "stc_state_advance": False,
         "language_reasoning": False,
         "quality_metric": "frontier_pressure_score_over_bounded_candidates",
         "fallback_reason": fallback_reason,
+        "selection_budget": {
+            **dict(candidate_report.get("selection_budget") or {}),
+            "frontier_row_read_budget_entries": int(len(candidate_indices)),
+            "frontier_text_payload_budget_entries": int(len(candidate_indices)),
+        },
     }
     return selected_entries, selection_report
 

@@ -2030,3 +2030,26 @@ the same noisy band at `5943.110 tokens/sec` with route scoring bounded to
 `12/65536`, `65526` cached transition rows, CUDA active on the RTX 3060, and
 zero graph/native/sequence failures. This boundary does not change the live
 column tick or the explicit mutating replay/consolidation path.
+
+## Semantic Frontier Row Boundary
+
+Semantic/source-frontier recall now has the same single row boundary as query
+recall after candidate selection. `DualMemoryStore.query_match_row(...)` owns
+source-bank text rows, frontier-gap scoring rows, and concept-frontier
+capture/consolidation rows under `bounded_query_memory_match_row.v1`.
+`bank_memory_matches_with_report(...)`, `frontier_gap_plan(...)`, and
+`concept_frontier_metrics_with_report(...)` consume that surface instead of
+`replay_entry(...)`, direct `slow_*` archive arrays, or
+`_effective_capture_strength(...)`.
+
+This is CPU archival/source work, not live column execution. The source-bank
+report read `196` store-owned rows on a `65536`-entry store, preserved
+selected-index parity at `1.0`, loaded raw text only for `4` returned rows, and
+reduced mean latency from `958.681 ms` to `160.781 ms`. The frontier-gap
+report read `192/65536` rows, preserved term recall at `1.0`, and reduced mean
+latency from `229.118 ms` to `8.897 ms`. The concept-frontier report passed
+bounded-scan, quality, latency, and live-tick gates with `64` row reads at
+`8192` capacity. All three reports state no direct slow-memory row reads, no
+mutating replay-entry reader, no STC advance, no live tick, and CPU archival
+placement. The paired long hot-path check for this exact tree is recorded in
+the hot-path benchmark note when complete.

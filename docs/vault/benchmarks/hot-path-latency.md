@@ -5807,3 +5807,59 @@ kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060,
 and recorded zero graph/native/sequence failures. Velocity reported GPU-side
 contention (`max_gpu=26%`), so the two-run claim is same-band protection, not a
 new speed ceiling.
+
+## Semantic Frontier Row-Reader Protection
+
+This run protects the live tick after retiring semantic/source-frontier direct
+archive row readers. Source-bank semantic recall, frontier-gap planning, and
+concept-frontier metrics now use `DualMemoryStore.query_match_row(...)` after
+bounded candidate selection; production semantic/frontier code no longer uses
+`replay_entry(...)`, direct `slow_*` row reads, or
+`_effective_capture_strength(...)`.
+
+Focused quality/latency:
+
+`python -m marulho.evaluation.source_bank_memory_match_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\source-bank-store-owned-row-reader.json --capacity 65536 --bucket-count 16 --probe-samples 8 --memories-per-probe 4 --max-matches 16 --payload-repeats 24 --iterations 32`
+
+Result: `passed=true`; selected-index parity stayed `1.0`, raw text loaded
+only for `4` returned rows, `196` store-owned rows were read, and mean latency
+improved from `958.681 ms` to `160.781 ms` (`5.963x`). The report states CPU
+archival/score placement, no `replay_entry`, no direct slow-memory row reads,
+no STC advance, no live tick, and `0.0 MiB` CUDA allocation/reservation delta.
+
+`python -m marulho.evaluation.frontier_gap_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\frontier-gap-store-owned-row-reader.json --capacity 65536 --iterations 16 --top-entries 24 --max-terms 8 --min-quality 1.0`
+
+Result: `passed=true`; term recall stayed `1.0`, bounded rows were
+`192/65536`, no direct slow-memory row reads or capture helper were used, and
+mean latency improved from `229.118 ms` to `8.897 ms` (`25.752x`).
+
+`python -m marulho.evaluation.concept_frontier_scope_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\concept-frontier-store-owned-row-reader.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --probe-count 64 --dim 16 --iterations 16 --seed 20260622`
+
+Result: bounded-scan, latency, live-tick, and quality gates passed with
+`64` row reads, `top1_match=true`, `79.432x` speedup, no direct row reads, no
+capture helper, no live tick, and CPU archival placement.
+
+Replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\semantic-row-reader-replay-quality.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+
+Result: positive-pressure sleep recall passed with `1` bounded query,
+candidate scope `bucket_indexed_candidate_window`, zero global fallback cycles,
+and best input-pattern distance `5.96046447753906e-08`; zero-pressure/no-anchor
+controls ran no recall.
+
+Accepted no-profile protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-semantic-row-reader.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.465007 s` at
+`5926.502 tokens/sec`, p95 tick `21.856 ms`,
+`train_compute=0.135858 ms/token`, `prepare_training=0.007029 ms/token`, and
+`finalize_total=0.006983 ms/token`. Prewarm took `420.038 s` and
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native/sequence failures. Velocity reported no observed
+contention, CPU max `44%`, GPU max `13%`, GPU memory utilization max `18%`,
+and RTX memory flat at `1993 MiB`. This is same-band protection evidence, not
+a new speed ceiling.

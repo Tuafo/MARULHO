@@ -2815,3 +2815,70 @@ at `12/65536`, cached `65526` transition rows, kept
 kept VRAM flat at `1963 MiB`, and recorded zero graph/native/sequence failures.
 The companion no-contention run measured `5872.559 tokens/sec`, so this is
 same-band protection and retired-path evidence, not a new speed ceiling.
+
+## Semantic Frontier Store-Owned Row Access
+
+Semantic/source-frontier recall now has one maintained row reader after bounded
+candidate selection. Source-bank matching, frontier-gap planning, and
+concept-frontier metrics read scoring, capture/consolidation, and opt-in text
+payload rows through `DualMemoryStore.query_match_row(...)` under
+`bounded_query_memory_match_row.v1`. Production `_effective_capture_strength(...)`
+is removed, and these paths no longer call `replay_entry(...)` or read direct
+`slow_*` archive arrays.
+
+Source-bank row-reader benchmark:
+
+`python -m marulho.evaluation.source_bank_memory_match_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\source-bank-store-owned-row-reader.json --capacity 65536 --bucket-count 16 --probe-samples 8 --memories-per-probe 4 --max-matches 16 --payload-repeats 24 --iterations 32`
+
+Result: `passed=true`; selected-index parity stayed `1.0`, raw text loaded
+only for `4` returned rows, `source_bank_row_read_count=196`
+(`192` scoring rows plus `4` text rows), `replay_entry_reader_used=false`,
+`direct_slow_memory_array_reads_retired=true`, `stc_state_advance=false`,
+CPU archival/score placement, `0.0 MiB` CUDA allocation/reservation delta, and
+mean latency improved from `958.681 ms` to `160.781 ms` (`5.963x`).
+
+Frontier-gap row-reader benchmark:
+
+`python -m marulho.evaluation.frontier_gap_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\frontier-gap-store-owned-row-reader.json --capacity 65536 --iterations 16 --top-entries 24 --max-terms 8 --min-quality 1.0`
+
+Result: `passed=true`; term recall stayed `1.0`, bounded rows were
+`192/65536`, `frontier_row_reader_owned_by_store=true`,
+`direct_slow_memory_array_reads_retired=true`,
+`effective_capture_reader_used=false`, `stc_state_advance=false`, CPU
+placement, and mean latency improved from `229.118 ms` to `8.897 ms`
+(`25.752x`).
+
+Concept-frontier row-reader benchmark:
+
+`python -m marulho.evaluation.concept_frontier_scope_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\concept-frontier-store-owned-row-reader.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --probe-count 64 --dim 16 --iterations 16 --seed 20260622`
+
+Result: bounded-scan, latency, live-tick, and quality gates passed;
+`top1_match=true`, bounded row reads were `64`, speedup was `79.432x`,
+archival rows stayed CPU-side, and the
+report states no direct slow-memory row reads, no effective-capture helper, and
+no live tick. A larger `65536` concept-frontier diagnostic is too slow for this
+bounded gate shape and remains rejected for current iteration evidence.
+
+Replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\semantic-row-reader-replay-quality.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+
+Result: positive-pressure sleep recall passed with `1` query, candidate scope
+`bucket_indexed_candidate_window`, zero global fallback cycles, and best
+input-pattern distance `5.96046447753906e-08`; zero-pressure/no-anchor controls
+ran no recall.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-semantic-row-reader.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.465007 s` at
+`5926.502 tokens/sec`, p95 tick `21.856 ms`,
+`train_compute=0.135858 ms/token`, `prepare_training=0.007029 ms/token`, and
+`finalize_total=0.006983 ms/token`. Prewarm took `420.038 s` and reached
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native/sequence failures. Velocity
+reported no observed contention, CPU max `44%`, GPU max `13%`, GPU memory
+utilization max `18%`, and RTX memory flat at `1993 MiB`.

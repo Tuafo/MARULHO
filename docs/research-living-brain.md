@@ -4,6 +4,39 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Semantic frontier store-owned row note, June 2026: modern Hopfield-style
+  recall may score a local window, but complementary learning systems,
+  continual replay, synaptic tagging/capture, and sparse replay do not justify
+  semantic planners reading archive arrays directly or using
+  `replay_entry(...)` just to fetch returned text. `bank_memory_matches_with_report(...)`,
+  `frontier_gap_plan(...)`, and `concept_frontier_metrics_with_report(...)`
+  now read bounded rows through `DualMemoryStore.query_match_row(...)`; the
+  production `_effective_capture_strength(...)` helper is removed, and
+  semantic frontier code has no `replay_entry(...)` or direct `slow_*` archive
+  row reads. The external source-bank report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\source-bank-store-owned-row-reader.json`
+  passed on a `65536`-entry store with selected-index parity `1.0`, `196`
+  store-owned row reads (`192` scoring rows plus `4` text rows), raw text
+  loaded only for returned rows, `replay_entry_reader_used=false`,
+  `stc_state_advance=false`, CPU archival/score placement, `0.0 MiB` CUDA
+  allocation/reservation, and mean latency `160.781 ms` versus `958.681 ms`
+  for the diagnostic path. The frontier-gap report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\frontier-gap-store-owned-row-reader.json`
+  kept term recall `1.0`, read `192/65536` rows, and reduced mean latency from
+  `229.118 ms` to `8.897 ms` (`25.752x`). The concept-frontier report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\concept-frontier-store-owned-row-reader.json`
+  passed quality, bounded-scan, latency, and live-tick gates with `64` row
+  reads at `8192` capacity, `top1_match=true`, no direct slow-memory row reads,
+  no capture helper, no live tick, and CPU archival placement. The replay
+  quality check
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\semantic-row-reader-replay-quality.json`
+  kept sleep recall passing with `1` query and best input-pattern distance
+  `5.96046447753906e-08`. The hot-path protection report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-semantic-row-reader.json`
+  processed `524288` tokens at `5926.502 tokens/sec` with p95 tick
+  `21.856 ms`, `train_compute=0.135858 ms/token`, bounded `12/65536` route
+  rows, zero graph/native/sequence failures, no observed contention, CUDA on
+  the RTX 3060, and flat `1993 MiB` GPU memory.
 - Replay restore source-window note, June 2026: modern-Hopfield-style recall,
   CLS, continual replay, synaptic tagging/capture, and sparse replay all keep
   restore-time replay state as selected evidence, not as permission to

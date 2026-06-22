@@ -76,13 +76,30 @@ def _legacy_full_scan_metrics(trainer: Any, bank: SourceBank) -> tuple[float, fl
     weights = shifted / (shifted.sum() + 1e-8)
     effective_captures = torch.tensor(
         [
-            store._effective_capture_strength(index, trainer.token_count)
+            float(
+                store.query_match_row(
+                    int(index),
+                    current_token=int(trainer.token_count),
+                    include_text_payload=False,
+                ).get("capture_strength", 0.0)
+                or 0.0
+            )
             for index in selected_indices
         ],
         dtype=torch.float32,
     )
     consolidations = torch.tensor(
-        [float(store.slow_consolidation_level[index]) for index in selected_indices],
+        [
+            float(
+                store.query_match_row(
+                    int(index),
+                    current_token=int(trainer.token_count),
+                    include_text_payload=False,
+                ).get("consolidation_level", 0.0)
+                or 0.0
+            )
+            for index in selected_indices
+        ],
         dtype=torch.float32,
     )
     novelty = max(0.0, min(1.0, 1.0 - max(0.0, float(top_values.max().item()))))
@@ -257,6 +274,16 @@ def run_benchmark(
             ),
             "candidate_index_count": int(bounded_report.get("candidate_index_count", 0)),
             "selected_indices": list(bounded_report.get("selected_indices", [])),
+            "frontier_row_read_count": int(bounded_report.get("frontier_row_read_count", 0)),
+            "frontier_row_reader_owned_by_store": bool(
+                bounded_report.get("frontier_row_reader_owned_by_store", False)
+            ),
+            "direct_slow_memory_array_reads_retired": bool(
+                bounded_report.get("direct_slow_memory_array_reads_retired", False)
+            ),
+            "effective_capture_reader_used": bool(
+                bounded_report.get("effective_capture_reader_used", True)
+            ),
             "global_candidate_scan": bool(bounded_report.get("global_candidate_scan", True)),
             "global_score_scan": bool(bounded_report.get("global_score_scan", True)),
             "runs_live_tick": bool(bounded_report.get("runs_live_tick", True)),
@@ -286,6 +313,9 @@ def run_benchmark(
                 not bounded_report.get("global_candidate_scan", True)
                 and not bounded_report.get("global_score_scan", True)
                 and int(bounded_report.get("score_count", 0)) < int(legacy_report.get("score_count", 0))
+                and bool(bounded_report.get("frontier_row_reader_owned_by_store"))
+                and bool(bounded_report.get("direct_slow_memory_array_reads_retired"))
+                and not bool(bounded_report.get("effective_capture_reader_used", True))
             ),
             "latency_gate_pass": bool(bounded_mean <= legacy_mean),
             "live_tick_gate_pass": bool(not bounded_report.get("runs_live_tick", True)),

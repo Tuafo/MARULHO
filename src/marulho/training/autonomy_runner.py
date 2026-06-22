@@ -259,6 +259,18 @@ def _frontier_candidate_bucket_ids(
     return [int(value) for value in candidate_ids[0].detach().cpu().flatten().tolist()]
 
 
+def _store_memory_size(store: Any, current_token: int | None = None) -> int:
+    summary = getattr(store, "live_summary_stats", None)
+    if callable(summary):
+        try:
+            report = summary(current_token=current_token)
+            if isinstance(report, Mapping):
+                return max(0, int(report.get("size", 0) or 0))
+        except (TypeError, ValueError, AttributeError):
+            return 0
+    return 0
+
+
 def _empty_concept_frontier_memory_report(
     *,
     bank_name: str,
@@ -322,7 +334,7 @@ def concept_frontier_metrics_with_report(
 ) -> tuple[float, float, float, dict[str, Any]]:
     started_time = time.perf_counter()
     store = trainer.model.memory_store
-    memory_size = int(len(getattr(store, "slow_buffer", [])))
+    memory_size = _store_memory_size(store, int(getattr(trainer, "token_count", 0)))
     top_k_limit = 8
     max_buckets = max(1, int(getattr(trainer.config, "k_routing", top_k_limit)))
     candidate_limit = max(32, top_k_limit, max_buckets * 8)
@@ -379,6 +391,27 @@ def concept_frontier_metrics_with_report(
             source_probe_indices=source_probe_indices,
         )
         return 1.0, 1.0, 0.0, report
+    row_reader = getattr(store, "query_match_row", None)
+    if not callable(row_reader):
+        report = _empty_concept_frontier_memory_report(
+            bank_name=bank.name,
+            memory_size=memory_size,
+            requested_count=candidate_limit,
+            candidate_bucket_ids=candidate_bucket_ids,
+            fallback_reason="memory_store_missing_bounded_frontier_row_reader",
+            latency_ms=(time.perf_counter() - started_time) * 1000.0,
+            source_probe_count=len(probe_patterns),
+            source_probe_indices=source_probe_indices,
+        )
+        report.update(
+            {
+                "frontier_row_surface": "bounded_query_memory_match_row.v1",
+                "frontier_row_reader_owned_by_store": False,
+                "direct_slow_memory_array_reads_retired": True,
+                "effective_capture_reader_used": False,
+            }
+        )
+        return 1.0, 1.0, 0.0, report
 
     candidate_report = collector(
         candidate_bucket_ids=candidate_bucket_ids,
@@ -388,11 +421,30 @@ def concept_frontier_metrics_with_report(
     candidate_indices = [
         int(index)
         for index in candidate_report.get("match_indices", [])
-        if 0 <= int(index) < len(store.slow_buffer)
+        if int(index) >= 0
     ]
     memory_keys: list[tuple[int, torch.Tensor]] = []
+    candidate_rows: dict[int, dict[str, Any]] = {}
+    frontier_row_read_count = 0
+    invalid_frontier_row_count = 0
     for index in candidate_indices:
-        key = store.slow_routing_keys[index]
+        try:
+            row = row_reader(
+                int(index),
+                current_token=int(trainer.token_count),
+                include_text_payload=False,
+            )
+        except (TypeError, ValueError, IndexError, KeyError):
+            invalid_frontier_row_count += 1
+            continue
+        frontier_row_read_count += 1
+        row = dict(row)
+        candidate_rows[int(index)] = row
+        key = row.get("routing_key")
+        if not isinstance(key, torch.Tensor):
+            key = row.get("input_pattern")
+        if not isinstance(key, torch.Tensor):
+            key = row.get("assembly")
         if not isinstance(key, torch.Tensor):
             continue
         vector = key.detach().cpu().float().reshape(-1)
@@ -418,6 +470,14 @@ def concept_frontier_metrics_with_report(
                     candidate_report.get("candidate_index_available_count", 0) or 0
                 ),
                 "candidate_index_count": int(len(candidate_indices)),
+                "frontier_row_surface": "bounded_query_memory_match_row.v1",
+                "frontier_row_access_policy": "explicit_bounded_concept_frontier_candidate_indices_only",
+                "frontier_row_reader_owned_by_store": True,
+                "frontier_row_read_count": int(frontier_row_read_count),
+                "frontier_row_invalid_index_count": int(invalid_frontier_row_count),
+                "direct_slow_memory_array_reads_retired": True,
+                "effective_capture_reader_used": False,
+                "stc_state_advance": False,
             }
         )
         return 1.0, 1.0, 0.0, report
@@ -436,13 +496,22 @@ def concept_frontier_metrics_with_report(
     weights = shifted / (shifted.sum() + 1e-8)
     effective_captures = torch.tensor(
         [
-            store._effective_capture_strength(index, trainer.token_count)
+            float(
+                candidate_rows.get(int(index), {}).get(
+                    "capture_strength",
+                    candidate_rows.get(int(index), {}).get("capture_tag", 0.0),
+                )
+                or 0.0
+            )
             for index in selected_indices
         ],
         dtype=torch.float32,
     )
     consolidations = torch.tensor(
-        [float(store.slow_consolidation_level[index]) for index in selected_indices],
+        [
+            float(candidate_rows.get(int(index), {}).get("consolidation_level", 0.0) or 0.0)
+            for index in selected_indices
+        ],
         dtype=torch.float32,
     )
     novelty = clamp01(1.0 - max(0.0, float(top_values.max().item())))
@@ -469,6 +538,14 @@ def concept_frontier_metrics_with_report(
             "score_count": int(len(memory_keys)),
             "selected_indices": selected_indices,
             "selected_count": int(len(selected_indices)),
+            "frontier_row_surface": "bounded_query_memory_match_row.v1",
+            "frontier_row_access_policy": "explicit_bounded_concept_frontier_candidate_indices_only",
+            "frontier_row_reader_owned_by_store": True,
+            "frontier_row_read_count": int(frontier_row_read_count),
+            "frontier_row_invalid_index_count": int(invalid_frontier_row_count),
+            "direct_slow_memory_array_reads_retired": True,
+            "effective_capture_reader_used": False,
+            "stc_state_advance": False,
             "global_score_scan": False,
             "global_candidate_scan": False,
             "runs_live_tick": False,
@@ -487,6 +564,7 @@ def concept_frontier_metrics_with_report(
                 "source_probe_window_entries": int(len(source_probe_indices)),
                 "candidate_window_entries": int(candidate_limit),
                 "score_budget_entries": int(len(memory_keys)),
+                "frontier_row_read_budget_entries": int(len(candidate_indices)),
             },
         }
     )

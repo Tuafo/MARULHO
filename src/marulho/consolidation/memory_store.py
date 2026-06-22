@@ -1518,12 +1518,6 @@ class DualMemoryStore:
             consumed += global_take
         return consumed
 
-    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
-        if idx < 0 or idx >= len(self.slow_capture_tag):
-            return 0.0
-        self._advance_state(current_token)
-        return float(max(0.0, self.slow_capture_tag[idx]) * max(0.0, self._available_prp(idx)))
-
     def _store_slot(
         self,
         index: int,
