@@ -353,6 +353,19 @@ def _fake_service_app() -> FastAPI:
             "preference_pair_count": 0,
             "sft_count": 0,
             "split_counts": {"train": 0, "holdout": 0, "eval": 0},
+            "source_window": {
+                "surface": "bounded_replay_dataset_bundle_source_window.v1",
+                "source_preview_window_surface": "bounded_replay_dataset_preview_source_window.v1",
+                "source_window_count": 0,
+                "packaged_item_count": 0,
+                "excluded_item_count": 0,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "runs_replay": False,
+                "language_reasoning": False,
+                "archival_storage_device": "cpu",
+                "gpu_resident_archival_metadata": False,
+            },
             "operator_approval": {
                 "approved": True,
                 "operator_id": payload.get("operator_id", "benchmark-operator"),
@@ -979,6 +992,15 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
         assert result["replay_dataset_bundle_summary"]["training_role"] == "replay_dataset_bundle_preview_only_not_training_operator_approved"
         assert result["replay_dataset_bundle_summary"]["operator_approval"]["operator_id"] == "benchmark-operator"
+        bundle_source_window = result["replay_dataset_bundle_summary"]["source_window"]
+        assert bundle_source_window["surface"] == "bounded_replay_dataset_bundle_source_window.v1"
+        assert bundle_source_window["source_preview_window_surface"] == "bounded_replay_dataset_preview_source_window.v1"
+        assert bundle_source_window["runs_live_tick"] is False
+        assert bundle_source_window["runs_every_token"] is False
+        assert bundle_source_window["runs_replay"] is False
+        assert bundle_source_window["language_reasoning"] is False
+        assert bundle_source_window["archival_storage_device"] == "cpu"
+        assert bundle_source_window["gpu_resident_archival_metadata"] is False
         assert result["replay_dataset_bundle_summary"]["training_gate"]["status"] == "blocked_preview_only"
         assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False

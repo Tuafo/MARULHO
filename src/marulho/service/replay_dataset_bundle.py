@@ -312,6 +312,66 @@ class ReplayDatasetPackager:
             "provenance_counts": dict(provenance_counts),
         }
 
+    @staticmethod
+    def _replay_dataset_bundle_source_window(
+        source_preview_window: Mapping[str, Any],
+        *,
+        limit: int,
+        source_count: int,
+        packaged_count: int,
+        excluded_count: int,
+    ) -> dict[str, Any]:
+        memory_budget = dict(source_preview_window.get("memory_budget") or {})
+        return {
+            "surface": "bounded_replay_dataset_bundle_source_window.v1",
+            "policy": "preview_bounded_source_window_package_gate_v1",
+            "window_policy": "preview_bounded_source_window_package_gate_v1",
+            "source": "replay_dataset_preview.items",
+            "source_endpoint": "/terminus/replay-dataset/preview",
+            "source_preview_window_surface": source_preview_window.get("surface"),
+            "source_preview_window_policy": source_preview_window.get("policy"),
+            "source_preview_window": dict(source_preview_window),
+            "selection_criteria": [
+                "operator_approved_preview_items_only",
+                "bounded_preview_source_window_carried_into_bundle",
+                "package_gate_runs_after_preview_selection",
+            ],
+            "source_window_limit": int(limit),
+            "source_window_count": int(source_count),
+            "source_record_count": source_count,
+            "source_record_count_known": True,
+            "source_payload_truncated": bool(
+                source_preview_window.get("source_payload_truncated", False)
+            ),
+            "source_window_complete": not bool(
+                source_preview_window.get("source_payload_truncated", False)
+            ),
+            "packaged_item_count": int(packaged_count),
+            "excluded_item_count": int(excluded_count),
+            "quality_metric": "bounded_replay_dataset_bundle_package_gate",
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_replay_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "runs_replay": False,
+            "trains_adapter": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "source_window_selection_device": "cpu",
+            "packaging_device": "cpu",
+            "gpu_used": False,
+            "gpu_resident_archival_metadata": False,
+            "memory_budget": {
+                "max_preview_items": int(limit),
+                "max_source_records": int(source_count),
+                "preview_memory_budget": memory_budget,
+                "archival_storage_device": "cpu",
+            },
+        }
+
     def _replay_dataset_bundle_payload_locked(
         self,
         *,
@@ -352,6 +412,11 @@ class ReplayDatasetPackager:
             endpoint=endpoint,
             created_at=created_at,
         )
+        source_preview_window = (
+            dict(preview.get("source_window"))
+            if isinstance(preview.get("source_window"), Mapping)
+            else {}
+        )
         source_items = [dict(item) for item in preview.get("items", []) if isinstance(item, Mapping)]
         normalized_terms = self._replay_dataset_bundle_terms(decontamination_terms)
         packaged_items, excluded_items = self._replay_dataset_bundle_filter_items(
@@ -372,6 +437,13 @@ class ReplayDatasetPackager:
         }
         all_packaged = [item for items in splits.values() for item in items]
         source_preview_summary = self._replay_dataset_summary_from_payload(preview)
+        source_window = ReplayDatasetPackager._replay_dataset_bundle_source_window(
+            source_preview_window,
+            limit=count,
+            source_count=len(source_items),
+            packaged_count=len(all_packaged),
+            excluded_count=len(excluded_items),
+        )
         source_preview_hash = self._replay_dataset_bundle_hash(
             [item.get("dedupe_fingerprint") or self._replay_dataset_bundle_item_fingerprint(item) for item in source_items]
         )
@@ -478,6 +550,7 @@ class ReplayDatasetPackager:
             "negative_only_count": sum(1 for item in all_packaged if item.get("sft_example") is None and bool(item.get("has_negative_example"))),
             "split_counts": {name: len(items) for name, items in splits.items()},
             "split_summaries": split_summaries,
+            "source_window": source_window,
             "source_preview_summary": source_preview_summary,
             "manifest": {
                 "schema_version": REPLAY_DATASET_SCHEMA_VERSION,

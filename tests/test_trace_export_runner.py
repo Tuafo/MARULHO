@@ -680,6 +680,31 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertEqual(bundle["source_count"], 3)
         self.assertEqual(bundle["count"], 1)
         self.assertEqual(bundle["excluded_count"], 2)
+        source_window = bundle["source_window"]
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_replay_dataset_bundle_source_window.v1",
+        )
+        self.assertEqual(source_window["source_window_count"], bundle["source_count"])
+        self.assertEqual(source_window["packaged_item_count"], bundle["count"])
+        self.assertEqual(source_window["excluded_item_count"], bundle["excluded_count"])
+        self.assertEqual(
+            source_window["source_preview_window_surface"],
+            "bounded_replay_dataset_preview_source_window.v1",
+        )
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["global_score_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertFalse(source_window["runs_replay"])
+        self.assertFalse(source_window["language_reasoning"])
+        self.assertEqual(source_window["archival_storage_device"], "cpu")
+        self.assertEqual(source_window["source_window_selection_device"], "cpu")
+        self.assertFalse(source_window["gpu_resident_archival_metadata"])
+        self.assertEqual(
+            source_window["source_preview_window"]["surface"],
+            "bounded_replay_dataset_preview_source_window.v1",
+        )
         self.assertEqual(bundle["split_counts"], {"eval": 0, "holdout": 0, "train": 1})
         self.assertEqual(bundle["metadata"]["source"], "checkpoint_replay_dataset_preview_package_gate")
         self.assertFalse(bundle["safety_flags"]["training_started"])

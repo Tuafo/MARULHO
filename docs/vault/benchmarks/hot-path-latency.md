@@ -46,6 +46,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-concept-frontier-bounded-scope.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-profile-rerun.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-snn-emission-review-replay-policy-source-window-noprofile-rerun.json
@@ -5512,3 +5513,22 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 `19%`, GPU memory utilization max `22%`, and RTX memory `1709->1707 MiB`. This
 is same-band live-tick protection plus bounded recall quality, not a startup
 speed or prototype-repair promotion.
+
+## Query Fallback Retirement And Bundle Source Window Protection
+
+This run protects the live tick after retiring the query recent-entry
+text-support fallback and adding replay-dataset bundle source-window evidence.
+Both mechanisms are slow-path query/export work; the stress run verifies they
+did not tax the maintained CUDA text tick.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `85.703907 s` at
+`6117.434 tokens/sec`, `tick_duration_ms.p95=20.621`,
+`train_compute=0.132414 ms/token`, `prepare_training=0.006705 ms/token`, and
+`finalize_total=0.006400 ms/token`. Prewarm took `349.425 s`. Runtime Truth
+kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention, CPU max `38%`, GPU max `13%`, GPU memory utilization max `18%`, and
+RTX memory flat at `1775->1775 MiB`.

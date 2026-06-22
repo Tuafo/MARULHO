@@ -2107,6 +2107,7 @@ class ReplayDatasetBundleResponse(BaseModel):
     negative_only_count: int
     split_counts: dict[str, int]
     split_summaries: dict[str, dict[str, Any]]
+    source_window: dict[str, Any] | None = None
     source_preview_summary: dict[str, Any]
     manifest: dict[str, Any]
     training_gate: dict[str, Any]

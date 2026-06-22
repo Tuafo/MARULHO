@@ -5,10 +5,12 @@ related_code:
   - ../../../src/marulho/consolidation/memory_store.py
   - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/training/trainer.py
+  - ../../../src/marulho/training/query_runner.py
   - ../../../src/marulho/service/living_loop_replay.py
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
+  - ../../../src/marulho/service/replay_dataset_bundle.py
   - ../../../src/marulho/service/applied_replay_lineage.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
@@ -34,6 +36,8 @@ related_code:
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
+  - ../../../src/marulho/evaluation/query_recent_fallback_retirement_benchmark.py
+  - ../../../src/marulho/evaluation/replay_dataset_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/service/transition_memory_source_window.py
 related_docs:
@@ -82,6 +86,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/query-recent-fallback-retired-bucket-only.json
+  - reports/bounded_replay_window_20260622/replay-dataset-bundle-source-window-query-fallback-retired.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -2292,3 +2299,45 @@ processed `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
 observed contention, CPU max `12%`, GPU max `19%`, and RTX 3060 memory
 `1709->1707 MiB`. Prewarm took `304.955 s`, so this is hot-tick protection and
 bounded recall quality evidence, not a startup-speed claim.
+
+## Query Fallback Retirement And Bundle Source Windows
+
+Modern Hopfield recall supports attention-like associative lookup only after a
+local memory window has been selected. Complementary learning systems,
+continual-learning replay, synaptic tagging/capture, latent replay, and sparse
+replay point in the same engineering direction: select a bounded evidence set,
+then run local recall or package selected replay records with visible source
+authority. They do not support a query readout widening its routed bucket window
+with an archive-recent text-support sweep.
+
+MARULHO therefore retires the query recent-entry text-support fallback from
+production. `query_runner.memory_matches_with_report(...)` keeps the
+routing-owned `bucket_indexed_candidate_window`, omits `recent_fallback_*`
+fields, and does not call `collect_recent_entry_indices(...)` to find query
+terms outside the routed buckets. The focused report
+`reports/bounded_replay_window_20260622/query-recent-fallback-retired-bucket-only.json`
+passed with capacity `65536`, candidate indices `[0]`, returned indices `[0]`,
+no recent collector calls, raw text loaded only for the candidate, no global
+candidate/score scan, no live tick, no hidden language reasoning, CPU archival
+placement, and no CUDA allocation/reservation.
+
+The same boundary now survives replay-dataset packaging. The bundle response
+carries `bounded_replay_dataset_bundle_source_window.v1` with the nested preview
+window, source and excluded counts, CPU archival/source placement, no GPU
+archival metadata, no live/every-token work, and no training/plasticity
+authority. The report
+`reports/bounded_replay_window_20260622/replay-dataset-bundle-source-window-query-fallback-retired.json`
+kept bundle source counts aligned with the preview (`50` source, `0` packaged,
+`50` excluded), retained `4.0x` replay-sample and selected-candidate work
+reductions, and measured bundle mean latency at `2183.314971 ms`. This is an
+operator/export slow-path cost, not live tick work.
+
+The paired `524288`-token protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json`
+stayed in the maintained band at `6117.434 tokens/sec`, p95 tick
+`20.621 ms`, `train_compute=0.132414 ms/token`,
+`prepare_training=0.006705 ms/token`, `finalize_total=0.006400 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, no observed contention, CPU max
+`38%`, GPU max `13%`, RTX memory `1775->1775 MiB`, and zero graph/native
+sequence failures.

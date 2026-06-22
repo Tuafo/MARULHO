@@ -1081,6 +1081,7 @@ def benchmark_service_app(
                 "preference_pair_count",
                 "sft_count",
                 "split_counts",
+                "source_window",
                 "operator_approval",
                 "training_gate",
                 "safety_flags",

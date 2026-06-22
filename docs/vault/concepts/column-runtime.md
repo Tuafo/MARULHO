@@ -445,6 +445,21 @@ tensor-first until after ranking: `query-memory-payload-returned-only.json`
 loads raw text for `5` returned matches instead of all `192` candidates,
 preserves selected indices, and the 524288-token hot-path check stays in band
 at `6152.079 tokens/sec` with zero graph/native/sequence failures.
+The 2026-06-22 cleanup removes the recent-entry text-support widening path from
+the maintained query readout. `memory_matches_with_report(...)` no longer calls
+`collect_recent_entry_indices(...)` when routed bucket candidates miss query
+terms, no longer reports `recent_fallback_*` fields, and keeps
+`candidate_scope=bucket_indexed_candidate_window`. The focused retirement
+benchmark `reports/bounded_replay_window_20260622/query-recent-fallback-retired-bucket-only.json`
+proved the recent collector was not called on a `65536`-capacity store, returned
+only the routed bucket candidate `[0]`, loaded raw text only for that candidate,
+kept archival metadata on CPU, used no CUDA allocation/reservation, and reported
+no global candidate/score scan, live tick, or hidden language reasoning.
+The paired `524288`-token protection run for this cleanup and the bundle
+source-window addition stayed in band at `6117.434 tokens/sec`, p95
+`20.621 ms`, `train_compute=0.132414 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, no observed contention, CPU max `38%`, GPU max
+`13%`, RTX memory `1775->1775 MiB`, and zero graph/native sequence failures.
 
 Autonomy source-acquisition frontier metrics now use the same memory boundary. `concept_frontier_metrics_with_report(...)` derives candidate buckets from the probe-bank routing signature, calls the memory store's capped bucket-indexed collector, and emits `bounded_concept_frontier_memory_metrics.v1` while scoring only selected routing keys for novelty, uncertainty, and support. The synthetic scope benchmark at `reports/bounded_replay_window_20260617/concept-frontier-bounded-scope.json` scored `64/8192` entries at `5.040 ms` mean versus `658.116 ms` for the diagnostic full scan, preserved the full-scan top-1, and reported no global score/candidate scan. The matching 262144-token hot-path check stayed in band at `6148.846 tokens/sec`, with bounded `12/65536` route rows, `65526` cached transition rows, flat `1805 MiB` GPU memory, no observed contention, and zero graph/native/sequence failures.
 
@@ -1646,6 +1661,16 @@ slow-path endpoint count `5`, and hot-path budget passing. Replay-plan,
 runtime-trace export, and replay-dataset preview response schemas now expose
 their computed `source_window` reports so public HTTP responses carry the same
 bounded Runtime Truth evidence as the internal payloads.
+Replay-dataset bundle now preserves that evidence at package time instead of
+dropping the preview boundary. `/terminus/replay-dataset/bundle` carries
+`bounded_replay_dataset_bundle_source_window.v1` with the nested preview source
+window, packaged and excluded counts, CPU archival/source placement, no global
+scan, no replay-text reasoning, no live-tick/every-token work, and no
+training/plasticity authority. The focused bundle benchmark
+`reports/bounded_replay_window_20260622/replay-dataset-bundle-source-window-query-fallback-retired.json`
+kept the source count at `50`, packaged `0`, excluded `50`, matched bundle
+counts to the preview source window, reduced source record work by `1.28x`, and
+used no GPU archival metadata.
 
 The focused report preserved `50/50` selected target IDs and replay links
 against a diagnostic full-retained walk while reducing replay-sample and

@@ -15217,6 +15217,29 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(replay_dataset_bundle["split_counts"]["holdout"], 0)
         self.assertEqual(replay_dataset_bundle["split_counts"]["eval"], 0)
         self.assertEqual(replay_dataset_bundle["split_counts"]["train"], replay_dataset_bundle["count"])
+        bundle_source_window = replay_dataset_bundle["source_window"]
+        self.assertEqual(
+            bundle_source_window["surface"],
+            "bounded_replay_dataset_bundle_source_window.v1",
+        )
+        self.assertEqual(
+            bundle_source_window["source_window_count"],
+            replay_dataset_bundle["source_count"],
+        )
+        self.assertEqual(
+            bundle_source_window["packaged_item_count"],
+            replay_dataset_bundle["count"],
+        )
+        self.assertEqual(
+            bundle_source_window["source_preview_window_surface"],
+            "bounded_replay_dataset_preview_source_window.v1",
+        )
+        self.assertFalse(bundle_source_window["runs_live_tick"])
+        self.assertFalse(bundle_source_window["runs_every_token"])
+        self.assertFalse(bundle_source_window["runs_replay"])
+        self.assertFalse(bundle_source_window["language_reasoning"])
+        self.assertEqual(bundle_source_window["archival_storage_device"], "cpu")
+        self.assertFalse(bundle_source_window["gpu_resident_archival_metadata"])
         self.assertFalse(replay_dataset_bundle["safety_flags"]["training_started"])
         self.assertFalse(replay_dataset_bundle["safety_flags"]["memory_mutated"])
         self.assertFalse(replay_dataset_bundle["safety_flags"]["feedback_posted"])

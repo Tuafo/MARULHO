@@ -200,6 +200,42 @@ class QueryRunnerTermMatchingTests(unittest.TestCase):
         self.assertFalse(report["runs_live_tick"])
         self.assertLessEqual(max(trainer.model.memory_store.replay_entry_calls), 4)
 
+    def test_memory_matches_does_not_widen_to_recent_entries_for_text_support(self) -> None:
+        trainer = _FakeTrainer(
+            [
+                "routed bucket has no query term.",
+                "needle memory lives outside the routed bucket.",
+            ]
+        )
+        pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
+
+        def fail_recent_entry_fallback(**_kwargs: object) -> dict[str, object]:
+            raise AssertionError("query memory match must not use recent-entry fallback")
+
+        trainer.model.memory_store.collect_recent_entry_indices = fail_recent_entry_fallback
+
+        matches, report = query_runner.memory_matches_with_report(
+            trainer,
+            pattern,
+            pattern,
+            top_k=1,
+            top_chars=1,
+            query_terms=["needle"],
+            memory_candidate_limit=1,
+            candidate_bucket_ids=[0],
+        )
+
+        self.assertEqual([match["memory_index"] for match in matches], [0])
+        self.assertEqual(report["surface"], "bounded_query_memory_match.v1")
+        self.assertEqual(report["candidate_scope"], "bucket_indexed_candidate_window")
+        self.assertEqual(report["candidate_index_count"], 1)
+        self.assertEqual(report["match_indices"], [0])
+        self.assertNotIn("recent_fallback_used", report)
+        self.assertFalse(report["global_candidate_scan"])
+        self.assertFalse(report["global_score_scan"])
+        self.assertFalse(report["runs_live_tick"])
+        self.assertFalse(report["language_reasoning"])
+
     def test_memory_matches_loads_text_only_for_returned_similarity_matches(self) -> None:
         trainer = _FakeTrainer([f"memory episode {index}" for index in range(128)])
         pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)

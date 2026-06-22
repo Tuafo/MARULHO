@@ -78,6 +78,9 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-source-bank-memory-match-rerun.json
   - reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-source-bank-merged-probe-window.json
+  - reports/bounded_replay_window_20260622/query-recent-fallback-retired-bucket-only.json
+  - reports/bounded_replay_window_20260622/replay-dataset-bundle-source-window-query-fallback-retired.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json
@@ -2679,3 +2682,57 @@ kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Velocity reported no observed
 contention, CPU max `12%`, GPU max `19%`, GPU memory utilization max `22%`, and
 RTX memory `1709->1707 MiB`.
+
+## Query Recent Fallback Retirement And Bundle Source Window
+
+Explicit query readout no longer widens a routed bucket window with a
+recent-entry text-support fallback. `query_runner.memory_matches_with_report(...)`
+keeps `candidate_scope=bucket_indexed_candidate_window`, omits
+`recent_fallback_*` fields, and does not call
+`collect_recent_entry_indices(...)` for query term support outside the routed
+buckets.
+
+Focused retirement report:
+
+`python -m marulho.evaluation.query_recent_fallback_retirement_benchmark --output reports\bounded_replay_window_20260622\query-recent-fallback-retired-bucket-only.json --capacity 65536 --candidate-limit 64 --top-k 1 --iterations 11`
+
+Result: `pass=true`; capacity `65536`, candidate indices `[0]`, returned
+indices `[0]`, recent collector not called, recent fallback fields absent, raw
+text loaded only for the selected candidate, no global candidate/score scan, no
+live tick, no hidden language reasoning, and CPU archival placement. Latency
+mean was `62.085745 ms`, median `50.777000 ms`, and max `98.978300 ms`.
+CUDA was available but unused with `0.0 MiB` allocated/reserved; traced Python
+peak was `64.854 MiB`.
+
+The replay-dataset bundle now carries package-time source-window evidence from
+the preview selection.
+
+Focused bundle report:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260622\replay-dataset-bundle-source-window-query-fallback-retired.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 7`
+
+Result: `pass=true`; `bounded_replay_dataset_bundle_source_window.v1` carried
+the nested preview window, source count `50`, packaged count `0`, excluded
+count `50`, no global scan, no live/every-token work, no training/plasticity
+authority, CPU archival/source placement, and no GPU-resident archival
+metadata. Replay-sample work reductions remained `4.0x`, selected-candidate
+work reduction remained `4.0x`, and bundle source-record work reduction was
+`1.28x`. Mean costs were `1847.343214 ms` for preview,
+`2183.314971 ms` for bundle, `2323.942457 ms` for trace export, and
+`6.093214 ms` for summary. CUDA was available but the archival/source path did
+not use it; traced Python peak was `3.553 MiB`, and CUDA memory stayed at
+`0.23 MiB` allocated and `2.0 MiB` reserved from runtime setup.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `85.703907 s` at
+`6117.434 tokens/sec`, p95 tick `20.621 ms`,
+`train_compute=0.132414 ms/token`, `prepare_training=0.006705 ms/token`, and
+`finalize_total=0.006400 ms/token`. Prewarm took `349.425 s`. Runtime Truth
+kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention, CPU max `38%`, GPU max `13%`, GPU memory utilization max `18%`, and
+RTX memory `1775->1775 MiB`.

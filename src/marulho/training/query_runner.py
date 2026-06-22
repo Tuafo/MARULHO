@@ -814,46 +814,23 @@ def memory_matches_with_report(
     candidate_rows: list[dict[str, Any]] = []
     raw_text_payload_count = 0
     raw_text_payload_cache_hits = 0
-    recent_fallback_report: dict[str, Any] | None = None
-    recent_fallback_indices: list[int] = []
-    recent_fallback_reason: str | None = None
-    recent_fallback_missing_query_terms: list[str] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
 
     def _finish(result_matches: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         report = dict(candidate_report)
-        candidate_window_policy = str(candidate_report.get("candidate_window_policy", ""))
-        candidate_scope = str(candidate_report.get("candidate_scope", ""))
-        if recent_fallback_indices:
-            candidate_window_policy = "bucket_indexed_then_recent_entry_text_support_fallback"
-            candidate_scope = "bucket_indexed_plus_recent_entry_candidate_window"
         report.update(
             {
                 "surface": "bounded_query_memory_match.v1",
                 "candidate_surface": candidate_report.get("surface"),
                 "status": "matched" if result_matches else "empty",
-                "candidate_window_policy": candidate_window_policy,
-                "candidate_scope": candidate_scope,
+                "candidate_window_policy": candidate_report.get(
+                    "candidate_window_policy"
+                ),
+                "candidate_scope": candidate_report.get("candidate_scope"),
                 "initial_candidate_index_count": int(initial_candidate_index_count),
                 "candidate_index_count": int(len(candidate_indices)),
                 "match_indices": [int(index) for index in candidate_indices],
-                "recent_fallback_used": bool(recent_fallback_indices),
-                "recent_fallback_reason": recent_fallback_reason,
-                "recent_fallback_surface": (
-                    None if recent_fallback_report is None else recent_fallback_report.get("surface")
-                ),
-                "recent_fallback_scope": (
-                    None if recent_fallback_report is None else recent_fallback_report.get("scope")
-                ),
-                "recent_fallback_index_count": int(len(recent_fallback_indices)),
-                "recent_fallback_indices": recent_fallback_indices[:64],
-                "recent_fallback_index_sample_limit": 64,
-                "recent_fallback_index_truncated": bool(len(recent_fallback_indices) > 64),
-                "recent_fallback_missing_query_terms": recent_fallback_missing_query_terms[:32],
-                "recent_fallback_missing_query_term_count": int(
-                    len(recent_fallback_missing_query_terms)
-                ),
                 "query_term_count": int(len(query_terms or [])),
                 "focus_term_count": int(len(ordered_focus_terms)),
                 "memory_priority_count": int(len(memory_priority or {})),
@@ -983,69 +960,6 @@ def memory_matches_with_report(
 
     for idx in candidate_indices:
         _score_index(idx)
-
-    if query_terms and matches:
-        covered_query_terms = {
-            str(value)
-            for item in matches
-            for value in list(item.get("matched_query_terms", []) or [])
-        }
-        recent_fallback_missing_query_terms = [
-            str(term) for term in query_terms if str(term) not in covered_query_terms
-        ]
-    empty_text_window = bool(text_ranking_required) and not matches
-    supportless_text_window = bool(text_ranking_required and matches) and not any(
-        int(item.get("query_overlap", 0)) > 0
-        or int(item.get("focus_overlap", 0)) > 0
-        or float(item.get("memory_focus_priority", 0.0)) > 0.0
-        for item in matches
-    )
-    recent_collector = getattr(store, "collect_recent_entry_indices", None)
-    missing_query_support_window = bool(recent_fallback_missing_query_terms)
-    if (
-        (empty_text_window or supportless_text_window or missing_query_support_window)
-        and callable(recent_collector)
-    ):
-        recent_fallback_reason = (
-            "empty_routed_candidate_window"
-            if empty_text_window
-            else (
-                "supportless_text_window"
-                if supportless_text_window
-                else "missing_query_terms_in_routed_candidate_window"
-            )
-        )
-        recent_limit = min(candidate_limit, max(32, limit * 4))
-        window_tokens = max(1, min(int(getattr(trainer, "token_count", 0)) + 1, 4096))
-        recent_fallback_report = dict(
-            recent_collector(
-                current_token=int(getattr(trainer, "token_count", 0)),
-                window_tokens=window_tokens,
-                max_entries=recent_limit,
-                require_bucket=False,
-                scope="query_runner_memory_match_recent_text_support_fallback",
-            )
-        )
-        seen_candidates = set(candidate_indices)
-        for index in list(recent_fallback_report.get("candidate_indices") or []):
-            try:
-                idx = int(index)
-            except (TypeError, ValueError):
-                continue
-            if idx in seen_candidates or idx < 0 or idx >= len(store.slow_buffer):
-                continue
-            seen_candidates.add(idx)
-            candidate_indices.append(idx)
-            recent_fallback_indices.append(idx)
-        if recent_fallback_indices:
-            replay_scores.update(
-                store.replay_scores_for_indices(
-                    recent_fallback_indices,
-                    trainer.token_count,
-                )
-            )
-            for idx in recent_fallback_indices:
-                _score_index(idx)
 
     if not text_ranking_required:
         candidate_rows.sort(key=lambda item: float(item["similarity"]), reverse=True)

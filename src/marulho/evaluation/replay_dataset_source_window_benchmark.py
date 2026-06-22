@@ -318,9 +318,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             bounded_latencies: list[float] = []
             trace_export_latencies: list[float] = []
             summary_latencies: list[float] = []
+            bundle_latencies: list[float] = []
             last_dataset: dict[str, Any] = {}
             last_trace_export: dict[str, Any] = {}
             last_replay_summary: dict[str, Any] = {}
+            last_bundle: dict[str, Any] = {}
             tracemalloc.start()
             for _ in range(runs):
                 started = time.perf_counter()
@@ -339,6 +341,18 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     started = time.perf_counter()
                     last_replay_summary = manager._replay_sample_summary_locked()
                     summary_latencies.append((time.perf_counter() - started) * 1000.0)
+                started = time.perf_counter()
+                last_bundle = manager.runtime_facade.replay_dataset_bundle(
+                    operator_id="benchmark-operator",
+                    operator_note="Bounded replay dataset bundle source-window benchmark.",
+                    confirmation=True,
+                    limit=limit,
+                    endpoint=endpoint,
+                    holdout_fraction=0.0,
+                    eval_fraction=0.0,
+                    seed=7,
+                )
+                bundle_latencies.append((time.perf_counter() - started) * 1000.0)
             traced_current, traced_peak = tracemalloc.get_traced_memory()
             tracemalloc.stop()
             rss_after = _process_rss_mib()
@@ -352,6 +366,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     if not trace_export_replay_summary:
         trace_export_replay_summary = dict(last_replay_summary)
     replay_summary_source_window = dict(trace_export_replay_summary.get("source_window") or {})
+    bundle_source_window = dict(last_bundle.get("source_window") or {})
+    bundle_preview_source_window = dict(
+        bundle_source_window.get("source_preview_window") or {}
+    )
     bounded_selected_ids = [
         str(item.get("target_id", "") or "")
         for item in list(last_dataset.get("items") or [])
@@ -386,6 +404,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         1.0,
         float(replay_summary_source_window.get("source_window_count", 0) or 0),
     )
+    bundle_source_reduction = float(diagnostic.get("trace_records_scanned", 0) or 0) / max(
+        1.0,
+        float(bundle_source_window.get("source_window_count", 0) or 0),
+    )
     selected_candidate_reduction = float(
         diagnostic.get("selected_candidate_records_scanned", 0) or 0
     ) / max(1.0, float(link_window.get("selected_candidate_window_count", 0) or 0))
@@ -408,11 +430,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             dict(trace_export_replay_summary.get("latest_history_item") or {}).get("replay_sample_id")
             == diagnostic_summary.get("latest_replay_sample_id")
         ),
+        "bundle_source_count": int(last_bundle.get("source_count", 0) or 0),
+        "bundle_packaged_count": int(last_bundle.get("count", 0) or 0),
+        "bundle_excluded_count": int(last_bundle.get("excluded_count", 0) or 0),
     }
     pass_checks = {
         "dataset_surface": last_dataset.get("export_kind") == "terminus_replay_dataset_preview",
         "trace_export_surface": last_trace_export.get("export_kind")
         == "terminus_runtime_trace_dataset_preview",
+        "bundle_surface": last_bundle.get("export_kind")
+        == "terminus_replay_dataset_bundle_preview",
         "source_window_surface": source_window.get("surface")
         == "bounded_replay_dataset_preview_source_window.v1",
         "trace_export_source_window_surface": trace_export_source_window.get("surface")
@@ -421,6 +448,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         == "bounded_replay_sample_summary_source_window.v1",
         "link_window_surface": link_window.get("surface")
         == "bounded_replay_dataset_sample_link_source_window.v1",
+        "bundle_source_window_surface": bundle_source_window.get("surface")
+        == "bounded_replay_dataset_bundle_source_window.v1",
+        "bundle_source_preview_window_carried": bundle_preview_source_window.get("surface")
+        == "bounded_replay_dataset_preview_source_window.v1",
+        "bundle_source_counts_match": int(bundle_source_window.get("source_window_count", -1) or -1)
+        == int(last_bundle.get("source_count", -2) or -2),
         "selected_target_ids_match": bool(quality["selected_target_ids_match"]),
         "trace_export_selected_ids_match": bool(quality["trace_export_selected_ids_match"]),
         "link_coverage_matches": bool(quality["link_coverage_matches"]),
@@ -436,32 +469,43 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             replay_summary_source_window.get("source_window_count", 0) or 0
         )
         <= int(replay_summary_source_window.get("source_window_limit", 0) or 0),
+        "bundle_source_window_bounded": int(
+            bundle_source_window.get("source_window_count", 0) or 0
+        )
+        <= int(bundle_source_window.get("source_window_limit", 0) or 0),
         "trace_work_reduced": trace_reduction >= 1.0,
         "trace_export_work_reduced": trace_export_reduction >= 1.0,
         "replay_sample_work_reduced": replay_sample_reduction >= 2.0,
         "replay_sample_summary_work_reduced": replay_summary_reduction >= 2.0,
+        "bundle_source_work_reduced": bundle_source_reduction >= 1.0,
         "selected_candidate_work_reduced": selected_candidate_reduction >= 2.0,
         "runs_live_tick_false": source_window.get("runs_live_tick") is False
         and link_window.get("runs_live_tick") is False
         and trace_export_source_window.get("runs_live_tick") is False
-        and replay_summary_source_window.get("runs_live_tick") is False,
+        and replay_summary_source_window.get("runs_live_tick") is False
+        and bundle_source_window.get("runs_live_tick") is False,
         "runs_every_token_false": source_window.get("runs_every_token") is False
         and link_window.get("runs_every_token") is False
         and trace_export_source_window.get("runs_every_token") is False
-        and replay_summary_source_window.get("runs_every_token") is False,
+        and replay_summary_source_window.get("runs_every_token") is False
+        and bundle_source_window.get("runs_every_token") is False,
         "no_training_or_plasticity": source_window.get("trains_adapter") is False
         and link_window.get("trains_adapter") is False
         and source_window.get("applies_plasticity") is False
         and link_window.get("applies_plasticity") is False
         and trace_export_source_window.get("trains_adapter") is False
         and trace_export_source_window.get("applies_plasticity") is False
-        and replay_summary_source_window.get("applies_plasticity") is False,
+        and replay_summary_source_window.get("applies_plasticity") is False
+        and bundle_source_window.get("trains_adapter") is False
+        and bundle_source_window.get("applies_plasticity") is False,
         "archival_metadata_cpu": source_window.get("archival_storage_device") == "cpu"
         and link_window.get("archival_storage_device") == "cpu"
         and trace_export_source_window.get("archival_storage_device") == "cpu"
         and replay_summary_source_window.get("archival_storage_device") == "cpu"
+        and bundle_source_window.get("archival_storage_device") == "cpu"
         and source_window.get("gpu_resident_archival_metadata") is False
-        and link_window.get("gpu_resident_archival_metadata") is False,
+        and link_window.get("gpu_resident_archival_metadata") is False
+        and bundle_source_window.get("gpu_resident_archival_metadata") is False,
         "replay_summary_total_count_retained": int(trace_export_replay_summary.get("count", 0) or 0)
         == int(sample_count),
         "replay_summary_latest_matches": bool(quality["replay_summary_latest_matches"]),
@@ -497,9 +541,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "bounded_source_window_preview": _stats(bounded_latencies),
             "bounded_runtime_trace_export": _stats(trace_export_latencies),
             "bounded_replay_sample_summary": _stats(summary_latencies),
+            "bounded_replay_dataset_bundle": _stats(bundle_latencies),
             "bounded_mean_cost_ms": round(_mean(bounded_latencies), 6),
             "trace_export_mean_cost_ms": round(_mean(trace_export_latencies), 6),
             "replay_sample_summary_mean_cost_ms": round(_mean(summary_latencies), 6),
+            "replay_dataset_bundle_mean_cost_ms": round(_mean(bundle_latencies), 6),
             "diagnostic_summary_mean_ms": round(_mean(diagnostic_summary_latencies), 6),
             "diagnostic_mean_ms": round(_mean(diagnostic_latencies), 6),
         },
@@ -508,6 +554,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "trace_export_record_reduction": round(float(trace_export_reduction), 6),
             "replay_sample_record_reduction": round(float(replay_sample_reduction), 6),
             "replay_sample_summary_record_reduction": round(float(replay_summary_reduction), 6),
+            "bundle_source_record_reduction": round(float(bundle_source_reduction), 6),
             "selected_candidate_record_reduction": round(float(selected_candidate_reduction), 6),
         },
         "diagnostic": diagnostic,
@@ -519,6 +566,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "safety_flags": dict(last_dataset.get("safety_flags") or {}),
         },
         "source_window": source_window,
+        "bundle_summary": {
+            "count": int(last_bundle.get("count", 0) or 0),
+            "source_count": int(last_bundle.get("source_count", 0) or 0),
+            "excluded_count": int(last_bundle.get("excluded_count", 0) or 0),
+            "source_window": bundle_source_window,
+        },
         "trace_export_summary": {
             "count": int(last_trace_export.get("count", 0) or 0),
             "source_window": trace_export_source_window,
