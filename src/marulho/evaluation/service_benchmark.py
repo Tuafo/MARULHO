@@ -40,7 +40,6 @@ SLOW_PATH_ENDPOINTS = frozenset(
         "export",
         "replay_dataset_preview",
         "replay_dataset_bundle",
-        "replay_dataset_candidates",
         "replay_dataset_history",
     }
 )
@@ -1004,12 +1003,6 @@ def benchmark_service_app(
                 },
             },
             {
-                "name": "replay_dataset_candidates",
-                "method": "GET",
-                "path": "/terminus/replay-dataset/candidates",
-                "params": {"limit": int(export_limit)},
-            },
-            {
                 "name": "replay_dataset_history",
                 "method": "GET",
                 "path": "/terminus/replay-dataset/history",
@@ -1096,15 +1089,6 @@ def benchmark_service_app(
         )
         if latest_history_timestamp is not None:
             replay_dataset_summary["latest_history_timestamp"] = latest_history_timestamp
-
-    replay_dataset_candidates_summary: dict[str, Any] | None = None
-    replay_dataset_candidates_body = response_bodies.get("replay_dataset_candidates")
-    if isinstance(replay_dataset_candidates_body, dict):
-        replay_dataset_candidates_summary = {
-            key: replay_dataset_candidates_body.get(key)
-            for key in ("export_kind", "schema_version", "training_role", "limit", "count", "replay_plan_summary", "safety_flags")
-            if key in replay_dataset_candidates_body
-        }
 
     replay_dataset_bundle_summary: dict[str, Any] | None = None
     replay_dataset_bundle_body = response_bodies.get("replay_dataset_bundle")
@@ -1381,7 +1365,6 @@ def benchmark_service_app(
         "trace_export_summary": export_summary,
         "replay_dataset_summary": replay_dataset_summary,
         "replay_dataset_bundle_summary": replay_dataset_bundle_summary,
-        "replay_dataset_candidates_summary": replay_dataset_candidates_summary,
         "replay_dataset_history_summary": replay_dataset_history_summary,
     }
     result["output_path"] = str(Path(output_path))

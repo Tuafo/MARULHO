@@ -224,6 +224,9 @@ class RuntimeEvidenceReporter:
                 "return_limit_reached": bool(len(items) >= count),
                 "source_window_exhausted": bool(scanned_trace_count >= len(source_traces)),
                 "quality_metric": "bounded_replay_dataset_preview_trace_selection",
+                "candidate_context_source": "replay_plan_summary_inside_dataset_preview",
+                "retired_public_candidate_preview_endpoint": "/terminus/replay-dataset/candidates",
+                "replacement_candidate_endpoint": "/terminus/replay-plan",
             }
         )
 
@@ -412,39 +415,6 @@ class RuntimeEvidenceReporter:
     ) -> dict[str, Any]:
         with self._lock:
             return self._replay_dataset_preview_payload_locked(limit=limit, endpoint=endpoint)
-
-    def replay_dataset_candidates(self, *, limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT) -> dict[str, Any]:
-        with self._lock:
-            count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
-            before = self._replay_sample_state_counts_locked()
-            living_loop = self._living_loop_snapshot_locked()
-            plan = build_replay_plan(living_loop, limit=count).to_payload()
-            after = self._replay_sample_state_counts_locked()
-            candidates = [
-                self._replay_sample_candidate_payload(candidate)
-                for candidate in list(plan.get("candidates", []))
-                if isinstance(candidate, Mapping)
-            ]
-            return cast(
-                dict[str, Any],
-                self._runtime_trace_export_safe_value(
-                    {
-                        "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
-                        "export_kind": "terminus_replay_dataset_candidates_preview",
-                        "training_role": REPLAY_DATASET_TRAINING_ROLE,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "endpoint": "/terminus/replay-dataset/candidates",
-                        "limit": count,
-                        "max_limit": MAX_REPLAY_DATASET_EXPORT_LIMIT,
-                        "count": len(candidates),
-                        "candidates": candidates,
-                        "replay_plan_summary": self._replay_plan_summary(plan),
-                        "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
-                        "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
-                    },
-                    list_item_limit=max(_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS, count),
-                ),
-            )
 
     def replay_dataset_history(self, *, limit: int = DEFAULT_REPLAY_SAMPLE_HISTORY) -> dict[str, Any]:
         with self._lock:

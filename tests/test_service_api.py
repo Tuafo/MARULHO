@@ -15057,7 +15057,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "seed": 123,
                     },
                 )
-                replay_dataset_candidates_response = client.get("/terminus/replay-dataset/candidates?limit=5")
+                retired_replay_dataset_candidates_response = client.get("/terminus/replay-dataset/candidates?limit=5")
                 replay_dataset_history_response = client.get("/terminus/replay-dataset/history?limit=5")
                 seeded_sample_a = manager._sample_replay_candidates(
                     [
@@ -15179,9 +15179,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(dataset_item["replay_sample_linkage"]["selected"])
         self.assertEqual(dataset_item["replay_sample_linkage"]["replay_sample_ids"], [body["replay_sample_id"]])
         self.assertFalse(dataset_item["safety_flags"]["eligible_for_training"])
-        self.assertEqual(replay_dataset_candidates_response.status_code, 200)
-        self.assertEqual(replay_dataset_candidates_response.json()["export_kind"], "terminus_replay_dataset_candidates_preview")
-        self.assertGreaterEqual(replay_dataset_candidates_response.json()["count"], 1)
+        self.assertEqual(retired_replay_dataset_candidates_response.status_code, 404)
         self.assertEqual(replay_dataset_history_response.status_code, 200)
         self.assertEqual(replay_dataset_history_response.json()["export_kind"], "terminus_replay_dataset_history_preview")
         self.assertEqual(replay_dataset_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])

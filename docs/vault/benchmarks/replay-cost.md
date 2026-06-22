@@ -2225,6 +2225,30 @@ bounded `12/65536` route rows, `65526` cached transition rows,
 `state_transition_runs_all_columns=false`, no observed contention, flat RTX 3060
 memory at `1911 MiB`, and zero graph/native sequence failures.
 
+## Replay Dataset Candidates Endpoint Retirement
+
+The replay-dataset candidates preview endpoint is retired so candidate review
+has one public path: `/terminus/replay-plan`. Dataset preview and bundle keep
+candidate context inside the bounded preview source window instead of exposing
+`/terminus/replay-dataset/candidates`.
+
+Focused quality and source-budget benchmark:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260622\replay-dataset-candidates-retired-source-window.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 15`
+
+Result: `pass=true`. The preview source window reports
+`candidate_context_source=replay_plan_summary_inside_dataset_preview`,
+`retired_public_candidate_preview_endpoint=/terminus/replay-dataset/candidates`,
+and `replacement_candidate_endpoint=/terminus/replay-plan`. Bounded preview
+kept `50/50` selected target IDs and replay-link coverage against the
+diagnostic window. Runtime trace work was `50/64` (`1.28x` reduction);
+replay-sample, replay-sample summary, and selected-candidate work each reduced
+`4x`. Mean bounded preview latency was `1851.868400 ms`; trace export mean was
+`2415.486627 ms`; replay-sample summary mean was `7.221433 ms`. Python traced
+peak was `3.53 MiB`; CUDA was available on the RTX 3060 but unused by this
+CPU archival/source/link path (`gpu_used=false`, `0.23 MiB` allocated,
+`2.0 MiB` reserved).
+
 ## Status Transition Memory Source Window
 
 Capacity pressure, dense readout tensor integrity, applied-synapse provenance,

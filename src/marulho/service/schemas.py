@@ -2064,21 +2064,6 @@ class ReplayDatasetPreviewResponse(BaseModel):
     empty_reason: str | None = None
 
 
-class ReplayDatasetCandidatesResponse(BaseModel):
-    schema_version: int
-    export_kind: str
-    training_role: str
-    created_at: str
-    endpoint: str
-    limit: int
-    max_limit: int
-    count: int
-    candidates: list[dict[str, Any]]
-    replay_plan_summary: dict[str, Any] | None = None
-    safety_flags: dict[str, Any]
-    excluded_fields: list[str]
-
-
 class ReplayDatasetHistoryResponse(BaseModel):
     schema_version: int
     export_kind: str

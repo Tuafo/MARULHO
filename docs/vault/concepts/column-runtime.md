@@ -1614,6 +1614,17 @@ reasoning, and no mutation/plasticity/training authority. The old export shape
 that walked every retained trace/link and could report `50` items while
 returning only `16` is retired.
 
+The dataset-specific candidate preview endpoint is also retired. Candidate
+selection for replay review now has one public source, `/terminus/replay-plan`;
+dataset preview and bundle consume that context inside their existing bounded
+preview window instead of exposing `/terminus/replay-dataset/candidates`.
+The preview report records the retired endpoint and replacement, and the
+refreshed benchmark keeps `50/50` target/link parity with CPU archival/source
+placement and no live-tick/every-token work. The paired `524288`-token run
+stayed in the maintained band at `6131.415 tokens/sec`, p95 `20.720 ms`,
+`train_compute=0.132230 ms/token`, bounded `12/65536` route rows, no observed
+contention, and zero graph/native/sequence failures.
+
 The focused report preserved `50/50` selected target IDs and replay links
 against a diagnostic full-retained walk while reducing replay-sample and
 candidate source work by `4x`. Its `2006.587280 ms` mean cost is accepted only

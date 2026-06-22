@@ -32,7 +32,6 @@ from .schemas import (
     QueryResponse,
     ReplayDatasetBundleRequest,
     ReplayDatasetBundleResponse,
-    ReplayDatasetCandidatesResponse,
     ReplayDatasetHistoryResponse,
     ReplayDatasetPreviewResponse,
     ReplayPlanResponse,
@@ -3481,12 +3480,6 @@ def create_app(
         return ReplayDatasetPreviewResponse(
             **runtime.replay_dataset_preview(limit=limit, endpoint=endpoint or trace_type)
         )
-
-    @app.get("/terminus/replay-dataset/candidates", response_model=ReplayDatasetCandidatesResponse)
-    def terminus_replay_dataset_candidates(
-        limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
-    ) -> ReplayDatasetCandidatesResponse:
-        return ReplayDatasetCandidatesResponse(**runtime.replay_dataset_candidates(limit=limit))
 
     @app.get("/terminus/replay-dataset/history", response_model=ReplayDatasetHistoryResponse)
     def terminus_replay_dataset_history(limit: int = Query(20, ge=1, le=256)) -> ReplayDatasetHistoryResponse:

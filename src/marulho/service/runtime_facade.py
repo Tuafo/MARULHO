@@ -2341,9 +2341,6 @@ class RuntimeFacade:
     def replay_dataset_preview(self, **kwargs: Any) -> dict[str, Any]:
         return RuntimeEvidenceReporter.replay_dataset_preview(self._root, **kwargs)
 
-    def replay_dataset_candidates(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceReporter.replay_dataset_candidates(self._root, **kwargs)
-
     def replay_dataset_history(self, **kwargs: Any) -> dict[str, Any]:
         return RuntimeEvidenceReporter.replay_dataset_history(self._root, **kwargs)
 

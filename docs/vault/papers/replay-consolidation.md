@@ -1910,6 +1910,19 @@ source work by `4x`, and recorded `2006.587280 ms` mean preview latency,
 and zero graph/native sequence failures. The near-two-second preview cost is
 explicit evidence that this path remains operator/export slow-path only.
 
+The replay-dataset candidate endpoint is now retired instead of adding another
+candidate report shape. `/terminus/replay-plan` remains the public candidate
+source of truth, and dataset preview/bundle carry candidate context only through
+the bounded preview source window. `bounded_replay_dataset_preview_source_window.v1`
+now names the retired `/terminus/replay-dataset/candidates` endpoint and the
+replacement `/terminus/replay-plan`. The refreshed report
+`reports/bounded_replay_window_20260622/replay-dataset-candidates-retired-source-window.json`
+passed with `50/50` selected target/link parity, CPU archival placement, no
+live-tick/every-token work, no replay text or hidden language reasoning, and
+CUDA available but unused. The paired `524288`-token protection run stayed in
+band at `6131.415 tokens/sec` with no observed contention and zero graph/native
+sequence failures.
+
 The runtime trace export and replay-sample summary follow-up applies the same
 rule to the remaining status/export read path. Trace export now reports
 `bounded_runtime_trace_export_source_window.v1` before endpoint filtering or

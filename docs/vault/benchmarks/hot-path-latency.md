@@ -4841,6 +4841,24 @@ graph/native sequence failures. Contention was `not_observed` (`cpu max=30%`,
 at `1911 MiB`. A same-shape first run succeeded at `5918.658 tokens/sec` but
 is retained only as secondary evidence because contention was observed.
 
+Replay-dataset candidates endpoint retirement protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-replay-dataset-candidates-retired.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `85.508482 s`,
+`6131.415 tokens/sec`, prewarm `297166.980 ms`,
+`tick_duration_ms.p95=20.720`, `train_compute=0.132230 ms/token`,
+`prepare_training=0.006741 ms/token`, and
+`finalize_total=0.006365 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, and recorded
+zero graph/native/sequence failures. Contention was `not_observed`
+(`cpu max=27%`, `gpu max=18%`, GPU memory utilization max `21%`). RTX 3060
+memory moved `1758->1760 MiB`. This protects the live tick after retiring the
+duplicate `/terminus/replay-dataset/candidates` path; the replacement candidate
+surface remains `/terminus/replay-plan`, while dataset preview/bundle carry
+bounded source-window evidence.
+
 Long protection run:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-dataset-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.02`

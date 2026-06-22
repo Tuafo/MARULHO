@@ -500,6 +500,18 @@ class TraceExportRunnerTests(unittest.TestCase):
         )
         self.assertEqual(source_window["source_window_count"], 1)
         self.assertEqual(source_window["candidate_count_returned"], 1)
+        self.assertEqual(
+            source_window["candidate_context_source"],
+            "replay_plan_summary_inside_dataset_preview",
+        )
+        self.assertEqual(
+            source_window["retired_public_candidate_preview_endpoint"],
+            "/terminus/replay-dataset/candidates",
+        )
+        self.assertEqual(
+            source_window["replacement_candidate_endpoint"],
+            "/terminus/replay-plan",
+        )
         self.assertEqual(source_window["source_trace_count_evaluated"], 1)
         self.assertEqual(source_window["matched_trace_count_evaluated"], 1)
         self.assertFalse(source_window["return_limit_reached"])
