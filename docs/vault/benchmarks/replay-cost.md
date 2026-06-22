@@ -7,6 +7,7 @@ related_code:
   - ../../../src/marulho/evaluation/source_bank_memory_match_benchmark.py
   - ../../../src/marulho/evaluation/replay_query_anchor_source_window_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_anchor_source_window_benchmark.py
+  - ../../../src/marulho/evaluation/artifact_io.py
   - ../../../src/marulho/evaluation/bucket_candidate_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
@@ -83,6 +84,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json
   - reports/bounded_replay_window_20260622/sleep-replay-anchor-source-window-bounded.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-anchor-source-window.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json
   - reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json
   - reports/bounded_replay_window_20260618/synthetic-bucket-source-window.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-bucket-candidate-source-window.json
@@ -1335,6 +1337,26 @@ It processed `524288` tokens at `6135.629 tokens/sec`, with
 `0`, and RTX memory moved from `1615 MiB` to `1614 MiB`. GPU utilization touched
 the `20%` contention threshold, so this is same-band protection and all-anchor
 source retirement evidence, not a speed ceiling.
+
+The replay adapter experiment stack is retired rather than benchmarked as a
+new replay mechanism. The deleted stack included dry-run training approval,
+dry-run plan creation, metadata-only replay adapter output, experimental
+promotion gate, and replay-to-adaptation experiment evidence. It was isolated
+from runtime mutation, but it kept an active-looking replay adaptation branch in
+`src` and exposed adapter report kinds through service validation summaries.
+Active evaluation modules now import JSON/hash helpers from
+`marulho.evaluation.artifact_io`; the replay approval/plan/adapter/promotion
+modules and their old tests are removed. The retained evidence is the absence
+guard in `tests/test_replay_adapter_stack_retired.py`: deleted modules are no
+longer importable, service report kinds are absent, and neutral artifact I/O
+still preserves JSON object loading plus canonical SHA-256 hashing.
+The paired protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json`
+processed `524288` tokens at `6167.298 tokens/sec`, kept route scoring bounded
+at `12/65536`, cached `65526` transition rows, recorded zero graph/native
+sequence failures, and kept RTX memory nearly flat at `1728->1729 MiB`; GPU
+utilization touched the `20%` contention threshold, so this is same-band
+protection evidence rather than a speed ceiling.
 
 The bucket candidate source-window follow-up closes a lower-level source-cost
 gap in the shared store helper. The maintained collector now uses

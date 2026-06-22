@@ -9,8 +9,8 @@ from typing import Any, Mapping, Sequence, TextIO
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.service.action_loop import execute_digital_action
 
+from .artifact_io import _sha256_json, load_json_object
 from .autonomy_ladder import evaluate_autonomy_ladder
-from .replay_training_approval import _sha256_json, load_json_object
 
 
 APPROVED_ACTION_LEVEL2_SCHEMA_VERSION = 1

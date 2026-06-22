@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence, TextIO
 from marulho.reporting.readme_reports import write_json_report_with_readme
 
 from .live_long_run_validation import SAFE_REPLAY_FLAGS
-from .replay_training_approval import load_json_object
+from .artifact_io import load_json_object
 
 
 MULTI_HOUR_SCHEMA_VERSION = 1

@@ -1334,6 +1334,21 @@ graph/native sequence failures, and RTX 3060 memory `1615->1614 MiB`. GPU
 utilization touched the `20%` contention threshold, so this is protection
 evidence and all-anchor source retirement, not a speed promotion.
 
+The replay-adapter experiment stack is no longer an active column/runtime or
+service report surface. Dry-run approval, dry-run plan generation,
+metadata-only adapter output, experimental promotion gate, and
+replay-to-adaptation experiment evidence are deleted. Active evaluation tools
+that only needed JSON artifact loading now import `marulho.evaluation.artifact_io`,
+and `REPORT_SUMMARY_KINDS` no longer exposes
+`terminus_replay_adapter_promotion_gate` or
+`terminus_replay_adaptation_experiment_1`. This keeps replay/adaptation from
+surviving as a parallel runtime-looking path beside bounded replay windows. The
+paired `524288`-token protection run stayed in band at `6167.298 tokens/sec`,
+with bounded `12/65536` route rows, `65526` cached transition rows, zero
+graph/native sequence failures, and RTX memory `1728->1729 MiB`; GPU
+utilization touched the `20%` contention threshold, so this is same-band
+protection rather than a speed ceiling.
+
 Strong-capture slow-memory admission is now cadenced instead of every-strong.
 The column/runtime path still keeps device strong-event evidence for threshold
 crossings, but archival writes are selected by

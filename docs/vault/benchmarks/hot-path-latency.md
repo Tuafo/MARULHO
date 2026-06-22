@@ -5392,3 +5392,34 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 utilization max `22%`, and RTX memory `1615->1614 MiB`. Because GPU utilization
 touched the configured contention threshold, treat this as same-band live-tick
 protection and retired all-anchor source evidence, not a speed ceiling.
+
+## Replay Adapter Stack Retirement Protection
+
+The isolated replay-adapter experiment stack is deleted: dry-run training
+approval, dry-run plan, metadata-only adapter experiment, experimental
+promotion gate, and replay-to-adaptation experiment evidence no longer remain
+as active modules. Generic artifact JSON loading/hashing now lives in
+`marulho.evaluation.artifact_io`, and service validation reports no longer
+allow `terminus_replay_adapter_promotion_gate` or
+`terminus_replay_adaptation_experiment_1`.
+
+Focused verification:
+`python -m pytest tests/test_replay_adapter_stack_retired.py tests/test_approved_action_level2.py tests/test_autonomy_ladder.py tests/test_live_long_run_validation.py tests/test_multi_hour_live_validation.py tests/test_self_improvement_readiness.py`
+passed `23` tests. The new retirement guard asserts the deleted adapter modules
+are not importable, the service allowlist no longer exposes their report kinds,
+and the neutral artifact helper preserves JSON object loading plus canonical
+SHA-256 hashing for active evaluation utilities.
+
+The paired protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json`
+processed `524288` tokens in `85.010975 s` at `6167.298 tokens/sec`,
+`tick_duration_ms.p95=20.472`, `train_compute=0.131572 ms/token`,
+`prepare_training=0.006478 ms/token`, and
+`finalize_total=0.006380 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`289.077 s`; velocity reported CPU max `23%`, GPU max `20%`, GPU memory
+utilization max `21%`, and RTX memory `1728->1729 MiB`. GPU utilization touched
+the configured contention threshold, so this is same-band protection evidence,
+not a new speed ceiling.

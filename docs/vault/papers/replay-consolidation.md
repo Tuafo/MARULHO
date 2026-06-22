@@ -1181,6 +1181,26 @@ sampler observed GPU utilization at the `20%` contention threshold, so this is
 accepted as same-band live-tick protection and retirement evidence for the
 all-anchor sleep source pass, not as a new speed ceiling.
 
+The isolated replay-adapter experiment stack is also retired and removed. It
+kept dry-run training approval, dry-run plan generation, metadata-only adapter
+artifacts, an experimental promotion gate, and replay-to-adaptation experiment
+evidence beside the maintained replay/sample/readout/sleep paths. That stack
+did not mutate the runtime, but it made replay adaptation look service-visible:
+`REPORT_SUMMARY_KINDS` exposed adapter report kinds and the plan included a
+stale executable-looking adapter command. MARULHO now deletes those modules and
+old tests, moves generic JSON/hash helpers to `marulho.evaluation.artifact_io`,
+and adds `tests/test_replay_adapter_stack_retired.py` to keep the old modules
+and service report kinds absent. Future adapter experiments must begin as
+bounded offline proposals with explicit quality evidence, no hidden replay-text
+reasoning, no live/every-token work, no runtime mutation, and hot-path
+protection evidence before any active exposure. The paired protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json`
+processed `524288` tokens at `6167.298 tokens/sec`, with
+`train_compute=0.131572 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, zero graph/native sequence failures, and RTX memory
+`1728->1729 MiB`; GPU utilization touched the `20%` contention threshold, so
+this is same-band protection evidence rather than a speed ceiling.
+
 SNN Readout Evidence Ledger normalization now follows the same selected-source
 rule before replay/readout review methods or ledger status snapshots touch
 retained event history. The old normalizer built `list(...)` for every retained
