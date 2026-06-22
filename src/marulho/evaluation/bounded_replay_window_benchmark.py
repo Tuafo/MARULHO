@@ -461,6 +461,32 @@ def _sleep_replay_associative_recall_summary(
     query_count = int(
         sum(int(report.get("query_count", 0) or 0) for report in recall_reports)
     )
+    query_row_read_count = int(
+        sum(int(report.get("query_row_read_count", 0) or 0) for report in recall_reports)
+    )
+    query_row_state_advance_count = int(
+        sum(
+            int(report.get("query_row_state_advance_count", 0) or 0)
+            for report in recall_reports
+        )
+    )
+    replay_entry_reader_used = any(
+        bool(report.get("replay_entry_reader_used")) for report in recall_reports
+    )
+    recall_selection_state_advance_count = int(
+        sum(
+            int(report.get("recall_selection_state_advance_count", 0) or 0)
+            for report in recall_reports
+        )
+    )
+    read_only_replay_row = bool(
+        recall_reports
+        and all(bool(report.get("read_only_replay_row")) for report in recall_reports)
+    )
+    recall_selection_read_only = bool(
+        recall_reports
+        and all(bool(report.get("recall_selection_read_only")) for report in recall_reports)
+    )
     mean_input_distance = (
         float(sum(input_distances) / len(input_distances))
         if input_distances
@@ -483,7 +509,29 @@ def _sleep_replay_associative_recall_summary(
             and mean_input_distance is not None
             and mean_input_distance <= 1e-5
             and all(bool(report.get("quality_pass")) for report in recall_reports)
+            and query_row_read_count >= query_count
+            and query_row_state_advance_count == 0
+            and recall_selection_state_advance_count == 0
+            and read_only_replay_row
+            and recall_selection_read_only
+            and not replay_entry_reader_used
         ),
+        "query_row_surface": "bounded_replay_recall_row.v1",
+        "query_row_reader": "DualMemoryStore.replay_recall_row",
+        "query_row_reader_owned_by_store": True,
+        "query_row_access_policy": "explicit_selected_replay_index",
+        "query_row_read_count": int(query_row_read_count),
+        "query_row_state_advance_count": int(query_row_state_advance_count),
+        "recall_selection_state_advance_count": int(
+            recall_selection_state_advance_count
+        ),
+        "recall_selection_read_only": bool(recall_selection_read_only),
+        "read_only_replay_row": bool(read_only_replay_row),
+        "stc_state_advance": bool(
+            query_row_state_advance_count > 0
+            or recall_selection_state_advance_count > 0
+        ),
+        "replay_entry_reader_used": bool(replay_entry_reader_used),
         "candidate_scope": (
             "bucket_indexed_candidate_window"
             if recall_reports

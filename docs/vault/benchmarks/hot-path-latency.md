@@ -5760,3 +5760,50 @@ recorded zero graph/native sequence failures. Velocity reported CPU max `82%`,
 GPU max `33%`, GPU memory utilization max `23%`, and RTX memory
 `1952->1954 MiB`, so this is noisy same-band protection evidence, not a clean
 speed ceiling.
+
+## Sleep Recall Read-Only Row Protection
+
+This run protects the live tick after retiring mutating replay-row reads from
+read-only sleep associative recall. The code slice changes the sleep recall
+query reader to `DualMemoryStore.replay_recall_row(...)` and makes
+`bounded_replay_window_recall.v1` use read-only selector state. It does not add
+live-tick recall, every-token replay, raw replay text, or GPU-resident archival
+metadata.
+
+Focused replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+
+Result: positive-pressure sleep recall passed with `1` query and mean best
+input-pattern distance `5.96046447753906e-08`. Runtime Truth recorded
+`query_row_surface=bounded_replay_recall_row.v1`, `query_row_read_count=1`,
+`query_row_state_advance_count=0`,
+`recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
+`recall_selection_read_only=true`, `replay_entry_reader_used=false`,
+`mutates_runtime_state=false`, CPU archival tensors, no raw text payload, no
+hidden language reasoning, no live tick, and no every-token cadence.
+
+No-profile hot-path runs:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-read-only-recall-row.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `89.277612 s` at
+`5872.559 tokens/sec`, p95 tick `22.444 ms`,
+`train_compute=0.136980 ms/token`, `prepare_training=0.007107 ms/token`, and
+`finalize_total=0.007006 ms/token`. Prewarm took `338.258 s`. Runtime Truth
+kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native/sequence failures. Velocity reported no observed
+contention, CPU max `29%`, GPU max `18%`, and RTX memory `1964->1964 MiB`.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-read-only-recall-row-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.217779 s` at
+`5943.110 tokens/sec`, p95 tick `21.614 ms`,
+`train_compute=0.135758 ms/token`, `prepare_training=0.006871 ms/token`, and
+`finalize_total=0.006890 ms/token`. Prewarm took `346.870 s`. Runtime Truth
+again kept route scoring bounded at `12/65536`, cached `65526` transition rows,
+kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060,
+and recorded zero graph/native/sequence failures. Velocity reported GPU-side
+contention (`max_gpu=26%`), so the two-run claim is same-band protection, not a
+new speed ceiling.

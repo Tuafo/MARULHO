@@ -2387,11 +2387,13 @@ continual-learning replay, synaptic tagging/capture, latent replay, and sparse
 replay all point toward selected slow-window rehearsal with explicit quality
 and cost gates. MARULHO applies that boundary inside trainer-owned deep sleep:
 after bounded anchor/replay-window selection, `bounded_sleep_replay_associative_recall.v1`
-uses at most `4` selected replay entries as queries, reads replay tensors with
-`include_text_payload=false`, and recalls only within the selected
-bucket-indexed candidate window. Runtime Truth reports CPU archival/source/score
+uses at most `4` selected replay entries as queries, reads replay tensors
+through `bounded_replay_recall_row.v1`, and recalls only within the selected
+bucket-indexed candidate window with `select_replay_window(...,
+advance_stc_state=false)`. Runtime Truth reports CPU archival/source/score
 placement, no live tick, no every-token cadence, no raw replay text, no hidden
-language reasoning, no mutation authority, and no plasticity authority.
+language reasoning, no mutation authority, no STC state advance, and no
+plasticity authority.
 
 The focused benchmark
 `reports/bounded_replay_window_20260622/sleep-replay-associative-recall-window.json`
@@ -2417,6 +2419,22 @@ processed `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
 observed contention, CPU max `12%`, GPU max `19%`, and RTX 3060 memory
 `1709->1707 MiB`. Prewarm took `304.955 s`, so this is hot-tick protection and
 bounded recall quality evidence, not a startup-speed claim.
+
+The read-only row follow-up retires `DualMemoryStore.replay_entry(...)` as the
+query reader for associative recall. Focused tests prove the recall path does
+not call `replay_entry` and does not advance `_state_token`, capture tags, local
+PRP, global PRP, or bucket PRP. The external local replay report
+`..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
+passed the positive-pressure arm with `1` query, mean best input-pattern
+distance `5.96046447753906e-08`, `query_row_state_advance_count=0`,
+`recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
+`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
+`mutates_runtime_state=false`. The paired no-profile `524288`-token protection
+runs stayed same-band at `5872.559` and `5943.110 tokens/sec`; the no-contention
+run kept route scoring bounded to `12/65536`, cached `65526` transition rows,
+selected CUDA on the RTX 3060, kept VRAM flat at `1964 MiB`, and recorded zero
+graph/native/sequence failures. This changes recall query/selection reads only;
+mutating replay/consolidation remains explicit.
 
 ## Readout Consolidation Naming Retirement
 

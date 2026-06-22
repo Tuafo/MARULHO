@@ -2959,6 +2959,18 @@ class MarulhoTrainer:
             "exact_input_recall_count": 0,
             "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
             "quality_pass": False,
+            "query_row_surface": "bounded_replay_recall_row.v1",
+            "query_row_reader": "DualMemoryStore.replay_recall_row",
+            "query_row_reader_owned_by_store": True,
+            "query_row_access_policy": "explicit_selected_replay_index",
+            "query_row_read_count": 0,
+            "query_row_invalid_index_count": 0,
+            "query_row_state_advance_count": 0,
+            "recall_selection_state_advance_count": 0,
+            "recall_selection_read_only": True,
+            "read_only_replay_row": True,
+            "stc_state_advance": False,
+            "replay_entry_reader_used": False,
             "query_prepare_missing_routing_key_count": 0,
             "query_prepare_missing_input_pattern_count": 0,
             "score_device": "cpu",
@@ -3016,17 +3028,32 @@ class MarulhoTrainer:
         queries: list[tuple[int, torch.Tensor, torch.Tensor | None]] = []
         missing_routing_key_count = 0
         missing_input_pattern_count = 0
+        query_row_read_count = 0
+        query_row_invalid_index_count = 0
+        query_row_state_advance_count = 0
+        query_row_surfaces: set[str] = set()
+        query_row_mutation_count = 0
+        query_row_plasticity_count = 0
         for raw_idx in replay_idx[:query_limit]:
             idx = int(raw_idx)
             try:
-                replay_entry = self.model.memory_store.replay_entry(
+                replay_entry = self.model.memory_store.replay_recall_row(
                     idx,
                     current_token=self.token_count,
                     include_text_payload=False,
                 )
             except IndexError:
+                query_row_invalid_index_count += 1
                 missing_routing_key_count += 1
                 continue
+            query_row_read_count += 1
+            query_row_surfaces.add(str(replay_entry.get("surface") or "unknown"))
+            if bool(replay_entry.get("stc_state_advance")):
+                query_row_state_advance_count += 1
+            if bool(replay_entry.get("mutates_runtime_state")):
+                query_row_mutation_count += 1
+            if bool(replay_entry.get("applies_plasticity")):
+                query_row_plasticity_count += 1
             routing_key = replay_entry.get("routing_key")
             input_pattern = replay_entry.get("input_pattern")
             if not isinstance(routing_key, torch.Tensor):
@@ -3069,6 +3096,21 @@ class MarulhoTrainer:
                     "query_prepare_missing_input_pattern_count": int(
                         missing_input_pattern_count
                     ),
+                    "query_row_surface": "bounded_replay_recall_row.v1",
+                    "query_row_reader": "DualMemoryStore.replay_recall_row",
+                    "query_row_reader_owned_by_store": True,
+                    "query_row_access_policy": "explicit_selected_replay_index",
+                    "query_row_read_count": int(query_row_read_count),
+                    "query_row_invalid_index_count": int(
+                        query_row_invalid_index_count
+                    ),
+                    "query_row_state_advance_count": int(
+                        query_row_state_advance_count
+                    ),
+                    "query_row_surfaces": sorted(query_row_surfaces),
+                    "read_only_replay_row": True,
+                    "stc_state_advance": bool(query_row_state_advance_count > 0),
+                    "replay_entry_reader_used": False,
                 }
             )
             self.model.memory_store.last_replay_recall_report = dict(
@@ -3125,6 +3167,12 @@ class MarulhoTrainer:
         )
         any_mutation = any(bool(report.get("mutates_runtime_state")) for report in reports)
         any_plasticity = any(bool(report.get("applies_plasticity")) for report in reports)
+        recall_selection_state_advance_count = sum(
+            1
+            for report in reports
+            if bool(report.get("selection_state_advance"))
+            or bool(report.get("stc_state_advance"))
+        )
         aggregate = {
             "surface": "bounded_sleep_replay_associative_recall.v1",
             "status": "recalled" if reports else "empty",
@@ -3176,6 +3224,26 @@ class MarulhoTrainer:
                 and mean_best_input_distance is not None
                 and mean_best_input_distance <= 1e-5
             ),
+            "query_row_surface": "bounded_replay_recall_row.v1",
+            "query_row_reader": "DualMemoryStore.replay_recall_row",
+            "query_row_reader_owned_by_store": True,
+            "query_row_access_policy": "explicit_selected_replay_index",
+            "query_row_read_count": int(query_row_read_count),
+            "query_row_invalid_index_count": int(query_row_invalid_index_count),
+            "query_row_state_advance_count": int(query_row_state_advance_count),
+            "query_row_surfaces": sorted(query_row_surfaces),
+            "recall_selection_state_advance_count": int(
+                recall_selection_state_advance_count
+            ),
+            "recall_selection_read_only": all(
+                bool(report.get("selection_read_only")) for report in reports
+            ),
+            "read_only_replay_row": True,
+            "stc_state_advance": bool(
+                query_row_state_advance_count > 0
+                or recall_selection_state_advance_count > 0
+            ),
+            "replay_entry_reader_used": False,
             "query_prepare_missing_routing_key_count": int(missing_routing_key_count),
             "query_prepare_missing_input_pattern_count": int(missing_input_pattern_count),
             "score_device": "cpu",
@@ -3191,8 +3259,8 @@ class MarulhoTrainer:
             "runs_every_token": bool(any_every_token),
             "raw_text_payload_loaded": bool(any_raw_text),
             "language_reasoning": bool(any_language_reasoning),
-            "mutates_runtime_state": bool(any_mutation),
-            "applies_plasticity": bool(any_plasticity),
+            "mutates_runtime_state": bool(any_mutation or query_row_mutation_count > 0),
+            "applies_plasticity": bool(any_plasticity or query_row_plasticity_count > 0),
             "global_candidate_scan": any(
                 bool(report.get("global_candidate_scan")) for report in reports
             ),
@@ -3452,6 +3520,41 @@ class MarulhoTrainer:
             ),
             "sleep_replay_associative_recall_mean_best_input_distance": (
                 associative_recall_report.get("mean_best_input_distance")
+            ),
+            "sleep_replay_associative_recall_query_row_surface": (
+                associative_recall_report.get("query_row_surface")
+            ),
+            "sleep_replay_associative_recall_query_row_reader": (
+                associative_recall_report.get("query_row_reader")
+            ),
+            "sleep_replay_associative_recall_query_row_reader_owned_by_store": bool(
+                associative_recall_report.get("query_row_reader_owned_by_store", False)
+            ),
+            "sleep_replay_associative_recall_query_row_read_count": int(
+                associative_recall_report.get("query_row_read_count", 0) or 0
+            ),
+            "sleep_replay_associative_recall_query_row_state_advance_count": int(
+                associative_recall_report.get("query_row_state_advance_count", 0)
+                or 0
+            ),
+            "sleep_replay_associative_recall_selection_state_advance_count": int(
+                associative_recall_report.get(
+                    "recall_selection_state_advance_count",
+                    0,
+                )
+                or 0
+            ),
+            "sleep_replay_associative_recall_selection_read_only": bool(
+                associative_recall_report.get("recall_selection_read_only", False)
+            ),
+            "sleep_replay_associative_recall_read_only_replay_row": bool(
+                associative_recall_report.get("read_only_replay_row", False)
+            ),
+            "sleep_replay_associative_recall_stc_state_advance": bool(
+                associative_recall_report.get("stc_state_advance", False)
+            ),
+            "sleep_replay_associative_recall_replay_entry_reader_used": bool(
+                associative_recall_report.get("replay_entry_reader_used", True)
             ),
             "sleep_replay_associative_recall_runs_live_tick": bool(
                 associative_recall_report.get("runs_live_tick", False)

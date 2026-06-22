@@ -29,6 +29,7 @@ related_benchmarks: []
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Implicit Replay Entry Raw Text Payload Default](implicit-replay-entry-raw-text-payload-default.md)
 - [Live Memory Summary Full Scan](live-memory-summary-full-scan.md)
+- [Mutating Replay Entry Reader For Read Only Recall](mutating-replay-entry-reader-for-read-only-recall.md)
 - [Nonreversible Anchor Source Materialization](nonreversible-anchor-source-materialization.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
 - [Plasticity Runtime State Full Snapshot](plasticity-runtime-state-full-snapshot.md)

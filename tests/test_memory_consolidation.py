@@ -336,6 +336,75 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertIsNone(replay_entry["text"])
         self.assertIsNone(replay_entry["metadata"])
 
+    def test_replay_recall_row_is_read_only_and_text_payload_opt_in(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        pattern = torch.tensor([0.0, 1.0], dtype=torch.float32)
+        store.update(
+            assembly,
+            importance=1.0,
+            token_count=12,
+            bucket_id=1,
+            input_pattern=pattern,
+            routing_key=assembly,
+            raw_window="bounded replay raw window",
+            text="expanded replay text should stay out of recall",
+            metadata={"source": "unit"},
+            capture_tag=0.8,
+        )
+        store.slow_local_prp[0] = 0.9
+        store.global_prp_pool = 1.2
+        store.bucket_prp_pool[1] = 0.7
+        state_token_before = int(store._state_token)
+        tags_before = list(store.slow_capture_tag)
+        prp_before = list(store.slow_local_prp)
+        global_prp_before = float(store.global_prp_pool)
+        bucket_prp_before = dict(store.bucket_prp_pool)
+
+        row = store.replay_recall_row(
+            0,
+            current_token=120,
+            include_text_payload=False,
+        )
+        text_row = store.replay_recall_row(
+            0,
+            current_token=120,
+            include_text_payload=True,
+        )
+
+        self.assertEqual(row["surface"], "bounded_replay_recall_row.v1")
+        self.assertEqual(row["row_access_policy"], "explicit_selected_replay_index")
+        self.assertTrue(row["read_only"])
+        self.assertFalse(row["stc_state_advance"])
+        self.assertFalse(row["stc_decay_applied"])
+        self.assertFalse(row["replay_entry_reader_used"])
+        self.assertFalse(row["runs_live_tick"])
+        self.assertFalse(row["runs_every_token"])
+        self.assertFalse(row["global_candidate_scan"])
+        self.assertFalse(row["global_score_scan"])
+        self.assertFalse(row["raw_text_payload_loaded"])
+        self.assertFalse(row["language_reasoning"])
+        self.assertFalse(row["mutates_runtime_state"])
+        self.assertFalse(row["applies_plasticity"])
+        self.assertEqual(row["archival_storage_device"], "cpu")
+        self.assertIsInstance(row["assembly"], torch.Tensor)
+        self.assertIsInstance(row["input_pattern"], torch.Tensor)
+        self.assertIsInstance(row["routing_key"], torch.Tensor)
+        self.assertIsNone(row["raw_window"])
+        self.assertIsNone(row["text"])
+        self.assertIsNone(row["metadata"])
+        row["assembly"][0] = 99.0
+        self.assertNotEqual(float(store.slow_buffer[0][0].item()), 99.0)
+        self.assertEqual(store._state_token, state_token_before)
+        self.assertEqual(list(store.slow_capture_tag), tags_before)
+        self.assertEqual(list(store.slow_local_prp), prp_before)
+        self.assertEqual(store.global_prp_pool, global_prp_before)
+        self.assertEqual(dict(store.bucket_prp_pool), bucket_prp_before)
+        self.assertEqual(text_row["raw_window"], "bounded replay raw window")
+        self.assertEqual(text_row["text"], "expanded replay text should stay out of recall")
+        self.assertEqual(text_row["metadata"], {"source": "unit"})
+        self.assertTrue(text_row["raw_text_payload_loaded"])
+
     def test_query_match_row_is_store_owned_and_text_payload_opt_in(self) -> None:
         store = DualMemoryStore(capacity=8)
         assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
@@ -2028,6 +2097,53 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(recall_report["global_score_scan"])
         self.assertEqual(recall_report["archival_storage_device"], "cpu")
         self.assertFalse(recall_report["device_placement"]["gpu_used"])
+        self.assertEqual(
+            recall_report["query_row_surface"],
+            "bounded_replay_recall_row.v1",
+        )
+        self.assertEqual(
+            recall_report["query_row_reader"],
+            "DualMemoryStore.replay_recall_row",
+        )
+        self.assertTrue(recall_report["query_row_reader_owned_by_store"])
+        self.assertEqual(
+            recall_report["query_row_access_policy"],
+            "explicit_selected_replay_index",
+        )
+        self.assertEqual(
+            recall_report["query_row_read_count"],
+            recall_report["query_count"],
+        )
+        self.assertEqual(recall_report["query_row_state_advance_count"], 0)
+        self.assertEqual(recall_report["recall_selection_state_advance_count"], 0)
+        self.assertTrue(recall_report["recall_selection_read_only"])
+        self.assertTrue(recall_report["read_only_replay_row"])
+        self.assertFalse(recall_report["stc_state_advance"])
+        self.assertFalse(recall_report["replay_entry_reader_used"])
+        self.assertEqual(
+            report["sleep_replay_associative_recall_query_row_read_count"],
+            recall_report["query_count"],
+        )
+        self.assertEqual(
+            report["sleep_replay_associative_recall_query_row_state_advance_count"],
+            0,
+        )
+        self.assertEqual(
+            report[
+                "sleep_replay_associative_recall_selection_state_advance_count"
+            ],
+            0,
+        )
+        self.assertTrue(
+            report["sleep_replay_associative_recall_selection_read_only"]
+        )
+        self.assertTrue(
+            report["sleep_replay_associative_recall_read_only_replay_row"]
+        )
+        self.assertFalse(report["sleep_replay_associative_recall_stc_state_advance"])
+        self.assertFalse(
+            report["sleep_replay_associative_recall_replay_entry_reader_used"]
+        )
         self.assertTrue(report["sleep_replay_associative_recall_quality_pass"])
         self.assertLessEqual(
             report["sleep_replay_associative_recall_mean_best_input_distance"],
@@ -2043,6 +2159,64 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_quality_before"],
             report["sleep_replay_quality_after"],
         )
+
+    def test_associative_recall_uses_read_only_replay_rows_not_replay_entry(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=4,
+            deep_sleep_candidate_pool=8,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="read only replay row")
+
+        store = trainer.model.memory_store
+        self.assertGreater(len(store.slow_buffer), 0)
+        for idx in range(len(store.slow_buffer)):
+            store.slow_capture_tag[idx] = 1.0
+            store.slow_local_prp[idx] = 1.0
+        replay_index = 0
+        bucket_id = store.slow_bucket_ids[replay_index]
+        self.assertIsNotNone(bucket_id)
+        state_token_before = int(store._state_token)
+        tags_before = list(store.slow_capture_tag)
+
+        with patch.object(
+            store,
+            "replay_entry",
+            side_effect=AssertionError("associative recall must not use replay_entry"),
+        ):
+            report = trainer._sleep_replay_associative_recall(
+                [replay_index],
+                mode="deep",
+                candidate_bucket_ids=[int(bucket_id)],
+                max_candidates=4,
+            )
+
+        self.assertEqual(report["surface"], "bounded_sleep_replay_associative_recall.v1")
+        self.assertEqual(report["status"], "recalled")
+        self.assertEqual(report["query_row_surface"], "bounded_replay_recall_row.v1")
+        self.assertEqual(report["query_row_reader"], "DualMemoryStore.replay_recall_row")
+        self.assertEqual(report["query_row_read_count"], 1)
+        self.assertEqual(report["query_row_state_advance_count"], 0)
+        self.assertEqual(report["recall_selection_state_advance_count"], 0)
+        self.assertTrue(report["recall_selection_read_only"])
+        self.assertTrue(report["read_only_replay_row"])
+        self.assertFalse(report["stc_state_advance"])
+        self.assertFalse(report["replay_entry_reader_used"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["applies_plasticity"])
+        self.assertEqual(store._state_token, state_token_before)
+        self.assertEqual(list(store.slow_capture_tag), tags_before)
 
     def test_deep_sleep_sfa_correction_samples_selected_replay_window(self) -> None:
         set_seed(7)
@@ -2746,6 +2920,10 @@ class MemoryConsolidationTests(unittest.TestCase):
                 trainer.model.memory_store.slow_consolidation_level[idx] = 1.0
                 matched = True
         self.assertTrue(matched)
+        trainer.model.memory_store._invalidate_bucket_consolidation_cache()
+        trainer.model.memory_store._rebuild_bucket_consolidation_cache(
+            reason="test_direct_consolidation_mutation",
+        )
 
         metrics = trainer.train_step(pattern, raw_window="stable consolidated trace")
 

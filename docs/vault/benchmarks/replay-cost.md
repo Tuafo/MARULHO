@@ -2780,3 +2780,38 @@ at `12/65536`, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Velocity observed GPU-side
 contention, so this is same-band protection evidence rather than a new speed
 ceiling.
+
+## Sleep Recall Read-Only Row Boundary
+
+Sleep associative recall no longer prepares query tensors through the mutating
+`DualMemoryStore.replay_entry(...)` reader, and replay-window recall no longer
+advances STC state while choosing local recall candidates. The maintained read
+path is `DualMemoryStore.replay_recall_row(...)` under
+`bounded_replay_recall_row.v1`, plus read-only replay selection inside
+`bounded_replay_window_recall.v1`.
+
+Focused replay quality:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+
+Result: positive-pressure sleep recall passed with `1` query, mean best
+input-pattern distance `5.96046447753906e-08`,
+`query_row_read_count=1`, `query_row_state_advance_count=0`,
+`recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
+`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
+`mutates_runtime_state=false`. Archival tensors and scoring stayed CPU-side;
+CUDA was not used for archival metadata.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-read-only-recall-row-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.217779 s` at
+`5943.110 tokens/sec`, p95 tick `21.614 ms`,
+`train_compute=0.135758 ms/token`, `prepare_training=0.006871 ms/token`, and
+`finalize_total=0.006890 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060,
+kept VRAM flat at `1963 MiB`, and recorded zero graph/native/sequence failures.
+The companion no-contention run measured `5872.559 tokens/sec`, so this is
+same-band protection and retired-path evidence, not a new speed ceiling.

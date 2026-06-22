@@ -2225,6 +2225,141 @@ class DualMemoryStore:
             entry.update({"raw_window": None, "text": None, "metadata": None})
         return entry
 
+    def replay_recall_row(
+        self,
+        index: int,
+        current_token: Optional[int] = None,
+        *,
+        include_text_payload: bool = False,
+    ) -> dict[str, Any]:
+        """Read one selected replay row for associative recall without STC decay."""
+
+        idx = int(index)
+        if idx < 0 or idx >= len(self.slow_buffer):
+            raise IndexError(f"Memory index out of range: {index}")
+
+        token_marker = self._state_token if current_token is None else int(current_token)
+        state_token_before = int(self._state_token)
+        assembly = self._sequence_item(self.slow_buffer, idx)
+        input_pattern = self._sequence_item(self.slow_input_patterns, idx)
+        routing_key = self._sequence_item(self.slow_routing_keys, idx)
+        bucket_id = self._sequence_item(self.slow_bucket_ids, idx)
+        importance = float(self._sequence_item(self.slow_importance, idx, 1.0) or 1.0)
+        tag_strength = float(
+            max(0.0, self._sequence_item(self.slow_capture_tag, idx, 0.0) or 0.0)
+        )
+        prp_level = float(max(0.0, self._available_prp(idx)))
+        capture_strength = float(max(0.0, tag_strength * prp_level))
+        consolidation = float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    float(self._sequence_item(self.slow_consolidation_level, idx, 0.0) or 0.0),
+                ),
+            )
+        )
+        replay_count = int(self._sequence_item(self.slow_replay_count, idx, 0) or 0)
+        last_replay_token = int(
+            self._sequence_item(self.slow_last_replay_token, idx, token_marker)
+            or token_marker
+        )
+        entry_token = int(
+            self._sequence_item(self.slow_entry_timestamps, idx, token_marker)
+            or token_marker
+        )
+        replay_age = max(0, token_marker - last_replay_token)
+        access_penalty = 1.0 / (1.0 + 0.5 * float(max(0, replay_count)))
+        stability_gap = max(0.0, 1.0 - consolidation)
+        capture_gap = max(0.0, 1.0 - capture_strength)
+        age_pressure = 1.0 + math.log1p(
+            float(replay_age) / max(1.0, float(self.functional_minute))
+        )
+        importance_scale = 0.5 + min(1.0, max(1e-6, importance))
+        fragility = float(
+            stability_gap
+            * age_pressure
+            * access_penalty
+            * importance_scale
+            * (0.5 + capture_gap)
+        )
+
+        row = {
+            "surface": "bounded_replay_recall_row.v1",
+            "status": "loaded",
+            "memory_index": int(idx),
+            "row_access_policy": "explicit_selected_replay_index",
+            "read_only": True,
+            "state_token_before": state_token_before,
+            "query_token_marker": int(token_marker),
+            "stc_state_advance": False,
+            "stc_decay_applied": False,
+            "replay_entry_reader_used": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "raw_text_payload_loaded": False,
+            "raw_text_payload_policy": "payload_omitted",
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+            "score_device": "cpu",
+            "assembly": assembly.detach().clone()
+            if isinstance(assembly, torch.Tensor)
+            else None,
+            "input_pattern": input_pattern.detach().clone()
+            if isinstance(input_pattern, torch.Tensor)
+            else None,
+            "routing_key": routing_key.detach().clone()
+            if isinstance(routing_key, torch.Tensor)
+            else None,
+            "bucket_id": bucket_id,
+            "importance": importance,
+            "tag_strength": tag_strength,
+            "capture_tag": tag_strength,
+            "stored_capture_tag": tag_strength,
+            "prp_level": prp_level,
+            "capture_strength": capture_strength,
+            "consolidation_level": consolidation,
+            "consolidation_gap": stability_gap,
+            "consolidation_events": int(
+                self._sequence_item(self.slow_consolidation_events, idx, 0) or 0
+            ),
+            "replay_count": replay_count,
+            "tokens_since_last_replay": int(replay_age),
+            "fragility_read_only_estimate": fragility,
+            "age_tokens": int(max(0, token_marker - entry_token)),
+            "last_replay_token": last_replay_token,
+            "tag_is_strong": bool(
+                self._sequence_item(self.slow_tag_is_strong, idx, False)
+            ),
+            "ripple_strength": float(
+                self._sequence_item(self.slow_ripple_strength, idx, 0.0) or 0.0
+            ),
+            "raw_window": None,
+            "text": None,
+            "metadata": None,
+        }
+        row["ripple_priority_multiplier"] = float(
+            self._ripple_priority_multiplier(float(row["ripple_strength"]))
+        )
+        if include_text_payload:
+            raw_window = self._sequence_item(self.slow_raw_windows, idx)
+            text = self._sequence_item(self.slow_texts, idx)
+            metadata = self._sequence_item(self.slow_metadata, idx)
+            row.update(
+                {
+                    "raw_window": raw_window,
+                    "text": text,
+                    "metadata": None if metadata is None else dict(metadata),
+                    "raw_text_payload_loaded": bool(raw_window is not None or text is not None),
+                    "raw_text_payload_policy": "explicit_replay_recall_row_payload",
+                }
+            )
+        return row
+
     @staticmethod
     def _sequence_item(
         values: Sequence[Any],
@@ -2400,6 +2535,7 @@ class DualMemoryStore:
         *,
         current_token: int,
         strategy: str,
+        advance_state: bool = True,
     ) -> float:
         if idx < 0 or idx >= len(self.slow_buffer):
             return 0.0
@@ -2411,7 +2547,31 @@ class DualMemoryStore:
                 return 0.0
             importance = float(max(1e-6, self.slow_importance[idx]))
             tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
-            fragility = self.fragility_score(idx, current_token)
+            if advance_state:
+                fragility = self.fragility_score(idx, current_token)
+            else:
+                prp_level = float(max(0.0, self._available_prp(idx)))
+                capture_strength = float(max(0.0, tag_strength * prp_level))
+                replay_age = max(
+                    0,
+                    int(current_token) - int(self.slow_last_replay_token[idx]),
+                )
+                access_penalty = 1.0 / (
+                    1.0 + 0.5 * float(max(0, int(self.slow_replay_count[idx])))
+                )
+                stability_gap = max(0.0, 1.0 - consolidation)
+                capture_gap = max(0.0, 1.0 - capture_strength)
+                age_pressure = 1.0 + math.log1p(
+                    float(replay_age) / max(1.0, float(self.functional_minute))
+                )
+                importance_scale = 0.5 + min(1.0, importance)
+                fragility = float(
+                    stability_gap
+                    * age_pressure
+                    * access_penalty
+                    * importance_scale
+                    * (0.5 + capture_gap)
+                )
             return float(importance * fragility * (1.0 + 0.5 * tag_strength))
         if strategy in {"priority", "consolidation"}:
             consolidation = float(
@@ -2580,6 +2740,7 @@ class DualMemoryStore:
         strategy: str = "priority",
         candidate_bucket_ids: Sequence[int] | torch.Tensor | None = None,
         scope: str = "sleep_slow_path",
+        advance_stc_state: bool = True,
     ) -> dict[str, Any]:
         """Select a bounded replay window and record the selection evidence.
 
@@ -2591,6 +2752,7 @@ class DualMemoryStore:
         started = time.perf_counter()
         requested = max(0, int(n))
         token_marker = int(current_token)
+        state_token_before = int(self._state_token)
         count = len(self.slow_buffer)
         candidate_window_limit = max(
             requested,
@@ -2628,7 +2790,8 @@ class DualMemoryStore:
             if candidate_count <= 0:
                 fallback_reason = "empty_bucket_index_candidate_window"
             else:
-                self._advance_state(token_marker)
+                if advance_stc_state:
+                    self._advance_state(token_marker)
                 score_count = candidate_count
                 scored = [
                     (
@@ -2637,6 +2800,7 @@ class DualMemoryStore:
                             int(idx),
                             current_token=token_marker,
                             strategy=strategy,
+                            advance_state=bool(advance_stc_state),
                         ),
                     )
                     for idx in bucket_candidates
@@ -2655,6 +2819,8 @@ class DualMemoryStore:
             fallback_reason = "candidate_bucket_scope_required_for_replay_window"
 
         latency_ms = (time.perf_counter() - started) * 1000.0
+        state_token_after = int(self._state_token)
+        state_advanced = state_token_after != state_token_before
         report = {
             "surface": "bounded_replay_window_selection.v1",
             "status": "selected" if selected else "empty",
@@ -2692,6 +2858,12 @@ class DualMemoryStore:
             **self._bucket_candidate_source_fields(candidate_window),
             "score_device": "cpu",
             "archival_storage_device": "cpu",
+            "selection_read_only": not bool(advance_stc_state),
+            "read_only_selection": not bool(advance_stc_state),
+            "stc_state_advance": bool(state_advanced),
+            "selection_state_advance": bool(state_advanced),
+            "state_token_before": int(state_token_before),
+            "state_token_after": int(state_token_after),
             "bounded_by_bucket_index": bool(bucket_scoped),
             "global_score_scan": False,
             "global_candidate_scan": False,
@@ -2757,6 +2929,7 @@ class DualMemoryStore:
             strategy=strategy,
             candidate_bucket_ids=scoped_bucket_ids,
             scope=scope,
+            advance_stc_state=False,
         )
         selected_indices = [
             int(index)
@@ -2874,6 +3047,13 @@ class DualMemoryStore:
             "attention_entropy": attention_entropy,
             "temperature": float(temperature),
             "selection_report": dict(selection_report),
+            "selection_surface": selection_report.get("surface"),
+            "selection_read_only": bool(selection_report.get("selection_read_only")),
+            "selection_state_advance": bool(
+                selection_report.get("selection_state_advance")
+            ),
+            "selection_score_count": int(selection_report.get("score_count", 0) or 0),
+            "stc_state_advance": bool(selection_report.get("stc_state_advance", False)),
             "score_device": "cpu",
             "archival_storage_device": "cpu",
             "runs_live_tick": False,

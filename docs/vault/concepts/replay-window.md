@@ -494,6 +494,19 @@ hot-path run stayed in band at `6376.873 tokens/sec` with bounded route rows,
 flat `1787 MiB` GPU memory, and zero runtime failures, while noting borderline
 sampled GPU contention.
 
+Sleep associative recall now uses the same selected-window rule for its query
+reader and selector. `DualMemoryStore.replay_recall_row(...)` exposes
+`bounded_replay_recall_row.v1` tensor rows without raw text payloads or STC
+state advance, and `recall_replay_window(...)` uses read-only replay selection
+inside the bucket-indexed candidate window. The focused external report
+`..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
+passed positive-pressure recall with `1` query, mean best input-pattern distance
+`5.96046447753906e-08`, `query_row_state_advance_count=0`,
+`recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
+`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
+`mutates_runtime_state=false`. Mutating `replay_entry(...)` remains available
+only for explicit replay/consolidation paths.
+
 ## Relationships
 
 - [Subcortex](subcortex.md)
