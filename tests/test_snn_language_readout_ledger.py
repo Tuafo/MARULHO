@@ -223,14 +223,14 @@ def _terminal_newborn_learning_review() -> dict[str, object]:
     }
     return {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_"
+            "snn_language_readout_newborn_neuron_"
             "critical_period_learning_event_review.v1"
         ),
         "accepted": True,
         "ready": True,
         "review_hash": "r" * 64,
         "requires_operator_approval": False,
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_event_review": {
             "newborn_neuron_critical_period_learning_event_hash": "e" * 64,
             "after_state_revision": 0,
@@ -243,7 +243,7 @@ def _terminal_newborn_learning_review() -> dict[str, object]:
             "operator_approval_required": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+            "eligible_for_snn_language_readout_newborn_neuron_"
             "maturation_outcome_review": True
         },
     }
@@ -257,16 +257,16 @@ def test_terminal_newborn_outcome_builds_verified_synapse_pruning_preflight() ->
         runtime_state=runtime_state,
         ledger_state=lambda: {},
     )
-    outcome = ledger.autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+    outcome = ledger.snn_language_readout_newborn_neuron_maturation_outcome_review(
+        snn_language_readout_newborn_neuron_critical_period_learning_event_review=(
             _terminal_newborn_learning_review()
         )
     )
-    design = ledger.autonomous_snn_language_thought_newborn_synapse_pruning_design(
-        autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review=outcome
+    design = ledger.snn_language_readout_newborn_synapse_pruning_design(
+        snn_language_readout_newborn_neuron_maturation_outcome_review=outcome
     )
     candidate = design[
-        "autonomous_snn_language_thought_newborn_synapse_pruning_design"
+        "snn_language_readout_newborn_synapse_pruning_design"
     ]["prune_candidates"][0]
     application_hash = candidate[
         "critical_period_learning_application_hash"
@@ -299,8 +299,8 @@ def test_terminal_newborn_outcome_builds_verified_synapse_pruning_preflight() ->
             }
         ],
     }
-    preflight = ledger.autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
-        autonomous_snn_language_thought_newborn_synapse_pruning_design=design,
+    preflight = ledger.snn_language_readout_newborn_synapse_pruning_preflight(
+        snn_language_readout_newborn_synapse_pruning_design=design,
         expected_state_revision=0,
         plasticity_runtime_state=runtime,
         checkpoint_transaction={
@@ -309,14 +309,14 @@ def test_terminal_newborn_outcome_builds_verified_synapse_pruning_preflight() ->
             "checkpoint_path": "memory://prune",
         },
         executor_capabilities={
-            "autonomous_snn_language_thought_newborn_"
+            "snn_language_readout_newborn_"
             "synapse_pruning_executor": True
         },
     )
 
     assert outcome["accepted"] is True
     assert outcome[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "maturation_outcome_review"
     ]["retained_mature_synapse_count"] == 0
     assert design["accepted"] is True
@@ -10586,7 +10586,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     ]
     capacity_review = {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_"
+            "snn_language_readout_"
             "capacity_mutation_event_review.v1"
         ),
         "ready": True,
@@ -10615,14 +10615,14 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
             "newborn_neuron_slots_inactive": True,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_"
+            "eligible_for_snn_language_readout_"
             "newborn_neuron_integration_design": True
         },
     }
     before = runtime_state.snapshot()
 
     design = (
-        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+        ledger.snn_language_readout_newborn_neuron_integration_design(
             snn_language_readout_capacity_mutation_event_review=(
                 capacity_review
             ),
@@ -10639,7 +10639,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
         )
     )
     repeat = (
-        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+        ledger.snn_language_readout_newborn_neuron_integration_design(
             snn_language_readout_capacity_mutation_event_review=(
                 capacity_review
             ),
@@ -10658,7 +10658,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     blocked_review = deepcopy(capacity_review)
     blocked_review["accepted"] = False
     blocked = (
-        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+        ledger.snn_language_readout_newborn_neuron_integration_design(
             snn_language_readout_capacity_mutation_event_review=(
                 blocked_review
             )
@@ -10669,7 +10669,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     assert before == after
     assert design == repeat
     assert design["surface"] == (
-        "snn_language_autonomous_snn_language_thought_"
+        "snn_language_readout_"
         "newborn_neuron_integration_design.v1"
     )
     assert design["accepted"] is True
@@ -10683,10 +10683,10 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     assert design["writes_checkpoint"] is False
     assert design["generates_text"] is False
     assert len(
-        design["thought_newborn_neuron_integration_design_hash"]
+        design["readout_newborn_neuron_integration_design_hash"]
     ) == 64
     body = design[
-        "autonomous_snn_language_thought_newborn_neuron_integration_design"
+        "snn_language_readout_newborn_neuron_integration_design"
     ]
     assert body["newborn_neuron_indices"] == [64, 65]
     assert body["newborn_neuron_count"] == 2
@@ -10721,7 +10721,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
         for candidate in body["integration_candidates"]
     )
     assert design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_"
+        "eligible_for_snn_language_readout_"
         "newborn_neuron_integration_preflight"
     ] is True
     assert blocked["accepted"] is False
@@ -10729,7 +10729,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
         "capacity_mutation_event_review_ready"
     ] is False
     assert blocked[
-        "autonomous_snn_language_thought_newborn_neuron_integration_design"
+        "snn_language_readout_newborn_neuron_integration_design"
     ]["integration_candidates"] == []
 
 
@@ -10786,17 +10786,17 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
         )
     design = {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_"
+            "snn_language_readout_"
             "newborn_neuron_integration_design.v1"
         ),
         "ready": True,
         "accepted": True,
         "requires_operator_approval": False,
         "mutates_runtime_state": False,
-        "thought_newborn_neuron_integration_design_hash": _sha256_json(
+        "readout_newborn_neuron_integration_design_hash": _sha256_json(
             "newborn-design"
         ),
-        "autonomous_snn_language_thought_newborn_neuron_integration_design": {
+        "snn_language_readout_newborn_neuron_integration_design": {
             "capacity_mutation_event_hash": _sha256_json("capacity-event"),
             "current_neuron_capacity": 64,
             "target_neuron_capacity": 66,
@@ -10805,7 +10805,7 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
             "actual_device": "cuda:0",
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_"
+            "eligible_for_snn_language_readout_"
             "newborn_neuron_integration_preflight": True
         },
     }
@@ -10880,21 +10880,21 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
         "pre_integration_checkpoint_restore_verified": True,
     }
     capabilities = {
-        "autonomous_snn_language_thought_"
+        "snn_language_readout_"
         "newborn_neuron_integration_executor": True
     }
     before = runtime_state.snapshot()
 
-    preflight = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
-        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+    preflight = ledger.snn_language_readout_newborn_neuron_integration_preflight(
+        snn_language_readout_newborn_neuron_integration_design=design,
         expected_state_revision=runtime_state.state_revision,
         live_spike_evidence=live_spike_evidence,
         plasticity_runtime_state=runtime,
         checkpoint_transaction=checkpoint,
         executor_capabilities=capabilities,
     )
-    repeat = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
-        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+    repeat = ledger.snn_language_readout_newborn_neuron_integration_preflight(
+        snn_language_readout_newborn_neuron_integration_design=design,
         expected_state_revision=runtime_state.state_revision,
         live_spike_evidence=live_spike_evidence,
         plasticity_runtime_state=runtime,
@@ -10905,8 +10905,8 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
     tampered_evidence["candidate_observations"][0][
         "active_neuron_indices"
     ] = [1, 4, 9]
-    blocked = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
-        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+    blocked = ledger.snn_language_readout_newborn_neuron_integration_preflight(
+        snn_language_readout_newborn_neuron_integration_design=design,
         expected_state_revision=runtime_state.state_revision,
         live_spike_evidence=tampered_evidence,
         plasticity_runtime_state=runtime,
@@ -10918,7 +10918,7 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
     assert before == after
     assert preflight == repeat
     assert preflight["surface"] == (
-        "snn_language_autonomous_snn_language_thought_"
+        "snn_language_readout_"
         "newborn_neuron_integration_preflight.v1"
     )
     assert preflight["ready"] is True
@@ -10931,7 +10931,7 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
     assert preflight["writes_checkpoint"] is False
     assert len(preflight["preflight_hash"]) == 64
     body = preflight[
-        "autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+        "snn_language_readout_newborn_neuron_integration_preflight"
     ]
     assert body["resolved_candidate_count"] == 2
     assert body["source_indices_resolved"] is True
@@ -10953,7 +10953,7 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
         for item in body["resolved_integration_candidates"]
     )
     assert preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_"
+        "eligible_for_snn_language_readout_"
         "newborn_neuron_integration_executor"
     ] is True
     assert blocked["ready"] is False
@@ -10964,7 +10964,7 @@ def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutat
         "active_population_hash_matches_lineage"
     ] is False
     assert blocked[
-        "autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+        "snn_language_readout_newborn_neuron_integration_preflight"
     ]["resolved_integration_candidates"] == []
 
 
@@ -11010,7 +11010,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
         "before_state_revision": 0,
         "after_state_revision": 1,
         "preflight_hash": "p" * 64,
-        "thought_newborn_neuron_integration_design_hash": "d" * 64,
+        "readout_newborn_neuron_integration_design_hash": "d" * 64,
         "capacity_mutation_event_hash": "c" * 64,
         "observation_window_id": "window-1",
         "observation_window_hash": "o" * 64,
@@ -11031,7 +11031,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
     event["newborn_neuron_integration_event_hash"] = _sha256_json(event)
     executor = {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_"
+            "snn_language_readout_"
             "newborn_neuron_integration_executor.v1"
         ),
         "accepted": True,
@@ -11053,11 +11053,11 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
             "post_integration_checkpoint_restore_verified": True,
             "committed_checkpoint_path": "memory://committed-integration",
         },
-        "autonomous_snn_language_thought_newborn_neuron_integration_event": (
+        "snn_language_readout_newborn_neuron_integration_event": (
             event
         ),
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_"
+            "eligible_for_snn_language_readout_"
             "newborn_neuron_integration_event_review": True
         },
     }
@@ -11086,20 +11086,20 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
                 "weight": 0.01,
             }
         ],
-        "last_thought_newborn_neuron_integration": event,
+        "last_readout_newborn_neuron_integration": event,
         "last_checkpoint_path": "memory://committed-integration",
     }
     before = runtime_state.snapshot()
 
-    review = ledger.autonomous_snn_language_thought_newborn_neuron_integration_event_review(
-        autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+    review = ledger.snn_language_readout_newborn_neuron_integration_event_review(
+        snn_language_readout_newborn_neuron_integration_executor=(
             executor
         ),
         plasticity_runtime_state=runtime,
         expected_state_revision=1,
     )
-    learning_design = ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
-        autonomous_snn_language_thought_newborn_neuron_integration_event_review=(
+    learning_design = ledger.snn_language_readout_newborn_neuron_critical_period_learning_design(
+        snn_language_readout_newborn_neuron_integration_event_review=(
             review
         ),
         learning_policy={
@@ -11110,7 +11110,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
         },
     )
     learning_candidate = learning_design[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_design"
     ]["learning_candidates"][0]
     activity_material = {
@@ -11127,7 +11127,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
         "tensor_is_cuda": False,
     }
     activity_evidence = {
-        "surface": "snn_language_newborn_critical_period_activity.v1",
+        "surface": "snn_language_readout_newborn_critical_period_activity.v1",
         "state_revision": 1,
         "observation_window_id": "critical-period-window-1",
         "device": "cpu",
@@ -11153,8 +11153,8 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
             "candidate_observations": [activity_material],
         }
     )
-    learning_preflight = ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+    learning_preflight = ledger.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
+        snn_language_readout_newborn_neuron_critical_period_learning_design=(
             learning_design
         ),
         expected_state_revision=1,
@@ -11166,14 +11166,14 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
             "pre_learning_checkpoint_restore_verified": True,
         },
         executor_capabilities={
-            "autonomous_snn_language_thought_newborn_neuron_"
+            "snn_language_readout_newborn_neuron_"
             "critical_period_learning_executor": True
         },
     )
     tampered_runtime = deepcopy(runtime)
     tampered_runtime["newborn_integration_dense_samples"][0]["weight"] = 0.02
-    blocked = ledger.autonomous_snn_language_thought_newborn_neuron_integration_event_review(
-        autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+    blocked = ledger.snn_language_readout_newborn_neuron_integration_event_review(
+        snn_language_readout_newborn_neuron_integration_executor=(
             executor
         ),
         plasticity_runtime_state=tampered_runtime,
@@ -11191,14 +11191,14 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
     assert review["applies_plasticity"] is False
     assert len(review["review_hash"]) == 64
     body = review[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "integration_event_review"
     ]
     assert body["integrated_synapse_count"] == 1
     assert body["sparse_dense_provenance_consistent"] is True
     assert body["critical_period_started"] is True
     assert review["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_"
+        "eligible_for_snn_language_readout_"
         "newborn_neuron_critical_period_learning_design"
     ] is True
     assert learning_design["accepted"] is True
@@ -11207,7 +11207,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
     assert learning_design["applies_plasticity"] is False
     assert learning_design["state_revision_unchanged"] is True
     learning_body = learning_design[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_design"
     ]
     assert learning_body["learning_candidate_count"] == 1
@@ -11218,14 +11218,14 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
         "minimum_survival_active_cycles"
     ] == 16
     assert learning_design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+        "eligible_for_snn_language_readout_newborn_neuron_"
         "critical_period_learning_preflight"
     ] is True
     assert learning_preflight["accepted"] is True
     assert learning_preflight["requires_operator_approval"] is False
     assert learning_preflight["mutates_runtime_state"] is False
     preflight_body = learning_preflight[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_preflight"
     ]
     assert preflight_body["resolved_cycle_count"] == 1
@@ -11235,7 +11235,7 @@ def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance(
     assert resolved_cycle["proposed_weight_delta"] == 0.003125
     assert abs(resolved_cycle["proposed_weight"] - 0.013125) < 1e-12
     assert learning_preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+        "eligible_for_snn_language_readout_newborn_neuron_"
         "critical_period_learning_executor"
     ] is True
     assert blocked["accepted"] is False

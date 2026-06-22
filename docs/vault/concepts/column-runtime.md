@@ -1968,3 +1968,25 @@ at `12/65536`, `65526` cached transition rows,
 `18%`, GPU max `15%`, RTX memory `1798->1796 MiB`, and zero graph/native
 sequence failures. This capacity naming retirement did not add live-tick
 recall, replay, resize, status, or every-token slow-memory work.
+
+## Readout Newborn Developmental Naming Boundary
+
+The downstream newborn developmental chain now has one production name:
+`snn_language_readout_newborn_*`. The public route family is
+`snn-language-readout-newborn-*`, schema fields use
+`snn_language_readout_newborn_*`, and runtime snapshots expose
+`readout_newborn_*` counters/events for newborn integration,
+critical-period learning, and newborn-synapse pruning. The retired
+`thought_newborn` production names are documented only as retired paths, not
+live aliases.
+
+This remains an explicit slow-path developmental/plasticity boundary. The live
+column tick does not run newborn integration, critical-period learning,
+maturation review, pruning, replay, resize, or hidden language reasoning. The
+accepted protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-newborn-canonical.json`
+processed `524288` tokens at `5783.832 tokens/sec`, with bounded route scoring
+at `12/65536`, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, no observed contention, CPU max
+`43%`, GPU max `13%`, RTX memory `1915->1913 MiB`, and zero graph/native
+sequence failures.

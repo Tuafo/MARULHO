@@ -1137,15 +1137,15 @@ class SNNLanguageReadoutCapacityMutationEventReviewRequest(BaseModel):
     expected_state_revision: int = Field(..., ge=0)
 
 
-class SNNLanguageNewbornNeuronIntegrationDesignRequest(BaseModel):
+class SNNLanguageReadoutNewbornNeuronIntegrationDesignRequest(BaseModel):
     snn_language_readout_capacity_mutation_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     integration_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageNewbornNeuronIntegrationPreflightRequest(BaseModel):
-    snn_language_newborn_neuron_integration_design: dict[str, Any] = Field(
+class SNNLanguageReadoutNewbornNeuronIntegrationPreflightRequest(BaseModel):
+    snn_language_readout_newborn_neuron_integration_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1154,30 +1154,30 @@ class SNNLanguageNewbornNeuronIntegrationPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageNewbornNeuronIntegrationExecutorRequest(BaseModel):
-    snn_language_newborn_neuron_integration_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutNewbornNeuronIntegrationExecutorRequest(BaseModel):
+    snn_language_readout_newborn_neuron_integration_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
 
 
-class SNNLanguageNewbornNeuronIntegrationEventReviewRequest(BaseModel):
-    snn_language_newborn_neuron_integration_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutNewbornNeuronIntegrationEventReviewRequest(BaseModel):
+    snn_language_readout_newborn_neuron_integration_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
 
 
-class SNNLanguageNewbornNeuronCriticalPeriodLearningDesignRequest(BaseModel):
-    snn_language_newborn_neuron_integration_event_review: dict[str, Any] = Field(
+class SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningDesignRequest(BaseModel):
+    snn_language_readout_newborn_neuron_integration_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     learning_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageNewbornNeuronCriticalPeriodLearningPreflightRequest(BaseModel):
-    snn_language_newborn_neuron_critical_period_learning_design: dict[
+class SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningPreflightRequest(BaseModel):
+    snn_language_readout_newborn_neuron_critical_period_learning_design: dict[
         str, Any
     ] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
@@ -1188,43 +1188,43 @@ class SNNLanguageNewbornNeuronCriticalPeriodLearningPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageNewbornNeuronCriticalPeriodLearningExecutorRequest(BaseModel):
-    snn_language_newborn_neuron_critical_period_learning_preflight: dict[
+class SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningExecutorRequest(BaseModel):
+    snn_language_readout_newborn_neuron_critical_period_learning_preflight: dict[
         str, Any
     ] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
     checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
 
 
-class SNNLanguageNewbornNeuronCriticalPeriodLearningEventReviewRequest(BaseModel):
-    snn_language_newborn_neuron_critical_period_learning_executor: dict[
+class SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningEventReviewRequest(BaseModel):
+    snn_language_readout_newborn_neuron_critical_period_learning_executor: dict[
         str, Any
     ] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
 
 
-class SNNLanguageNewbornNeuronCriticalPeriodLearningContinuationDesignRequest(
+class SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningContinuationDesignRequest(
     BaseModel
 ):
-    snn_language_newborn_neuron_critical_period_learning_event_review: dict[
+    snn_language_readout_newborn_neuron_critical_period_learning_event_review: dict[
         str, Any
     ] = Field(..., min_length=1)
 
 
-class SNNLanguageNewbornNeuronMaturationOutcomeReviewRequest(BaseModel):
-    snn_language_newborn_neuron_critical_period_learning_event_review: dict[
+class SNNLanguageReadoutNewbornNeuronMaturationOutcomeReviewRequest(BaseModel):
+    snn_language_readout_newborn_neuron_critical_period_learning_event_review: dict[
         str, Any
     ] = Field(..., min_length=1)
 
 
-class SNNLanguageNewbornSynapsePruningDesignRequest(BaseModel):
-    snn_language_newborn_neuron_maturation_outcome_review: dict[
+class SNNLanguageReadoutNewbornSynapsePruningDesignRequest(BaseModel):
+    snn_language_readout_newborn_neuron_maturation_outcome_review: dict[
         str, Any
     ] = Field(..., min_length=1)
 
 
-class SNNLanguageNewbornSynapsePruningPreflightRequest(BaseModel):
-    snn_language_newborn_synapse_pruning_design: dict[
+class SNNLanguageReadoutNewbornSynapsePruningPreflightRequest(BaseModel):
+    snn_language_readout_newborn_synapse_pruning_design: dict[
         str, Any
     ] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
@@ -1232,8 +1232,8 @@ class SNNLanguageNewbornSynapsePruningPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageNewbornSynapsePruningExecutorRequest(BaseModel):
-    snn_language_newborn_synapse_pruning_preflight: dict[
+class SNNLanguageReadoutNewbornSynapsePruningExecutorRequest(BaseModel):
+    snn_language_readout_newborn_synapse_pruning_preflight: dict[
         str, Any
     ] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)

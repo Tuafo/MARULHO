@@ -85,7 +85,7 @@ class DevelopmentalAutonomyScheduler:
             if not executor_artifact:
                 event = dict(
                     snapshot.get(
-                        "last_thought_newborn_neuron_"
+                        "last_readout_newborn_neuron_"
                         "critical_period_learning"
                     )
                     or {}
@@ -99,7 +99,7 @@ class DevelopmentalAutonomyScheduler:
                 committed = str(event.get("committed_checkpoint_path") or "")
                 executor_artifact = {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_critical_period_learning_executor.v1"
                     ),
                     "accepted": True,
@@ -120,18 +120,18 @@ class DevelopmentalAutonomyScheduler:
                             committed
                         ),
                     },
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_event": event,
                     "promotion_gate": {
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_"
                         "event_review": True
                     },
                 }
 
             revision = int(self._runtime_state.state_revision)
-            review = self._readout_ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=executor_artifact,
+            review = self._readout_ledger.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
+                snn_language_readout_newborn_neuron_critical_period_learning_executor=executor_artifact,
                 plasticity_runtime_state=snapshot,
                 expected_state_revision=revision,
             )
@@ -142,11 +142,11 @@ class DevelopmentalAutonomyScheduler:
                     prune_synapses,
                     evidence=review,
                 )
-            outcome = self._readout_ledger.autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=review
+            outcome = self._readout_ledger.snn_language_readout_newborn_neuron_maturation_outcome_review(
+                snn_language_readout_newborn_neuron_critical_period_learning_event_review=review
             )
-            design = self._readout_ledger.autonomous_snn_language_thought_newborn_synapse_pruning_design(
-                autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review=outcome
+            design = self._readout_ledger.snn_language_readout_newborn_synapse_pruning_design(
+                snn_language_readout_newborn_neuron_maturation_outcome_review=outcome
             )
             if not bool(design.get("accepted")):
                 return self._blocked(
@@ -182,8 +182,8 @@ class DevelopmentalAutonomyScheduler:
                     open_synapses,
                     prune_synapses,
                 )
-            preflight = self._readout_ledger.autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
-                autonomous_snn_language_thought_newborn_synapse_pruning_design=design,
+            preflight = self._readout_ledger.snn_language_readout_newborn_synapse_pruning_preflight(
+                snn_language_readout_newborn_synapse_pruning_design=design,
                 expected_state_revision=revision,
                 plasticity_runtime_state=snapshot,
                 checkpoint_transaction={
@@ -194,7 +194,7 @@ class DevelopmentalAutonomyScheduler:
                     "checkpoint_path": checkpoint,
                 },
                 executor_capabilities={
-                    "autonomous_snn_language_thought_newborn_"
+                    "snn_language_readout_newborn_"
                     "synapse_pruning_executor": True
                 },
             )
@@ -205,8 +205,8 @@ class DevelopmentalAutonomyScheduler:
                     prune_synapses,
                     evidence=preflight,
                 )
-            execution = self._plasticity_executor.apply_autonomous_snn_language_thought_newborn_synapse_pruning(
-                autonomous_snn_language_thought_newborn_synapse_pruning_preflight=preflight,
+            execution = self._plasticity_executor.apply_snn_language_readout_newborn_synapse_pruning(
+                snn_language_readout_newborn_synapse_pruning_preflight=preflight,
                 expected_state_revision=revision,
                 checkpoint_path=checkpoint,
             )

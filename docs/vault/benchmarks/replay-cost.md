@@ -81,6 +81,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260622/query-recent-fallback-retired-bucket-only.json
   - reports/bounded_replay_window_20260622/replay-dataset-bundle-source-window-query-fallback-retired.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-query-fallback-retired-bundle-source-window.json
+  - reports/bounded_replay_window_20260622/synthetic-readout-newborn-canonical.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-newborn-canonical.json
   - reports/bounded_replay_window_20260617/frontier-gap-bounded.json
   - reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-frontier-gap-collector-required.json
   - reports/bounded_replay_window_20260617/synthetic-recent-anchor-window.json

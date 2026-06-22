@@ -18,7 +18,7 @@ from marulho.service.snn_language_readout_ledger import (
 
 
 class _Ledger:
-    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+    def snn_language_readout_newborn_neuron_critical_period_learning_event_review(
         self, **kwargs: object
     ) -> dict[str, object]:
         return {
@@ -28,24 +28,24 @@ class _Ledger:
             "review_hash": "r" * 64,
         }
 
-    def autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+    def snn_language_readout_newborn_neuron_maturation_outcome_review(
         self, **kwargs: object
     ) -> dict[str, object]:
         return {"surface": "outcome", "accepted": True, "ready": True}
 
-    def autonomous_snn_language_thought_newborn_synapse_pruning_design(
+    def snn_language_readout_newborn_synapse_pruning_design(
         self, **kwargs: object
     ) -> dict[str, object]:
         return {"surface": "design", "accepted": True, "ready": True}
 
-    def autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+    def snn_language_readout_newborn_synapse_pruning_preflight(
         self, **kwargs: object
     ) -> dict[str, object]:
         return {"surface": "preflight", "accepted": True, "ready": True}
 
 
 class _Executor:
-    def apply_autonomous_snn_language_thought_newborn_synapse_pruning(
+    def apply_snn_language_readout_newborn_synapse_pruning(
         self, **kwargs: object
     ) -> dict[str, object]:
         return {
@@ -144,7 +144,7 @@ def test_real_scheduler_prunes_after_terminal_learning_commit(
                 "newborn_integration_synapse_hash": "i" * 64,
             }
         },
-        "thought_newborn_neuron_critical_period_learning": {
+        "readout_newborn_neuron_critical_period_learning": {
             "learning_cycle_count": 63,
             "by_synapse": {
                 "4:64": {
@@ -234,7 +234,7 @@ def test_real_scheduler_prunes_after_terminal_learning_commit(
     )
     preflight = {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_"
+            "snn_language_readout_newborn_neuron_"
             "critical_period_learning_preflight.v1"
         ),
         "accepted": True,
@@ -244,9 +244,9 @@ def test_real_scheduler_prunes_after_terminal_learning_commit(
         "loads_external_checkpoint": False,
         "runs_replay": False,
         "trains_runtime_model": False,
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_preflight": {
-            "thought_newborn_neuron_critical_period_learning_design_hash": (
+            "readout_newborn_neuron_critical_period_learning_design_hash": (
                 "d" * 64
             ),
             "newborn_neuron_integration_event_hash": "e" * 64,
@@ -261,12 +261,12 @@ def test_real_scheduler_prunes_after_terminal_learning_commit(
             "operator_approval_required": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+            "eligible_for_snn_language_readout_newborn_neuron_"
             "critical_period_learning_executor": True
         },
     }
-    learning = executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=preflight,
+    learning = executor.apply_snn_language_readout_newborn_neuron_critical_period_learning(
+        snn_language_readout_newborn_neuron_critical_period_learning_preflight=preflight,
         expected_state_revision=0,
     )
     scheduler = DevelopmentalAutonomyScheduler(

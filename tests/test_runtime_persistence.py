@@ -230,7 +230,7 @@ class RuntimePersistenceTests(unittest.TestCase):
             RuntimePersistence._snn_language_plasticity_checkpoint_state(
                 {
                     "sparse_transition_weights": {"4:64": 0.01625},
-                    "thought_newborn_neuron_critical_period_learning": (
+                    "readout_newborn_neuron_critical_period_learning": (
                         developmental
                     ),
                 }
@@ -239,7 +239,7 @@ class RuntimePersistenceTests(unittest.TestCase):
 
         self.assertEqual(
             checkpoint_state[
-                "thought_newborn_neuron_critical_period_learning"
+                "readout_newborn_neuron_critical_period_learning"
             ],
             developmental,
         )

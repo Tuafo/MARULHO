@@ -1394,10 +1394,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
             }
 
-    def apply_autonomous_snn_language_thought_newborn_neuron_integration(
+    def apply_snn_language_readout_newborn_neuron_integration(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_integration_preflight: Mapping[
+        snn_language_readout_newborn_neuron_integration_preflight: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -1408,19 +1408,19 @@ class SNNLanguagePlasticityApplicationExecutor:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_integration_preflight
+                snn_language_readout_newborn_neuron_integration_preflight
                 or {}
             )
             preflight = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_preflight"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_preflight"
                     ),
                     Mapping,
@@ -1494,14 +1494,14 @@ class SNNLanguagePlasticityApplicationExecutor:
             required = {
                 "preflight_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_preflight.v1"
                 ),
                 "preflight_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_integration_executor"
                     )
                 ),
@@ -1518,7 +1518,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "design_hash_available": len(
                     str(
                         preflight.get(
-                            "thought_newborn_neuron_integration_design_hash"
+                            "readout_newborn_neuron_integration_design_hash"
                         )
                         or ""
                     )
@@ -1576,9 +1576,9 @@ class SNNLanguagePlasticityApplicationExecutor:
                 **topology,
             }
             if not all(required.values()):
-                return self._blocked_thought_newborn_neuron_integration(
+                return self._blocked_readout_newborn_neuron_integration(
                     reason=(
-                        "blocked_missing_thought_newborn_neuron_"
+                        "blocked_missing_readout_newborn_neuron_"
                         "integration_evidence"
                     ),
                     before_revision=before_revision,
@@ -1597,7 +1597,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 before_revision,
             )
             if not checkpoint_verified:
-                return self._blocked_thought_newborn_neuron_integration(
+                return self._blocked_readout_newborn_neuron_integration(
                     reason="checkpoint_save_missing",
                     before_revision=before_revision,
                     required_evidence={
@@ -1696,15 +1696,15 @@ class SNNLanguagePlasticityApplicationExecutor:
             state["dense_readout_weights"] = integrated_tensor
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
-                "thought_newborn_neuron_integration",
+                "readout_newborn_neuron_integration",
             )
             event = {
                 "completed_at": completed_at,
                 "before_state_revision": before_revision,
                 "after_state_revision": before_revision + 1,
                 "preflight_hash": preflight_hash,
-                "thought_newborn_neuron_integration_design_hash": preflight.get(
-                    "thought_newborn_neuron_integration_design_hash"
+                "readout_newborn_neuron_integration_design_hash": preflight.get(
+                    "readout_newborn_neuron_integration_design_hash"
                 ),
                 "capacity_mutation_event_hash": preflight.get(
                     "capacity_mutation_event_hash"
@@ -1741,7 +1741,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 event
             )
             integration_state = state.setdefault(
-                "thought_newborn_neuron_integration", {}
+                "readout_newborn_neuron_integration", {}
             )
             integration_state["integration_count"] = int(
                 integration_state.get("integration_count", 0) or 0
@@ -1755,13 +1755,13 @@ class SNNLanguagePlasticityApplicationExecutor:
             self._runtime_state.mark_mutated()
             commit = self._commit_mutation(
                 committed_checkpoint_file=committed_checkpoint_file,
-                operation="thought_newborn_neuron_integration",
+                operation="readout_newborn_neuron_integration",
                 before_state=checkpoint_state,
                 before_revision=before_revision,
                 before_dirty_state=before_dirty_state,
             )
             if not commit["committed"]:
-                return self._blocked_thought_newborn_neuron_integration(
+                return self._blocked_readout_newborn_neuron_integration(
                     reason=(
                         "post_newborn_neuron_integration_checkpoint_"
                         "commit_failed"
@@ -1771,16 +1771,16 @@ class SNNLanguagePlasticityApplicationExecutor:
                 )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_integration_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_executor.v1"
                 ),
                 "accepted": True,
                 "ready": True,
-                "status": "thought_newborn_neuron_integration_applied",
+                "status": "readout_newborn_neuron_integration_applied",
                 "requires_operator_approval": False,
                 "owned_by_marulho": True,
                 "external_dependency": False,
@@ -1815,7 +1815,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     ],
                     "restore_verified": checkpoint_verified,
                 },
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "integration_event": deepcopy(event),
                 "dense_readout_tensor": self._dense_tensor_summary(
                     integrated_tensor
@@ -1833,10 +1833,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "newborn_neuron_integration_event_review"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "newborn_neuron_integration_event_review": True,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -1847,10 +1847,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
             }
 
-    def apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
+    def apply_snn_language_readout_newborn_neuron_critical_period_learning(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight: Mapping[
+        snn_language_readout_newborn_neuron_critical_period_learning_preflight: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -1861,19 +1861,19 @@ class SNNLanguagePlasticityApplicationExecutor:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight
+                snn_language_readout_newborn_neuron_critical_period_learning_preflight
                 or {}
             )
             preflight = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_preflight"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_preflight"
                     ),
                     Mapping,
@@ -1899,12 +1899,12 @@ class SNNLanguagePlasticityApplicationExecutor:
             developmental_state = (
                 dict(
                     state.get(
-                        "thought_newborn_neuron_critical_period_learning"
+                        "readout_newborn_neuron_critical_period_learning"
                     )
                 )
                 if isinstance(
                     state.get(
-                        "thought_newborn_neuron_critical_period_learning"
+                        "readout_newborn_neuron_critical_period_learning"
                     ),
                     Mapping,
                 )
@@ -2062,14 +2062,14 @@ class SNNLanguagePlasticityApplicationExecutor:
             required = {
                 "preflight_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_preflight.v1"
                 ),
                 "preflight_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_executor"
                     )
                 ),
@@ -2089,7 +2089,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "design_hash_available": len(
                     str(
                         preflight.get(
-                            "thought_newborn_neuron_critical_period_"
+                            "readout_newborn_neuron_critical_period_"
                             "learning_design_hash"
                         )
                         or ""
@@ -2114,9 +2114,9 @@ class SNNLanguagePlasticityApplicationExecutor:
                 ),
             }
             if not all(required.values()):
-                return self._blocked_thought_newborn_neuron_critical_period_learning(
+                return self._blocked_readout_newborn_neuron_critical_period_learning(
                     reason=(
-                        "blocked_missing_thought_newborn_neuron_"
+                        "blocked_missing_readout_newborn_neuron_"
                         "critical_period_learning_evidence"
                     ),
                     before_revision=before_revision,
@@ -2139,7 +2139,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 before_revision,
             )
             if not checkpoint_verified:
-                return self._blocked_thought_newborn_neuron_critical_period_learning(
+                return self._blocked_readout_newborn_neuron_critical_period_learning(
                     reason="checkpoint_save_missing",
                     before_revision=before_revision,
                     required_evidence={
@@ -2159,7 +2159,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "synapse_provenance_by_key", {}
             )
             learning_state = state.setdefault(
-                "thought_newborn_neuron_critical_period_learning", {}
+                "readout_newborn_neuron_critical_period_learning", {}
             )
             live_by_synapse = learning_state.setdefault("by_synapse", {})
             applied_cycles: list[dict[str, Any]] = []
@@ -2349,16 +2349,16 @@ class SNNLanguagePlasticityApplicationExecutor:
             state["dense_readout_weights"] = learned_tensor
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
-                "thought_newborn_neuron_critical_period_learning",
+                "readout_newborn_neuron_critical_period_learning",
             )
             event = {
                 "completed_at": completed_at,
                 "before_state_revision": before_revision,
                 "after_state_revision": before_revision + 1,
                 "preflight_hash": str(artifact.get("preflight_hash") or ""),
-                "thought_newborn_neuron_critical_period_learning_design_hash": (
+                "readout_newborn_neuron_critical_period_learning_design_hash": (
                     preflight.get(
-                        "thought_newborn_neuron_critical_period_learning_"
+                        "readout_newborn_neuron_critical_period_learning_"
                         "design_hash"
                     )
                 ),
@@ -2412,14 +2412,14 @@ class SNNLanguagePlasticityApplicationExecutor:
             commit = self._commit_mutation(
                 committed_checkpoint_file=committed_checkpoint_file,
                 operation=(
-                    "thought_newborn_neuron_critical_period_learning"
+                    "readout_newborn_neuron_critical_period_learning"
                 ),
                 before_state=checkpoint_state,
                 before_revision=before_revision,
                 before_dirty_state=before_dirty_state,
             )
             if not commit["committed"]:
-                return self._blocked_thought_newborn_neuron_critical_period_learning(
+                return self._blocked_readout_newborn_neuron_critical_period_learning(
                     reason=(
                         "post_newborn_neuron_critical_period_learning_"
                         "checkpoint_commit_failed"
@@ -2429,17 +2429,17 @@ class SNNLanguagePlasticityApplicationExecutor:
                 )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_executor.v1"
                 ),
                 "accepted": True,
                 "ready": True,
                 "status": (
-                    "thought_newborn_neuron_critical_period_learning_applied"
+                    "readout_newborn_neuron_critical_period_learning_applied"
                 ),
                 "requires_operator_approval": False,
                 "owned_by_marulho": True,
@@ -2475,7 +2475,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     ],
                     "restore_verified": checkpoint_verified,
                 },
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "critical_period_learning_event": deepcopy(event),
                 "dense_readout_tensor": self._dense_tensor_summary(
                     learned_tensor
@@ -2505,10 +2505,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "neuron_critical_period_learning_event_review"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_critical_period_learning_event_review": True,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -2519,10 +2519,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
             }
 
-    def apply_autonomous_snn_language_thought_newborn_synapse_pruning(
+    def apply_snn_language_readout_newborn_synapse_pruning(
         self,
         *,
-        autonomous_snn_language_thought_newborn_synapse_pruning_preflight: Mapping[
+        snn_language_readout_newborn_synapse_pruning_preflight: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -2533,12 +2533,12 @@ class SNNLanguagePlasticityApplicationExecutor:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_synapse_pruning_preflight
+                snn_language_readout_newborn_synapse_pruning_preflight
                 or {}
             )
             preflight = dict(
                 artifact.get(
-                    "autonomous_snn_language_thought_newborn_synapse_"
+                    "snn_language_readout_newborn_synapse_"
                     "pruning_preflight"
                 )
                 or {}
@@ -2557,7 +2557,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             provenance = dict(state.get("synapse_provenance_by_key") or {})
             developmental_state = dict(
                 state.get(
-                    "thought_newborn_neuron_critical_period_learning"
+                    "readout_newborn_neuron_critical_period_learning"
                 )
                 or {}
             )
@@ -2660,14 +2660,14 @@ class SNNLanguagePlasticityApplicationExecutor:
             required = {
                 "preflight_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_synapse_pruning_preflight.v1"
                 ),
                 "preflight_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_synapse_pruning_executor"
                     )
                 ),
@@ -2703,7 +2703,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 and not bool(preflight.get("operator_approval_required")),
             }
             if not all(required.values()):
-                return self._blocked_thought_newborn_synapse_pruning(
+                return self._blocked_readout_newborn_synapse_pruning(
                     reason="blocked_missing_reviewed_newborn_synapse_evidence",
                     before_revision=before_revision,
                     required_evidence=required,
@@ -2725,7 +2725,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 before_revision,
             )
             if not checkpoint_verified:
-                return self._blocked_thought_newborn_synapse_pruning(
+                return self._blocked_readout_newborn_synapse_pruning(
                     reason="checkpoint_save_missing",
                     before_revision=before_revision,
                     required_evidence={
@@ -2747,7 +2747,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "synapse_provenance_by_key", {}
             )
             live_developmental_state = state.setdefault(
-                "thought_newborn_neuron_critical_period_learning", {}
+                "readout_newborn_neuron_critical_period_learning", {}
             )
             live_developmental = live_developmental_state.setdefault(
                 "by_synapse", {}
@@ -2812,7 +2812,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             state["dense_readout_weights"] = pruned_tensor
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
-                "thought_newborn_synapse_pruning",
+                "readout_newborn_synapse_pruning",
             )
             event = {
                 "completed_at": completed_at,
@@ -2844,7 +2844,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 self._sha256_json(event)
             )
             pruning_state = state.setdefault(
-                "thought_newborn_synapse_pruning", {}
+                "readout_newborn_synapse_pruning", {}
             )
             pruning_state["pruning_count"] = int(
                 pruning_state.get("pruning_count", 0) or 0
@@ -2863,29 +2863,29 @@ class SNNLanguagePlasticityApplicationExecutor:
             self._runtime_state.mark_mutated()
             commit = self._commit_mutation(
                 committed_checkpoint_file=committed_checkpoint_file,
-                operation="thought_newborn_synapse_pruning",
+                operation="readout_newborn_synapse_pruning",
                 before_state=checkpoint_state,
                 before_revision=before_revision,
                 before_dirty_state=before_dirty_state,
             )
             if not commit["committed"]:
-                return self._blocked_thought_newborn_synapse_pruning(
+                return self._blocked_readout_newborn_synapse_pruning(
                     reason="post_newborn_synapse_pruning_checkpoint_commit_failed",
                     before_revision=before_revision,
                     required_evidence={**required, **commit},
                 )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_synapse_pruning_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_synapse_pruning_executor.v1"
                 ),
                 "accepted": True,
                 "ready": True,
-                "status": "thought_newborn_synapse_pruning_applied",
+                "status": "readout_newborn_synapse_pruning_applied",
                 "requires_operator_approval": False,
                 "advisory": False,
                 "executable": True,
@@ -2913,7 +2913,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     ],
                     "restore_verified": checkpoint_verified,
                 },
-                "autonomous_snn_language_thought_newborn_synapse_"
+                "snn_language_readout_newborn_synapse_"
                 "pruning_event": deepcopy(event),
                 "dense_readout_tensor": self._dense_tensor_summary(
                     pruned_tensor
@@ -2945,10 +2945,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "synapse_pruning_event_review"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "synapse_pruning_event_review": True,
                 },
             }
@@ -3452,16 +3452,16 @@ class SNNLanguagePlasticityApplicationExecutor:
             dense_training = dict(state.get("dense_readout_training") or {})
             capacity_mutation = dict(state.get("readout_capacity_mutation") or {})
             newborn_integration = dict(
-                state.get("thought_newborn_neuron_integration") or {}
+                state.get("readout_newborn_neuron_integration") or {}
             )
             critical_period_learning = dict(
                 state.get(
-                    "thought_newborn_neuron_critical_period_learning"
+                    "readout_newborn_neuron_critical_period_learning"
                 )
                 or {}
             )
             newborn_synapse_pruning = dict(
-                state.get("thought_newborn_synapse_pruning") or {}
+                state.get("readout_newborn_synapse_pruning") or {}
             )
             capacity = self._language_capacity_state(state)
             dense_layout = self._dense_readout_layout_state(state, capacity)
@@ -3535,13 +3535,13 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "canonical_field_names": {
                     "readout_capacity_mutation_count": "canonical_readout_capacity_mutation_count",
                     "language_newborn_neuron_integration_count": (
-                        "canonical_alias_for_legacy_thought_newborn_neuron_integration_count"
+                        "canonical_alias_for_legacy_readout_newborn_neuron_integration_count"
                     ),
                     "language_newborn_neuron_critical_period_learning_cycle_count": (
-                        "canonical_alias_for_legacy_thought_newborn_neuron_critical_period_learning_cycle_count"
+                        "canonical_alias_for_legacy_readout_newborn_neuron_critical_period_learning_cycle_count"
                     ),
                     "language_newborn_synapse_pruning_count": (
-                        "canonical_alias_for_legacy_thought_newborn_synapse_pruning_count"
+                        "canonical_alias_for_legacy_readout_newborn_synapse_pruning_count"
                     ),
                 },
                 "language_capacity": deepcopy(capacity),
@@ -3600,9 +3600,9 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "language_newborn_neuron_integration_count": newborn_integration_count,
                 "last_language_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
                 "recent_language_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
-                "thought_newborn_neuron_integration_count": newborn_integration_count,
-                "last_thought_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
-                "recent_thought_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
+                "readout_newborn_neuron_integration_count": newborn_integration_count,
+                "last_readout_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
+                "recent_readout_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
                 "newborn_integration_dense_samples": (
                     self._newborn_integration_dense_samples(
                         dense_tensor,
@@ -3618,13 +3618,13 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "recent_language_newborn_neuron_critical_period_learning": deepcopy(
                     recent_critical_period_learning
                 ),
-                "thought_newborn_neuron_critical_period_learning_cycle_count": (
+                "readout_newborn_neuron_critical_period_learning_cycle_count": (
                     critical_period_learning_cycle_count
                 ),
-                "last_thought_newborn_neuron_critical_period_learning": deepcopy(
+                "last_readout_newborn_neuron_critical_period_learning": deepcopy(
                     last_critical_period_learning
                 ),
-                "recent_thought_newborn_neuron_critical_period_learning": deepcopy(
+                "recent_readout_newborn_neuron_critical_period_learning": deepcopy(
                     recent_critical_period_learning
                 ),
                 "newborn_neuron_critical_period_state_by_synapse": deepcopy(
@@ -3676,16 +3676,16 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "recent_language_newborn_synapse_pruning": deepcopy(
                     recent_newborn_synapse_pruning
                 ),
-                "thought_newborn_synapse_pruning_count": (
+                "readout_newborn_synapse_pruning_count": (
                     newborn_synapse_pruning_count
                 ),
-                "thought_newborn_synapse_pruned_count_total": (
+                "readout_newborn_synapse_pruned_count_total": (
                     newborn_synapse_pruned_count_total
                 ),
-                "last_thought_newborn_synapse_pruning": deepcopy(
+                "last_readout_newborn_synapse_pruning": deepcopy(
                     last_newborn_synapse_pruning
                 ),
-                "recent_thought_newborn_synapse_pruning": deepcopy(
+                "recent_readout_newborn_synapse_pruning": deepcopy(
                     recent_newborn_synapse_pruning
                 ),
                 "pruned_synapse_provenance_by_key": deepcopy(
@@ -4864,7 +4864,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             },
         }
 
-    def _blocked_thought_newborn_neuron_integration(
+    def _blocked_readout_newborn_neuron_integration(
         self,
         *,
         reason: str,
@@ -4873,11 +4873,11 @@ class SNNLanguagePlasticityApplicationExecutor:
     ) -> dict[str, Any]:
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "newborn_neuron_integration_executor"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "newborn_neuron_integration_executor.v1"
             ),
             "accepted": False,
@@ -4904,10 +4904,10 @@ class SNNLanguagePlasticityApplicationExecutor:
             "prunes_network": False,
             "promotion_gate": {
                 "status": (
-                    "blocked_missing_autonomous_snn_language_thought_"
+                    "blocked_missing_snn_language_readout_"
                     "newborn_neuron_integration_executor_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_"
+                "eligible_for_snn_language_readout_"
                 "newborn_neuron_integration_event_review": False,
                 "eligible_for_language_generation": False,
                 "eligible_for_replay_memory": False,
@@ -4924,7 +4924,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             },
         }
 
-    def _blocked_thought_newborn_neuron_critical_period_learning(
+    def _blocked_readout_newborn_neuron_critical_period_learning(
         self,
         *,
         reason: str,
@@ -4933,11 +4933,11 @@ class SNNLanguagePlasticityApplicationExecutor:
     ) -> dict[str, Any]:
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "newborn_neuron_critical_period_learning_executor"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "newborn_neuron_critical_period_learning_executor.v1"
             ),
             "accepted": False,
@@ -4964,11 +4964,11 @@ class SNNLanguagePlasticityApplicationExecutor:
             "prunes_network": False,
             "promotion_gate": {
                 "status": (
-                    "blocked_missing_autonomous_snn_language_thought_"
+                    "blocked_missing_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_executor_"
                     "evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_newborn_"
+                "eligible_for_snn_language_readout_newborn_"
                 "neuron_critical_period_learning_event_review": False,
                 "eligible_for_language_generation": False,
                 "eligible_for_replay_memory": False,
@@ -4985,7 +4985,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             },
         }
 
-    def _blocked_thought_newborn_synapse_pruning(
+    def _blocked_readout_newborn_synapse_pruning(
         self,
         *,
         reason: str,
@@ -4994,11 +4994,11 @@ class SNNLanguagePlasticityApplicationExecutor:
     ) -> dict[str, Any]:
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "newborn_synapse_pruning_executor"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "newborn_synapse_pruning_executor.v1"
             ),
             "accepted": False,
@@ -5018,10 +5018,10 @@ class SNNLanguagePlasticityApplicationExecutor:
             "prunes_network": False,
             "promotion_gate": {
                 "status": (
-                    "blocked_missing_autonomous_snn_language_thought_"
+                    "blocked_missing_snn_language_readout_"
                     "newborn_synapse_pruning_executor_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_newborn_"
+                "eligible_for_snn_language_readout_newborn_"
                 "synapse_pruning_event_review": False,
                 "required_evidence": dict(required_evidence),
             },

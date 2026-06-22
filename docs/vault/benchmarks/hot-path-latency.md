@@ -5675,3 +5675,33 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native sequence failures. Velocity
 reported no observed contention, CPU max `18%`, GPU max `15%`, GPU memory
 utilization max `18%`, and RTX memory `1798->1796 MiB`.
+
+## Readout Newborn Developmental Naming Retirement Protection
+
+This run protects the live tick after retiring the thought-era newborn
+developmental production naming path. The code slice changes service API
+schema, facade, ledger, executor state, developmental autonomy, runtime
+snapshot fields, tests, and docs for `snn_language_readout_newborn_*`; it does
+not add live-tick recall, replay, resize, status scans, or every-token
+slow-memory work.
+
+The replay quality report
+`reports/bounded_replay_window_20260622/synthetic-readout-newborn-canonical.json`
+kept selection on `bucket_indexed_candidate_window`, ran `0` global fallback
+cycles, blocked zero-pressure/no-anchor controls, and kept positive-pressure
+sleep recall bounded to `4` queries with mean best input-pattern distance near
+zero. Prototype repair remained unpromoted.
+
+The hot-path protection report is
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-newborn-canonical.json`.
+
+Result: `success=true`, `524288` tokens in `90.647176 s` at
+`5783.832 tokens/sec`, `tick_duration_ms.p95=23.205`,
+`train_compute=0.139571 ms/token`, `prepare_training=0.007265 ms/token`, and
+`finalize_total=0.006961 ms/token`. Prewarm took `343.022 s` and
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native sequence failures. Velocity
+reported no observed contention, CPU max `43%`, GPU max `13%`, GPU memory
+utilization max `18%`, and RTX memory `1915->1913 MiB`.

@@ -769,50 +769,50 @@ class RuntimeFacade:
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+    def snn_language_readout_newborn_neuron_integration_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_integration_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_newborn_neuron_integration_preflight(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_integration_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_plasticity_executor.apply_autonomous_snn_language_thought_newborn_neuron_integration(
+    def snn_language_readout_newborn_neuron_integration_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_snn_language_readout_newborn_neuron_integration(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_newborn_neuron_integration_event_review(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_integration_event_review(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+    def snn_language_readout_newborn_neuron_critical_period_learning_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_critical_period_learning_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_newborn_neuron_critical_period_learning_preflight(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(self, **kwargs: Any) -> dict[str, Any]:
-        result = self._root._snn_language_plasticity_executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
+    def snn_language_readout_newborn_neuron_critical_period_learning_executor(self, **kwargs: Any) -> dict[str, Any]:
+        result = self._root._snn_language_plasticity_executor.apply_snn_language_readout_newborn_neuron_critical_period_learning(
             **kwargs
         )
         if result.get("accepted"):
@@ -823,41 +823,41 @@ class RuntimeFacade:
             )
         return result
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_newborn_neuron_critical_period_learning_event_review(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+    def snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+    def snn_language_readout_newborn_neuron_maturation_outcome_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_neuron_maturation_outcome_review(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_synapse_pruning_design(
+    def snn_language_readout_newborn_synapse_pruning_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_synapse_pruning_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_preflight(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_newborn_synapse_pruning_preflight(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+        return self._root._snn_language_readout_ledger.snn_language_readout_newborn_synapse_pruning_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_plasticity_executor.apply_autonomous_snn_language_thought_newborn_synapse_pruning(
+    def snn_language_readout_newborn_synapse_pruning_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_snn_language_readout_newborn_synapse_pruning(
             **kwargs
         )
 

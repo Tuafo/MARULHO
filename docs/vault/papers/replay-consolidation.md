@@ -2012,6 +2012,42 @@ zero graph/native/sequence failures. Prewarm took `344.672 s`. The earlier
 trainer-stage-profiler run completed at `5555.868 tokens/sec` and is kept only
 as diagnostic evidence, not the accepted throughput gate.
 
+## Readout Newborn Developmental Naming Retirement
+
+The same local-plasticity and adult-neurogenesis evidence applies to the
+downstream newborn developmental chain: newborn capacity is not useful until
+bounded live activity, checkpoint-backed integration, critical-period learning,
+maturation review, and pruning evidence agree. MARULHO therefore retires the
+`thought_newborn` and `autonomous_snn_language_thought_newborn_*` production
+names instead of keeping a hidden-thought bridge beside the readout path.
+
+The maintained path is now `snn_language_readout_newborn_*` through API schema,
+facade, ledger, executor, developmental autonomy, runtime snapshot fields, and
+checkpoint persistence. The API route family is
+`snn-language-readout-newborn-*`, and the API mapper no longer translates
+readout-newborn payloads back to thought-era internals.
+
+Focused verification kept the path checkpoint-backed and bounded:
+`tests/test_snn_language_plasticity_executor.py -k "readout_capacity_mutation or readout_newborn"`
+passed `8` tests, `tests/test_snn_language_readout_ledger.py -k "newborn or readout_capacity"`
+passed `4` tests, the API canonical/vocabulary slice passed `2` tests, the
+manager checkpoint-backed readout-capacity-growth chain passed, and
+developmental-autonomy plus runtime-persistence tests passed `17` tests. The
+standing replay gates also passed: bounded replay selection `5` tests and
+checkpoint/replay reload `4` tests.
+
+The replay quality report
+`reports/bounded_replay_window_20260622/synthetic-readout-newborn-canonical.json`
+kept selection on `bucket_indexed_candidate_window`, ran `0` global fallback
+cycles, blocked zero-pressure/no-anchor controls, and kept positive-pressure
+sleep recall bounded to `4` queries with mean best input-pattern distance near
+zero. The paired hot-path report
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-newborn-canonical.json`
+processed `524288` tokens at `5783.832 tokens/sec`, p95 tick `23.205 ms`,
+bounded `12/65536` route rows, cached `65526` transition rows, selected CUDA on
+the RTX 3060, observed no contention, moved RTX memory `1915->1913 MiB`, and
+recorded zero graph/native/sequence failures.
+
 The replay-dataset history wrapper is also retired. It returned
 `/terminus/replay-sample/history` records under dataset naming, so it preserved
 a duplicate replay-history surface without adding a selected dataset window.

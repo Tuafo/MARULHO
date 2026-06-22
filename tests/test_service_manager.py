@@ -421,7 +421,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertFalse(review["writes_checkpoint"])
                 self.assertTrue(
                     review["promotion_gate"][
-                        "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_design"
+                        "eligible_for_snn_language_readout_newborn_neuron_integration_design"
                     ]
                 )
                 tampered_executor = deepcopy(result)
@@ -447,7 +447,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 integration_preflight = {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_preflight.v1"
                     ),
                     "accepted": True,
@@ -457,8 +457,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     "loads_external_checkpoint": False,
                     "runs_replay": False,
                     "trains_runtime_model": False,
-                    "autonomous_snn_language_thought_newborn_neuron_integration_preflight": {
-                        "thought_newborn_neuron_integration_design_hash": "n"
+                    "snn_language_readout_newborn_neuron_integration_preflight": {
+                        "readout_newborn_neuron_integration_design_hash": "n"
                         * 64,
                         "capacity_mutation_event_hash": result[
                             "snn_language_readout_capacity_mutation_event"
@@ -516,7 +516,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "operator_approval_required": False,
                     },
                     "promotion_gate": {
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_integration_executor": True,
                         "required_evidence": {
                             "all_candidate_sources_resolved": True,
@@ -526,8 +526,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         },
                     },
                 }
-                integration_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor(
-                    autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
+                integration_result = manager.runtime_facade.snn_language_readout_newborn_neuron_integration_executor(
+                    snn_language_readout_newborn_neuron_integration_preflight=(
                         integration_preflight
                     ),
                     expected_state_revision=revision + 1,
@@ -536,8 +536,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 integrated_runtime = (
                     manager.runtime_facade.snn_language_plasticity_runtime_state()
                 )
-                integration_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review(
-                    autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+                integration_review = manager.runtime_facade.snn_language_readout_newborn_neuron_integration_event_review(
+                    snn_language_readout_newborn_neuron_integration_executor=(
                         integration_result
                     ),
                     expected_state_revision=revision + 2,
@@ -559,7 +559,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     integrated_runtime[
-                        "thought_newborn_neuron_integration_count"
+                        "readout_newborn_neuron_integration_count"
                     ],
                     1,
                 )
@@ -576,23 +576,23 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     integration_review[
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_event_review"
                     ]["sparse_dense_provenance_consistent"]
                 )
                 self.assertTrue(
                     integration_review["promotion_gate"][
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_design"
                     ]
                 )
-                learning_design = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
-                    autonomous_snn_language_thought_newborn_neuron_integration_event_review=(
+                learning_design = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_design(
+                    snn_language_readout_newborn_neuron_integration_event_review=(
                         integration_review
                     )
                 )
                 learning_candidates = learning_design[
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_design"
                 ]["learning_candidates"]
                 activity_rows = []
@@ -624,16 +624,16 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     )
                 activity_window_material = {
                     "surface": (
-                        "snn_language_newborn_critical_period_activity.v1"
+                        "snn_language_readout_newborn_critical_period_activity.v1"
                     ),
                     "state_revision": revision + 2,
                     "observation_window_id": "manager-critical-window-1",
                     "device": learning_design[
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     ]["actual_device"],
                     "tensor_is_cuda": learning_design[
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     ]["tensor_is_cuda"],
                     "candidate_observations": [
@@ -657,8 +657,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         )
                     ),
                 }
-                learning_preflight = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+                learning_preflight = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
+                    snn_language_readout_newborn_neuron_critical_period_learning_design=(
                         learning_design
                     ),
                     expected_state_revision=revision + 2,
@@ -671,12 +671,12 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "pre_learning_checkpoint_restore_verified": True,
                     },
                     executor_capabilities={
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_executor": True
                     },
                 )
-                learning_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+                learning_result = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_executor(
+                    snn_language_readout_newborn_neuron_critical_period_learning_preflight=(
                         learning_preflight
                     ),
                     expected_state_revision=revision + 2,
@@ -701,7 +701,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     learned_runtime[
-                        "thought_newborn_neuron_critical_period_"
+                        "readout_newborn_neuron_critical_period_"
                         "learning_cycle_count"
                     ],
                     1,
@@ -710,30 +710,30 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     manager._runtime_state.state_revision,
                     revision + 3,
                 )
-                learning_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=(
+                learning_review = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
+                    snn_language_readout_newborn_neuron_critical_period_learning_executor=(
                         learning_result
                     ),
                     expected_state_revision=revision + 3,
                 )
                 tampered_learning_result = deepcopy(learning_result)
                 tampered_learning_result[
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_event"
                 ]["applied_learning_cycles"][0]["applied_weight"] = 0.5
-                tampered_learning_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=(
+                tampered_learning_review = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
+                    snn_language_readout_newborn_neuron_critical_period_learning_executor=(
                         tampered_learning_result
                     ),
                     expected_state_revision=revision + 3,
                 )
-                continuation_design = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+                continuation_design = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
+                    snn_language_readout_newborn_neuron_critical_period_learning_event_review=(
                         learning_review
                     )
                 )
                 continuation_candidates = continuation_design[
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_design"
                 ]["learning_candidates"]
                 continuation_activity_rows = []
@@ -749,11 +749,11 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "newborn_firing_rate_hz": 4.0,
                         "prediction_error": 0.18,
                         "device": continuation_design[
-                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "snn_language_readout_newborn_neuron_"
                             "critical_period_learning_design"
                         ]["actual_device"],
                         "tensor_is_cuda": continuation_design[
-                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "snn_language_readout_newborn_neuron_"
                             "critical_period_learning_design"
                         ]["tensor_is_cuda"],
                     }
@@ -769,16 +769,16 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     )
                 continuation_window_material = {
                     "surface": (
-                        "snn_language_newborn_critical_period_activity.v1"
+                        "snn_language_readout_newborn_critical_period_activity.v1"
                     ),
                     "state_revision": revision + 3,
                     "observation_window_id": "manager-critical-window-2",
                     "device": continuation_design[
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     ]["actual_device"],
                     "tensor_is_cuda": continuation_design[
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     ]["tensor_is_cuda"],
                     "candidate_observations": [
@@ -802,8 +802,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         )
                     ),
                 }
-                continuation_preflight = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+                continuation_preflight = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
+                    snn_language_readout_newborn_neuron_critical_period_learning_design=(
                         continuation_design
                     ),
                     expected_state_revision=revision + 3,
@@ -818,12 +818,12 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "pre_learning_checkpoint_restore_verified": True,
                     },
                     executor_capabilities={
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_executor": True
                     },
                 )
-                continuation_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
-                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+                continuation_result = manager.runtime_facade.snn_language_readout_newborn_neuron_critical_period_learning_executor(
+                    snn_language_readout_newborn_neuron_critical_period_learning_preflight=(
                         continuation_preflight
                     ),
                     expected_state_revision=revision + 3,
@@ -849,7 +849,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     learning_review["promotion_gate"][
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_"
                         "continuation_design"
                     ]

@@ -451,13 +451,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     json={
                         "snn_language_structural_plasticity_event_review": {
                             "surface": (
-                                "snn_language_autonomous_snn_language_thought_"
+                                "snn_language_readout_"
                                 "structural_plasticity_event_review.v1"
                             ),
                             "accepted": False,
                             "ready": False,
                             "promotion_gate": {
-                                "eligible_for_autonomous_snn_language_thought_"
+                                "eligible_for_snn_language_readout_"
                                 "capacity_mutation_design": False
                             },
                         },
@@ -508,7 +508,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 newborn_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-design",
                     json={
                         "snn_language_readout_capacity_mutation_event_review": (
                             review_response.json()
@@ -520,9 +520,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 newborn_preflight_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-preflight",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-preflight",
                     json={
-                        "snn_language_newborn_neuron_integration_design": (
+                        "snn_language_readout_newborn_neuron_integration_design": (
                             newborn_design_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -540,40 +540,40 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 newborn_executor_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-executor",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-executor",
                     json={
-                        "snn_language_newborn_neuron_integration_preflight": (
+                        "snn_language_readout_newborn_neuron_integration_preflight": (
                             newborn_preflight_response.json()
                         ),
                         "expected_state_revision": expected_revision,
                     },
                 )
                 newborn_review_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-event-review",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-event-review",
                     json={
-                        "snn_language_newborn_neuron_integration_executor": (
+                        "snn_language_readout_newborn_neuron_integration_executor": (
                             newborn_executor_response.json()
                         ),
                         "expected_state_revision": expected_revision,
                     },
                 )
                 critical_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-design",
                     json={
-                        "snn_language_newborn_neuron_integration_event_review": (
+                        "snn_language_readout_newborn_neuron_integration_event_review": (
                             newborn_review_response.json()
                         )
                     },
                 )
                 critical_preflight_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-preflight",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-preflight",
                     json={
-                        "snn_language_newborn_neuron_critical_period_learning_design": (
+                        "snn_language_readout_newborn_neuron_critical_period_learning_design": (
                             critical_design_response.json()
                         ),
                         "expected_state_revision": expected_revision,
                         "critical_period_activity_evidence": {
-                            "surface": "snn_language_newborn_critical_period_activity.v1",
+                            "surface": "snn_language_readout_newborn_critical_period_activity.v1",
                             "state_revision": expected_revision,
                             "observation_window_id": "canonical-critical-period-route-window",
                             "observation_window_hash": "0" * 64,
@@ -586,51 +586,51 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 critical_executor_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-executor",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-executor",
                     json={
-                        "snn_language_newborn_neuron_critical_period_learning_preflight": (
+                        "snn_language_readout_newborn_neuron_critical_period_learning_preflight": (
                             critical_preflight_response.json()
                         ),
                         "expected_state_revision": expected_revision,
                     },
                 )
                 critical_review_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-event-review",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-event-review",
                     json={
-                        "snn_language_newborn_neuron_critical_period_learning_executor": (
+                        "snn_language_readout_newborn_neuron_critical_period_learning_executor": (
                             critical_executor_response.json()
                         ),
                         "expected_state_revision": expected_revision,
                     },
                 )
                 critical_continuation_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-continuation-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-continuation-design",
                     json={
-                        "snn_language_newborn_neuron_critical_period_learning_event_review": (
+                        "snn_language_readout_newborn_neuron_critical_period_learning_event_review": (
                             critical_review_response.json()
                         )
                     },
                 )
                 maturation_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-maturation-outcome-review",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-maturation-outcome-review",
                     json={
-                        "snn_language_newborn_neuron_critical_period_learning_event_review": (
+                        "snn_language_readout_newborn_neuron_critical_period_learning_event_review": (
                             critical_review_response.json()
                         )
                     },
                 )
                 pruning_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-design",
                     json={
-                        "snn_language_newborn_neuron_maturation_outcome_review": (
+                        "snn_language_readout_newborn_neuron_maturation_outcome_review": (
                             maturation_response.json()
                         )
                     },
                 )
                 pruning_preflight_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-preflight",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-preflight",
                     json={
-                        "snn_language_newborn_synapse_pruning_design": (
+                        "snn_language_readout_newborn_synapse_pruning_design": (
                             pruning_design_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -639,9 +639,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 pruning_executor_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-executor",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-executor",
                     json={
-                        "snn_language_newborn_synapse_pruning_preflight": (
+                        "snn_language_readout_newborn_synapse_pruning_preflight": (
                             pruning_preflight_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -2776,7 +2776,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_integration_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-design",
                         json={
                             "snn_language_readout_capacity_mutation_event_review": (
                                 snn_language_readout_capacity_mutation_event_review_response.json()
@@ -2791,9 +2791,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_integration_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-preflight",
                         json={
-                            "snn_language_newborn_neuron_integration_design": (
+                            "snn_language_readout_newborn_neuron_integration_design": (
                                 snn_language_readout_newborn_neuron_integration_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2819,9 +2819,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_integration_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-executor",
                         json={
-                            "snn_language_newborn_neuron_integration_preflight": (
+                            "snn_language_readout_newborn_neuron_integration_preflight": (
                                 snn_language_readout_newborn_neuron_integration_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2832,9 +2832,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_integration_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-event-review",
                         json={
-                            "snn_language_newborn_neuron_integration_executor": (
+                            "snn_language_readout_newborn_neuron_integration_executor": (
                                 snn_language_readout_newborn_neuron_integration_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2845,9 +2845,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_critical_period_learning_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-design",
                         json={
-                            "snn_language_newborn_neuron_integration_event_review": (
+                            "snn_language_readout_newborn_neuron_integration_event_review": (
                                 snn_language_readout_newborn_neuron_integration_event_review_response.json()
                             )
                         },
@@ -2855,16 +2855,16 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_critical_period_learning_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-preflight",
                         json={
-                            "snn_language_newborn_neuron_critical_period_learning_design": (
+                            "snn_language_readout_newborn_neuron_critical_period_learning_design": (
                                 snn_language_readout_newborn_neuron_critical_period_learning_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
                                 "state_revision"
                             ],
                             "critical_period_activity_evidence": {
-                                "surface": "snn_language_newborn_critical_period_activity.v1",
+                                "surface": "snn_language_readout_newborn_critical_period_activity.v1",
                                 "state_revision": status_response.json()[
                                     "state_revision"
                                 ],
@@ -2881,9 +2881,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_critical_period_learning_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-executor",
                         json={
-                            "snn_language_newborn_neuron_critical_period_learning_preflight": (
+                            "snn_language_readout_newborn_neuron_critical_period_learning_preflight": (
                                 snn_language_readout_newborn_neuron_critical_period_learning_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2894,9 +2894,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_critical_period_learning_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-event-review",
                         json={
-                            "snn_language_newborn_neuron_critical_period_learning_executor": (
+                            "snn_language_readout_newborn_neuron_critical_period_learning_executor": (
                                 snn_language_readout_newborn_neuron_critical_period_learning_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2907,9 +2907,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_newborn_neuron_critical_period_learning_continuation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-continuation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-continuation-design",
                         json={
-                            "snn_language_newborn_neuron_critical_period_learning_event_review": (
+                            "snn_language_readout_newborn_neuron_critical_period_learning_event_review": (
                                 snn_language_readout_newborn_neuron_critical_period_learning_event_review_response.json()
                             )
                         },
@@ -3700,11 +3700,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertNotIn("thought_surface", surface_chain_text)
         self.assertNotIn(
-            "autonomous_snn_language_thought_surface",
+            "snn_language_readout_surface",
             surface_chain_text,
         )
         self.assertNotIn(
-            "snn_language_autonomous_snn_language_thought_surface",
+            "snn_language_readout_surface",
             surface_chain_text,
         )
         snn_language_readout_memory_design = (
@@ -17848,19 +17848,19 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
         prefix = "/terminus/snn-language-sequence/readout-ledger/"
         self.assertIn(
-            prefix + "snn-language-newborn-neuron-maturation-outcome-review",
+            prefix + "snn-language-readout-newborn-neuron-maturation-outcome-review",
             paths,
         )
         self.assertIn(
-            prefix + "snn-language-newborn-synapse-pruning-design",
+            prefix + "snn-language-readout-newborn-synapse-pruning-design",
             paths,
         )
         self.assertIn(
-            prefix + "snn-language-newborn-synapse-pruning-preflight",
+            prefix + "snn-language-readout-newborn-synapse-pruning-preflight",
             paths,
         )
         self.assertIn(
-            prefix + "snn-language-newborn-synapse-pruning-executor",
+            prefix + "snn-language-readout-newborn-synapse-pruning-executor",
             paths,
         )
 

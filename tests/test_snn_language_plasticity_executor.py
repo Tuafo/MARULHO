@@ -229,7 +229,7 @@ def _readout_capacity_mutation_preflight(
     }
 
 
-def _thought_newborn_neuron_integration_preflight(
+def _readout_newborn_neuron_integration_preflight(
     *,
     expected_state_revision: int = 0,
 ) -> dict[str, object]:
@@ -261,7 +261,7 @@ def _thought_newborn_neuron_integration_preflight(
     ]
     return {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_"
+            "snn_language_readout_"
             "newborn_neuron_integration_preflight.v1"
         ),
         "accepted": True,
@@ -271,8 +271,8 @@ def _thought_newborn_neuron_integration_preflight(
         "loads_external_checkpoint": False,
         "runs_replay": False,
         "trains_runtime_model": False,
-        "autonomous_snn_language_thought_newborn_neuron_integration_preflight": {
-            "thought_newborn_neuron_integration_design_hash": "d" * 64,
+        "snn_language_readout_newborn_neuron_integration_preflight": {
+            "readout_newborn_neuron_integration_design_hash": "d" * 64,
             "capacity_mutation_event_hash": "e" * 64,
             "observation_window_id": "window-newborn-1",
             "observation_window_hash": "w" * 64,
@@ -286,7 +286,7 @@ def _thought_newborn_neuron_integration_preflight(
             "operator_approval_required": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_"
+            "eligible_for_snn_language_readout_"
             "newborn_neuron_integration_executor": True,
             "required_evidence": {
                 "all_candidate_sources_resolved": True,
@@ -298,7 +298,7 @@ def _thought_newborn_neuron_integration_preflight(
     }
 
 
-def _thought_newborn_neuron_critical_period_learning_preflight(
+def _readout_newborn_neuron_critical_period_learning_preflight(
     *,
     expected_state_revision: int = 0,
 ) -> dict[str, object]:
@@ -356,7 +356,7 @@ def _thought_newborn_neuron_critical_period_learning_preflight(
     )
     return {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_newborn_neuron_"
+            "snn_language_readout_newborn_neuron_"
             "critical_period_learning_preflight.v1"
         ),
         "accepted": True,
@@ -366,9 +366,9 @@ def _thought_newborn_neuron_critical_period_learning_preflight(
         "loads_external_checkpoint": False,
         "runs_replay": False,
         "trains_runtime_model": False,
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_preflight": {
-            "thought_newborn_neuron_critical_period_learning_design_hash": (
+            "readout_newborn_neuron_critical_period_learning_design_hash": (
                 "d" * 64
             ),
             "newborn_neuron_integration_event_hash": "e" * 64,
@@ -387,7 +387,7 @@ def _thought_newborn_neuron_critical_period_learning_preflight(
             "operator_approval_required": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+            "eligible_for_snn_language_readout_newborn_neuron_"
             "critical_period_learning_executor": True
         },
     }
@@ -620,7 +620,7 @@ def test_readout_capacity_mutation_blocks_stale_revision_before_checkpoint(
     assert runtime_state.state_revision == 0
 
 
-def test_thought_newborn_neuron_integration_adds_checkpointed_seed_edges(
+def test_readout_newborn_neuron_integration_adds_checkpointed_seed_edges(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -658,21 +658,21 @@ def test_thought_newborn_neuron_integration_adds_checkpointed_seed_edges(
         },
     )
 
-    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_integration(
-        autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
-            _thought_newborn_neuron_integration_preflight()
+    result = executor.apply_snn_language_readout_newborn_neuron_integration(
+        snn_language_readout_newborn_neuron_integration_preflight=(
+            _readout_newborn_neuron_integration_preflight()
         ),
         expected_state_revision=0,
         checkpoint_path=str(tmp_path / "newborn-integration.pt"),
     )
     event = result[
-        "autonomous_snn_language_thought_newborn_neuron_integration_event"
+        "snn_language_readout_newborn_neuron_integration_event"
     ]
     snapshot = executor.snapshot()
 
     assert result["accepted"] is True
     assert result["surface"] == (
-        "snn_language_autonomous_snn_language_thought_"
+        "snn_language_readout_"
         "newborn_neuron_integration_executor.v1"
     )
     assert result["requires_operator_approval"] is False
@@ -705,8 +705,8 @@ def test_thought_newborn_neuron_integration_adds_checkpointed_seed_edges(
     assert language_state["synapse_provenance_by_key"]["4:64"][
         "provenance_type"
     ] == "newborn_neuron_integration"
-    assert snapshot["thought_newborn_neuron_integration_count"] == 1
-    assert snapshot["last_thought_newborn_neuron_integration"] == event
+    assert snapshot["readout_newborn_neuron_integration_count"] == 1
+    assert snapshot["last_readout_newborn_neuron_integration"] == event
     assert snapshot["newborn_integration_dense_samples"] == [
         {
             "synapse": "4:64",
@@ -724,7 +724,7 @@ def test_thought_newborn_neuron_integration_adds_checkpointed_seed_edges(
     assert runtime_state.state_revision == 1
 
 
-def test_thought_newborn_neuron_integration_blocks_stale_revision_before_checkpoint(
+def test_readout_newborn_neuron_integration_blocks_stale_revision_before_checkpoint(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -749,9 +749,9 @@ def test_thought_newborn_neuron_integration_blocks_stale_revision_before_checkpo
         verify_checkpoint=lambda path: path.exists(),
     )
 
-    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_integration(
-        autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
-            _thought_newborn_neuron_integration_preflight(
+    result = executor.apply_snn_language_readout_newborn_neuron_integration(
+        snn_language_readout_newborn_neuron_integration_preflight=(
+            _readout_newborn_neuron_integration_preflight(
                 expected_state_revision=1
             )
         ),
@@ -769,7 +769,7 @@ def test_thought_newborn_neuron_integration_blocks_stale_revision_before_checkpo
     assert runtime_state.state_revision == 0
 
 
-def test_thought_newborn_neuron_critical_period_learning_applies_local_cycle(
+def test_readout_newborn_neuron_critical_period_learning_applies_local_cycle(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -810,15 +810,15 @@ def test_thought_newborn_neuron_critical_period_learning_applies_local_cycle(
         },
     )
 
-    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
-            _thought_newborn_neuron_critical_period_learning_preflight()
+    result = executor.apply_snn_language_readout_newborn_neuron_critical_period_learning(
+        snn_language_readout_newborn_neuron_critical_period_learning_preflight=(
+            _readout_newborn_neuron_critical_period_learning_preflight()
         ),
         expected_state_revision=0,
         checkpoint_path=str(tmp_path / "critical-period.pt"),
     )
     event = result[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_event"
     ]
     snapshot = executor.snapshot()
@@ -849,7 +849,7 @@ def test_thought_newborn_neuron_critical_period_learning_applies_local_cycle(
     assert event["mature_synapse_count"] == 0
     assert event["prune_eligible_synapse_count"] == 0
     assert snapshot[
-        "thought_newborn_neuron_critical_period_learning_cycle_count"
+        "readout_newborn_neuron_critical_period_learning_cycle_count"
     ] == 1
     assert snapshot[
         "newborn_neuron_critical_period_state_by_synapse"
@@ -870,7 +870,7 @@ def test_thought_newborn_neuron_critical_period_learning_applies_local_cycle(
         (False, 0, "prune_eligible"),
     ),
 )
-def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_without_pruning(
+def test_readout_newborn_neuron_critical_period_learning_decides_terminal_state_without_pruning(
     tmp_path: Path,
     active_cycle: bool,
     prior_active_cycles: int,
@@ -889,7 +889,7 @@ def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_
                 "newborn_integration_synapse_hash": "i" * 64,
             }
         },
-        "thought_newborn_neuron_critical_period_learning": {
+        "readout_newborn_neuron_critical_period_learning": {
             "learning_cycle_count": 63,
             "by_synapse": {
                 "4:64": {
@@ -907,10 +907,10 @@ def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_
         },
     }
     preflight = (
-        _thought_newborn_neuron_critical_period_learning_preflight()
+        _readout_newborn_neuron_critical_period_learning_preflight()
     )
     body = preflight[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_preflight"
     ]
     assert isinstance(body, dict)
@@ -960,15 +960,15 @@ def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_
         },
     )
 
-    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+    result = executor.apply_snn_language_readout_newborn_neuron_critical_period_learning(
+        snn_language_readout_newborn_neuron_critical_period_learning_preflight=(
             preflight
         ),
         expected_state_revision=0,
         checkpoint_path=str(tmp_path / f"{expected_state}.pt"),
     )
     event = result[
-        "autonomous_snn_language_thought_newborn_neuron_"
+        "snn_language_readout_newborn_neuron_"
         "critical_period_learning_event"
     ]
     applied = event["applied_learning_cycles"][0]
@@ -989,7 +989,7 @@ def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_
         assert event["prune_eligible_synapse_count"] == 1
 
 
-def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
+def test_readout_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -1007,7 +1007,7 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
                 "current_maturation_state": "prune_eligible",
             }
         },
-        "thought_newborn_neuron_critical_period_learning": {
+        "readout_newborn_neuron_critical_period_learning": {
             "by_synapse": {
                 "4:64": {
                     "synapse": "4:64",
@@ -1046,14 +1046,14 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
     )
     preflight = {
         "surface": (
-            "snn_language_autonomous_snn_language_thought_newborn_"
+            "snn_language_readout_newborn_"
             "synapse_pruning_preflight.v1"
         ),
         "accepted": True,
         "ready": True,
         "preflight_hash": "p" * 64,
         "requires_operator_approval": False,
-        "autonomous_snn_language_thought_newborn_synapse_"
+        "snn_language_readout_newborn_synapse_"
         "pruning_preflight": {
             "newborn_synapse_pruning_design_hash": "d" * 64,
             "maturation_outcome_review_hash": "r" * 64,
@@ -1064,7 +1064,7 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
             "operator_approval_required": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_newborn_"
+            "eligible_for_snn_language_readout_newborn_"
             "synapse_pruning_executor": True
         },
     }
@@ -1087,8 +1087,8 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
         },
     )
 
-    result = executor.apply_autonomous_snn_language_thought_newborn_synapse_pruning(
-        autonomous_snn_language_thought_newborn_synapse_pruning_preflight=preflight,
+    result = executor.apply_snn_language_readout_newborn_synapse_pruning(
+        snn_language_readout_newborn_synapse_pruning_preflight=preflight,
         expected_state_revision=0,
     )
 
@@ -1108,15 +1108,15 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
     snapshot = executor.snapshot()
     assert snapshot["language_newborn_synapse_pruning_count"] == 1
     assert snapshot["language_newborn_synapse_pruned_count_total"] == 1
-    assert snapshot["thought_newborn_synapse_pruning_count"] == 1
-    assert snapshot["thought_newborn_synapse_pruned_count_total"] == 1
+    assert snapshot["readout_newborn_synapse_pruning_count"] == 1
+    assert snapshot["readout_newborn_synapse_pruned_count_total"] == 1
     assert (
         snapshot["last_language_newborn_synapse_pruning"]
-        == snapshot["last_thought_newborn_synapse_pruning"]
+        == snapshot["last_readout_newborn_synapse_pruning"]
     )
     assert (
         snapshot["recent_language_newborn_synapse_pruning"]
-        == snapshot["recent_thought_newborn_synapse_pruning"]
+        == snapshot["recent_readout_newborn_synapse_pruning"]
     )
 
 

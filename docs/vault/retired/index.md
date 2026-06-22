@@ -52,6 +52,7 @@ related_benchmarks: []
 - [Snn Language Thought Capacity Mutation Production Naming](snn-language-thought-capacity-mutation-production-naming.md)
 - [Snn Language Thought Consolidation Production Naming](snn-language-thought-consolidation-production-naming.md)
 - [Snn Language Thought Memory Production Naming](snn-language-thought-memory-production-naming.md)
+- [Snn Language Thought Newborn Developmental Production Naming](snn-language-thought-newborn-developmental-production-naming.md)
 - [Snn Language Thought Structural Plasticity Production Naming](snn-language-thought-structural-plasticity-production-naming.md)
 - [Snn Language Thought Surface Production Naming](snn-language-thought-surface-production-naming.md)
 - [Source Bank Per Probe Query Recall](source-bank-per-probe-query-recall.md)

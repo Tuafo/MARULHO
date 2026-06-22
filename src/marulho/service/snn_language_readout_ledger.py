@@ -24582,7 +24582,7 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "memory_event_review.v1"
                     ),
                     "expected_state_revision": int(expected_state_revision),
@@ -24593,7 +24593,7 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "memory_event_review"
                 ),
                 "surface": (
@@ -28481,13 +28481,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "newborn_neuron_integration_design"
                         if ready
                         else "blocked_missing_snn_language_readout_"
                         "capacity_mutation_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "newborn_neuron_integration_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
@@ -28499,7 +28499,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_design"
                         if ready
                         else "collect_snn_language_readout_"
@@ -28509,7 +28509,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_integration_design(
+    def snn_language_readout_newborn_neuron_integration_design(
         self,
         *,
         snn_language_readout_capacity_mutation_event_review: Mapping[
@@ -28745,7 +28745,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_integration_design"
                     )
                 ),
@@ -28871,22 +28871,22 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_integration_design"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_design.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_design"
                 ),
                 "available": bool(artifact),
                 "ready": ready,
                 "accepted": ready,
-                "thought_newborn_neuron_integration_design_hash": design_hash,
+                "readout_newborn_neuron_integration_design_hash": design_hash,
                 "requires_operator_approval": False,
                 "owned_by_marulho": True,
                 "external_dependency": False,
@@ -28909,17 +28909,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "mutates_runtime_state": False,
                 "state_revision_unchanged": before_revision == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "integration_design": design,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "newborn_neuron_integration_preflight"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_"
+                        else "blocked_missing_snn_language_readout_"
                         "newborn_neuron_integration_design_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "newborn_neuron_integration_preflight": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
@@ -28931,20 +28931,20 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_preflight"
                         if ready
-                        else "collect_snn_language_thought_"
+                        else "collect_snn_language_readout_"
                         "newborn_neuron_integration_design_evidence"
                     ),
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+    def snn_language_readout_newborn_neuron_integration_preflight(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_integration_design: Mapping[
+        snn_language_readout_newborn_neuron_integration_design: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -28958,19 +28958,19 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_integration_design
+                snn_language_readout_newborn_neuron_integration_design
                 or {}
             )
             design = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_design"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_design"
                     ),
                     Mapping,
@@ -29220,7 +29220,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 )
             design_hash = str(
                 artifact.get(
-                    "thought_newborn_neuron_integration_design_hash"
+                    "readout_newborn_neuron_integration_design_hash"
                 )
                 or ""
             )
@@ -29246,7 +29246,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 }
             )
             preflight_material = {
-                "thought_newborn_neuron_integration_design_hash": design_hash,
+                "readout_newborn_neuron_integration_design_hash": design_hash,
                 "capacity_mutation_event_hash": str(
                     design.get("capacity_mutation_event_hash") or ""
                 ),
@@ -29274,14 +29274,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "integration_design_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_design.v1"
                 ),
                 "integration_design_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_integration_preflight"
                     )
                 ),
@@ -29374,7 +29374,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "executor_capability_available": bool(
                     capabilities.get(
-                        "autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_executor"
                     )
                 ),
@@ -29408,16 +29408,16 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_integration_preflight"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_preflight.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_preflight"
                 ),
                 "available": bool(artifact),
@@ -29446,17 +29446,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "mutates_runtime_state": False,
                 "state_revision_unchanged": before_revision == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "integration_preflight": preflight,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "newborn_neuron_integration_executor"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_"
+                        else "blocked_missing_snn_language_readout_"
                         "newborn_neuron_integration_preflight_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "newborn_neuron_integration_executor": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
@@ -29468,7 +29468,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_executor"
                         if ready
                         else "collect_hash_bound_live_spike_population_"
@@ -29479,10 +29479,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+    def snn_language_readout_newborn_neuron_integration_event_review(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_integration_executor: Mapping[
+        snn_language_readout_newborn_neuron_integration_executor: Mapping[
             str, Any
         ],
         plasticity_runtime_state: Mapping[str, Any],
@@ -29493,7 +29493,7 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             executor = dict(
-                autonomous_snn_language_thought_newborn_neuron_integration_executor
+                snn_language_readout_newborn_neuron_integration_executor
                 or {}
             )
             runtime = dict(plasticity_runtime_state or {})
@@ -29505,13 +29505,13 @@ class SNNLanguageReadoutEvidenceLedger:
             event = (
                 dict(
                     executor.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_event"
                     )
                 )
                 if isinstance(
                     executor.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_event"
                     ),
                     Mapping,
@@ -29534,9 +29534,9 @@ class SNNLanguageReadoutEvidenceLedger:
                 else {}
             )
             runtime_last_event = (
-                dict(runtime.get("last_thought_newborn_neuron_integration"))
+                dict(runtime.get("last_readout_newborn_neuron_integration"))
                 if isinstance(
-                    runtime.get("last_thought_newborn_neuron_integration"),
+                    runtime.get("last_readout_newborn_neuron_integration"),
                     Mapping,
                 )
                 else {}
@@ -29700,14 +29700,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "executor_surface_available": executor.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_executor.v1"
                 ),
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(executor.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_integration_event_review"
                     )
                 ),
@@ -29729,7 +29729,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "design_hash_available": len(
                     str(
                         event.get(
-                            "thought_newborn_neuron_integration_design_hash"
+                            "readout_newborn_neuron_integration_design_hash"
                         )
                         or ""
                     )
@@ -29827,9 +29827,9 @@ class SNNLanguageReadoutEvidenceLedger:
             review = {
                 "newborn_neuron_integration_event_hash": event_hash,
                 "preflight_hash": str(event.get("preflight_hash") or ""),
-                "thought_newborn_neuron_integration_design_hash": str(
+                "readout_newborn_neuron_integration_design_hash": str(
                     event.get(
-                        "thought_newborn_neuron_integration_design_hash"
+                        "readout_newborn_neuron_integration_design_hash"
                     )
                     or ""
                 ),
@@ -29878,7 +29878,7 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_integration_event_review.v1"
                     ),
                     "expected_state_revision": int(expected_state_revision),
@@ -29890,16 +29890,16 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_integration_event_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_event_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "integration_event_review"
                 ),
                 "available": bool(executor),
@@ -29927,17 +29927,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "state_revision_unchanged": before_revision
                 == after_revision,
                 "newborn_neuron_integration_event_hash": event_hash,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "integration_event_review": review,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_design"
                         if ready
                         else "blocked_missing_autonomous_snn_language_"
-                        "thought_newborn_neuron_integration_event_evidence"
+                        "readout_newborn_neuron_integration_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
@@ -29947,7 +29947,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                         if ready
                         else "collect_sparse_dense_provenance_and_"
@@ -29958,10 +29958,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+    def snn_language_readout_newborn_neuron_critical_period_learning_design(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_integration_event_review: Mapping[
+        snn_language_readout_newborn_neuron_integration_event_review: Mapping[
             str, Any
         ],
         learning_policy: Mapping[str, Any] | None = None,
@@ -29971,19 +29971,19 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_integration_event_review
+                snn_language_readout_newborn_neuron_integration_event_review
                 or {}
             )
             review = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_event_review"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "integration_event_review"
                     ),
                     Mapping,
@@ -30133,14 +30133,14 @@ class SNNLanguageReadoutEvidenceLedger:
                     "surface"
                 )
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_integration_event_review.v1"
                 ),
                 "integration_review_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_design"
                     )
                 ),
@@ -30265,7 +30265,7 @@ class SNNLanguageReadoutEvidenceLedger:
             design_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_critical_period_learning_design.v1"
                     ),
                     "ready": ready,
@@ -30276,22 +30276,22 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_design"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_design.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_design"
                 ),
                 "available": bool(artifact),
                 "ready": ready,
                 "accepted": ready,
-                "thought_newborn_neuron_critical_period_learning_design_hash": (
+                "readout_newborn_neuron_critical_period_learning_design_hash": (
                     design_hash
                 ),
                 "requires_operator_approval": False,
@@ -30314,17 +30314,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "critical_period_learning_design": design,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "neuron_critical_period_learning_preflight"
                         if ready
                         else "blocked_missing_autonomous_snn_language_"
-                        "thought_newborn_neuron_critical_period_design_evidence"
+                        "readout_newborn_neuron_critical_period_design_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_critical_period_learning_preflight": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
@@ -30334,7 +30334,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_preflight"
                         if ready
                         else "collect_verified_newborn_integration_evidence"
@@ -30343,10 +30343,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+    def snn_language_readout_newborn_neuron_critical_period_learning_preflight(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design: Mapping[
+        snn_language_readout_newborn_neuron_critical_period_learning_design: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -30360,19 +30360,19 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design
+                snn_language_readout_newborn_neuron_critical_period_learning_design
                 or {}
             )
             design = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_design"
                     ),
                     Mapping,
@@ -30769,14 +30769,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "design_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_design.v1"
                 ),
                 "design_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_preflight"
                     )
                 ),
@@ -30793,7 +30793,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 )
                 == int(expected_state_revision),
                 "activity_surface_available": evidence.get("surface")
-                == "snn_language_newborn_critical_period_activity.v1",
+                == "snn_language_readout_newborn_critical_period_activity.v1",
                 "activity_revision_matches": int(
                     evidence.get("state_revision", -1)
                     if evidence.get("state_revision") is not None
@@ -30837,7 +30837,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "executor_capability_available": bool(
                     capabilities.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_executor"
                     )
                 ),
@@ -30851,9 +30851,9 @@ class SNNLanguageReadoutEvidenceLedger:
             }
             ready = all(required.values())
             preflight = {
-                "thought_newborn_neuron_critical_period_learning_design_hash": str(
+                "readout_newborn_neuron_critical_period_learning_design_hash": str(
                     artifact.get(
-                        "thought_newborn_neuron_critical_period_learning_"
+                        "readout_newborn_neuron_critical_period_learning_"
                         "design_hash"
                     )
                     or ""
@@ -30886,7 +30886,7 @@ class SNNLanguageReadoutEvidenceLedger:
             preflight_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_critical_period_learning_preflight.v1"
                     ),
                     "ready": ready,
@@ -30898,16 +30898,16 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_preflight"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_preflight.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_preflight"
                 ),
                 "available": bool(artifact),
@@ -30934,17 +30934,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "critical_period_learning_preflight": preflight,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "neuron_critical_period_learning_executor"
                         if ready
                         else "blocked_missing_autonomous_snn_language_"
-                        "thought_newborn_neuron_critical_period_evidence"
+                        "readout_newborn_neuron_critical_period_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_critical_period_learning_executor": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -30953,7 +30953,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_executor"
                         if ready
                         else "collect_canonical_newborn_spike_timing_"
@@ -30964,10 +30964,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+    def snn_language_readout_newborn_neuron_critical_period_learning_event_review(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor: Mapping[
+        snn_language_readout_newborn_neuron_critical_period_learning_executor: Mapping[
             str, Any
         ],
         plasticity_runtime_state: Mapping[str, Any],
@@ -30978,7 +30978,7 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             executor = dict(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor
+                snn_language_readout_newborn_neuron_critical_period_learning_executor
                 or {}
             )
             runtime = dict(plasticity_runtime_state or {})
@@ -30990,13 +30990,13 @@ class SNNLanguageReadoutEvidenceLedger:
             event = (
                 dict(
                     executor.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_event"
                     )
                 )
                 if isinstance(
                     executor.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_event"
                     ),
                     Mapping,
@@ -31011,13 +31011,13 @@ class SNNLanguageReadoutEvidenceLedger:
             runtime_last_event = (
                 dict(
                     runtime.get(
-                        "last_thought_newborn_neuron_"
+                        "last_readout_newborn_neuron_"
                         "critical_period_learning"
                     )
                 )
                 if isinstance(
                     runtime.get(
-                        "last_thought_newborn_neuron_"
+                        "last_readout_newborn_neuron_"
                         "critical_period_learning"
                     ),
                     Mapping,
@@ -31272,14 +31272,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "executor_surface_available": executor.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_executor.v1"
                 ),
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(executor.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_event_review"
                     )
                 ),
@@ -31301,7 +31301,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "design_hash_available": len(
                     str(
                         event.get(
-                            "thought_newborn_neuron_critical_period_"
+                            "readout_newborn_neuron_critical_period_"
                             "learning_design_hash"
                         )
                         or ""
@@ -31338,7 +31338,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 and runtime_last_event == event,
                 "runtime_cycle_count_recorded": int(
                     runtime.get(
-                        "thought_newborn_neuron_"
+                        "readout_newborn_neuron_"
                         "critical_period_learning_cycle_count",
                         0,
                     )
@@ -31397,9 +31397,9 @@ class SNNLanguageReadoutEvidenceLedger:
                     event_hash
                 ),
                 "preflight_hash": str(event.get("preflight_hash") or ""),
-                "thought_newborn_neuron_critical_period_learning_design_hash": str(
+                "readout_newborn_neuron_critical_period_learning_design_hash": str(
                     event.get(
-                        "thought_newborn_neuron_critical_period_"
+                        "readout_newborn_neuron_critical_period_"
                         "learning_design_hash"
                     )
                     or ""
@@ -31439,7 +31439,7 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_critical_period_learning_"
                         "event_review.v1"
                     ),
@@ -31456,16 +31456,16 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_event_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_event_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_event_review"
                 ),
                 "available": bool(executor),
@@ -31495,27 +31495,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 "newborn_neuron_critical_period_learning_event_hash": (
                     event_hash
                 ),
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "critical_period_learning_event_review": review,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "neuron_critical_period_learning_continuation_design"
                         if continuation_ready
                         else (
-                            "ready_for_autonomous_snn_language_thought_"
+                            "ready_for_snn_language_readout_"
                             "newborn_neuron_maturation_outcome_review"
                             if outcome_ready
                             else "blocked_missing_autonomous_snn_language_"
-                            "thought_newborn_neuron_critical_period_"
+                            "readout_newborn_neuron_critical_period_"
                             "learning_event_evidence"
                         )
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_critical_period_learning_continuation_design": (
                         continuation_ready
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_maturation_outcome_review": outcome_ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -31524,11 +31524,11 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_continuation_design"
                         if continuation_ready
                         else (
-                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "snn_language_readout_newborn_neuron_"
                             "maturation_outcome_review"
                             if outcome_ready
                             else "collect_sparse_dense_developmental_"
@@ -31540,10 +31540,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+    def snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: Mapping[
+        snn_language_readout_newborn_neuron_critical_period_learning_event_review: Mapping[
             str, Any
         ],
     ) -> dict[str, Any]:
@@ -31552,19 +31552,19 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+                snn_language_readout_newborn_neuron_critical_period_learning_event_review
                 or {}
             )
             review = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_event_review"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_event_review"
                     ),
                     Mapping,
@@ -31696,14 +31696,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "event_review_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_event_review.v1"
                 ),
                 "event_review_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_critical_period_learning_"
                         "continuation_design"
                     )
@@ -31800,7 +31800,7 @@ class SNNLanguageReadoutEvidenceLedger:
             design_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_critical_period_learning_design.v1"
                     ),
                     "continuation": True,
@@ -31812,23 +31812,23 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_critical_period_learning_"
                     "continuation_design"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_design.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_continuation_design"
                 ),
                 "available": bool(artifact),
                 "ready": ready,
                 "accepted": ready,
-                "thought_newborn_neuron_critical_period_learning_design_hash": (
+                "readout_newborn_neuron_critical_period_learning_design_hash": (
                     design_hash
                 ),
                 "requires_operator_approval": False,
@@ -31851,17 +31851,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "critical_period_learning_design": design,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "neuron_critical_period_learning_preflight"
                         if ready
                         else "blocked_missing_reviewed_critical_period_"
                         "continuation_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "neuron_critical_period_learning_preflight": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -31870,7 +31870,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "snn_language_readout_newborn_neuron_"
                         "critical_period_learning_preflight"
                         if ready
                         else "collect_reviewed_open_critical_period_state"
@@ -31879,10 +31879,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+    def snn_language_readout_newborn_neuron_maturation_outcome_review(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: Mapping[
+        snn_language_readout_newborn_neuron_critical_period_learning_event_review: Mapping[
             str, Any
         ],
     ) -> dict[str, Any]:
@@ -31891,12 +31891,12 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+                snn_language_readout_newborn_neuron_critical_period_learning_event_review
                 or {}
             )
             review = dict(
                 artifact.get(
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "critical_period_learning_event_review"
                 )
                 or {}
@@ -31971,14 +31971,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "event_review_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_critical_period_learning_event_review.v1"
                 ),
                 "event_review_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_neuron_maturation_outcome_review"
                     )
                 ),
@@ -32034,7 +32034,7 @@ class SNNLanguageReadoutEvidenceLedger:
             outcome_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_neuron_maturation_outcome_review.v1"
                     ),
                     "ready": ready,
@@ -32046,16 +32046,16 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_neuron_maturation_outcome_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_maturation_outcome_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "maturation_outcome_review"
                 ),
                 "available": bool(artifact),
@@ -32071,11 +32071,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_neuron_"
+                "snn_language_readout_newborn_neuron_"
                 "maturation_outcome_review": outcome,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "synapse_pruning_design"
                         if prune_ready
                         else (
@@ -32084,16 +32084,16 @@ class SNNLanguageReadoutEvidenceLedger:
                             else "blocked_missing_terminal_maturation_evidence"
                         )
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "synapse_pruning_design": prune_ready,
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_synapse_pruning_design(
+    def snn_language_readout_newborn_synapse_pruning_design(
         self,
         *,
-        autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review: Mapping[
+        snn_language_readout_newborn_neuron_maturation_outcome_review: Mapping[
             str, Any
         ],
     ) -> dict[str, Any]:
@@ -32102,12 +32102,12 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review
+                snn_language_readout_newborn_neuron_maturation_outcome_review
                 or {}
             )
             outcome = dict(
                 artifact.get(
-                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "snn_language_readout_newborn_neuron_"
                     "maturation_outcome_review"
                 )
                 or {}
@@ -32121,14 +32121,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "outcome_review_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_neuron_maturation_outcome_review.v1"
                 ),
                 "outcome_review_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_synapse_pruning_design"
                     )
                 ),
@@ -32183,7 +32183,7 @@ class SNNLanguageReadoutEvidenceLedger:
             design_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_synapse_pruning_design.v1"
                     ),
                     "ready": ready,
@@ -32194,11 +32194,11 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_synapse_pruning_design"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_synapse_pruning_design.v1"
                 ),
                 "available": bool(artifact),
@@ -32213,25 +32213,25 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_synapse_"
+                "snn_language_readout_newborn_synapse_"
                 "pruning_design": design,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "synapse_pruning_preflight"
                         if ready
                         else "blocked_missing_reviewed_prune_candidates"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "synapse_pruning_preflight": ready,
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+    def snn_language_readout_newborn_synapse_pruning_preflight(
         self,
         *,
-        autonomous_snn_language_thought_newborn_synapse_pruning_design: Mapping[
+        snn_language_readout_newborn_synapse_pruning_design: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -32244,12 +32244,12 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_newborn_synapse_pruning_design
+                snn_language_readout_newborn_synapse_pruning_design
                 or {}
             )
             design = dict(
                 artifact.get(
-                    "autonomous_snn_language_thought_newborn_synapse_"
+                    "snn_language_readout_newborn_synapse_"
                     "pruning_design"
                 )
                 or {}
@@ -32351,14 +32351,14 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "design_surface_available": artifact.get("surface")
                 == (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_synapse_pruning_design.v1"
                 ),
                 "design_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "newborn_synapse_pruning_preflight"
                     )
                 ),
@@ -32384,7 +32384,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "executor_capability_available": bool(
                     capabilities.get(
-                        "autonomous_snn_language_thought_newborn_"
+                        "snn_language_readout_newborn_"
                         "synapse_pruning_executor"
                     )
                 ),
@@ -32415,7 +32415,7 @@ class SNNLanguageReadoutEvidenceLedger:
             preflight_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "newborn_synapse_pruning_preflight.v1"
                     ),
                     "ready": ready,
@@ -32427,11 +32427,11 @@ class SNNLanguageReadoutEvidenceLedger:
             after_revision = int(self._runtime_state.state_revision)
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "newborn_synapse_pruning_preflight"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "newborn_synapse_pruning_preflight.v1"
                 ),
                 "available": bool(artifact),
@@ -32446,16 +32446,16 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "state_revision_unchanged": before_revision
                 == after_revision,
-                "autonomous_snn_language_thought_newborn_synapse_"
+                "snn_language_readout_newborn_synapse_"
                 "pruning_preflight": preflight,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "ready_for_snn_language_readout_newborn_"
                         "synapse_pruning_executor"
                         if ready
                         else "blocked_missing_live_terminal_synapse_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "eligible_for_snn_language_readout_newborn_"
                     "synapse_pruning_executor": ready,
                     "required_evidence": required,
                     "candidate_evidence": checks,
