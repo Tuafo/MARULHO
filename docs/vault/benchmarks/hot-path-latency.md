@@ -5472,3 +5472,43 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 utilization max `21%`, and RTX memory `1728->1729 MiB`. GPU utilization touched
 the configured contention threshold, so this is same-band protection evidence,
 not a new speed ceiling.
+
+## Sleep Replay Associative Recall And Source Deferral Protection
+
+Sleep replay now runs bounded associative recall only inside the selected deep
+sleep replay window. The paired source-tick fix keeps both service per-token
+fallback and delegated `train_text_sequence(...)` fallback from executing sleep
+replay in the live tick; due replay is recorded as deferred trainer maintenance.
+
+Focused quality/latency reports:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260622\sleep-replay-associative-recall-window.json`
+
+Result: positive-pressure sleep recall passed with `4` bounded queries and mean
+best input-pattern distance `5.96046447753906e-08`. Zero-pressure and no-anchor
+controls ran `0` queries. Prototype repair still did not claim improvement.
+
+`python -m marulho.evaluation.source_tick_sleep_deferral_benchmark --runs 10 --sleep-cost-ms 3.0 --output reports\bounded_replay_window_20260622\source-tick-sequence-sleep-deferral.json`
+
+Result: `pass=true`; service fallback sleep calls `0`, sequence fallback sleep
+calls `0`, explicit slow-path projection sleep calls `1`, service mean
+`5.411860 ms`, sequence mean `64.898510 ms`, and allowed slow-path mean
+`6.603540 ms`. Runtime Truth exposes sequence fallback train-step and deferred
+sleep-maintenance counts, with CPU archival placement and no hidden replay-text
+reasoning.
+
+Long hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-sleep-replay-associative-recall-source-sequence-deferral.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `80.817236 s` at
+`6487.329 tokens/sec`, `tick_duration_ms.p95=19.023`,
+`train_compute=0.125633 ms/token`, `prepare_training=0.005922 ms/token`, and
+`finalize_total=0.005852 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`304.955 s`; velocity reported no observed contention, CPU max `12%`, GPU max
+`19%`, GPU memory utilization max `22%`, and RTX memory `1709->1707 MiB`. This
+is same-band live-tick protection plus bounded recall quality, not a startup
+speed or prototype-repair promotion.

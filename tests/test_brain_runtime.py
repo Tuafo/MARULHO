@@ -430,6 +430,7 @@ class _SequenceSamplingManager(_ConceptSamplingManager):
         raw_windows: list[str],
         quantum_tokens: int,
         metric_indices: set[int],
+        allow_sleep_maintenance: bool,
         **_kwargs: object,
     ) -> dict[str, object]:
         self.sequence_calls.append(
@@ -438,6 +439,7 @@ class _SequenceSamplingManager(_ConceptSamplingManager):
                 "raw_windows": list(raw_windows),
                 "quantum_tokens": int(quantum_tokens),
                 "metric_indices": set(metric_indices),
+                "allow_sleep_maintenance": bool(allow_sleep_maintenance),
             }
         )
         start = self._trainer.token_count
@@ -459,6 +461,9 @@ class _SequenceSamplingManager(_ConceptSamplingManager):
             },
             "quantum_count": len(patterns) // max(1, int(quantum_tokens)),
             "stopped": False,
+            "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
+            "fallback_train_step_count": 0,
+            "fallback_sleep_maintenance_deferred_count": 0,
         }
 
 
@@ -769,8 +774,15 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             manager.sequence_calls[0]["metric_indices"],
             set(),
         )
+        self.assertFalse(manager.sequence_calls[0]["allow_sleep_maintenance"])
         self.assertEqual(manager._runtime_state.mutated, 1)
         self.assertEqual(observation["execution_owner"], "training_text_sequence")
+        self.assertFalse(observation["sleep_maintenance_allowed"])
+        self.assertEqual(observation["sequence_fallback_train_step_count"], 0)
+        self.assertEqual(
+            observation["sequence_fallback_sleep_maintenance_deferred_count"],
+            0,
+        )
         self.assertEqual(
             manager.concept_observation_windows,
             ["window-1", "window-8", "window-16", "window-24"],
@@ -798,7 +810,10 @@ class BrainRuntimeSeamTests(unittest.TestCase):
             manager.sequence_calls[0]["metric_indices"],
             set(),
         )
+        self.assertFalse(manager.sequence_calls[0]["allow_sleep_maintenance"])
         self.assertEqual(observation["execution_owner"], "training_text_sequence")
+        self.assertFalse(observation["sleep_maintenance_allowed"])
+        self.assertEqual(observation["sequence_fallback_train_step_count"], 0)
 
     def test_background_training_caps_concept_observation_per_tick(self) -> None:
         manager = _ConceptSamplingManager()

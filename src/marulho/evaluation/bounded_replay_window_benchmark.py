@@ -293,6 +293,9 @@ def run_trial(
         or bool(report.get("global_candidate_scan"))
     )
     replay_commit_summary = _replay_commit_summary(cycle_selection_reports)
+    sleep_replay_associative_recall = _sleep_replay_associative_recall_summary(
+        cycle_selection_reports
+    )
     return {
         "trial": final_selector,
         "seed": int(seed),
@@ -311,6 +314,9 @@ def run_trial(
             "task_a_bounded_replay_recall_input_pattern_distance": (
                 recall_summary["mean_input_pattern_distance"]
             ),
+            "task_a_sleep_replay_associative_recall_input_pattern_distance": (
+                sleep_replay_associative_recall["mean_best_input_distance"]
+            ),
             "task_a_recovery_delta": (
                 task_a_after_b - task_a_after_consolidation
             ),
@@ -325,6 +331,7 @@ def run_trial(
         "selection": selection,
         "cycle_selection_reports": cycle_selection_reports,
         "replay_commit_summary": replay_commit_summary,
+        "sleep_replay_associative_recall": sleep_replay_associative_recall,
         "bounded_cycle_count": int(bounded_cycle_count),
         "global_fallback_cycle_count": int(global_fallback_cycle_count),
         "device": {
@@ -431,6 +438,85 @@ def _replay_commit_summary(
     }
 
 
+def _sleep_replay_associative_recall_summary(
+    cycle_selection_reports: list[dict[str, Any]],
+) -> dict[str, Any]:
+    recall_reports = [
+        dict(report.get("sleep_replay_associative_recall") or {})
+        for report in cycle_selection_reports
+        if isinstance(report.get("sleep_replay_associative_recall"), dict)
+    ]
+    input_distances = [
+        float(value)
+        for report in recall_reports
+        for value in [report.get("mean_best_input_distance")]
+        if isinstance(value, (int, float))
+    ]
+    best_distances = [
+        float(value)
+        for report in recall_reports
+        for value in [report.get("mean_best_distance")]
+        if isinstance(value, (int, float))
+    ]
+    query_count = int(
+        sum(int(report.get("query_count", 0) or 0) for report in recall_reports)
+    )
+    mean_input_distance = (
+        float(sum(input_distances) / len(input_distances))
+        if input_distances
+        else None
+    )
+    return {
+        "surface": "bounded_sleep_replay_associative_recall_summary.v1",
+        "cycle_count": int(len(cycle_selection_reports)),
+        "report_count": int(len(recall_reports)),
+        "query_count": int(query_count),
+        "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+        "mean_best_input_distance": mean_input_distance,
+        "mean_best_distance": (
+            float(sum(best_distances) / len(best_distances))
+            if best_distances
+            else None
+        ),
+        "quality_pass": bool(
+            query_count > 0
+            and mean_input_distance is not None
+            and mean_input_distance <= 1e-5
+            and all(bool(report.get("quality_pass")) for report in recall_reports)
+        ),
+        "candidate_scope": (
+            "bucket_indexed_candidate_window"
+            if recall_reports
+            and all(
+                report.get("candidate_scope") == "bucket_indexed_candidate_window"
+                for report in recall_reports
+                if int(report.get("query_count", 0) or 0) > 0
+            )
+            else "empty_or_blocked"
+        ),
+        "runs_live_tick": any(
+            bool(report.get("runs_live_tick")) for report in recall_reports
+        ),
+        "runs_every_token": any(
+            bool(report.get("runs_every_token")) for report in recall_reports
+        ),
+        "raw_text_payload_loaded": any(
+            bool(report.get("raw_text_payload_loaded")) for report in recall_reports
+        ),
+        "language_reasoning": any(
+            bool(report.get("language_reasoning")) for report in recall_reports
+        ),
+        "mutates_runtime_state": any(
+            bool(report.get("mutates_runtime_state")) for report in recall_reports
+        ),
+        "applies_plasticity": any(
+            bool(report.get("applies_plasticity")) for report in recall_reports
+        ),
+        "archival_storage_device": "cpu",
+        "score_device": "cpu",
+    }
+
+
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     trials = [
         run_trial(
@@ -518,6 +604,13 @@ def main() -> None:
         metrics = trial["metrics"]
         recall_gate = trial["bounded_replay_recall"]["gate"]
         commit_summary = trial["replay_commit_summary"]
+        sleep_recall = trial["sleep_replay_associative_recall"]
+        sleep_recall_distance = sleep_recall.get("mean_best_input_distance")
+        sleep_recall_distance_text = (
+            f"{float(sleep_recall_distance):.8f}"
+            if isinstance(sleep_recall_distance, (int, float))
+            else "n/a"
+        )
         print(
             f"{trial['trial']}: updates={trial['updates']} "
             f"candidate_scope={selection.get('candidate_scope')} "
@@ -530,6 +623,9 @@ def main() -> None:
             f"prototype_gate_pass={trial['memory_consolidation_gate']['pass']} "
             f"commit_strategy={commit_summary['commit_strategy']} "
             f"commit_updates={commit_summary['total_applied_count']} "
+            f"sleep_recall_gate_pass={sleep_recall['quality_pass']} "
+            f"sleep_recall_queries={sleep_recall['query_count']} "
+            f"sleep_recall_input_distance={sleep_recall_distance_text} "
             f"input_distance={metrics['task_a_bounded_replay_recall_input_pattern_distance']:.8f} "
             f"recovery_delta={metrics['task_a_recovery_delta']:.8f}"
         )

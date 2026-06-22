@@ -447,6 +447,7 @@ class BrainRuntime:
                         if stop_event is None
                         else lambda: not stop_event.is_set()
                     ),
+                    allow_sleep_maintenance=False,
                 )
                 total_trained = max(
                     0,
@@ -559,6 +560,19 @@ class BrainRuntime:
                         any(item is not None for item in observed_batch)
                     ),
                     "execution_owner": "training_text_sequence",
+                    "sleep_maintenance_allowed": bool(
+                        execution.get("sleep_maintenance_allowed", False)
+                    ),
+                    "sequence_fallback_train_step_count": int(
+                        execution.get("fallback_train_step_count", 0) or 0
+                    ),
+                    "sequence_fallback_sleep_maintenance_deferred_count": int(
+                        execution.get(
+                            "fallback_sleep_maintenance_deferred_count",
+                            0,
+                        )
+                        or 0
+                    ),
                 },
             )
         for i in range(0, len(chunk), batch_size):

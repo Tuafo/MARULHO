@@ -2253,3 +2253,42 @@ contention, bounded `12/65536` route scoring, `65526` cached transition rows,
 failures. They measured `5642.888` and `5736.332 tokens/sec`, so they protect
 the live tick from obvious runtime-state source-window tax but do not close the
 durable completion condition or establish a new speed ceiling.
+
+## Sleep Replay Associative Recall
+
+Modern Hopfield networks support associative recall as a local memory operator,
+not as a license for global memory scans. Complementary learning systems,
+continual-learning replay, synaptic tagging/capture, latent replay, and sparse
+replay all point toward selected slow-window rehearsal with explicit quality
+and cost gates. MARULHO applies that boundary inside trainer-owned deep sleep:
+after bounded anchor/replay-window selection, `bounded_sleep_replay_associative_recall.v1`
+uses at most `4` selected replay entries as queries, reads replay tensors with
+`include_text_payload=false`, and recalls only within the selected
+bucket-indexed candidate window. Runtime Truth reports CPU archival/source/score
+placement, no live tick, no every-token cadence, no raw replay text, no hidden
+language reasoning, no mutation authority, and no plasticity authority.
+
+The focused benchmark
+`reports/bounded_replay_window_20260622/sleep-replay-associative-recall-window.json`
+passed the new sleep-recall gate for the positive-pressure arm with `4` bounded
+queries and mean best input-pattern distance `5.96046447753906e-08`.
+Zero-pressure and no-anchor controls ran `0` queries and made no quality claim.
+The same report does not claim prototype-repair improvement; prototype repair
+remains guarded separately by reconstruction evidence.
+
+The same slice closed a reopened source-tick replay hole in the delegated
+training sequence path. `BrainRuntime` passes `allow_sleep_maintenance=false`
+to `train_text_sequence(...)`, and sequence fallback forwards that gate into
+per-token `train_step(...)`. The deferral benchmark
+`reports/bounded_replay_window_20260622/source-tick-sequence-sleep-deferral.json`
+passed with service fallback sleep calls `0`, sequence fallback sleep calls `0`,
+explicit slow-path sleep calls `1`, and visible sequence fallback deferred
+counts. The paired `524288`-token protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-associative-recall-source-sequence-deferral.json`
+processed `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
+`prepare_training=0.005922 ms/token`, and
+`finalize_total=0.005852 ms/token`, with bounded `12/65536` route scoring,
+`65526` cached transition rows, zero graph/native sequence failures, no
+observed contention, CPU max `12%`, GPU max `19%`, and RTX 3060 memory
+`1709->1707 MiB`. Prewarm took `304.955 s`, so this is hot-tick protection and
+bounded recall quality evidence, not a startup-speed claim.

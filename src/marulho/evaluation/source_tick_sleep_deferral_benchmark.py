@@ -55,6 +55,21 @@ def _install_sleep_probe(trainer: MarulhoTrainer, *, sleep_cost_ms: float) -> di
     return {"calls": calls}
 
 
+def _force_sequence_fallback(trainer: MarulhoTrainer) -> dict[str, Any]:
+    burst_calls: list[int] = []
+
+    def _train_text_burst(
+        self: MarulhoTrainer,
+        patterns: list[torch.Tensor],
+        **_kwargs: Any,
+    ) -> bool:
+        burst_calls.append(len(patterns))
+        return False
+
+    trainer.train_text_burst = MethodType(_train_text_burst, trainer)  # type: ignore[method-assign]
+    return {"burst_calls": burst_calls}
+
+
 def _build_trainer(*, seed: int, sleep_cost_ms: float) -> tuple[MarulhoTrainer, dict[str, Any], torch.Tensor]:
     torch.manual_seed(int(seed))
     config = _config()
@@ -129,6 +144,48 @@ def _run_service_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, 
     }
 
 
+def _run_service_sequence_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
+    trainer, probe, pattern = _build_trainer(seed=seed, sleep_cost_ms=sleep_cost_ms)
+    fallback_probe = _force_sequence_fallback(trainer)
+    runtime_state = _RuntimeState()
+    runtime = _brain_runtime(trainer, runtime_state)
+    chunk = [
+        (f"sleep-sequence-deferral-window-{index}", pattern.clone())
+        for index in range(16)
+    ]
+    started = time.perf_counter()
+    trained, metrics, _windows, observation = runtime._train_chunk_in_sub_batches(
+        chunk,
+        stop_event=None,
+        sub_batch_size=16,
+        yield_seconds=0.0,
+        concept_observation_due=False,
+    )
+    elapsed_ms = float((time.perf_counter() - started) * 1000.0)
+    return {
+        "elapsed_ms": elapsed_ms,
+        "trained": int(trained),
+        "sleep_probe_calls": list(probe["calls"]),
+        "sequence_burst_attempts": list(fallback_probe["burst_calls"]),
+        "sequence_fallback_train_step_count": int(
+            observation.get("sequence_fallback_train_step_count", 0)
+        ),
+        "sequence_fallback_sleep_maintenance_deferred_count": int(
+            observation.get(
+                "sequence_fallback_sleep_maintenance_deferred_count",
+                0,
+            )
+        ),
+        "sleep_maintenance_allowed": bool(
+            observation.get("sleep_maintenance_allowed", True)
+        ),
+        "execution_owner": str(observation.get("execution_owner")),
+        "mutation_count": int(runtime_state.mutation_count),
+        "concept_observation_mode": str(observation.get("mode")),
+        "last_metrics_empty": bool(not metrics),
+    }
+
+
 def _run_allowed_projection_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
     trainer, probe, pattern = _build_trainer(seed=seed, sleep_cost_ms=sleep_cost_ms)
     started = time.perf_counter()
@@ -165,20 +222,51 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
         _run_service_deferred_once(seed=seed + run, sleep_cost_ms=sleep_cost_ms)
         for run in range(int(runs))
     ]
+    service_sequence_rows = [
+        _run_service_sequence_deferred_once(
+            seed=seed + 5_000 + run,
+            sleep_cost_ms=sleep_cost_ms,
+        )
+        for run in range(int(runs))
+    ]
     allowed_rows = [
         _run_allowed_projection_once(seed=seed + 10_000 + run, sleep_cost_ms=sleep_cost_ms)
         for run in range(int(runs))
     ]
     cuda_after = int(torch.cuda.memory_allocated()) if cuda_available else 0
     service = _stats(service_rows)
+    service_sequence = _stats(service_sequence_rows)
     allowed = _stats(allowed_rows)
     service_last = dict(service.get("last_run") or {})
+    service_sequence_last = dict(service_sequence.get("last_run") or {})
     allowed_last = dict(allowed.get("last_run") or {})
     quality = {
         "service_tick_replay_deferred": bool(
             service_last.get("sleep_probe_calls") == []
             and int(service_last.get("sleep_maintenance_deferred", 0)) == 1
             and int(service_last.get("sleep_triggered", -1)) == 0
+        ),
+        "service_sequence_tick_replay_deferred": bool(
+            service_sequence_last.get("sleep_probe_calls") == []
+            and str(service_sequence_last.get("execution_owner"))
+            == "training_text_sequence"
+            and not bool(
+                service_sequence_last.get("sleep_maintenance_allowed", True)
+            )
+            and int(
+                service_sequence_last.get(
+                    "sequence_fallback_train_step_count",
+                    0,
+                )
+            )
+            > 0
+            and int(
+                service_sequence_last.get(
+                    "sequence_fallback_sleep_maintenance_deferred_count",
+                    0,
+                )
+            )
+            > 0
         ),
         "explicit_slow_path_remains_available": bool(
             allowed_last.get("sleep_probe_calls") == ["deep"]
@@ -191,6 +279,7 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
     }
     quality["pass"] = bool(
         quality["service_tick_replay_deferred"]
+        and quality["service_sequence_tick_replay_deferred"]
         and quality["explicit_slow_path_remains_available"]
     )
     return {
@@ -200,10 +289,12 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
         "selection_criteria": [
             "background_source_tick",
             "per_token_fallback_due_to_metrics_or_burst_unavailable",
+            "delegated_training_text_sequence_fallback_due_to_burst_unavailable",
             "deep_sleep_due",
         ],
         "memory_budget": {
             "live_tick_sleep_replay_executions": 0,
+            "delegated_sequence_live_tick_sleep_replay_executions": 0,
             "explicit_slow_path_projection_replay_executions": 1,
             "archival_storage_device": "cpu",
         },
@@ -220,11 +311,13 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
             "runs_every_token": False,
             "sleep_replay_execution_gate": False,
             "sleep_replay_deferred_count_visible": True,
+            "sequence_fallback_sleep_replay_deferred_count_visible": True,
             "global_candidate_scan": False,
             "global_score_scan": False,
             "hidden_language_reasoning": False,
         },
         "service_deferred": service,
+        "service_sequence_deferred": service_sequence,
         "allowed_slow_path_projection": allowed,
         "quality": quality,
         "pass": bool(quality["pass"]),
@@ -252,11 +345,18 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} service_sleep_calls={service_calls} "
+        "sequence_sleep_calls={sequence_calls} "
         "allowed_sleep_calls={allowed_calls} service_mean_ms={service_ms:.6f} "
+        "sequence_mean_ms={sequence_ms:.6f} "
         "allowed_mean_ms={allowed_ms:.6f}".format(
             pass_gate=report["pass"],
             service_calls=len(
                 report["service_deferred"]["last_run"]["sleep_probe_calls"]
+            ),
+            sequence_calls=len(
+                report["service_sequence_deferred"]["last_run"][
+                    "sleep_probe_calls"
+                ]
             ),
             allowed_calls=len(
                 report["allowed_slow_path_projection"]["last_run"][
@@ -264,6 +364,7 @@ def main() -> None:
                 ]
             ),
             service_ms=report["service_deferred"]["elapsed_mean_ms"],
+            sequence_ms=report["service_sequence_deferred"]["elapsed_mean_ms"],
             allowed_ms=report["allowed_slow_path_projection"]["elapsed_mean_ms"],
         )
     )

@@ -1927,6 +1927,43 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_local_trace_source"],
             "stored_input_pattern_or_routing_key",
         )
+        recall_report = report["sleep_replay_associative_recall"]
+        self.assertEqual(
+            recall_report["surface"],
+            "bounded_sleep_replay_associative_recall.v1",
+        )
+        self.assertEqual(recall_report["status"], "recalled")
+        self.assertEqual(
+            report["sleep_replay_associative_recall_surface"],
+            "bounded_sleep_replay_associative_recall.v1",
+        )
+        self.assertEqual(
+            report["sleep_replay_associative_recall_status"],
+            "recalled",
+        )
+        self.assertGreater(report["sleep_replay_associative_recall_query_count"], 0)
+        self.assertLessEqual(report["sleep_replay_associative_recall_query_count"], 4)
+        self.assertEqual(
+            recall_report["candidate_scope"],
+            "bucket_indexed_candidate_window",
+        )
+        self.assertFalse(report["sleep_replay_associative_recall_runs_live_tick"])
+        self.assertFalse(report["sleep_replay_associative_recall_runs_every_token"])
+        self.assertFalse(
+            report["sleep_replay_associative_recall_raw_text_payload_loaded"]
+        )
+        self.assertFalse(report["sleep_replay_associative_recall_language_reasoning"])
+        self.assertFalse(report["sleep_replay_associative_recall_mutates_runtime_state"])
+        self.assertFalse(report["sleep_replay_associative_recall_applies_plasticity"])
+        self.assertFalse(recall_report["global_candidate_scan"])
+        self.assertFalse(recall_report["global_score_scan"])
+        self.assertEqual(recall_report["archival_storage_device"], "cpu")
+        self.assertFalse(recall_report["device_placement"]["gpu_used"])
+        self.assertTrue(report["sleep_replay_associative_recall_quality_pass"])
+        self.assertLessEqual(
+            report["sleep_replay_associative_recall_mean_best_input_distance"],
+            1e-5,
+        )
         self.assertTrue(report["sleep_replay_sfa_full_memory_sample_retired"])
         self.assertEqual(report["sleep_replay_sfa_correction_scope"], "not_run")
         self.assertEqual(report["sleep_replay_winner_source"], "bounded_route_candidates")
@@ -2054,6 +2091,19 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertFalse(report["sleep_replay_mutates_runtime_state"])
         self.assertFalse(report["sleep_replay_applies_plasticity"])
+        recall_report = report["sleep_replay_associative_recall"]
+        self.assertEqual(
+            recall_report["surface"],
+            "bounded_sleep_replay_associative_recall.v1",
+        )
+        self.assertEqual(recall_report["status"], "empty")
+        self.assertEqual(recall_report["query_count"], 0)
+        self.assertFalse(report["sleep_replay_associative_recall_quality_pass"])
+        self.assertFalse(report["sleep_replay_associative_recall_runs_live_tick"])
+        self.assertFalse(
+            report["sleep_replay_associative_recall_raw_text_payload_loaded"]
+        )
+        self.assertFalse(report["sleep_replay_associative_recall_language_reasoning"])
 
     def test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation(self) -> None:
         set_seed(7)
@@ -2101,6 +2151,73 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertFalse(report["sleep_replay_mutates_runtime_state"])
         self.assertFalse(report["sleep_replay_applies_plasticity"])
+        recall_report = report["sleep_replay_associative_recall"]
+        self.assertEqual(
+            recall_report["surface"],
+            "bounded_sleep_replay_associative_recall.v1",
+        )
+        self.assertEqual(recall_report["status"], "empty")
+        self.assertEqual(recall_report["query_count"], 0)
+        self.assertFalse(report["sleep_replay_associative_recall_quality_pass"])
+        self.assertFalse(report["sleep_replay_associative_recall_runs_live_tick"])
+        self.assertFalse(report["sleep_replay_associative_recall_language_reasoning"])
+
+    def test_train_text_sequence_fallback_defers_due_sleep_replay(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            slow_memory_start_tokens=0,
+            micro_sleep_interval_tokens=1,
+            deep_sleep_interval_tokens=1,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 1
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+
+        with (
+            patch.object(trainer, "train_text_burst", return_value=False),
+            patch.object(
+                trainer,
+                "_sleep_replay",
+                side_effect=AssertionError(
+                    "source sequence fallback must defer sleep replay"
+                ),
+            ),
+        ):
+            execution = trainer.train_text_sequence(
+                [pattern, pattern],
+                raw_windows=["source fallback 1", "source fallback 2"],
+                quantum_tokens=2,
+                metric_indices={0, 1},
+                allow_sleep_maintenance=False,
+            )
+
+        self.assertFalse(execution["sleep_maintenance_allowed"])
+        self.assertEqual(execution["fallback_train_step_count"], 2)
+        self.assertGreaterEqual(
+            execution["fallback_sleep_maintenance_deferred_count"],
+            1,
+        )
+        metrics_by_index = execution["metrics_by_index"]
+        self.assertEqual(set(metrics_by_index), {0, 1})
+        self.assertTrue(
+            any(
+                int(metrics.get("sleep_maintenance_deferred", 0) or 0) == 1
+                for metrics in metrics_by_index.values()
+            )
+        )
+        self.assertTrue(
+            all(
+                int(metrics.get("sleep_triggered", 0) or 0) == 0
+                for metrics in metrics_by_index.values()
+            )
+        )
 
     def test_micro_sleep_refreshes_tags_without_weight_commit(self) -> None:
         set_seed(7)

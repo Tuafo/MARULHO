@@ -33,6 +33,8 @@ from marulho.training.replay_anchor_window import (
     sleep_replay_anchor_bucket_source_window,
 )
 
+SLEEP_REPLAY_ASSOCIATIVE_RECALL_QUERY_LIMIT = 4
+
 
 class MarulhoTrainer:
     """Main stage-0 trainer."""
@@ -1087,6 +1089,7 @@ class MarulhoTrainer:
         quantum_tokens: int = 8,
         metric_indices: Iterable[int] = (),
         should_continue: Callable[[], bool] | None = None,
+        allow_sleep_maintenance: bool = True,
     ) -> dict[str, Any]:
         """Execute one service-owned text sequence through training-owned quanta."""
 
@@ -1107,6 +1110,8 @@ class MarulhoTrainer:
         last_metrics: dict[str, Any] | None = None
         trained = 0
         quantum_count = 0
+        fallback_train_step_count = 0
+        fallback_sleep_maintenance_deferred_count = 0
         stopped = False
         profile_enabled = bool(self._train_step_profile_enabled)
         can_stage_sequence = (
@@ -1232,11 +1237,46 @@ class MarulhoTrainer:
                     ):
                         index = chunk_start + offset
                         return_metrics = index in requested_metrics
+                        sleep_replay_due = bool(
+                            not allow_sleep_maintenance
+                            and (
+                                (
+                                    self.token_count
+                                    >= self.config.deep_sleep_interval_tokens
+                                    and (
+                                        self.token_count
+                                        - self.last_deep_sleep_token
+                                    )
+                                    >= self.config.deep_sleep_interval_tokens
+                                )
+                                or (
+                                    self.pending_emergency_deep_sleep
+                                    and (
+                                        self.token_count
+                                        - self.last_deep_sleep_token
+                                    )
+                                    >= self.config.emergency_deep_sleep_cooldown_tokens
+                                )
+                                or (
+                                    self.token_count
+                                    >= self.config.micro_sleep_interval_tokens
+                                    and (
+                                        self.token_count
+                                        - self.last_micro_sleep_token
+                                    )
+                                    >= self.config.micro_sleep_interval_tokens
+                                )
+                            )
+                        )
+                        fallback_train_step_count += 1
+                        if sleep_replay_due:
+                            fallback_sleep_maintenance_deferred_count += 1
                         metrics = self.train_step(
                             pattern,
                             raw_window=raw_window,
                             memory_metadata=memory_metadata,
                             return_metrics=return_metrics,
+                            allow_sleep_maintenance=allow_sleep_maintenance,
                         )
                         if return_metrics:
                             metrics_by_index[index] = dict(metrics or {})
@@ -1260,6 +1300,11 @@ class MarulhoTrainer:
             "last_metrics": last_metrics or {},
             "quantum_count": int(quantum_count),
             "stopped": bool(stopped),
+            "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
+            "fallback_train_step_count": int(fallback_train_step_count),
+            "fallback_sleep_maintenance_deferred_count": int(
+                fallback_sleep_maintenance_deferred_count
+            ),
         }
 
     def _buffer_routing_index_update(
@@ -2876,6 +2921,289 @@ class MarulhoTrainer:
             max_buckets=SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
         )
 
+    def _empty_sleep_replay_associative_recall_report(
+        self,
+        *,
+        mode: str,
+        candidate_bucket_ids: Sequence[int] | None,
+        fallback_reason: str,
+    ) -> dict[str, Any]:
+        return {
+            "surface": "bounded_sleep_replay_associative_recall.v1",
+            "status": "empty",
+            "sleep_mode": str(mode),
+            "scope": f"{mode}_sleep_replay_window_associative_recall",
+            "selection_criteria": [
+                "reuse_selected_sleep_replay_indices_as_queries",
+                "recall_only_inside_anchor_bucket_window",
+                "tensor_payloads_only_no_raw_text",
+            ],
+            "candidate_bucket_ids": [int(value) for value in (candidate_bucket_ids or [])],
+            "candidate_bucket_count": int(len(candidate_bucket_ids or [])),
+            "selected_replay_index_count": 0,
+            "query_budget": int(SLEEP_REPLAY_ASSOCIATIVE_RECALL_QUERY_LIMIT),
+            "query_count": 0,
+            "query_indices": [],
+            "report_count": 0,
+            "candidate_scope": "bucket_indexed_candidate_window"
+            if candidate_bucket_ids is not None
+            else "bucket_index_scope_required",
+            "candidate_window_limit": 0,
+            "candidate_index_count": 0,
+            "selected_count_total": 0,
+            "routing_key_count_total": 0,
+            "input_pattern_count_total": 0,
+            "mean_best_distance": None,
+            "mean_best_input_distance": None,
+            "mean_recalled_distance": None,
+            "exact_input_recall_count": 0,
+            "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+            "quality_pass": False,
+            "query_prepare_missing_routing_key_count": 0,
+            "query_prepare_missing_input_pattern_count": 0,
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "device_placement": {
+                "archival_storage_device": "cpu",
+                "source_window_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
+                "gpu_resident_archival_metadata": False,
+            },
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "fallback_reason": fallback_reason,
+            "reports": [],
+        }
+
+    def _sleep_replay_associative_recall(
+        self,
+        replay_idx: Sequence[int],
+        *,
+        mode: str,
+        candidate_bucket_ids: Sequence[int] | None,
+        max_candidates: int,
+    ) -> dict[str, Any]:
+        if mode != "deep":
+            return self._empty_sleep_replay_associative_recall_report(
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                fallback_reason="associative_recall_enabled_for_deep_sleep_only",
+            )
+        if not replay_idx:
+            return self._empty_sleep_replay_associative_recall_report(
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                fallback_reason="empty_selected_sleep_replay_window",
+            )
+        if candidate_bucket_ids is None:
+            return self._empty_sleep_replay_associative_recall_report(
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                fallback_reason="anchor_bucket_scope_required_for_sleep_replay_recall",
+            )
+
+        query_limit = min(
+            int(SLEEP_REPLAY_ASSOCIATIVE_RECALL_QUERY_LIMIT),
+            max(0, len(replay_idx)),
+        )
+        queries: list[tuple[int, torch.Tensor, torch.Tensor | None]] = []
+        missing_routing_key_count = 0
+        missing_input_pattern_count = 0
+        for raw_idx in replay_idx[:query_limit]:
+            idx = int(raw_idx)
+            try:
+                replay_entry = self.model.memory_store.replay_entry(
+                    idx,
+                    current_token=self.token_count,
+                    include_text_payload=False,
+                )
+            except IndexError:
+                missing_routing_key_count += 1
+                continue
+            routing_key = replay_entry.get("routing_key")
+            input_pattern = replay_entry.get("input_pattern")
+            if not isinstance(routing_key, torch.Tensor):
+                if isinstance(input_pattern, torch.Tensor):
+                    routing_key = (
+                        self.model.routing_key_from_pattern(
+                            input_pattern.to(self.model.device)
+                        )
+                        .detach()
+                        .cpu()
+                    )
+                else:
+                    missing_routing_key_count += 1
+                    continue
+            if not isinstance(input_pattern, torch.Tensor):
+                missing_input_pattern_count += 1
+                input_pattern = None
+            queries.append(
+                (
+                    idx,
+                    routing_key.detach().clone().cpu(),
+                    input_pattern.detach().clone().cpu()
+                    if isinstance(input_pattern, torch.Tensor)
+                    else None,
+                )
+            )
+
+        if not queries:
+            report = self._empty_sleep_replay_associative_recall_report(
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                fallback_reason="no_tensor_queries_in_selected_sleep_replay_window",
+            )
+            report.update(
+                {
+                    "selected_replay_index_count": int(len(replay_idx)),
+                    "query_prepare_missing_routing_key_count": int(
+                        missing_routing_key_count
+                    ),
+                    "query_prepare_missing_input_pattern_count": int(
+                        missing_input_pattern_count
+                    ),
+                }
+            )
+            self.model.memory_store.last_replay_recall_report = dict(
+                self.model.memory_store._empty_replay_recall_report()
+            )
+            self.model.memory_store.last_replay_recall_report.update(
+                {
+                    "scope": f"{mode}_sleep_replay_window_associative_recall",
+                    "fallback_reason": report["fallback_reason"],
+                }
+            )
+            return report
+
+        reports: list[dict[str, Any]] = []
+        best_distances: list[float] = []
+        best_input_distances: list[float] = []
+        recalled_distances: list[float] = []
+        for _idx, routing_key, input_pattern in queries:
+            recall_report = self.model.memory_store.recall_replay_window(
+                query_routing_key=routing_key,
+                query_input_pattern=input_pattern,
+                current_token=self.token_count,
+                candidate_bucket_ids=candidate_bucket_ids,
+                max_candidates=max(1, int(max_candidates)),
+                strategy="consolidation",
+                scope=f"{mode}_sleep_replay_window_associative_recall",
+            )
+            reports.append(recall_report)
+            for value, target in (
+                (recall_report.get("best_distance"), best_distances),
+                (recall_report.get("best_input_distance"), best_input_distances),
+                (recall_report.get("recalled_distance"), recalled_distances),
+            ):
+                if isinstance(value, (float, int)):
+                    target.append(float(value))
+
+        def _mean(values: Sequence[float]) -> float | None:
+            return float(sum(values) / len(values)) if values else None
+
+        mean_best_input_distance = _mean(best_input_distances)
+        exact_input_recall_count = sum(
+            1 for value in best_input_distances if float(value) <= 1e-5
+        )
+        all_bucket_scoped = all(
+            report.get("candidate_scope") == "bucket_indexed_candidate_window"
+            and bool(report.get("selection_report", {}).get("bounded_by_bucket_index"))
+            for report in reports
+        )
+        any_live_tick = any(bool(report.get("runs_live_tick")) for report in reports)
+        any_every_token = any(bool(report.get("runs_every_token")) for report in reports)
+        any_raw_text = any(bool(report.get("raw_text_payload_loaded")) for report in reports)
+        any_language_reasoning = any(
+            bool(report.get("language_reasoning")) for report in reports
+        )
+        any_mutation = any(bool(report.get("mutates_runtime_state")) for report in reports)
+        any_plasticity = any(bool(report.get("applies_plasticity")) for report in reports)
+        aggregate = {
+            "surface": "bounded_sleep_replay_associative_recall.v1",
+            "status": "recalled" if reports else "empty",
+            "sleep_mode": str(mode),
+            "scope": f"{mode}_sleep_replay_window_associative_recall",
+            "selection_criteria": [
+                "reuse_selected_sleep_replay_indices_as_queries",
+                "recall_only_inside_anchor_bucket_window",
+                "tensor_payloads_only_no_raw_text",
+            ],
+            "candidate_bucket_ids": [int(value) for value in candidate_bucket_ids],
+            "candidate_bucket_count": int(len(candidate_bucket_ids)),
+            "selected_replay_index_count": int(len(replay_idx)),
+            "query_budget": int(query_limit),
+            "query_count": int(len(queries)),
+            "query_indices": [int(index) for index, _key, _pattern in queries],
+            "report_count": int(len(reports)),
+            "candidate_scope": (
+                "bucket_indexed_candidate_window"
+                if all_bucket_scoped
+                else str(reports[0].get("candidate_scope") or "unknown")
+            ),
+            "candidate_window_limit": int(
+                max(
+                    int(report.get("selection_report", {}).get("candidate_window_limit", 0) or 0)
+                    for report in reports
+                )
+            ),
+            "candidate_index_count": int(
+                sum(int(report.get("candidate_index_count", 0) or 0) for report in reports)
+            ),
+            "selected_count_total": int(
+                sum(int(report.get("selected_count", 0) or 0) for report in reports)
+            ),
+            "routing_key_count_total": int(
+                sum(int(report.get("routing_key_count", 0) or 0) for report in reports)
+            ),
+            "input_pattern_count_total": int(
+                sum(int(report.get("input_pattern_count", 0) or 0) for report in reports)
+            ),
+            "mean_best_distance": _mean(best_distances),
+            "mean_best_input_distance": mean_best_input_distance,
+            "mean_recalled_distance": _mean(recalled_distances),
+            "exact_input_recall_count": int(exact_input_recall_count),
+            "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+            "quality_pass": bool(
+                len(queries) > 0
+                and len(best_input_distances) == len(queries)
+                and mean_best_input_distance is not None
+                and mean_best_input_distance <= 1e-5
+            ),
+            "query_prepare_missing_routing_key_count": int(missing_routing_key_count),
+            "query_prepare_missing_input_pattern_count": int(missing_input_pattern_count),
+            "score_device": "cpu",
+            "archival_storage_device": "cpu",
+            "device_placement": {
+                "archival_storage_device": "cpu",
+                "source_window_device": "cpu",
+                "score_device": "cpu",
+                "gpu_used": False,
+                "gpu_resident_archival_metadata": False,
+            },
+            "runs_live_tick": bool(any_live_tick),
+            "runs_every_token": bool(any_every_token),
+            "raw_text_payload_loaded": bool(any_raw_text),
+            "language_reasoning": bool(any_language_reasoning),
+            "mutates_runtime_state": bool(any_mutation),
+            "applies_plasticity": bool(any_plasticity),
+            "global_candidate_scan": any(
+                bool(report.get("global_candidate_scan")) for report in reports
+            ),
+            "global_score_scan": any(
+                bool(report.get("global_score_scan")) for report in reports
+            ),
+            "fallback_reason": None,
+            "reports": reports,
+        }
+        return aggregate
+
     def _refresh_sleep_replay_routing_index(
         self,
         updated_ids: list[int],
@@ -3028,6 +3356,20 @@ class MarulhoTrainer:
             int(index)
             for index in selection_report.get("selected_indices", [])
         ]
+        associative_recall_report = (
+            self._sleep_replay_associative_recall(
+                replay_idx,
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                max_candidates=max(steps, candidate_pool),
+            )
+            if mode == "deep"
+            else self._empty_sleep_replay_associative_recall_report(
+                mode=mode,
+                candidate_bucket_ids=candidate_bucket_ids,
+                fallback_reason="associative_recall_enabled_for_deep_sleep_only",
+            )
+        )
         self._last_sleep_replay_selection_report = {
             **selection_report,
             "sleep_mode": str(mode),
@@ -3092,6 +3434,46 @@ class MarulhoTrainer:
             "sleep_replay_stored_routing_key_count": 0,
             "sleep_replay_missing_routing_key_count": 0,
             "sleep_replay_missing_routing_key_deferred_count": 0,
+            "sleep_replay_associative_recall": dict(associative_recall_report),
+            "sleep_replay_associative_recall_surface": associative_recall_report.get(
+                "surface"
+            ),
+            "sleep_replay_associative_recall_status": associative_recall_report.get(
+                "status"
+            ),
+            "sleep_replay_associative_recall_query_count": int(
+                associative_recall_report.get("query_count", 0) or 0
+            ),
+            "sleep_replay_associative_recall_quality_metric": associative_recall_report.get(
+                "quality_metric"
+            ),
+            "sleep_replay_associative_recall_quality_pass": bool(
+                associative_recall_report.get("quality_pass", False)
+            ),
+            "sleep_replay_associative_recall_mean_best_input_distance": (
+                associative_recall_report.get("mean_best_input_distance")
+            ),
+            "sleep_replay_associative_recall_runs_live_tick": bool(
+                associative_recall_report.get("runs_live_tick", False)
+            ),
+            "sleep_replay_associative_recall_runs_every_token": bool(
+                associative_recall_report.get("runs_every_token", False)
+            ),
+            "sleep_replay_associative_recall_raw_text_payload_loaded": bool(
+                associative_recall_report.get("raw_text_payload_loaded", False)
+            ),
+            "sleep_replay_associative_recall_language_reasoning": bool(
+                associative_recall_report.get("language_reasoning", False)
+            ),
+            "sleep_replay_associative_recall_mutates_runtime_state": bool(
+                associative_recall_report.get("mutates_runtime_state", False)
+            ),
+            "sleep_replay_associative_recall_applies_plasticity": bool(
+                associative_recall_report.get("applies_plasticity", False)
+            ),
+            "sleep_replay_associative_recall_device_placement": dict(
+                associative_recall_report.get("device_placement", {})
+            ),
         }
         if not replay_idx:
             self.model.memory_store.last_replay_selection_report = dict(

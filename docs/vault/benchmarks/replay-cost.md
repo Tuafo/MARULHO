@@ -2634,3 +2634,48 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 selected CUDA on the RTX 3060, and recorded zero graph/native sequence
 failures. Velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+## Sleep Replay Associative Recall And Sequence Deferral
+
+Trainer deep sleep now measures bounded associative recall inside the selected
+sleep replay window. The operator is not a new archive scan: it uses at most
+`4` selected replay entries as queries, loads replay tensors without raw text,
+and recalls only within the selected bucket-indexed candidate window. Runtime
+Truth reports CPU archival/source/score placement, no live tick, no every-token
+cadence, no hidden language reasoning, no mutation authority, and no plasticity
+authority.
+
+Focused recall report:
+
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260622\sleep-replay-associative-recall-window.json`
+
+Result: the positive-pressure arm passed
+`bounded_sleep_replay_associative_recall.v1` with `4` bounded queries and mean
+best input-pattern distance `5.96046447753906e-08`. Zero-pressure and no-anchor
+controls ran `0` queries and made no quality claim. Prototype repair still did
+not claim improvement in this report.
+
+Focused source-tick deferral report:
+
+`python -m marulho.evaluation.source_tick_sleep_deferral_benchmark --runs 10 --sleep-cost-ms 3.0 --output reports\bounded_replay_window_20260622\source-tick-sequence-sleep-deferral.json`
+
+Result: `pass=true`; service fallback sleep calls `0`, delegated sequence
+fallback sleep calls `0`, explicit slow-path projection sleep calls `1`,
+service mean `5.411860 ms`, sequence mean `64.898510 ms`, and allowed slow-path
+mean `6.603540 ms`. Sequence fallback exposed `allow_sleep_maintenance=false`,
+fallback train-step count, and deferred sleep-maintenance count instead of
+running replay in the source tick.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-sleep-replay-associative-recall-source-sequence-deferral.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `80.817236 s`,
+`6487.329 tokens/sec`, p95 tick `19.023 ms`,
+`train_compute=0.125633 ms/token`, `prepare_training=0.005922 ms/token`, and
+`finalize_total=0.005852 ms/token`. Prewarm took `304.955 s`. Runtime Truth
+kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention, CPU max `12%`, GPU max `19%`, GPU memory utilization max `22%`, and
+RTX memory `1709->1707 MiB`.

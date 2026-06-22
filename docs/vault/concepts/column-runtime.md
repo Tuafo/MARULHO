@@ -1840,3 +1840,35 @@ provenance records. Active mean latency was `0.065529 ms` versus
 `21.608 ms`, `train_compute=0.135253 ms/token`, bounded `12/65536` route rows,
 `65526` cached rows, no observed contention, RTX memory `2082->2084 MiB`, and
 zero graph/native sequence failures.
+
+## Sleep Replay Associative Recall
+
+Trainer-owned deep sleep now has one maintained associative recall path after
+bounded anchor/replay-window selection. `bounded_sleep_replay_associative_recall.v1`
+uses at most `4` selected replay entries as queries, reads replay tensors with
+`include_text_payload=false`, and searches only the selected bucket-indexed
+candidate window. It reports CPU archival/source/score placement, no live tick,
+no every-token cadence, no raw replay text, no hidden language reasoning, no
+runtime mutation authority, and no plasticity authority. This keeps
+modern-Hopfield-style recall as a local slow-path operator rather than a
+transformer-style global memory surface.
+
+The focused replay report
+`reports/bounded_replay_window_20260622/sleep-replay-associative-recall-window.json`
+passed the positive-pressure sleep-recall gate with `4` queries and mean best
+input-pattern distance `5.96046447753906e-08`; zero-pressure and no-anchor
+controls made no recall-quality claim. Prototype repair is still governed by
+the separate reconstruction gate and is not promoted by this result.
+
+Source ticks continue to defer sleep/replay execution. `BrainRuntime` delegates
+wide no-yield source ticks to `train_text_sequence(...)` with
+`allow_sleep_maintenance=false`; if the sequence falls back to per-token
+`train_step(...)`, the same gate is forwarded and the sequence reports
+fallback and deferred counts. The deferral benchmark
+`reports/bounded_replay_window_20260622/source-tick-sequence-sleep-deferral.json`
+passed with zero service/sequence fallback sleep calls and one explicit
+slow-path sleep call. The paired `524288`-token protection run stayed in the
+maintained band at `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
+`prepare_training=0.005922 ms/token`, `finalize_total=0.005852 ms/token`,
+bounded `12/65536` route scoring, `65526` cached rows, zero graph/native
+sequence failures, no observed contention, and RTX memory `1709->1707 MiB`.
