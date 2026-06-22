@@ -23,7 +23,7 @@ Retired from production code on 2026-06-19.
 
 ## Why
 
-SNN language decoding, thought-surface, thought-memory, thought-consolidation,
+SNN language decoding, readout-surface, thought-memory, thought-consolidation,
 and thought-structural-plasticity only need one event family for duplicate
 checks and review lookups. The old production shape called `_normalized_state()`
 before each append or review, which normalized unrelated readout/replay ledger
@@ -36,7 +36,7 @@ thought evidence histories.
 The executor/review pairs for:
 
 - `autonomous_snn_language_decoding_events`
-- `autonomous_snn_language_thought_surface_events`
+- `snn_language_readout_surface_events`
 - `autonomous_snn_language_thought_memory_events`
 - `autonomous_snn_language_thought_consolidation_events`
 - `autonomous_snn_language_thought_structural_plasticity_events`
@@ -45,6 +45,8 @@ now use `bounded_snn_readout_ledger_record_family_source_window.v1`. Each path
 reads only the target event family, updates only the target count/timestamp on
 accepted append, keeps archival/source/review metadata CPU-resident, avoids
 live-tick and every-token work, and does not replay or reason through text.
+The legacy `autonomous_snn_language_thought_surface_events` persisted field is
+now a one-way checkpoint migration alias only.
 
 ## Evidence
 

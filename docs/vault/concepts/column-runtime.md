@@ -1576,10 +1576,10 @@ placement on CPU. The paired long run stayed in band at `6074.417 tokens/sec`,
 and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `2044->2047 MiB`.
 
-SNN language decoding, thought-surface, thought-memory,
+SNN language decoding, readout-surface, thought-memory,
 thought-consolidation, and thought-structural-plasticity now stay on the same
 one-path ledger boundary. Execution/review reads only the target downstream
-language/thought event family, reports
+language/readout event family, reports
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and updates only
 that family count/timestamp. The benchmark
 `reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json`
@@ -1595,6 +1595,20 @@ at `6005.229 tokens/sec`, `tick_duration_ms.p95=22.012`,
 failures with no observed contention. RTX 3060 runtime memory moved
 `1856->1857 MiB`; the first same-shape run is not primary evidence because it
 observed GPU contention.
+
+The 2026-06-22 readout-surface cleanup keeps that ledger path canonical without
+adding a live-tick tax. The benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-surface-canonical.json`
+passed with bounded mean `408.799567 ms` versus legacy diagnostic
+`6288.893500 ms` (`16x` work reduction), and the paired
+`524288`-token run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-surface-canonical.json`
+stayed in band at `6012.300 tokens/sec`, p95 `21.322 ms`,
+`train_compute=0.134205 ms/token`, bounded `12/65536` route rows, no observed
+contention, CPU max `59%`, GPU max `13%`, RTX memory `1771->1772 MiB`, and zero
+graph/native sequence failures. Legacy
+`autonomous_snn_language_thought_surface_*` persisted fields are migration-only
+aliases; production uses `snn_language_readout_surface_*`.
 
 Synapse provenance audit now keeps the same one-path rule for readout evidence
 hash validation. `synapse_provenance_audit(...)` collects only hashes referenced

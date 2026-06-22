@@ -53,7 +53,10 @@ from marulho.service.runtime_prewarm import RuntimePrewarmer
 from marulho.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime, _SensorySourceRuntime
 from marulho.service.sensory_runtime import SensoryRuntimeCore
 from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
-from marulho.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
+from marulho.service.snn_language_readout_ledger import (
+    SNNLanguageReadoutEvidenceLedger,
+    normalize_snn_language_readout_ledger_state,
+)
 from marulho.service.structural_mutation_executor import StructuralMutationExecutor
 from marulho.service.autonomy_planner import AutonomyPlanner
 from marulho.service.developmental_autonomy import DevelopmentalAutonomyScheduler
@@ -172,7 +175,11 @@ class MarulhoServiceManager:
         concept_state = service_state.get("concept_store")
         self._concept_store = ConceptStore.from_state_dict(concept_state)
         self._snn_language_plasticity_state = dict(service_state.get("snn_language_plasticity") or {})
-        self._snn_language_readout_ledger_state = dict(service_state.get("snn_language_readout_ledger") or {})
+        self._snn_language_readout_ledger_state = (
+            normalize_snn_language_readout_ledger_state(
+                service_state.get("snn_language_readout_ledger")
+            )
+        )
         self._runtime_persistence = RuntimePersistence(
             RuntimePersistenceDependencies(
                 get_state=lambda name: object.__getattribute__(self, name),

@@ -47,7 +47,12 @@ def _sha256_json(value: object) -> str:
     ).hexdigest()
 
 
-def _build_checkpoint(root: Path, *, test_case: str) -> Path:
+def _build_checkpoint(
+    root: Path,
+    *,
+    test_case: str,
+    metadata: dict[str, object] | None = None,
+) -> Path:
     cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
@@ -61,10 +66,13 @@ def _build_checkpoint(root: Path, *, test_case: str) -> Path:
     )
     model = MarulhoModel(cfg)
     trainer = MarulhoTrainer(model, cfg)
+    checkpoint_metadata: dict[str, object] = {"test_case": test_case}
+    if metadata:
+        checkpoint_metadata.update(metadata)
     return save_trainer_checkpoint(
         root / "initial.pt",
         trainer,
-        metadata={"test_case": test_case},
+        metadata=checkpoint_metadata,
     )
 
 
@@ -127,27 +135,87 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("stop first", response.json()["detail"])
 
-    def test_snn_language_public_payload_uses_readout_vocabulary(self) -> None:
-        internal_payload = {
-            "artifact_kind": "terminus_snn_language_autonomous_snn_language_thought_surface_design",
-            "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
-            "autonomous_snn_language_thought_surface_design": {
-                "thought_role": "inner_speech_candidate",
-                "binding_mode": "hash_bound_inner_language",
-                "max_thought_fragments": 1,
-                "thought_surface_hash": "0" * 64,
+    def test_checkpoint_save_migrates_legacy_readout_surface_ledger_state(self) -> None:
+        legacy_event = {"snn_language_readout_surface_event_hash": "1" * 64}
+        legacy_ledger_state = {
+            "autonomous_snn_language_thought_surface_events": [legacy_event],
+            "total_autonomous_snn_language_thought_surface_count": 1,
+            "last_autonomous_snn_language_thought_surface_recorded_at": (
+                "2026-06-22T00:00:00+00:00"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = _build_checkpoint(
+                root,
+                test_case="service_api_readout_surface_legacy_migration",
+                metadata={
+                    "service_state": {
+                        "snn_language_readout_ledger": legacy_ledger_state,
+                    }
+                },
+            )
+            saved_checkpoint = root / "saved.pt"
+            app = create_app(checkpoint, trace_dir=root / "traces")
+            try:
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/checkpoint/save",
+                        json={"path": str(saved_checkpoint)},
+                    )
+            finally:
+                app.state.marulho_manager.close()
+
+            _trainer, metadata = load_trainer_checkpoint(saved_checkpoint)
+
+        self.assertEqual(response.status_code, 200)
+        saved_ledger_state = metadata["service_state"][
+            "snn_language_readout_ledger"
+        ]
+        self.assertEqual(
+            saved_ledger_state["snn_language_readout_surface_events"],
+            [legacy_event],
+        )
+        self.assertEqual(saved_ledger_state["total_snn_language_readout_surface_count"], 1)
+        self.assertEqual(
+            saved_ledger_state["last_snn_language_readout_surface_recorded_at"],
+            "2026-06-22T00:00:00+00:00",
+        )
+        self.assertNotIn(
+            "autonomous_snn_language_thought_surface_events",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "total_autonomous_snn_language_thought_surface_count",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "last_autonomous_snn_language_thought_surface_recorded_at",
+            saved_ledger_state,
+        )
+
+    def test_snn_language_surface_payload_stays_readout_vocabulary(self) -> None:
+        readout_surface_payload = {
+            "artifact_kind": "terminus_snn_language_readout_surface_design",
+            "surface": "snn_language_readout_surface_design.v1",
+            "snn_language_readout_surface_design": {
+                "readout_role": "bounded_readout_candidate",
+                "binding_mode": "hash_bound_readout_language",
+                "max_readout_fragments": 1,
+                "readout_surface_hash": "0" * 64,
             },
             "promotion_gate": {
-                "eligible_for_autonomous_snn_language_thought_surface_preflight": True,
-                "next_gate": "autonomous_snn_language_thought_surface_preflight",
+                "eligible_for_snn_language_readout_surface_preflight": True,
+                "next_gate": "snn_language_readout_surface_preflight",
             },
         }
 
-        public_payload = _public_snn_language_payload(internal_payload)
+        public_payload = _public_snn_language_payload(readout_surface_payload)
         public_text = json.dumps(public_payload, sort_keys=True)
 
         self.assertNotIn("autonomous_snn_language_thought", public_text)
         self.assertNotIn("snn_language_autonomous_snn_language_thought", public_text)
+        self.assertNotIn("thought_surface", public_text)
         self.assertNotIn("thought_", public_text)
         self.assertIn("snn_language_readout_surface_design", public_text)
         self.assertIn("bounded_readout_candidate", public_text)
@@ -155,15 +223,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         internalized_payload = _internal_snn_language_payload(public_payload)
         self.assertEqual(
             internalized_payload["surface"],
-            "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            "snn_language_readout_surface_design.v1",
         )
         self.assertIn(
-            "autonomous_snn_language_thought_surface_design",
+            "snn_language_readout_surface_design",
             internalized_payload,
         )
         self.assertEqual(
-            internalized_payload["autonomous_snn_language_thought_surface_design"]["thought_role"],
-            "inner_speech_candidate",
+            internalized_payload["snn_language_readout_surface_design"]["readout_role"],
+            "bounded_readout_candidate",
         )
 
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
@@ -2181,9 +2249,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             autonomous_snn_language_decoding_event_review_response.json()
                         ),
                         "surface_policy": {
-                            "thought_role": "inner_speech_candidate",
-                            "binding_mode": "hash_bound_inner_language",
-                            "max_thought_fragments": 1,
+                            "readout_role": "bounded_readout_candidate",
+                            "binding_mode": "hash_bound_readout_language",
+                            "max_readout_fragments": 1,
                             "max_surface_chars": 256,
                             "max_association_edges": 4,
                         },
@@ -2233,7 +2301,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 "state_revision"
                             ],
                             "review_policy": {
-                                "max_thought_fragments": 1,
+                                "max_readout_fragments": 1,
                                 "max_surface_chars": 256,
                                 "max_association_edges": 4,
                             },
@@ -3437,6 +3505,24 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         snn_language_readout_surface_event_review = (
             snn_language_readout_surface_event_review_response.json()
+        )
+        surface_chain_text = json.dumps(
+            [
+                snn_language_readout_surface_design,
+                snn_language_readout_surface_preflight,
+                snn_language_readout_surface_executor,
+                snn_language_readout_surface_event_review,
+            ],
+            sort_keys=True,
+        )
+        self.assertNotIn("thought_surface", surface_chain_text)
+        self.assertNotIn(
+            "autonomous_snn_language_thought_surface",
+            surface_chain_text,
+        )
+        self.assertNotIn(
+            "snn_language_autonomous_snn_language_thought_surface",
+            surface_chain_text,
         )
         snn_language_readout_memory_design = (
             snn_language_readout_memory_design_response.json()
@@ -7709,10 +7795,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertFalse(
             autonomous_snn_language_decoding_event_review["promotion_gate"].get(
-                "eligible_for_snn_language_readout_surface_design",
-                autonomous_snn_language_decoding_event_review["promotion_gate"].get(
-                    "eligible_for_autonomous_snn_language_thought_surface_design"
-                ),
+                "eligible_for_snn_language_readout_surface_design"
             )
         )
         self.assertFalse(

@@ -321,7 +321,6 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
     ("autonomous_snn_language_thought", "snn_language_readout"),
     ("language_thought", "language_readout"),
-    ("thought_surface", "readout_surface"),
     ("thought_memory", "readout_memory"),
     ("thought_consolidation", "readout_consolidation"),
     ("thought_structural", "readout_structural"),
@@ -329,21 +328,20 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("thought_newborn", "readout_newborn"),
     ("thought_trace", "readout_trace"),
     ("thought_driven", "readout_driven"),
-    ("thought_role", "readout_role"),
     ("missing_thought", "missing_readout"),
-    ("max_thought", "max_readout"),
-    ("inner_speech_candidate", "bounded_readout_candidate"),
-    ("working_thought_surface", "working_readout_surface"),
-    ("hash_bound_inner_language", "hash_bound_readout_language"),
     ("thought-capacity", "readout-capacity"),
 )
 _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("terminus_snn_language_readout", "terminus_snn_language_autonomous_snn_language_thought"),
-    ("snn_language_readout", "snn_language_autonomous_snn_language_thought"),
-    ("bounded_readout_candidate", "inner_speech_candidate"),
-    ("working_readout_surface", "working_thought_surface"),
-    ("hash_bound_readout_language", "hash_bound_inner_language"),
-    ("readout_surface", "thought_surface"),
+    ("terminus_snn_language_readout_newborn", "terminus_snn_language_autonomous_snn_language_thought_newborn"),
+    ("terminus_snn_language_readout_capacity", "terminus_snn_language_autonomous_snn_language_thought_capacity"),
+    ("terminus_snn_language_readout_structural", "terminus_snn_language_autonomous_snn_language_thought_structural"),
+    ("terminus_snn_language_readout_consolidation", "terminus_snn_language_autonomous_snn_language_thought_consolidation"),
+    ("terminus_snn_language_readout_memory", "terminus_snn_language_autonomous_snn_language_thought_memory"),
+    ("snn_language_readout_newborn", "snn_language_autonomous_snn_language_thought_newborn"),
+    ("snn_language_readout_capacity", "snn_language_autonomous_snn_language_thought_capacity"),
+    ("snn_language_readout_structural", "snn_language_autonomous_snn_language_thought_structural"),
+    ("snn_language_readout_consolidation", "snn_language_autonomous_snn_language_thought_consolidation"),
+    ("snn_language_readout_memory", "snn_language_autonomous_snn_language_thought_memory"),
     ("readout_memory", "thought_memory"),
     ("readout_consolidation", "thought_consolidation"),
     ("readout_structural", "thought_structural"),
@@ -351,9 +349,7 @@ _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("readout_newborn", "thought_newborn"),
     ("readout_trace", "thought_trace"),
     ("readout_driven", "thought_driven"),
-    ("readout_role", "thought_role"),
     ("missing_readout", "missing_thought"),
-    ("max_readout", "max_thought"),
     ("readout-capacity", "thought-capacity"),
 )
 
@@ -1977,57 +1973,57 @@ def create_app(
     def terminus_snn_language_surface_design(
         request: SNNLanguageSurfaceDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_surface_design(
+        return runtime.snn_language_readout_surface_design(
             autonomous_snn_language_decoding_event_review=(
-                _internal_snn_language_payload(request.autonomous_snn_language_decoding_event_review)
+                request.autonomous_snn_language_decoding_event_review
             ),
-            thought_policy=_internal_snn_language_payload(request.surface_policy),
-        ))
+            surface_policy=request.surface_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-preflight")
     def terminus_snn_language_surface_preflight(
         request: SNNLanguageSurfacePreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_surface_preflight(
-            autonomous_snn_language_thought_surface_design=(
-                _internal_snn_language_payload(request.snn_language_surface_design)
+        return runtime.snn_language_readout_surface_preflight(
+            snn_language_readout_surface_design=(
+                request.snn_language_surface_design
             ),
             expected_state_revision=request.expected_state_revision,
-            device_evidence=_internal_snn_language_payload(request.device_evidence),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-executor")
     def terminus_snn_language_surface_executor(
         request: SNNLanguageSurfaceExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_surface_executor(
-            autonomous_snn_language_thought_surface_preflight=(
-                _internal_snn_language_payload(request.snn_language_surface_preflight)
+        return runtime.snn_language_readout_surface_executor(
+            snn_language_readout_surface_preflight=(
+                request.snn_language_surface_preflight
             ),
             expected_state_revision=request.expected_state_revision,
-            execution_policy=_internal_snn_language_payload(request.execution_policy),
-        ))
+            execution_policy=request.execution_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review")
     def terminus_snn_language_surface_event_review(
         request: SNNLanguageSurfaceEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_surface_event_review(
-            autonomous_snn_language_thought_surface_executor=(
-                _internal_snn_language_payload(request.snn_language_surface_executor)
+        return runtime.snn_language_readout_surface_event_review(
+            snn_language_readout_surface_executor=(
+                request.snn_language_surface_executor
             ),
             expected_state_revision=request.expected_state_revision,
-            review_policy=_internal_snn_language_payload(request.review_policy),
-        ))
+            review_policy=request.review_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-memory-design")
     def terminus_snn_language_memory_design(
         request: SNNLanguageMemoryDesignRequest,
     ) -> dict[str, Any]:
         return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_memory_design(
-            autonomous_snn_language_thought_surface_event_review=(
-                _internal_snn_language_payload(request.snn_language_surface_event_review)
+            snn_language_readout_surface_event_review=(
+                request.snn_language_surface_event_review
             ),
             memory_policy=_internal_snn_language_payload(request.memory_policy),
         ))

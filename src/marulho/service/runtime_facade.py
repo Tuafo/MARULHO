@@ -665,23 +665,23 @@ class RuntimeFacade:
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_surface_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_design(
+    def snn_language_readout_surface_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_surface_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_surface_preflight(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_preflight(
+    def snn_language_readout_surface_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_surface_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_surface_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_surface(
+    def snn_language_readout_surface_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_snn_language_readout_surface(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_surface_event_review(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_event_review(
+    def snn_language_readout_surface_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_surface_event_review(
             **kwargs
         )
 

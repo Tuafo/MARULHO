@@ -4676,11 +4676,11 @@ archival/source/review metadata on CPU.
 
 ## Autonomous Language-Thought Ledger Windows
 
-SNN language decoding, thought-surface, thought-memory, thought-consolidation,
+SNN language decoding, readout-surface, thought-memory, thought-consolidation,
 and thought-structural-plasticity now use the same record-family source-window
 path instead of normalizing every retained readout-ledger event family. The
 production path uses `bounded_snn_readout_ledger_record_family_source_window.v1`
-for each downstream language/thought event family, with archival/source/review
+for each downstream language/readout event family, with archival/source/review
 metadata on CPU and no live-tick, every-token, or hidden language-reasoning work.
 
 Focused quality benchmark:
@@ -4715,6 +4715,31 @@ The first same-shape long run at
 succeeded at `5921.867 tokens/sec`, but it is rejected as primary throughput
 evidence because the sampler observed GPU contention (`gpu max=21%`, threshold
 `20%`).
+
+Readout-surface canonical naming rerun, 2026-06-22:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260622\snn-readout-ledger-normalization-readout-surface-canonical.json`
+
+Result: `pass=true`; canonical readout-surface production naming kept the
+bounded source-window path and retired the old
+`autonomous_snn_language_thought_surface_*` production call/route names. The
+benchmark reported bounded mean `408.799567 ms` versus legacy diagnostic
+`6288.893500 ms` (`16x` work reduction), and autonomous-chain bounded mean
+`906.320467 ms` versus `19796.135733 ms`.
+
+Protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-readout-surface-canonical.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `87.202568 s`,
+`6012.300 tokens/sec`, `tick_duration_ms.p95=21.322`,
+`train_compute=0.134205 ms/token`, `prepare_training=0.006876 ms/token`, and
+`finalize_total=0.006747 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, with `65526` cached transition
+rows, `state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. The environment sampler reported no observed contention (`cpu
+max=59%`, `gpu max=13%`, `gpu memory util max=18%`). Runtime CUDA memory moved
+`1771->1772 MiB`; prewarm was explicit slow-path work at `328137.103 ms`.
 
 ## Synapse Provenance Event-Map Windows
 

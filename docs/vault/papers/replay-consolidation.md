@@ -1831,7 +1831,7 @@ benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
 
 SNN language decoding through thought structural plasticity now follows the same
-single-family ledger boundary. Decoding, thought-surface, thought-memory,
+single-family ledger boundary. Decoding, readout-surface, thought-memory,
 thought-consolidation, and thought-structural-plasticity executor/review pairs
 read only their target event family, return
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and do not normalize
@@ -1851,6 +1851,21 @@ memory `1856->1857 MiB`. A first same-shape run succeeded at
 contention. The replay/ledger benchmark kept archival/source/review metadata on
 CPU, reported no live tick or every-token work, and did no hidden language
 reasoning.
+
+The 2026-06-22 readout-surface naming cleanup applies the same literature
+boundary to active vocabulary: internal representational surfaces are useful
+only as bounded readout evidence, not hidden replay text or a second thought
+path. Production now uses `snn_language_readout_surface_*` route/facade/ledger
+names, while legacy `autonomous_snn_language_thought_surface_*` persisted keys
+migrate once on checkpoint load/save. The focused benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-surface-canonical.json`
+passed with bounded mean `408.799567 ms` versus legacy diagnostic
+`6288.893500 ms` (`16x` work reduction). The paired hot-path run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-surface-canonical.json`
+processed `524288` tokens at `6012.300 tokens/sec`, p95 `21.322 ms`,
+`train_compute=0.134205 ms/token`, bounded `12/65536` route rows, no observed
+contention, CPU max `59%`, GPU max `13%`, RTX memory `1771->1772 MiB`, and zero
+graph/native sequence failures.
 
 Synapse provenance audit now uses a bounded requested-hash event map rather than
 normalizing every readout/replay ledger family before checking runtime synapse

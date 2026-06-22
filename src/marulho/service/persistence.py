@@ -18,6 +18,9 @@ from marulho.semantics import ConceptStore, GeometricCuriosityController
 from marulho.service.applied_replay_lineage import (
     applied_replay_lineage_checkpoint_summary,
 )
+from marulho.service.snn_language_readout_ledger import (
+    normalize_snn_language_readout_ledger_state,
+)
 from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
@@ -243,7 +246,11 @@ class RuntimePersistence:
                     service_state["snn_language_plasticity"]
                 )
             )
-            service_state["snn_language_readout_ledger"] = deepcopy(self._snn_language_readout_ledger_state)
+            service_state["snn_language_readout_ledger"] = (
+                normalize_snn_language_readout_ledger_state(
+                    self._snn_language_readout_ledger_state
+                )
+            )
             metadata.update(
                 {
                     "saved_by": "marulho.service",
@@ -656,7 +663,11 @@ class RuntimePersistence:
             self._applied_replay_lineage_restore_validation(self._metadata)
         )
         self._metadata["service_state"] = service_state
-        self._snn_language_readout_ledger_state = dict(service_state.get("snn_language_readout_ledger") or {})
+        self._snn_language_readout_ledger_state = (
+            normalize_snn_language_readout_ledger_state(
+                service_state.get("snn_language_readout_ledger")
+            )
+        )
         self._concept_store = ConceptStore.from_state_dict(concept_state)
         geometric_curiosity_state = cast(
             dict[str, Any] | None,

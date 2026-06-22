@@ -56,7 +56,7 @@ _AUTONOMOUS_CHAIN_COMPONENT_NAMES = (
     "language_surface_use",
     "language_generation",
     "language_decoding",
-    "thought_surface",
+    "readout_surface",
     "thought_memory",
     "thought_consolidation",
     "thought_structural_plasticity",
@@ -129,7 +129,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_autonomous_bounded_language_surface_use_count": count,
             "total_autonomous_snn_language_generation_count": count,
             "total_autonomous_snn_language_decoding_count": count,
-            "total_autonomous_snn_language_thought_surface_count": count,
+            "total_snn_language_readout_surface_count": count,
             "total_autonomous_snn_language_thought_memory_count": count,
             "total_autonomous_snn_language_thought_consolidation_count": count,
             "total_autonomous_snn_language_thought_structural_plasticity_count": count,
@@ -182,7 +182,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "last_autonomous_snn_language_decoded_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
-            "last_autonomous_snn_language_thought_surface_recorded_at": (
+            "last_snn_language_readout_surface_recorded_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
             "last_autonomous_snn_language_thought_memory_recorded_at": (
@@ -1438,21 +1438,21 @@ def _autonomous_snn_language_decoding_event() -> dict[str, Any]:
     }
 
 
-def _autonomous_snn_language_thought_surface_event() -> dict[str, Any]:
+def _snn_language_readout_surface_event() -> dict[str, Any]:
     return {
-        "autonomous_snn_language_thought_surface_event_hash": "31" * 32,
-        "autonomous_snn_language_thought_surface_event_id": (
-            "benchmark-snn-language-thought-surface"
+        "snn_language_readout_surface_event_hash": "31" * 32,
+        "snn_language_readout_surface_event_id": (
+            "benchmark-snn-language-readout-surface"
         ),
         "recorded_at": "2026-06-19T00:00:02+00:00",
         "state_revision": 13,
-        "language_thought_surface_preflight_hash": "32" * 32,
-        "language_thought_surface_design_hash": "33" * 32,
+        "language_readout_surface_preflight_hash": "32" * 32,
+        "language_readout_surface_design_hash": "33" * 32,
         "autonomous_snn_language_decoding_event_review_hash": "34" * 32,
         "autonomous_snn_language_decoding_event_hash": "21" * 32,
-        "thought_surface_hash": "35" * 32,
-        "thought_role": "inner_speech_candidate",
-        "binding_mode": "hash_bound_inner_language",
+        "readout_surface_hash": "35" * 32,
+        "readout_role": "bounded_readout_candidate",
+        "binding_mode": "hash_bound_readout_language",
         "rendered_text": "bounded surface",
         "decoded_text_fragments": ["bounded surface"],
         "generated_token_hashes": ["11" * 32],
@@ -1465,7 +1465,7 @@ def _autonomous_snn_language_thought_surface_event() -> dict[str, Any]:
         "text_normalizer_hash": "e8" * 32,
         "semantic_constraint_hash": "e9" * 32,
         "requested_device": "cpu",
-        "max_thought_fragments": 1,
+        "max_readout_fragments": 1,
         "max_surface_chars": 256,
         "max_association_edges": 1,
         "schema_valid": True,
@@ -1494,15 +1494,15 @@ def _autonomous_snn_language_thought_memory_event() -> dict[str, Any]:
         "state_revision": 14,
         "language_thought_memory_preflight_hash": "42" * 32,
         "language_thought_memory_design_hash": "43" * 32,
-        "thought_surface_event_review_hash": "44" * 32,
-        "autonomous_snn_language_thought_surface_event_hash": "31" * 32,
-        "thought_surface_hash": "35" * 32,
+        "readout_surface_event_review_hash": "44" * 32,
+        "snn_language_readout_surface_event_hash": "31" * 32,
+        "readout_surface_hash": "35" * 32,
         "memory_trace_hash": "45" * 32,
         "memory_scope": "working_trace",
         "consolidation_route": "deferred_local_trace",
         "requested_device": "cpu",
-        "thought_role": "inner_speech_candidate",
-        "binding_mode": "hash_bound_inner_language",
+        "readout_role": "bounded_readout_candidate",
+        "binding_mode": "hash_bound_readout_language",
         "rendered_text": "bounded surface",
         "decoded_text_fragments": ["bounded surface"],
         "generated_token_hashes": ["11" * 32],
@@ -1722,15 +1722,15 @@ def _snn_language_thought_family_specs() -> tuple[dict[str, Any], ...]:
             "timestamp_value_key": "recorded_at",
         },
         {
-            "name": "thought_surface",
-            "field": "autonomous_snn_language_thought_surface_events",
-            "event": _autonomous_snn_language_thought_surface_event(),
-            "duplicate_key": "autonomous_snn_language_thought_surface_event_hash",
+            "name": "readout_surface",
+            "field": "snn_language_readout_surface_events",
+            "event": _snn_language_readout_surface_event(),
+            "duplicate_key": "snn_language_readout_surface_event_hash",
             "total_count_key": (
-                "total_autonomous_snn_language_thought_surface_count"
+                "total_snn_language_readout_surface_count"
             ),
             "timestamp_key": (
-                "last_autonomous_snn_language_thought_surface_recorded_at"
+                "last_snn_language_readout_surface_recorded_at"
             ),
             "timestamp_value_key": "recorded_at",
         },
@@ -4058,7 +4058,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+autonomous_bounded_language_surface_use_events"
                 "+autonomous_snn_language_generation_events"
                 "+autonomous_snn_language_decoding_events"
-                "+autonomous_snn_language_thought_surface_events"
+                "+snn_language_readout_surface_events"
                 "+autonomous_snn_language_thought_memory_events"
                 "+autonomous_snn_language_thought_consolidation_events"
                 "+autonomous_snn_language_thought_structural_plasticity_events"

@@ -66,7 +66,7 @@ SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "autonomous_bounded_language_surface_use_events",
     "autonomous_snn_language_generation_events",
     "autonomous_snn_language_decoding_events",
-    "autonomous_snn_language_thought_surface_events",
+    "snn_language_readout_surface_events",
     "autonomous_snn_language_thought_memory_events",
     "autonomous_snn_language_thought_consolidation_events",
     "autonomous_snn_language_thought_structural_plasticity_events",
@@ -112,7 +112,7 @@ SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS = (
     "total_autonomous_bounded_language_surface_use_count",
     "total_autonomous_snn_language_generation_count",
     "total_autonomous_snn_language_decoding_count",
-    "total_autonomous_snn_language_thought_surface_count",
+    "total_snn_language_readout_surface_count",
     "total_autonomous_snn_language_thought_memory_count",
     "total_autonomous_snn_language_thought_consolidation_count",
     "total_autonomous_snn_language_thought_structural_plasticity_count",
@@ -137,10 +137,24 @@ SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
     "last_autonomous_bounded_language_surface_used_at",
     "last_autonomous_snn_language_generated_at",
     "last_autonomous_snn_language_decoded_at",
-    "last_autonomous_snn_language_thought_surface_recorded_at",
+    "last_snn_language_readout_surface_recorded_at",
     "last_autonomous_snn_language_thought_memory_recorded_at",
     "last_autonomous_snn_language_thought_consolidated_at",
     "last_autonomous_snn_language_thought_structural_plasticity_applied_at",
+)
+SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES = (
+    (
+        "autonomous_snn_language_thought_surface_events",
+        "snn_language_readout_surface_events",
+    ),
+    (
+        "total_autonomous_snn_language_thought_surface_count",
+        "total_snn_language_readout_surface_count",
+    ),
+    (
+        "last_autonomous_snn_language_thought_surface_recorded_at",
+        "last_snn_language_readout_surface_recorded_at",
+    ),
 )
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
@@ -169,6 +183,22 @@ SNN_READOUT_REPLAY_TARGET_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY = (
     "bounded_snn_readout_replay_target_source_window_v1"
 )
+
+
+def normalize_snn_language_readout_ledger_state(
+    state: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Migrate retired surface-chain field names to canonical readout fields."""
+
+    normalized = deepcopy(dict(state or {}))
+    for old_key, new_key in SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES:
+        old_value = normalized.pop(old_key, None)
+        if old_value is None:
+            continue
+        current_value = normalized.get(new_key)
+        if current_value in (None, [], {}, 0, ""):
+            normalized[new_key] = old_value
+    return normalized
 SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT = 64
 SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY = (
     "recent_applied_synapse_provenance_audit_source_window_v1"
@@ -19587,7 +19617,7 @@ class SNNLanguageReadoutEvidenceLedger:
         allowed_generation_modes = {
             "snn_bounded_next_token_projection",
             "snn_sparse_sequence_continuation",
-            "snn_internal_thought_surface_probe",
+            "snn_internal_readout_surface_probe",
         }
         allowed_decoding_strategies = {
             "spike_sparse_top_k",
@@ -20860,7 +20890,7 @@ class SNNLanguageReadoutEvidenceLedger:
             }
             allowed_targets = {
                 "bounded_text_surface",
-                "internal_thought_surface",
+                "internal_readout_surface",
                 "display_language_surface",
             }
             decoding_mode = str(
@@ -22034,11 +22064,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_surface_design"
+                        "ready_for_snn_language_readout_surface_design"
                         if ready
                         else "blocked_missing_autonomous_snn_language_decoding_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_surface_design": ready,
+                    "eligible_for_snn_language_readout_surface_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
                     "eligible_for_replay_memory": False,
@@ -22049,7 +22079,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_surface_design"
+                        "snn_language_readout_surface_design"
                         if ready
                         else "collect_snn_language_decoding_event_evidence"
                     ),
@@ -22057,13 +22087,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_surface_design(
+    def snn_language_readout_surface_design(
         self,
         *,
         autonomous_snn_language_decoding_event_review: Mapping[str, Any],
-        thought_policy: Mapping[str, Any] | None = None,
+        surface_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Design a bounded internal thought surface from reviewed SNN language."""
+        """Design a bounded readout surface from reviewed SNN language."""
 
         review_artifact = dict(autonomous_snn_language_decoding_event_review or {})
         gate = (
@@ -22079,24 +22109,24 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             else {}
         )
-        policy = dict(thought_policy or {})
+        policy = dict(surface_policy or {})
         allowed_roles = {
-            "inner_speech_candidate",
-            "working_thought_surface",
+            "bounded_readout_candidate",
+            "working_readout_surface",
             "conceptual_association_surface",
         }
         allowed_binding_modes = {
-            "hash_bound_inner_language",
+            "hash_bound_readout_language",
             "spike_context_association",
             "semantic_constraint_association",
         }
-        thought_role = str(policy.get("thought_role") or "inner_speech_candidate")
+        readout_role = str(policy.get("readout_role") or "bounded_readout_candidate")
         binding_mode = str(
-            policy.get("binding_mode") or "hash_bound_inner_language"
+            policy.get("binding_mode") or "hash_bound_readout_language"
         )
-        max_thought_fragments = min(
+        max_readout_fragments = min(
             16,
-            max(1, int(policy.get("max_thought_fragments", 4) or 4)),
+            max(1, int(policy.get("max_readout_fragments", 4) or 4)),
         )
         max_surface_chars = min(
             4096,
@@ -22112,12 +22142,12 @@ class SNNLanguageReadoutEvidenceLedger:
             str(value)
             for value in list(review.get("decoded_text_fragments") or [])
             if str(value)
-        ][:max_thought_fragments]
+        ][:max_readout_fragments]
         decoded_fragment_hashes = [
             str(value)
             for value in list(review.get("decoded_text_fragment_hashes") or [])
             if str(value)
-        ][:max_thought_fragments]
+        ][:max_readout_fragments]
         generated_token_hashes = [
             str(value)
             for value in list(review.get("generated_token_hashes") or [])
@@ -22166,9 +22196,9 @@ class SNNLanguageReadoutEvidenceLedger:
         schema_hash = str(review.get("text_surface_schema_hash") or "")
         normalizer_hash = str(review.get("text_normalizer_hash") or "")
         semantic_constraint_hash = str(review.get("semantic_constraint_hash") or "")
-        thought_surface_hash = self._sha256_json(
+        readout_surface_hash = self._sha256_json(
             {
-                "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+                "surface": "snn_language_readout_surface_design.v1",
                 "review_hash": review_hash,
                 "decoding_event_hash": decoding_event_hash,
                 "rendered_text_hash": rendered_text_hash,
@@ -22177,7 +22207,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "spike_projection_hashes": spike_projection_hashes,
                 "active_neuron_hashes": active_neuron_hashes,
                 "membrane_state_hashes": membrane_state_hashes,
-                "thought_role": thought_role,
+                "readout_role": readout_role,
                 "binding_mode": binding_mode,
                 "max_association_edges": max_association_edges,
             }
@@ -22188,13 +22218,13 @@ class SNNLanguageReadoutEvidenceLedger:
             "decoding_event_review_ready": bool(review_artifact.get("accepted"))
             and bool(review_artifact.get("ready"))
             and bool(
-                gate.get("eligible_for_autonomous_snn_language_thought_surface_design")
+                gate.get("eligible_for_snn_language_readout_surface_design")
             ),
             "operator_approval_not_required": not bool(
                 review_artifact.get("requires_operator_approval")
             )
             and not bool(review.get("operator_approval_required")),
-            "thought_role_supported": thought_role in allowed_roles,
+            "readout_role_supported": readout_role in allowed_roles,
             "binding_mode_supported": binding_mode in allowed_binding_modes,
             "review_hash_available": len(review_hash) == 64,
             "decoding_event_hash_available": len(decoding_event_hash) == 64,
@@ -22209,7 +22239,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "rendered_text_hash_available": len(rendered_text_hash) == 64,
             "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
             "decoded_fragments_bounded": bool(decoded_fragments)
-            and len(decoded_fragments) <= max_thought_fragments
+            and len(decoded_fragments) <= max_readout_fragments
             and all(0 < len(value) <= max_surface_chars for value in decoded_fragments),
             "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
             and len(decoded_fragment_hashes) == len(decoded_fragments)
@@ -22241,12 +22271,12 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         ready = all(required.values())
         design = {
-            "thought_role": thought_role,
+            "readout_role": readout_role,
             "binding_mode": binding_mode,
-            "max_thought_fragments": max_thought_fragments,
+            "max_readout_fragments": max_readout_fragments,
             "max_surface_chars": max_surface_chars,
             "max_association_edges": max_association_edges,
-            "thought_surface_hash": thought_surface_hash,
+            "readout_surface_hash": readout_surface_hash,
             "decoding_event_review_hash": review_hash,
             "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
             "language_decoding_preflight_hash": decoding_preflight_hash,
@@ -22279,25 +22309,25 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         design_hash = self._sha256_json(
             {
-                "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+                "surface": "snn_language_readout_surface_design.v1",
                 "ready": ready,
                 "required_evidence": required,
-                "autonomous_snn_language_thought_surface_design": design,
+                "snn_language_readout_surface_design": design,
             }
         )
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_surface_design"
+                "terminus_snn_language_readout_surface_design"
             ),
-            "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            "surface": "snn_language_readout_surface_design.v1",
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_surface_design"
+                "snn_language_readout_surface_design"
             ),
             "available": bool(review_artifact),
             "ready": ready,
             "accepted": ready,
-            "language_thought_surface_design_hash": design_hash,
+            "language_readout_surface_design_hash": design_hash,
             "requires_operator_approval": False,
             "owned_by_marulho": True,
             "external_dependency": False,
@@ -22319,14 +22349,14 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_surface_design": design,
+            "snn_language_readout_surface_design": design,
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_surface_preflight"
+                    "ready_for_snn_language_readout_surface_preflight"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_surface_evidence"
+                    else "blocked_missing_snn_language_readout_surface_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_surface_preflight": ready,
+                "eligible_for_snn_language_readout_surface_preflight": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -22337,7 +22367,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_surface_preflight"
+                    "snn_language_readout_surface_preflight"
                     if ready
                     else "collect_snn_language_decoding_event_review_evidence"
                 ),
@@ -22345,27 +22375,27 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
-    def autonomous_snn_language_thought_surface_preflight(
+    def snn_language_readout_surface_preflight(
         self,
         *,
-        autonomous_snn_language_thought_surface_design: Mapping[str, Any],
+        snn_language_readout_surface_design: Mapping[str, Any],
         expected_state_revision: int,
         device_evidence: Mapping[str, Any] | None = None,
         executor_capabilities: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Preflight a bounded internal SNN thought-surface event."""
+        """Preflight a bounded internal SNN readout-surface event."""
 
         before_revision = int(self._runtime_state.state_revision)
-        design_artifact = dict(autonomous_snn_language_thought_surface_design or {})
+        design_artifact = dict(snn_language_readout_surface_design or {})
         gate = (
             design_artifact.get("promotion_gate")
             if isinstance(design_artifact.get("promotion_gate"), Mapping)
             else {}
         )
         body = (
-            design_artifact.get("autonomous_snn_language_thought_surface_design")
+            design_artifact.get("snn_language_readout_surface_design")
             if isinstance(
-                design_artifact.get("autonomous_snn_language_thought_surface_design"),
+                design_artifact.get("snn_language_readout_surface_design"),
                 Mapping,
             )
             else {}
@@ -22383,12 +22413,12 @@ class SNNLanguageReadoutEvidenceLedger:
         ) or torch.cuda.is_available()
         cuda_satisfied = (not requires_cuda) or cuda_evidence_available
         executor_ready = bool(
-            capabilities.get("autonomous_snn_language_thought_surface_executor")
+            capabilities.get("snn_language_readout_surface_executor")
         )
         design_hash = str(
-            design_artifact.get("language_thought_surface_design_hash") or ""
+            design_artifact.get("language_readout_surface_design_hash") or ""
         )
-        thought_surface_hash = str(body.get("thought_surface_hash") or "")
+        readout_surface_hash = str(body.get("readout_surface_hash") or "")
         decoding_event_review_hash = str(
             body.get("decoding_event_review_hash") or ""
         )
@@ -22437,20 +22467,20 @@ class SNNLanguageReadoutEvidenceLedger:
             for value in list(body.get("output_fragment_hashes") or [])
             if str(value)
         ]
-        max_thought_fragments = int(body.get("max_thought_fragments", 0) or 0)
+        max_readout_fragments = int(body.get("max_readout_fragments", 0) or 0)
         max_surface_chars = int(body.get("max_surface_chars", 0) or 0)
         max_association_edges = int(body.get("max_association_edges", 0) or 0)
-        thought_role = str(body.get("thought_role") or "")
+        readout_role = str(body.get("readout_role") or "")
         binding_mode = str(body.get("binding_mode") or "")
         schema_hash = str(body.get("text_surface_schema_hash") or "")
         normalizer_hash = str(body.get("text_normalizer_hash") or "")
         semantic_constraint_hash = str(body.get("semantic_constraint_hash") or "")
         preflight_hash = self._sha256_json(
             {
-                "surface": "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+                "surface": "snn_language_readout_surface_preflight.v1",
                 "state_revision": before_revision,
-                "language_thought_surface_design_hash": design_hash,
-                "thought_surface_hash": thought_surface_hash,
+                "language_readout_surface_design_hash": design_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "decoding_event_review_hash": decoding_event_review_hash,
                 "decoding_event_hash": decoding_event_hash,
                 "requested_device": requested_device,
@@ -22459,13 +22489,13 @@ class SNNLanguageReadoutEvidenceLedger:
             }
         )
         required = {
-            "thought_surface_design_available": design_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_surface_design.v1",
-            "thought_surface_design_ready": bool(design_artifact.get("accepted"))
+            "readout_surface_design_available": design_artifact.get("surface")
+            == "snn_language_readout_surface_design.v1",
+            "readout_surface_design_ready": bool(design_artifact.get("accepted"))
             and bool(design_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_surface_preflight"
+                    "eligible_for_snn_language_readout_surface_preflight"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -22475,19 +22505,19 @@ class SNNLanguageReadoutEvidenceLedger:
             "expected_revision_current": int(expected_state_revision)
             == before_revision,
             "design_hash_available": len(design_hash) == 64,
-            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "readout_surface_hash_available": len(readout_surface_hash) == 64,
             "decoding_event_review_hash_available": len(
                 decoding_event_review_hash
             )
             == 64,
             "decoding_event_hash_available": len(decoding_event_hash) == 64,
-            "thought_role_available": bool(thought_role),
+            "readout_role_available": bool(readout_role),
             "binding_mode_available": bool(binding_mode),
             "rendered_text_hash_available": len(rendered_text_hash) == 64,
             "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
             "decoded_fragment_budget_bounded": 1
             <= len(decoded_fragments)
-            <= max(1, max_thought_fragments)
+            <= max(1, max_readout_fragments)
             <= 16,
             "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
             and len(decoded_fragment_hashes) == len(decoded_fragments)
@@ -22519,11 +22549,11 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         ready = all(required.values())
         preflight = {
-            "language_thought_surface_design_hash": design_hash,
-            "thought_surface_hash": thought_surface_hash,
+            "language_readout_surface_design_hash": design_hash,
+            "readout_surface_hash": readout_surface_hash,
             "decoding_event_review_hash": decoding_event_review_hash,
             "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
-            "thought_role": thought_role,
+            "readout_role": readout_role,
             "binding_mode": binding_mode,
             "requested_device": requested_device,
             "requires_cuda": requires_cuda,
@@ -22544,7 +22574,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "text_surface_schema_hash": schema_hash,
             "text_normalizer_hash": normalizer_hash,
             "semantic_constraint_hash": semantic_constraint_hash,
-            "max_thought_fragments": max_thought_fragments,
+            "max_readout_fragments": max_readout_fragments,
             "max_surface_chars": max_surface_chars,
             "max_association_edges": max_association_edges,
             "preflight_hash": preflight_hash,
@@ -22558,12 +22588,12 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_surface_preflight"
+                "terminus_snn_language_readout_surface_preflight"
             ),
-            "surface": "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+            "surface": "snn_language_readout_surface_preflight.v1",
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_surface_preflight"
+                "snn_language_readout_surface_preflight"
             ),
             "available": bool(design_artifact),
             "ready": ready,
@@ -22590,16 +22620,16 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_surface_preflight": preflight,
+            "snn_language_readout_surface_preflight": preflight,
             "observed_state_revision": before_revision,
             "expected_state_revision": int(expected_state_revision),
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_surface_executor"
+                    "ready_for_snn_language_readout_surface_executor"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_surface_preflight_evidence"
+                    else "blocked_missing_snn_language_readout_surface_preflight_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_surface_executor": ready,
+                "eligible_for_snn_language_readout_surface_executor": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -22610,36 +22640,36 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_surface_executor"
+                    "snn_language_readout_surface_executor"
                     if ready
-                    else "collect_snn_language_thought_surface_preflight_evidence"
+                    else "collect_snn_language_readout_surface_preflight_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def execute_autonomous_snn_language_thought_surface(
+    def execute_snn_language_readout_surface(
         self,
         *,
-        autonomous_snn_language_thought_surface_preflight: Mapping[str, Any],
+        snn_language_readout_surface_preflight: Mapping[str, Any],
         expected_state_revision: int,
         execution_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Record a bounded internal SNN language thought-surface event."""
+        """Record a bounded internal SNN language readout-surface event."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
-            preflight = dict(autonomous_snn_language_thought_surface_preflight or {})
+            preflight = dict(snn_language_readout_surface_preflight or {})
             gate = (
                 preflight.get("promotion_gate")
                 if isinstance(preflight.get("promotion_gate"), Mapping)
                 else {}
             )
             body = (
-                preflight.get("autonomous_snn_language_thought_surface_preflight")
+                preflight.get("snn_language_readout_surface_preflight")
                 if isinstance(
                     preflight.get(
-                        "autonomous_snn_language_thought_surface_preflight"
+                        "snn_language_readout_surface_preflight"
                     ),
                     Mapping,
                 )
@@ -22687,14 +22717,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 for value in list(body.get("output_fragment_hashes") or [])
                 if str(value)
             ]
-            max_thought_fragments = int(body.get("max_thought_fragments", 0) or 0)
+            max_readout_fragments = int(body.get("max_readout_fragments", 0) or 0)
             max_surface_chars = int(body.get("max_surface_chars", 0) or 0)
             max_association_edges = int(body.get("max_association_edges", 0) or 0)
             preflight_hash = str(preflight.get("preflight_hash") or "")
             design_hash = str(
-                body.get("language_thought_surface_design_hash") or ""
+                body.get("language_readout_surface_design_hash") or ""
             )
-            thought_surface_hash = str(body.get("thought_surface_hash") or "")
+            readout_surface_hash = str(body.get("readout_surface_hash") or "")
             decoding_event_review_hash = str(
                 body.get("decoding_event_review_hash") or ""
             )
@@ -22703,17 +22733,17 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             event = {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_surface_event"
+                    "terminus_snn_language_readout_surface_event"
                 ),
-                "surface": "snn_language_autonomous_snn_language_thought_surface_event.v1",
+                "surface": "snn_language_readout_surface_event.v1",
                 "state_revision": before_revision,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
-                "language_thought_surface_preflight_hash": preflight_hash,
-                "language_thought_surface_design_hash": design_hash,
-                "thought_surface_hash": thought_surface_hash,
+                "language_readout_surface_preflight_hash": preflight_hash,
+                "language_readout_surface_design_hash": design_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "decoding_event_review_hash": decoding_event_review_hash,
                 "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
-                "thought_role": str(body.get("thought_role") or ""),
+                "readout_role": str(body.get("readout_role") or ""),
                 "binding_mode": str(body.get("binding_mode") or ""),
                 "rendered_text": rendered_text,
                 "rendered_text_hash": str(body.get("rendered_text_hash") or ""),
@@ -22733,7 +22763,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     body.get("semantic_constraint_hash") or ""
                 ),
                 "requested_device": str(body.get("requested_device") or ""),
-                "max_thought_fragments": max_thought_fragments,
+                "max_readout_fragments": max_readout_fragments,
                 "max_surface_chars": max_surface_chars,
                 "max_association_edges": max_association_edges,
                 "operator_approval_required": False,
@@ -22756,18 +22786,18 @@ class SNNLanguageReadoutEvidenceLedger:
                     for key, value in event.items()
                     if key != "recorded_at"
                     and key
-                    != "autonomous_snn_language_thought_surface_event_hash"
+                    != "snn_language_readout_surface_event_hash"
                 }
             )
-            event["autonomous_snn_language_thought_surface_event_hash"] = event_hash
+            event["snn_language_readout_surface_event_hash"] = event_hash
             required = {
                 "preflight_surface_available": preflight.get("surface")
-                == "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+                == "snn_language_readout_surface_preflight.v1",
                 "preflight_ready": bool(preflight.get("accepted"))
                 and bool(preflight.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_surface_executor"
+                        "eligible_for_snn_language_readout_surface_executor"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -22784,18 +22814,18 @@ class SNNLanguageReadoutEvidenceLedger:
                 == before_revision,
                 "preflight_hash_available": len(preflight_hash) == 64,
                 "design_hash_available": len(design_hash) == 64,
-                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "readout_surface_hash_available": len(readout_surface_hash) == 64,
                 "decoding_event_review_hash_available": len(
                     decoding_event_review_hash
                 )
                 == 64,
                 "decoding_event_hash_available": len(decoding_event_hash) == 64,
-                "thought_role_available": bool(event["thought_role"]),
+                "readout_role_available": bool(event["readout_role"]),
                 "binding_mode_available": bool(event["binding_mode"]),
                 "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
                 "decoded_fragment_budget_bounded": 1
                 <= len(decoded_fragments)
-                <= max(1, max_thought_fragments)
+                <= max(1, max_readout_fragments)
                 <= 16,
                 "association_budget_bounded": 1 <= max_association_edges <= 64,
                 "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
@@ -22827,15 +22857,15 @@ class SNNLanguageReadoutEvidenceLedger:
             accepted = all(required.values())
             ledger_summary, source_window = (
                 self._record_family_current_summary_with_report(
-                    field="autonomous_snn_language_thought_surface_events",
+                    field="snn_language_readout_surface_events",
                     duplicate_key=(
-                        "autonomous_snn_language_thought_surface_event_hash"
+                        "snn_language_readout_surface_event_hash"
                     ),
                     total_count_key=(
-                        "total_autonomous_snn_language_thought_surface_count"
+                        "total_snn_language_readout_surface_count"
                     ),
                     timestamp_key=(
-                        "last_autonomous_snn_language_thought_surface_recorded_at"
+                        "last_snn_language_readout_surface_recorded_at"
                     ),
                 )
             )
@@ -22843,16 +22873,16 @@ class SNNLanguageReadoutEvidenceLedger:
             if accepted:
                 duplicate, ledger_summary, source_window = (
                     self._append_record_family_window(
-                        field="autonomous_snn_language_thought_surface_events",
+                        field="snn_language_readout_surface_events",
                         event=event,
                         duplicate_key=(
-                            "autonomous_snn_language_thought_surface_event_hash"
+                            "snn_language_readout_surface_event_hash"
                         ),
                         total_count_key=(
-                            "total_autonomous_snn_language_thought_surface_count"
+                            "total_snn_language_readout_surface_count"
                         ),
                         timestamp_key=(
-                            "last_autonomous_snn_language_thought_surface_recorded_at"
+                            "last_snn_language_readout_surface_recorded_at"
                         ),
                         timestamp_value=event["recorded_at"],
                     )
@@ -22861,18 +22891,18 @@ class SNNLanguageReadoutEvidenceLedger:
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_surface_executor"
+                    "terminus_snn_language_readout_surface_executor"
                 ),
-                "surface": "snn_language_autonomous_snn_language_thought_surface_executor.v1",
+                "surface": "snn_language_readout_surface_executor.v1",
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "execute_autonomous_snn_language_thought_surface"
+                    "execute_snn_language_readout_surface"
                 ),
                 "available": bool(preflight),
                 "ready": accepted,
                 "accepted": accepted,
                 "duplicate": duplicate,
-                "autonomous_snn_language_thought_surface_event_hash": event_hash,
+                "snn_language_readout_surface_event_hash": event_hash,
                 "requires_operator_approval": False,
                 "owned_by_marulho": True,
                 "external_dependency": False,
@@ -22898,22 +22928,22 @@ class SNNLanguageReadoutEvidenceLedger:
                 "rendered_text_hash": event["rendered_text_hash"],
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
-                "autonomous_snn_language_thought_surface_event": (
+                "snn_language_readout_surface_event": (
                     event if accepted else None
                 ),
                 "ledger_summary": ledger_summary,
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "autonomous_snn_language_thought_surface_recorded"
+                        "snn_language_readout_surface_recorded"
                         if accepted and not duplicate
                         else (
-                            "duplicate_autonomous_snn_language_thought_surface_already_recorded"
+                            "duplicate_snn_language_readout_surface_already_recorded"
                             if accepted
-                            else "blocked_missing_autonomous_snn_language_thought_surface_executor_evidence"
+                            else "blocked_missing_snn_language_readout_surface_executor_evidence"
                         )
                     ),
-                    "eligible_for_autonomous_snn_language_thought_surface_event_review": (
+                    "eligible_for_snn_language_readout_surface_event_review": (
                         accepted
                     ),
                     "eligible_for_language_generation": False,
@@ -22926,35 +22956,35 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_surface_event_review"
+                        "snn_language_readout_surface_event_review"
                         if accepted
-                        else "collect_snn_language_thought_surface_execution_evidence"
+                        else "collect_snn_language_readout_surface_execution_evidence"
                     ),
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_surface_event_review(
+    def snn_language_readout_surface_event_review(
         self,
         *,
-        autonomous_snn_language_thought_surface_executor: Mapping[str, Any],
+        snn_language_readout_surface_executor: Mapping[str, Any],
         expected_state_revision: int,
         review_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Review a recorded bounded internal SNN language thought-surface event."""
+        """Review a recorded bounded internal SNN language readout-surface event."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
-            executor = dict(autonomous_snn_language_thought_surface_executor or {})
+            executor = dict(snn_language_readout_surface_executor or {})
             gate = (
                 executor.get("promotion_gate")
                 if isinstance(executor.get("promotion_gate"), Mapping)
                 else {}
             )
             event = (
-                dict(executor.get("autonomous_snn_language_thought_surface_event"))
+                dict(executor.get("snn_language_readout_surface_event"))
                 if isinstance(
-                    executor.get("autonomous_snn_language_thought_surface_event"),
+                    executor.get("snn_language_readout_surface_event"),
                     Mapping,
                 )
                 else {}
@@ -22964,20 +22994,20 @@ class SNNLanguageReadoutEvidenceLedger:
                 4096,
                 max(1, int(policy.get("max_surface_chars", 512) or 512)),
             )
-            max_thought_fragments = min(
+            max_readout_fragments = min(
                 16,
-                max(1, int(policy.get("max_thought_fragments", 16) or 16)),
+                max(1, int(policy.get("max_readout_fragments", 16) or 16)),
             )
             max_association_edges = min(
                 64,
                 max(1, int(policy.get("max_association_edges", 64) or 64)),
             )
             event_hash = str(
-                event.get("autonomous_snn_language_thought_surface_event_hash")
+                event.get("snn_language_readout_surface_event_hash")
                 or ""
             )
             executor_event_hash = str(
-                executor.get("autonomous_snn_language_thought_surface_event_hash")
+                executor.get("snn_language_readout_surface_event_hash")
                 or ""
             )
             event_revision = int(event.get("state_revision", -1) or -1)
@@ -23024,12 +23054,12 @@ class SNNLanguageReadoutEvidenceLedger:
                 if str(value)
             ]
             preflight_hash = str(
-                event.get("language_thought_surface_preflight_hash") or ""
+                event.get("language_readout_surface_preflight_hash") or ""
             )
             design_hash = str(
-                event.get("language_thought_surface_design_hash") or ""
+                event.get("language_readout_surface_design_hash") or ""
             )
-            thought_surface_hash = str(event.get("thought_surface_hash") or "")
+            readout_surface_hash = str(event.get("readout_surface_hash") or "")
             decoding_event_review_hash = str(
                 event.get("decoding_event_review_hash") or ""
             )
@@ -23041,19 +23071,19 @@ class SNNLanguageReadoutEvidenceLedger:
             semantic_constraint_hash = str(
                 event.get("semantic_constraint_hash") or ""
             )
-            thought_role = str(event.get("thought_role") or "")
+            readout_role = str(event.get("readout_role") or "")
             binding_mode = str(event.get("binding_mode") or "")
-            event_max_thought_fragments = int(
-                event.get("max_thought_fragments", 0) or 0
+            event_max_readout_fragments = int(
+                event.get("max_readout_fragments", 0) or 0
             )
             event_max_surface_chars = int(event.get("max_surface_chars", 0) or 0)
             event_max_association_edges = int(
                 event.get("max_association_edges", 0) or 0
             )
             source_events, source_window = self._record_family_window_with_report(
-                field="autonomous_snn_language_thought_surface_events",
+                field="snn_language_readout_surface_events",
                 duplicate_key=(
-                    "autonomous_snn_language_thought_surface_event_hash"
+                    "snn_language_readout_surface_event_hash"
                 ),
             )
             recorded_event = next(
@@ -23062,7 +23092,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     for item in source_events
                     if str(
                         item.get(
-                            "autonomous_snn_language_thought_surface_event_hash"
+                            "snn_language_readout_surface_event_hash"
                         )
                         or ""
                     )
@@ -23073,11 +23103,11 @@ class SNNLanguageReadoutEvidenceLedger:
             event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
             required = {
                 "executor_surface_available": executor.get("surface")
-                == "snn_language_autonomous_snn_language_thought_surface_executor.v1",
+                == "snn_language_readout_surface_executor.v1",
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_surface_event_review"
+                        "eligible_for_snn_language_readout_surface_event_review"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -23094,7 +23124,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "event_recorded_in_ledger": event_recorded_in_ledger,
                 "preflight_hash_available": len(preflight_hash) == 64,
                 "design_hash_available": len(design_hash) == 64,
-                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "readout_surface_hash_available": len(readout_surface_hash) == 64,
                 "decoding_event_review_hash_available": len(
                     decoding_event_review_hash
                 )
@@ -23106,7 +23136,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     semantic_constraint_hash
                 )
                 == 64,
-                "thought_role_available": bool(thought_role),
+                "readout_role_available": bool(readout_role),
                 "binding_mode_available": bool(binding_mode),
                 "decoded_token_hashes_valid": bool(decoded_token_hashes)
                 and all(len(value) == 64 for value in decoded_token_hashes),
@@ -23116,8 +23146,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 == generated_token_hashes[: len(decoded_token_hashes)],
                 "decoded_fragment_count_bounded": 1
                 <= len(decoded_fragments)
-                <= max_thought_fragments
-                and len(decoded_fragments) <= max(1, event_max_thought_fragments),
+                <= max_readout_fragments
+                and len(decoded_fragments) <= max(1, event_max_readout_fragments),
                 "decoded_fragments_bounded": bool(decoded_fragments)
                 and all(0 < len(value) <= max_surface_chars for value in decoded_fragments),
                 "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
@@ -23155,15 +23185,15 @@ class SNNLanguageReadoutEvidenceLedger:
             review = {
                 "event_recorded_in_ledger": event_recorded_in_ledger,
                 "event_revision": event_revision if event else None,
-                "autonomous_snn_language_thought_surface_event_hash": event_hash,
-                "language_thought_surface_preflight_hash": preflight_hash,
-                "language_thought_surface_design_hash": design_hash,
-                "thought_surface_hash": thought_surface_hash,
+                "snn_language_readout_surface_event_hash": event_hash,
+                "language_readout_surface_preflight_hash": preflight_hash,
+                "language_readout_surface_design_hash": design_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "decoding_event_review_hash": decoding_event_review_hash,
                 "autonomous_snn_language_decoding_event_hash": (
                     decoding_event_hash
                 ),
-                "thought_role": thought_role,
+                "readout_role": readout_role,
                 "binding_mode": binding_mode,
                 "rendered_text_hash": rendered_text_hash,
                 "rendered_text": rendered_text if ready else "",
@@ -23180,7 +23210,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "text_surface_schema_hash": schema_hash,
                 "text_normalizer_hash": normalizer_hash,
                 "semantic_constraint_hash": semantic_constraint_hash,
-                "max_thought_fragments": event_max_thought_fragments,
+                "max_readout_fragments": event_max_readout_fragments,
                 "max_surface_chars": event_max_surface_chars,
                 "max_association_edges": event_max_association_edges,
                 "operator_approval_required": False,
@@ -23191,35 +23221,26 @@ class SNNLanguageReadoutEvidenceLedger:
                 "plasticity_allowed": False,
                 "cognition_substrate_claimed": False,
                 "review_policy": {
-                    "max_thought_fragments": max_thought_fragments,
+                    "max_readout_fragments": max_readout_fragments,
                     "max_surface_chars": max_surface_chars,
                     "max_association_edges": max_association_edges,
                 },
             }
             review_hash = self._sha256_json(
                 {
-                    "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
-                        "surface_event_review.v1"
-                    ),
+                    "surface": "snn_language_readout_surface_event_review.v1",
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
                     "required_evidence": required,
-                    "autonomous_snn_language_thought_surface_event_review": review,
+                    "snn_language_readout_surface_event_review": review,
                 }
             )
             return {
-                "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
-                    "surface_event_review"
-                ),
-                "surface": (
-                    "snn_language_autonomous_snn_language_thought_surface_"
-                    "event_review.v1"
-                ),
+                "artifact_kind": "terminus_snn_language_readout_surface_event_review",
+                "surface": "snn_language_readout_surface_event_review.v1",
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_surface_event_review"
+                    "snn_language_readout_surface_event_review"
                 ),
                 "available": bool(executor),
                 "ready": ready,
@@ -23248,14 +23269,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 "generated_text_returned": ready,
                 "rendered_text": rendered_text if ready else "",
                 "rendered_text_hash": rendered_text_hash,
-                "autonomous_snn_language_thought_surface_event_hash": event_hash,
-                "autonomous_snn_language_thought_surface_event_review": review,
+                "snn_language_readout_surface_event_hash": event_hash,
+                "snn_language_readout_surface_event_review": review,
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
                         "ready_for_autonomous_snn_language_thought_memory_design"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_surface_event_evidence"
+                        else "blocked_missing_snn_language_readout_surface_event_evidence"
                     ),
                     "eligible_for_autonomous_snn_language_thought_memory_design": ready,
                     "eligible_for_language_generation": False,
@@ -23270,7 +23291,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "next_gate": (
                         "autonomous_snn_language_thought_memory_design"
                         if ready
-                        else "collect_snn_language_thought_surface_event_evidence"
+                        else "collect_snn_language_readout_surface_event_evidence"
                     ),
                     "required_evidence": required,
                 },
@@ -23279,13 +23300,13 @@ class SNNLanguageReadoutEvidenceLedger:
     def autonomous_snn_language_thought_memory_design(
         self,
         *,
-        autonomous_snn_language_thought_surface_event_review: Mapping[str, Any],
+        snn_language_readout_surface_event_review: Mapping[str, Any],
         memory_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Design a bounded memory trace from a reviewed internal thought event."""
 
         review_artifact = dict(
-            autonomous_snn_language_thought_surface_event_review or {}
+            snn_language_readout_surface_event_review or {}
         )
         gate = (
             review_artifact.get("promotion_gate")
@@ -23295,12 +23316,12 @@ class SNNLanguageReadoutEvidenceLedger:
         review = (
             dict(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_surface_event_review"
+                    "snn_language_readout_surface_event_review"
                 )
             )
             if isinstance(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_surface_event_review"
+                    "snn_language_readout_surface_event_review"
                 ),
                 Mapping,
             )
@@ -23381,13 +23402,13 @@ class SNNLanguageReadoutEvidenceLedger:
             if str(value)
         ]
         event_hash = str(
-            review.get("autonomous_snn_language_thought_surface_event_hash") or ""
+            review.get("snn_language_readout_surface_event_hash") or ""
         )
-        thought_surface_hash = str(review.get("thought_surface_hash") or "")
+        readout_surface_hash = str(review.get("readout_surface_hash") or "")
         preflight_hash = str(
-            review.get("language_thought_surface_preflight_hash") or ""
+            review.get("language_readout_surface_preflight_hash") or ""
         )
-        design_hash = str(review.get("language_thought_surface_design_hash") or "")
+        design_hash = str(review.get("language_readout_surface_design_hash") or "")
         decoding_event_review_hash = str(
             review.get("decoding_event_review_hash") or ""
         )
@@ -23402,8 +23423,8 @@ class SNNLanguageReadoutEvidenceLedger:
             {
                 "memory_scope": memory_scope,
                 "consolidation_route": consolidation_route,
-                "thought_surface_event_hash": event_hash,
-                "thought_surface_hash": thought_surface_hash,
+                "readout_surface_event_hash": event_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "rendered_text_hash": review.get("rendered_text_hash"),
                 "decoded_fragment_hashes": decoded_fragment_hashes,
                 "generated_token_hashes": generated_token_hashes,
@@ -23456,9 +23477,9 @@ class SNNLanguageReadoutEvidenceLedger:
             }
         )
         required = {
-            "thought_surface_event_review_available": review_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_surface_event_review.v1",
-            "thought_surface_event_review_ready": bool(review_artifact.get("accepted"))
+            "readout_surface_event_review_available": review_artifact.get("surface")
+            == "snn_language_readout_surface_event_review.v1",
+            "readout_surface_event_review_ready": bool(review_artifact.get("accepted"))
             and bool(review_artifact.get("ready"))
             and bool(
                 gate.get("eligible_for_autonomous_snn_language_thought_memory_design")
@@ -23469,7 +23490,7 @@ class SNNLanguageReadoutEvidenceLedger:
             and not bool(review.get("operator_approval_required")),
             "review_hash_available": len(review_hash) == 64,
             "event_hash_available": len(event_hash) == 64,
-            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "readout_surface_hash_available": len(readout_surface_hash) == 64,
             "preflight_hash_available": len(preflight_hash) == 64,
             "design_hash_available": len(design_hash) == 64,
             "decoding_event_review_hash_available": len(decoding_event_review_hash)
@@ -23530,14 +23551,14 @@ class SNNLanguageReadoutEvidenceLedger:
             "consolidation_route": consolidation_route,
             "memory_trace_hash": trace_hash,
             "language_thought_memory_design_hash": memory_design_hash,
-            "thought_surface_event_review_hash": review_hash,
-            "autonomous_snn_language_thought_surface_event_hash": event_hash,
-            "language_thought_surface_preflight_hash": preflight_hash,
-            "language_thought_surface_design_hash": design_hash,
-            "thought_surface_hash": thought_surface_hash,
+            "readout_surface_event_review_hash": review_hash,
+            "snn_language_readout_surface_event_hash": event_hash,
+            "language_readout_surface_preflight_hash": preflight_hash,
+            "language_readout_surface_design_hash": design_hash,
+            "readout_surface_hash": readout_surface_hash,
             "decoding_event_review_hash": decoding_event_review_hash,
             "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
-            "thought_role": str(review.get("thought_role") or ""),
+            "readout_role": str(review.get("readout_role") or ""),
             "binding_mode": str(review.get("binding_mode") or ""),
             "rendered_text_hash": str(review.get("rendered_text_hash") or ""),
             "rendered_text": rendered_text if ready else "",
@@ -23682,13 +23703,13 @@ class SNNLanguageReadoutEvidenceLedger:
             or body.get("memory_trace_hash")
             or ""
         )
-        thought_surface_event_review_hash = str(
-            body.get("thought_surface_event_review_hash") or ""
+        readout_surface_event_review_hash = str(
+            body.get("readout_surface_event_review_hash") or ""
         )
-        thought_surface_event_hash = str(
-            body.get("autonomous_snn_language_thought_surface_event_hash") or ""
+        readout_surface_event_hash = str(
+            body.get("snn_language_readout_surface_event_hash") or ""
         )
-        thought_surface_hash = str(body.get("thought_surface_hash") or "")
+        readout_surface_hash = str(body.get("readout_surface_hash") or "")
         rendered_text = str(body.get("rendered_text") or "")
         decoded_fragments = [
             str(value)
@@ -23751,8 +23772,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "state_revision": before_revision,
                 "language_thought_memory_design_hash": memory_design_hash,
                 "memory_trace_hash": memory_trace_hash,
-                "thought_surface_event_review_hash": (
-                    thought_surface_event_review_hash
+                "readout_surface_event_review_hash": (
+                    readout_surface_event_review_hash
                 ),
                 "requested_device": requested_device,
                 "requires_cuda": requires_cuda,
@@ -23775,15 +23796,15 @@ class SNNLanguageReadoutEvidenceLedger:
             == before_revision,
             "memory_design_hash_available": len(memory_design_hash) == 64,
             "memory_trace_hash_available": len(memory_trace_hash) == 64,
-            "thought_surface_event_review_hash_available": len(
-                thought_surface_event_review_hash
+            "readout_surface_event_review_hash_available": len(
+                readout_surface_event_review_hash
             )
             == 64,
-            "thought_surface_event_hash_available": len(
-                thought_surface_event_hash
+            "readout_surface_event_hash_available": len(
+                readout_surface_event_hash
             )
             == 64,
-            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "readout_surface_hash_available": len(readout_surface_hash) == 64,
             "memory_scope_available": bool(memory_scope),
             "consolidation_route_available": bool(consolidation_route),
             "schema_hash_available": len(schema_hash) == 64,
@@ -23837,11 +23858,11 @@ class SNNLanguageReadoutEvidenceLedger:
         preflight = {
             "language_thought_memory_design_hash": memory_design_hash,
             "memory_trace_hash": memory_trace_hash,
-            "thought_surface_event_review_hash": thought_surface_event_review_hash,
-            "autonomous_snn_language_thought_surface_event_hash": (
-                thought_surface_event_hash
+            "readout_surface_event_review_hash": readout_surface_event_review_hash,
+            "snn_language_readout_surface_event_hash": (
+                readout_surface_event_hash
             ),
-            "thought_surface_hash": thought_surface_hash,
+            "readout_surface_hash": readout_surface_hash,
             "memory_scope": memory_scope,
             "consolidation_route": consolidation_route,
             "requested_device": requested_device,
@@ -24017,13 +24038,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 body.get("language_thought_memory_design_hash") or ""
             )
             memory_trace_hash = str(body.get("memory_trace_hash") or "")
-            thought_surface_event_review_hash = str(
-                body.get("thought_surface_event_review_hash") or ""
+            readout_surface_event_review_hash = str(
+                body.get("readout_surface_event_review_hash") or ""
             )
-            thought_surface_event_hash = str(
-                body.get("autonomous_snn_language_thought_surface_event_hash") or ""
+            readout_surface_event_hash = str(
+                body.get("snn_language_readout_surface_event_hash") or ""
             )
-            thought_surface_hash = str(body.get("thought_surface_hash") or "")
+            readout_surface_hash = str(body.get("readout_surface_hash") or "")
             max_trace_fragments = int(body.get("max_trace_fragments", 0) or 0)
             max_trace_chars = int(body.get("max_trace_chars", 0) or 0)
             max_local_learning_targets = int(
@@ -24039,17 +24060,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 "language_thought_memory_preflight_hash": preflight_hash,
                 "language_thought_memory_design_hash": memory_design_hash,
                 "memory_trace_hash": memory_trace_hash,
-                "thought_surface_event_review_hash": (
-                    thought_surface_event_review_hash
+                "readout_surface_event_review_hash": (
+                    readout_surface_event_review_hash
                 ),
-                "autonomous_snn_language_thought_surface_event_hash": (
-                    thought_surface_event_hash
+                "snn_language_readout_surface_event_hash": (
+                    readout_surface_event_hash
                 ),
-                "thought_surface_hash": thought_surface_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "memory_scope": str(body.get("memory_scope") or ""),
                 "consolidation_route": str(body.get("consolidation_route") or ""),
                 "requested_device": str(body.get("requested_device") or ""),
-                "thought_role": str(body.get("thought_role") or ""),
+                "readout_role": str(body.get("readout_role") or ""),
                 "binding_mode": str(body.get("binding_mode") or ""),
                 "rendered_text": rendered_text,
                 "decoded_text_fragments": decoded_fragments,
@@ -24122,15 +24143,15 @@ class SNNLanguageReadoutEvidenceLedger:
                 "preflight_hash_available": len(preflight_hash) == 64,
                 "memory_design_hash_available": len(memory_design_hash) == 64,
                 "memory_trace_hash_available": len(memory_trace_hash) == 64,
-                "thought_surface_event_review_hash_available": len(
-                    thought_surface_event_review_hash
+                "readout_surface_event_review_hash_available": len(
+                    readout_surface_event_review_hash
                 )
                 == 64,
-                "thought_surface_event_hash_available": len(
-                    thought_surface_event_hash
+                "readout_surface_event_hash_available": len(
+                    readout_surface_event_hash
                 )
                 == 64,
-                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "readout_surface_hash_available": len(readout_surface_hash) == 64,
                 "memory_scope_available": bool(event["memory_scope"]),
                 "consolidation_route_available": bool(event["consolidation_route"]),
                 "rendered_text_bounded": 0 < len(rendered_text) <= max_trace_chars,
@@ -24385,13 +24406,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 event.get("language_thought_memory_design_hash") or ""
             )
             memory_trace_hash = str(event.get("memory_trace_hash") or "")
-            thought_surface_event_review_hash = str(
-                event.get("thought_surface_event_review_hash") or ""
+            readout_surface_event_review_hash = str(
+                event.get("readout_surface_event_review_hash") or ""
             )
-            thought_surface_event_hash = str(
-                event.get("autonomous_snn_language_thought_surface_event_hash") or ""
+            readout_surface_event_hash = str(
+                event.get("snn_language_readout_surface_event_hash") or ""
             )
-            thought_surface_hash = str(event.get("thought_surface_hash") or "")
+            readout_surface_hash = str(event.get("readout_surface_hash") or "")
             schema_hash = str(event.get("text_surface_schema_hash") or "")
             normalizer_hash = str(event.get("text_normalizer_hash") or "")
             semantic_constraint_hash = str(
@@ -24445,15 +24466,15 @@ class SNNLanguageReadoutEvidenceLedger:
                 "preflight_hash_available": len(preflight_hash) == 64,
                 "design_hash_available": len(design_hash) == 64,
                 "memory_trace_hash_available": len(memory_trace_hash) == 64,
-                "thought_surface_event_review_hash_available": len(
-                    thought_surface_event_review_hash
+                "readout_surface_event_review_hash_available": len(
+                    readout_surface_event_review_hash
                 )
                 == 64,
-                "thought_surface_event_hash_available": len(
-                    thought_surface_event_hash
+                "readout_surface_event_hash_available": len(
+                    readout_surface_event_hash
                 )
                 == 64,
-                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "readout_surface_hash_available": len(readout_surface_hash) == 64,
                 "schema_hash_available": len(schema_hash) == 64,
                 "normalizer_hash_available": len(normalizer_hash) == 64,
                 "semantic_constraint_hash_available": len(
@@ -24522,16 +24543,16 @@ class SNNLanguageReadoutEvidenceLedger:
                 "language_thought_memory_preflight_hash": preflight_hash,
                 "language_thought_memory_design_hash": design_hash,
                 "memory_trace_hash": memory_trace_hash,
-                "thought_surface_event_review_hash": (
-                    thought_surface_event_review_hash
+                "readout_surface_event_review_hash": (
+                    readout_surface_event_review_hash
                 ),
-                "autonomous_snn_language_thought_surface_event_hash": (
-                    thought_surface_event_hash
+                "snn_language_readout_surface_event_hash": (
+                    readout_surface_event_hash
                 ),
-                "thought_surface_hash": thought_surface_hash,
+                "readout_surface_hash": readout_surface_hash,
                 "memory_scope": str(event.get("memory_scope") or ""),
                 "consolidation_route": str(event.get("consolidation_route") or ""),
-                "thought_role": str(event.get("thought_role") or ""),
+                "readout_role": str(event.get("readout_role") or ""),
                 "binding_mode": str(event.get("binding_mode") or ""),
                 "rendered_text": rendered_text if ready else "",
                 "decoded_text_fragments": decoded_fragments if ready else [],
@@ -24724,11 +24745,11 @@ class SNNLanguageReadoutEvidenceLedger:
         memory_preflight_hash = str(
             review.get("language_thought_memory_preflight_hash") or ""
         )
-        thought_surface_event_review_hash = str(
-            review.get("thought_surface_event_review_hash") or ""
+        readout_surface_event_review_hash = str(
+            review.get("readout_surface_event_review_hash") or ""
         )
-        thought_surface_event_hash = str(
-            review.get("autonomous_snn_language_thought_surface_event_hash") or ""
+        readout_surface_event_hash = str(
+            review.get("snn_language_readout_surface_event_hash") or ""
         )
         local_learning_target_hashes = [
             str(value)
@@ -24821,8 +24842,8 @@ class SNNLanguageReadoutEvidenceLedger:
             "thought_memory_event_review_hash": memory_event_review_hash,
             "language_thought_memory_design_hash": memory_design_hash,
             "language_thought_memory_preflight_hash": memory_preflight_hash,
-            "thought_surface_event_review_hash": thought_surface_event_review_hash,
-            "thought_surface_event_hash": thought_surface_event_hash,
+            "readout_surface_event_review_hash": readout_surface_event_review_hash,
+            "readout_surface_event_hash": readout_surface_event_hash,
             "learning_rate": learning_rate,
             "max_weight_delta": max_weight_delta,
             "homeostatic_decay": homeostatic_decay,
@@ -24850,11 +24871,11 @@ class SNNLanguageReadoutEvidenceLedger:
             "memory_trace_hash_available": len(memory_trace_hash) == 64,
             "memory_design_hash_available": len(memory_design_hash) == 64,
             "memory_preflight_hash_available": len(memory_preflight_hash) == 64,
-            "thought_surface_event_review_hash_available": len(
-                thought_surface_event_review_hash
+            "readout_surface_event_review_hash_available": len(
+                readout_surface_event_review_hash
             )
             == 64,
-            "thought_surface_event_hash_available": len(thought_surface_event_hash)
+            "readout_surface_event_hash_available": len(readout_surface_event_hash)
             == 64,
             "local_learning_targets_available": bool(local_learning_target_hashes),
             "local_learning_targets_valid": all(
@@ -24910,9 +24931,9 @@ class SNNLanguageReadoutEvidenceLedger:
             "thought_memory_event_review_hash": memory_event_review_hash,
             "language_thought_memory_design_hash": memory_design_hash,
             "language_thought_memory_preflight_hash": memory_preflight_hash,
-            "thought_surface_event_review_hash": thought_surface_event_review_hash,
-            "autonomous_snn_language_thought_surface_event_hash": (
-                thought_surface_event_hash
+            "readout_surface_event_review_hash": readout_surface_event_review_hash,
+            "snn_language_readout_surface_event_hash": (
+                readout_surface_event_hash
             ),
             "candidate_update_count": len(candidate_updates) if ready else 0,
             "candidate_updates": candidate_updates if ready else [],

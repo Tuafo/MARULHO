@@ -26,6 +26,15 @@ related_benchmarks: []
 
         Surface, memory, consolidation, structural plasticity, capacity mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning APIs now use canonical `snn-language-*` routes with `snn_language_*`/`surface_*` request fields. These routes delegate to the same reviewed ledger/executor gates and do not introduce a new mutation path. Thought-era public route vocabulary is no longer part of the active API.
 
+        The readout-surface chain is now canonical inside production code:
+        `snn_language_readout_surface_design`,
+        `snn_language_readout_surface_preflight`,
+        `execute_snn_language_readout_surface`, and
+        `snn_language_readout_surface_event_review`. Legacy persisted
+        `autonomous_snn_language_thought_surface_*` keys are load/save
+        migration aliases only, so the surface remains bounded readout evidence
+        rather than hidden language reasoning.
+
         ## Bounded Corpus Evaluation
 
         `snn_language_readout_corpus_evaluation.v1` is the slow-path runner that evaluates grounded next-readout trajectories over a bounded corpus. It wraps the transition-memory prediction gate and records dataset provenance, grounding support, device status, latency, memory/VRAM cost, mutation absence, and a promote/reject decision. Its paired `snn_language_readout_corpus_checkpoint_review.v1` can write an isolated sparse transition checkpoint plus rollback manifest for operator review. Runtime Truth projects only saved reports; it must not execute evaluation, mutate runtime state, or claim live generation.

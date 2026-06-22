@@ -21,6 +21,15 @@ related_benchmarks: []
 
             The surface, memory, consolidation, structural-plasticity, capacity-mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning chains now use canonical `snn-language-*` routes. They preserve the existing reviewed/checkpoint-backed promotion gates and keep thought-era public route vocabulary out of the active API.
 
+            The surface chain itself is canonical in production as
+            `snn_language_readout_surface_design`,
+            `snn_language_readout_surface_preflight`,
+            `execute_snn_language_readout_surface`, and
+            `snn_language_readout_surface_event_review`. Checkpoint load/save
+            migrates legacy `autonomous_snn_language_thought_surface_*` state to
+            readout-surface fields once; status should not treat those legacy
+            names as live capability evidence.
+
             `snn_language_readout_corpus_evaluation.v1` is now the first bounded corpus-level report for next-readout trajectories. Runtime Truth exposes the latest saved report as `snn_language_readout_corpus_runtime_truth.v1`, including available/trained/grounded/device status, mutation absence, latency, memory/VRAM cost, and the promote/reject reason. Missing reports remain a rejection/collection state, not a hidden live generator.
 
             `snn_language_readout_corpus_checkpoint_review.v1` adds checkpoint/rollback truth for that same sparse readout path. Runtime Truth exposes checkpoint status, rollback status, restore verification, checkpoint bytes/hash, transition-weight counts, and production-runtime mutation absence from the latest saved checkpoint-review report.
