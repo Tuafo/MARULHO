@@ -280,7 +280,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         legacy_indices == bounded_indices
         and int(bounded_report.get("raw_text_payload_count", 0)) <= len(set(bounded_indices))
         and bool(bounded_report.get("source_bank_row_reader_owned_by_store"))
-        and not bool(bounded_report.get("replay_entry_reader_used"))
         and bool(bounded_report.get("direct_slow_memory_array_reads_retired"))
         and not bool(bounded_report.get("stc_state_advance"))
         and not bool(bounded_report.get("global_candidate_scan"))

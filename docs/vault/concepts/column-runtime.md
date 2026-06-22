@@ -2016,16 +2016,22 @@ selected replay window without decaying STC tags, spending PRP, loading replay
 text, or claiming plasticity authority.
 
 The focused replay report at the external local reports root
-`..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
+`..\..\MARULHO_reports\bounded_replay_window_20260622\read-only-recall-row-telemetry-retired.json`
 passed positive-pressure recall with mean best input-pattern distance
 `5.96046447753906e-08`, `query_row_read_count=1`,
 `query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`, and
-`replay_entry_reader_used=false`. The `524288`-token protection rerun stayed in
-the same noisy band at `5943.110 tokens/sec` with route scoring bounded to
-`12/65536`, `65526` cached transition rows, CUDA active on the RTX 3060, and
-zero graph/native/sequence failures. This boundary does not change the live
-column tick or the explicit mutating replay/consolidation path.
+`query_row_reader=DualMemoryStore.replay_recall_row`. HF replay-query collection
+now reports `direct_slow_memory_input_pattern_reads_retired=true` after bounded
+anchor-bucket selection; its smoke runner kept the memory-consolidation gate
+passing but did not promote the bounded recall quality gate. The `524288`-token
+protection rerun stayed in the same noisy band at `5943.110 tokens/sec`, and
+the telemetry-retirement rerun stayed same-band at `5819.770 tokens/sec` with
+route scoring bounded to `12/65536`, `65526` cached transition rows, `524288`
+skipped graph consolidation lookups, CUDA active on the RTX 3060, zero native
+sequence-loop fallback, and RTX memory flat at `1934 MiB`. This boundary does
+not change the live column tick or the explicit mutating replay/consolidation
+path.
 
 ## Semantic Frontier Row Boundary
 

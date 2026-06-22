@@ -2969,7 +2969,6 @@ class MarulhoTrainer:
             "recall_selection_read_only": True,
             "read_only_replay_row": True,
             "stc_state_advance": False,
-            "replay_entry_reader_used": False,
             "query_prepare_missing_routing_key_count": 0,
             "query_prepare_missing_input_pattern_count": 0,
             "score_device": "cpu",
@@ -3109,7 +3108,6 @@ class MarulhoTrainer:
                     "query_row_surfaces": sorted(query_row_surfaces),
                     "read_only_replay_row": True,
                     "stc_state_advance": bool(query_row_state_advance_count > 0),
-                    "replay_entry_reader_used": False,
                 }
             )
             self.model.memory_store.last_replay_recall_report = dict(
@@ -3242,7 +3240,6 @@ class MarulhoTrainer:
                 query_row_state_advance_count > 0
                 or recall_selection_state_advance_count > 0
             ),
-            "replay_entry_reader_used": False,
             "query_prepare_missing_routing_key_count": int(missing_routing_key_count),
             "query_prepare_missing_input_pattern_count": int(missing_input_pattern_count),
             "score_device": "cpu",
@@ -3551,9 +3548,6 @@ class MarulhoTrainer:
             ),
             "sleep_replay_associative_recall_stc_state_advance": bool(
                 associative_recall_report.get("stc_state_advance", False)
-            ),
-            "sleep_replay_associative_recall_replay_entry_reader_used": bool(
-                associative_recall_report.get("replay_entry_reader_used", True)
             ),
             "sleep_replay_associative_recall_runs_live_tick": bool(
                 associative_recall_report.get("runs_live_tick", False)

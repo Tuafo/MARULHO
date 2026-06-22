@@ -180,7 +180,6 @@ class SemanticFrontierTests(unittest.TestCase):
         self.assertTrue(report["source_bank_row_reader_owned_by_store"])
         self.assertEqual(report["source_bank_candidate_row_read_count"], 64)
         self.assertEqual(report["source_bank_text_payload_row_read_count"], 2)
-        self.assertFalse(report["replay_entry_reader_used"])
         self.assertTrue(report["direct_slow_memory_array_reads_retired"])
         self.assertFalse(report["stc_state_advance"])
         self.assertFalse(report["global_candidate_scan"])

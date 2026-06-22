@@ -277,7 +277,6 @@ def bank_memory_matches_with_report(
                 "source_bank_row_surface": "bounded_query_memory_match_row.v1",
                 "source_bank_row_reader_owned_by_store": False,
                 "direct_slow_memory_array_reads_retired": True,
-                "replay_entry_reader_used": False,
             }
         )
         _record_bank_memory_match_report(trainer, report)
@@ -630,7 +629,6 @@ def bank_memory_matches_with_report(
         "source_bank_candidate_row_read_count": int(source_bank_candidate_row_read_count),
         "source_bank_text_payload_row_read_count": int(source_bank_text_row_read_count),
         "direct_slow_memory_array_reads_retired": True,
-        "replay_entry_reader_used": False,
         "stc_state_advance": False,
         "global_score_scan": bool(candidate_report.get("global_score_scan")),
         "global_candidate_scan": bool(candidate_report.get("global_candidate_scan")),

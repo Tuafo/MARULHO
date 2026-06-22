@@ -2419,17 +2419,25 @@ query reader for associative recall, and the generic API is now removed. Focused
 tests prove the recall path does not call a mutating repair row and does not
 advance `_state_token`, capture tags, local PRP, global PRP, or bucket PRP. The
 external local replay report
-`..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
+`..\..\MARULHO_reports\bounded_replay_window_20260622\read-only-recall-row-telemetry-retired.json`
 passed the positive-pressure arm with `1` query, mean best input-pattern
 distance `5.96046447753906e-08`, `query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
-`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
-`mutates_runtime_state=false`. The paired no-profile `524288`-token protection
-runs stayed same-band at `5872.559` and `5943.110 tokens/sec`; the no-contention
-run kept route scoring bounded to `12/65536`, cached `65526` transition rows,
-selected CUDA on the RTX 3060, kept VRAM flat at `1964 MiB`, and recorded zero
-graph/native/sequence failures. This changes recall query/selection reads only;
-mutating replay/consolidation remains explicit.
+`recall_selection_read_only=true`,
+`query_row_reader=DualMemoryStore.replay_recall_row`, and
+`mutates_runtime_state=false`. HF replay-query collection now uses that same
+store-owned row reader after bounded anchor-bucket selection and reports
+`direct_slow_memory_input_pattern_reads_retired=true`; the smoke report
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hf-query-row-reader-retired\summary.json`
+kept the memory-consolidation gate passing while leaving bounded recall quality
+unpromoted. The paired no-profile `524288`-token protection runs stayed
+same-band at `5872.559` and `5943.110 tokens/sec`, and the telemetry-retirement
+rerun stayed in the current noisy band at `5819.770 tokens/sec` with
+`train_compute=0.137724 ms/token`, bounded `12/65536` route scoring,
+`524288` skipped graph consolidation lookups, CUDA selected on the RTX 3060,
+zero native sequence-loop fallback, and RTX memory flat at `1934 MiB`. This
+changes recall query/selection reads only; mutating replay/consolidation remains
+explicit.
 
 ## Readout Consolidation Naming Retirement
 
@@ -2601,7 +2609,7 @@ The external source-bank report
 `..\..\MARULHO_reports\bounded_replay_window_20260622\source-bank-store-owned-row-reader.json`
 passed on a `65536`-entry store with selected-index parity `1.0`, `196`
 store-owned row reads (`192` scoring rows plus `4` text rows), raw text loaded
-only for returned rows, `replay_entry_reader_used=false`,
+only for returned rows through `query_match_row(...)`,
 `stc_state_advance=false`, CPU archival/score placement, `0.0 MiB` CUDA
 allocation/reservation, and mean latency `160.781 ms` versus `958.681 ms` for
 the diagnostic path.

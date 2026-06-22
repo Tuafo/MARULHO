@@ -470,9 +470,6 @@ def _sleep_replay_associative_recall_summary(
             for report in recall_reports
         )
     )
-    replay_entry_reader_used = any(
-        bool(report.get("replay_entry_reader_used")) for report in recall_reports
-    )
     recall_selection_state_advance_count = int(
         sum(
             int(report.get("recall_selection_state_advance_count", 0) or 0)
@@ -514,7 +511,6 @@ def _sleep_replay_associative_recall_summary(
             and recall_selection_state_advance_count == 0
             and read_only_replay_row
             and recall_selection_read_only
-            and not replay_entry_reader_used
         ),
         "query_row_surface": "bounded_replay_recall_row.v1",
         "query_row_reader": "DualMemoryStore.replay_recall_row",
@@ -531,7 +527,6 @@ def _sleep_replay_associative_recall_summary(
             query_row_state_advance_count > 0
             or recall_selection_state_advance_count > 0
         ),
-        "replay_entry_reader_used": bool(replay_entry_reader_used),
         "candidate_scope": (
             "bucket_indexed_candidate_window"
             if recall_reports

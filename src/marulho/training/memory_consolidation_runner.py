@@ -139,6 +139,36 @@ def _collect_anchor_replay_queries(
         max_buckets=REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
         scope="hf_task_a_anchor_query_collection",
     )
+
+    def _finalize_query_collection_report(
+        base_report: Mapping[str, Any],
+        *,
+        query_row_read_count: int = 0,
+        query_row_invalid_index_count: int = 0,
+        query_row_missing_input_pattern_count: int = 0,
+        query_row_state_advance_count: int = 0,
+    ) -> dict[str, Any]:
+        finalized = dict(base_report)
+        finalized.update(
+            {
+                "query_row_surface": "bounded_replay_recall_row.v1",
+                "query_row_reader": "DualMemoryStore.replay_recall_row",
+                "query_row_reader_owned_by_store": True,
+                "query_row_access_policy": "explicit_selected_replay_index",
+                "query_row_read_count": int(query_row_read_count),
+                "query_row_invalid_index_count": int(query_row_invalid_index_count),
+                "query_row_missing_input_pattern_count": int(
+                    query_row_missing_input_pattern_count
+                ),
+                "query_row_state_advance_count": int(query_row_state_advance_count),
+                "read_only_replay_row": True,
+                "direct_slow_memory_input_pattern_reads_retired": True,
+            }
+        )
+        store.last_replay_query_collection_report = dict(finalized)
+        store._invalidate_summary_cache()
+        return finalized
+
     if not candidate_bucket_ids:
         report = store.collect_replay_query_indices(
             candidate_bucket_ids=[],
@@ -149,9 +179,7 @@ def _collect_anchor_replay_queries(
             report,
             source_window=source_window,
         )
-        store.last_replay_query_collection_report = dict(report)
-        store._invalidate_summary_cache()
-        return [], report
+        return [], _finalize_query_collection_report(report)
 
     queries: list[tuple[int, torch.Tensor]] = []
     report = store.collect_replay_query_indices(
@@ -163,16 +191,36 @@ def _collect_anchor_replay_queries(
         report,
         source_window=source_window,
     )
-    store.last_replay_query_collection_report = dict(report)
-    store._invalidate_summary_cache()
+    query_row_read_count = 0
+    query_row_invalid_index_count = 0
+    query_row_missing_input_pattern_count = 0
+    query_row_state_advance_count = 0
     for index in report.get("query_indices", []):
         index = int(index)
-        if index >= len(store.slow_input_patterns):
+        try:
+            row = store.replay_recall_row(
+                index,
+                current_token=trainer.token_count,
+                include_text_payload=False,
+            )
+        except (IndexError, TypeError, ValueError, KeyError):
+            query_row_invalid_index_count += 1
             continue
-        pattern = store.slow_input_patterns[index]
+        query_row_read_count += 1
+        if bool(row.get("stc_state_advance")):
+            query_row_state_advance_count += 1
+        pattern = row.get("input_pattern")
         if not isinstance(pattern, torch.Tensor) or int(pattern.numel()) <= 0:
+            query_row_missing_input_pattern_count += 1
             continue
         queries.append((int(index), pattern.detach().clone().cpu()))
+    report = _finalize_query_collection_report(
+        report,
+        query_row_read_count=query_row_read_count,
+        query_row_invalid_index_count=query_row_invalid_index_count,
+        query_row_missing_input_pattern_count=query_row_missing_input_pattern_count,
+        query_row_state_advance_count=query_row_state_advance_count,
+    )
     return queries, report
 
 

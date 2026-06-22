@@ -499,14 +499,19 @@ reader and selector. `DualMemoryStore.replay_recall_row(...)` exposes
 `bounded_replay_recall_row.v1` tensor rows without raw text payloads or STC
 state advance, and `recall_replay_window(...)` uses read-only replay selection
 inside the bucket-indexed candidate window. The focused external report
-`..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json`
+`..\..\MARULHO_reports\bounded_replay_window_20260622\read-only-recall-row-telemetry-retired.json`
 passed positive-pressure recall with `1` query, mean best input-pattern distance
 `5.96046447753906e-08`, `query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
-`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
-`mutates_runtime_state=false`. The generic mutating `replay_entry(...)` API is
-now removed; explicit repair uses `sleep_repair_replay_row(...)`, while
-read-only recall keeps `replay_recall_row(...)`.
+`recall_selection_read_only=true`,
+`query_row_reader=DualMemoryStore.replay_recall_row`, and
+`mutates_runtime_state=false`. HF replay-query collection now reports
+`direct_slow_memory_input_pattern_reads_retired=true` after bounded
+anchor-bucket selection; the HF smoke kept the memory-consolidation gate
+passing but did not promote the bounded recall quality gate. The generic
+mutating `replay_entry(...)` API is now removed; explicit repair uses
+`sleep_repair_replay_row(...)`, while read-only recall keeps
+`replay_recall_row(...)`.
 
 ## Relationships
 

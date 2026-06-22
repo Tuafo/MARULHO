@@ -5767,20 +5767,39 @@ read-only sleep associative recall. The code slice changes the sleep recall
 query reader to `DualMemoryStore.replay_recall_row(...)` and makes
 `bounded_replay_window_recall.v1` use read-only selector state. It does not add
 live-tick recall, every-token replay, raw replay text, or GPU-resident archival
-metadata.
+metadata. The follow-up cleanup also removes active compatibility telemetry for
+the deleted generic replay row reader and moves HF replay-query tensor
+materialization behind the same store-owned row; the runner no longer reads
+selected `slow_input_patterns` directly after bounded query-index selection.
 
 Focused replay quality:
 
-`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\read-only-recall-row-telemetry-retired.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
 
 Result: positive-pressure sleep recall passed with `1` query and mean best
 input-pattern distance `5.96046447753906e-08`. Runtime Truth recorded
 `query_row_surface=bounded_replay_recall_row.v1`, `query_row_read_count=1`,
 `query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
-`recall_selection_read_only=true`, `replay_entry_reader_used=false`,
+`recall_selection_read_only=true`,
+`query_row_reader=DualMemoryStore.replay_recall_row`,
 `mutates_runtime_state=false`, CPU archival tensors, no raw text payload, no
-hidden language reasoning, no live tick, and no every-token cadence.
+hidden language reasoning, no live tick, and no every-token cadence. HF replay
+query collection also uses the same read-only row reader and reports
+`direct_slow_memory_input_pattern_reads_retired=true`.
+
+HF runner smoke:
+
+`python -m marulho.training.memory_consolidation_runner --preset memory_consolidation_hf_smoke --output-dir ..\..\MARULHO_reports\bounded_replay_window_20260622\hf-query-row-reader-retired --no-plots --seed 20260622`
+
+Result: the memory-consolidation gate passed with Task-A reconstruction
+unchanged after consolidation (`0.010514`) and Task-B reconstruction
+`0.009812`. The bounded recall gate did not pass in this smoke
+(`mean_input_pattern_distance=Infinity`), so it is not a recall-quality
+promotion. It is row-boundary evidence: Task-A query collection read `1`
+store-owned replay row through `DualMemoryStore.replay_recall_row`, reported
+`direct_slow_memory_input_pattern_reads_retired=true`, and advanced no row
+state.
 
 No-profile hot-path runs:
 
@@ -5806,6 +5825,20 @@ kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060,
 and recorded zero graph/native/sequence failures. Velocity reported GPU-side
 contention (`max_gpu=26%`), so the two-run claim is same-band protection, not a
 new speed ceiling.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-row-reader-telemetry-retired-noprofile.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Telemetry-retirement rerun: `success=true`, `524288` tokens in `90.087405 s`
+at `5819.770 tokens/sec`, p95 tick `23.020 ms`,
+`train_compute=0.137724 ms/token`, `prepare_training=0.007469 ms/token`, and
+`finalize_total=0.007075 ms/token`. Prewarm took `353.534 s` and exhausted no
+budget. Runtime Truth kept route scoring bounded at `12/65536`, skipped
+`524288` graph consolidation lookups, cached `65526` transition rows, selected
+CUDA on the RTX 3060, ran `32767` native sequence loops with zero native loop
+fallback, and recorded only the expected initial text-burst fallback before the
+runtime was fully warm. Velocity sampled CPU max `40%` and GPU at the `20%`
+contention threshold, with RTX memory flat at `1934 MiB`; this is same-band
+live-tick protection evidence, not a new speed ceiling.
 
 ## Semantic Frontier Row-Reader Protection
 

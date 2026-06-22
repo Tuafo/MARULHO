@@ -182,7 +182,7 @@ Replay selection, rehearsal, and artifact-review cost checks.
 - Focused tests:
   `PYTHONPATH=src python -m pytest tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_recall_uses_bucket_routing_keys tests\test_memory_consolidation.py::MemoryConsolidationTests::test_hf_recall_evaluation_reports_bounded_anchor_window tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_rolls_back_harmful_replay_cycle tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_rejects_regression_even_when_no_updates_reported tests\test_memory_consolidation.py::MemoryConsolidationTests::test_reconstruction_guard_skips_repeated_rejected_selection tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bounded_replay_window_selection_scores_only_bucket_candidates tests\test_memory_consolidation.py::MemoryConsolidationTests::test_bucket_replay_selection_caps_candidate_window_before_scoring tests\test_memory_consolidation.py::MemoryConsolidationTests::test_unscoped_replay_selection_requires_diagnostic_opt_in tests\test_memory_consolidation.py::MemoryConsolidationTests::test_unscoped_random_replay_selection_requires_diagnostic_opt_in tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_uses_anchor_bucket_replay_window_report tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_without_anchors_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_anchor_zero_pressure_blocks_global_replay_mutation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_refreshes_tags_without_weight_commit tests\test_memory_consolidation.py::MemoryConsolidationTests::test_micro_sleep_without_anchors_blocks_global_maintenance_refresh tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_reanchors_prototypes_without_consolidation tests\test_memory_consolidation.py::MemoryConsolidationTests::test_repair_sleep_without_anchors_blocks_global_repair_mutation tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_replay_window_recall_report -q`
 - Replay text/SFA boundary tests:
-  `PYTHONPATH=src python -m pytest tests\test_sfa_correction.py::TestSampleForSFA::test_sample_can_use_bounded_candidate_indices tests\test_memory_consolidation.py::MemoryConsolidationTests::test_replay_entry_can_exclude_text_payload_for_sleep_replay tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_sfa_correction_samples_selected_replay_window tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report -q`
+  `PYTHONPATH=src python -m pytest tests\test_sfa_correction.py::TestSampleForSFA::test_sample_can_use_bounded_candidate_indices tests\test_memory_consolidation.py::MemoryConsolidationTests::test_sleep_repair_replay_row_excludes_text_payload tests\test_memory_consolidation.py::MemoryConsolidationTests::test_deep_sleep_sfa_correction_samples_selected_replay_window tests\test_checkpointing.py::CheckpointDevicePlacementTests::test_checkpoint_roundtrip_preserves_sleep_replay_selection_report -q`
 - Synthetic replay selector:
   `PYTHONPATH=src python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260617\synthetic-selection-candidate-repair-bounded-micro.json`
 - Synthetic replay text/SFA boundary:
@@ -2802,15 +2802,26 @@ path is `DualMemoryStore.replay_recall_row(...)` under
 
 Focused replay quality:
 
-`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-replay-read-only-recall-row.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
+`python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\read-only-recall-row-telemetry-retired.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`
 
 Result: positive-pressure sleep recall passed with `1` query, mean best
 input-pattern distance `5.96046447753906e-08`,
-`query_row_read_count=1`, `query_row_state_advance_count=0`,
+`query_row_reader=DualMemoryStore.replay_recall_row`, `query_row_read_count=1`,
+`query_row_state_advance_count=0`,
 `recall_selection_state_advance_count=0`, `read_only_replay_row=true`,
-`recall_selection_read_only=true`, `replay_entry_reader_used=false`, and
-`mutates_runtime_state=false`. Archival tensors and scoring stayed CPU-side;
-CUDA was not used for archival metadata.
+`recall_selection_read_only=true`, and `mutates_runtime_state=false`. HF replay
+query collection now uses the same row reader after bounded anchor-bucket
+selection and reports `direct_slow_memory_input_pattern_reads_retired=true`.
+Archival tensors and scoring stayed CPU-side; CUDA was not used for archival
+metadata.
+
+The HF smoke runner
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hf-query-row-reader-retired\summary.json`
+kept the memory-consolidation gate passing and proved the runner reads selected
+Task-A query tensors through `DualMemoryStore.replay_recall_row(...)`
+(`query_row_read_count=1`, zero row-state advances, direct runner archive reads
+retired). Its bounded recall gate remained false in that smoke, so the quality
+claim remains the synthetic positive-pressure recall report above.
 
 Hot-path protection:
 
@@ -2825,6 +2836,14 @@ at `12/65536`, cached `65526` transition rows, kept
 kept VRAM flat at `1963 MiB`, and recorded zero graph/native/sequence failures.
 The companion no-contention run measured `5872.559 tokens/sec`, so this is
 same-band protection and retired-path evidence, not a new speed ceiling.
+The telemetry-retirement no-profile rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-query-row-reader-telemetry-retired-noprofile.json`
+processed `524288` tokens in `90.087405 s` at `5819.770 tokens/sec`,
+`train_compute=0.137724 ms/token`, `prepare_training=0.007469 ms/token`, and
+`finalize_total=0.007075 ms/token`, with `353.534 s` prewarm, bounded
+`12/65536` route scoring, `524288` skipped graph consolidation lookups, zero
+native sequence-loop fallback, CUDA selected on the RTX 3060, and RTX memory
+flat at `1934 MiB`.
 
 ## Semantic Frontier Store-Owned Row Access
 
@@ -2842,7 +2861,7 @@ Source-bank row-reader benchmark:
 
 Result: `passed=true`; selected-index parity stayed `1.0`, raw text loaded
 only for `4` returned rows, `source_bank_row_read_count=196`
-(`192` scoring rows plus `4` text rows), `replay_entry_reader_used=false`,
+(`192` scoring rows plus `4` text rows),
 `direct_slow_memory_array_reads_retired=true`, `stc_state_advance=false`,
 CPU archival/score placement, `0.0 MiB` CUDA allocation/reservation delta, and
 mean latency improved from `958.681 ms` to `160.781 ms` (`5.963x`).

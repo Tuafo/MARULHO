@@ -376,11 +376,11 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
 
         self.assertEqual(row["surface"], "bounded_replay_recall_row.v1")
+        self.assertEqual(row["row_reader"], "DualMemoryStore.replay_recall_row")
         self.assertEqual(row["row_access_policy"], "explicit_selected_replay_index")
         self.assertTrue(row["read_only"])
         self.assertFalse(row["stc_state_advance"])
         self.assertFalse(row["stc_decay_applied"])
-        self.assertFalse(row["replay_entry_reader_used"])
         self.assertFalse(row["runs_live_tick"])
         self.assertFalse(row["runs_every_token"])
         self.assertFalse(row["global_candidate_scan"])
@@ -1462,6 +1462,17 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertEqual(query_collection["candidate_window_limit"], 4)
         self.assertEqual(query_collection["query_count"], 1)
+        self.assertEqual(
+            query_collection["query_row_reader"],
+            "DualMemoryStore.replay_recall_row",
+        )
+        self.assertTrue(query_collection["query_row_reader_owned_by_store"])
+        self.assertEqual(query_collection["query_row_read_count"], 1)
+        self.assertEqual(query_collection["query_row_state_advance_count"], 0)
+        self.assertTrue(query_collection["read_only_replay_row"])
+        self.assertTrue(
+            query_collection["direct_slow_memory_input_pattern_reads_retired"]
+        )
         self.assertEqual(report["surface"], "bounded_replay_window_hf_recall.v1")
         self.assertEqual(
             report["candidate_bucket_ids"],
@@ -1553,6 +1564,16 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(source_window["anchor_source_full_scan"])
         self.assertFalse(source_window["global_candidate_scan"])
         self.assertEqual(query_collection["candidate_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(
+            query_collection["query_row_reader"],
+            "DualMemoryStore.replay_recall_row",
+        )
+        self.assertTrue(query_collection["query_row_reader_owned_by_store"])
+        self.assertEqual(query_collection["query_row_read_count"], len(queries))
+        self.assertEqual(query_collection["query_row_state_advance_count"], 0)
+        self.assertTrue(
+            query_collection["direct_slow_memory_input_pattern_reads_retired"]
+        )
         self.assertEqual(query_collection["candidate_bucket_count"], 16)
         self.assertEqual(query_collection["candidate_index_available_count"], 16)
         self.assertEqual(query_collection["candidate_window_limit"], 4)
@@ -2130,7 +2151,6 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(recall_report["recall_selection_read_only"])
         self.assertTrue(recall_report["read_only_replay_row"])
         self.assertFalse(recall_report["stc_state_advance"])
-        self.assertFalse(recall_report["replay_entry_reader_used"])
         self.assertEqual(
             report["sleep_replay_associative_recall_query_row_read_count"],
             recall_report["query_count"],
@@ -2152,9 +2172,6 @@ class MemoryConsolidationTests(unittest.TestCase):
             report["sleep_replay_associative_recall_read_only_replay_row"]
         )
         self.assertFalse(report["sleep_replay_associative_recall_stc_state_advance"])
-        self.assertFalse(
-            report["sleep_replay_associative_recall_replay_entry_reader_used"]
-        )
         self.assertTrue(report["sleep_replay_associative_recall_quality_pass"])
         self.assertLessEqual(
             report["sleep_replay_associative_recall_mean_best_input_distance"],
@@ -2225,7 +2242,6 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(report["recall_selection_read_only"])
         self.assertTrue(report["read_only_replay_row"])
         self.assertFalse(report["stc_state_advance"])
-        self.assertFalse(report["replay_entry_reader_used"])
         self.assertFalse(report["mutates_runtime_state"])
         self.assertFalse(report["applies_plasticity"])
         self.assertEqual(store._state_token, state_token_before)
