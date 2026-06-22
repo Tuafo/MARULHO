@@ -5200,12 +5200,43 @@ class MarulhoTrainer:
             require_bucket=True,
             scope="recent_anchor_capture_slow_path",
         )
+        row_reader = getattr(self.model.memory_store, "recent_anchor_capture_row", None)
+        if not callable(row_reader):
+            self.model.memory_store.last_anchor_capture_report = {
+                **dict(window_report),
+                "surface": "bounded_recent_anchor_capture.v1",
+                "status": "empty",
+                "scope": "recent_anchor_capture_slow_path",
+                "captured_entry_count": 0,
+                "captured_anchor_count": 0,
+                "candidate_bucket_ids": [],
+                "anchor_row_surface": "bounded_recent_anchor_capture_row.v1",
+                "anchor_row_reader_owned_by_store": False,
+                "anchor_row_read_count": 0,
+                "invalid_anchor_row_count": 0,
+                "direct_slow_memory_bucket_reads_retired": True,
+                "strength": float(strength),
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "fallback_reason": "memory_store_missing_bounded_anchor_row_reader",
+            }
+            return 0
         captured = 0
         candidate_buckets: set[int] = set()
+        anchor_row_read_count = 0
+        invalid_anchor_row_count = 0
         for idx in window_report.get("candidate_indices", []):
             idx = int(idx)
-            bucket_id = self.model.memory_store.slow_bucket_ids[idx]
+            try:
+                anchor_row = row_reader(idx, current_token=int(self.token_count))
+            except (TypeError, ValueError, IndexError, KeyError):
+                invalid_anchor_row_count += 1
+                continue
+            anchor_row = dict(anchor_row)
+            anchor_row_read_count += 1
+            bucket_id = anchor_row.get("bucket_id")
             if bucket_id is None:
+                invalid_anchor_row_count += 1
                 continue
             bucket = int(bucket_id)
             candidate_buckets.add(bucket)
@@ -5228,6 +5259,14 @@ class MarulhoTrainer:
             "captured_entry_count": int(captured),
             "captured_anchor_count": int(anchor_count),
             "candidate_bucket_ids": sorted(candidate_buckets),
+            "anchor_row_surface": "bounded_recent_anchor_capture_row.v1",
+            "anchor_row_reader_owned_by_store": True,
+            "anchor_row_read_count": int(anchor_row_read_count),
+            "invalid_anchor_row_count": int(invalid_anchor_row_count),
+            "direct_slow_memory_bucket_reads_retired": True,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "runs_every_token": False,
             "strength": float(strength),
             "mutates_runtime_state": bool(captured),
             "applies_plasticity": False,

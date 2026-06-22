@@ -2882,3 +2882,38 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native/sequence failures. Velocity
 reported no observed contention, CPU max `44%`, GPU max `13%`, GPU memory
 utilization max `18%`, and RTX memory flat at `1993 MiB`.
+
+## Recent Anchor-Capture Store-Owned Row Access
+
+Recent anchor capture now reads selected bucket rows through
+`DualMemoryStore.recent_anchor_capture_row(...)` after
+`DualMemoryStore.collect_recent_entry_indices(...)` selects the bounded recent
+window. `MarulhoTrainer.capture_recent_memory_anchors(...)` no longer reads
+`slow_bucket_ids` directly.
+
+Anchor capture benchmark:
+
+`python -m marulho.evaluation.sleep_replay_anchor_source_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\recent-anchor-capture-store-owned-row.json --anchor-count 64 --column-latent-dim 32 --replay-steps 8 --candidate-pool 8 --iterations 16 --seed 20260622`
+
+Result: `status=passed`; bounded anchor source-window quality passed and
+anchor capture reported `anchor_row_surface=bounded_recent_anchor_capture_row.v1`,
+`anchor_row_reader_owned_by_store=true`, `anchor_row_read_count=64`, zero
+invalid anchor rows, `direct_slow_memory_bucket_reads_retired=true`, CPU
+archival placement, no global scan, no live/every-token work, no raw replay
+text, no hidden language reasoning, `0.0 MiB` CUDA allocation delta, and mean
+capture latency `1.743 ms` with p95 `2.071 ms`.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-recent-anchor-capture-row.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `88.618707 s` at
+`5916.223 tokens/sec`, p95 tick `21.992 ms`,
+`train_compute=0.135626 ms/token`, `prepare_training=0.007276 ms/token`, and
+`finalize_total=0.006956 ms/token`. Prewarm took `370.179 s` and reached
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native/sequence failures. Velocity
+reported no observed contention, CPU max `37%`, GPU max `16%`, GPU memory
+utilization max `18%`, and RTX memory `1997->1998 MiB`.

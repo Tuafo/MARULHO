@@ -41,6 +41,7 @@ related_benchmarks: []
 - [Readout Ledger Production All Family Normalizer](readout-ledger-production-all-family-normalizer.md)
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Readout Replay Priority Report Dropping Path](readout-replay-priority-report-dropping-path.md)
+- [Recent Anchor Capture Direct Bucket Reads](recent-anchor-capture-direct-bucket-reads.md)
 - [Replay Adapter Experiment Stack](replay-adapter-experiment-stack.md)
 - [Replay Dataset Candidates Preview](replay-dataset-candidates-preview.md)
 - [Replay Dataset History Wrapper](replay-dataset-history-wrapper.md)

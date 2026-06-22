@@ -2354,6 +2354,38 @@ class DualMemoryStore:
             )
         return row
 
+    def recent_anchor_capture_row(
+        self,
+        index: int,
+        current_token: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Read one bounded recent-memory row for anchor capture."""
+
+        idx = int(index)
+        if idx < 0 or idx >= len(self.slow_buffer):
+            raise IndexError(f"Memory index out of range: {index}")
+
+        bucket_id = self._sequence_item(self.slow_bucket_ids, idx)
+        return {
+            "surface": "bounded_recent_anchor_capture_row.v1",
+            "status": "loaded" if bucket_id is not None else "missing_bucket",
+            "memory_index": int(idx),
+            "row_access_policy": "explicit_recent_anchor_capture_index",
+            "read_only": True,
+            "current_token": int(self._state_token if current_token is None else current_token),
+            "bucket_id": None if bucket_id is None else int(bucket_id),
+            "has_bucket": bucket_id is not None,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "raw_text_payload_loaded": False,
+            "language_reasoning": False,
+            "mutates_runtime_state": False,
+            "applies_plasticity": False,
+            "archival_storage_device": "cpu",
+        }
+
     @staticmethod
     def _sequence_item(
         values: Sequence[Any],

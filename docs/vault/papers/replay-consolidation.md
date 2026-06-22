@@ -2624,3 +2624,26 @@ check
 `..\..\MARULHO_reports\bounded_replay_window_20260622\semantic-row-reader-replay-quality.json`
 kept sleep recall passing with `1` query and best input-pattern distance
 `5.96046447753906e-08`.
+
+## Recent Anchor-Capture Row Boundary
+
+Selected replay anchors now follow the same boundary after recent-window
+selection. Synaptic tagging/capture and sparse replay support tagging useful
+recent traces and replaying selected windows; they do not require trainer code
+to read archive bucket arrays directly.
+
+`capture_recent_memory_anchors(...)` now asks
+`DualMemoryStore.recent_anchor_capture_row(...)` for selected bucket rows under
+`bounded_recent_anchor_capture_row.v1`. The trainer reports
+`anchor_row_reader_owned_by_store=true`,
+`direct_slow_memory_bucket_reads_retired=true`, no raw replay text, no hidden
+language reasoning, no live tick, and no every-token work.
+
+The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260622\recent-anchor-capture-store-owned-row.json`
+passed with `64` captured rows, `anchor_row_read_count=64`, zero invalid rows,
+CPU archival placement, `0.0 MiB` CUDA allocation delta, and mean capture
+latency `1.743 ms` with p95 `2.071 ms`. The paired hot-path report processed
+`524288` tokens at `5916.223 tokens/sec`, p95 tick `21.992 ms`, bounded
+`12/65536` route rows, no observed contention, and zero graph/native/sequence
+failures.

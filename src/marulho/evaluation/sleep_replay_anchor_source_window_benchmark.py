@@ -40,7 +40,7 @@ def _pattern(config: MarulhoConfig, index: int) -> torch.Tensor:
 
 def _build_trainer(*, anchor_count: int, column_latent_dim: int) -> MarulhoTrainer:
     cfg = MarulhoConfig(
-        n_columns=32,
+        n_columns=max(32, int(anchor_count)),
         column_latent_dim=max(1, int(column_latent_dim)),
         bootstrap_tokens=0,
         memory_capacity=max(1, int(anchor_count)),
@@ -83,11 +83,16 @@ def _selected_bucket_ids(
 ) -> list[int]:
     bucket_ids: list[int] = []
     store = trainer.model.memory_store
+    row_reader = getattr(store, "recent_anchor_capture_row", None)
     for raw_index in selection_report.get("selected_indices", []):
         index = int(raw_index)
-        if index < 0 or index >= len(store.slow_bucket_ids):
+        if not callable(row_reader):
             continue
-        bucket_id = store.slow_bucket_ids[index]
+        try:
+            row = row_reader(index, current_token=int(trainer.token_count))
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+        bucket_id = row.get("bucket_id") if isinstance(row, dict) else None
         if bucket_id is not None:
             bucket_ids.append(int(bucket_id))
     return bucket_ids
@@ -132,6 +137,26 @@ def _time_bounded_source(
     return list(source_ids or []), dict(source_report), _latency_summary(latencies)
 
 
+def _time_anchor_capture(
+    trainer: MarulhoTrainer,
+    *,
+    window_tokens: int,
+    strength: float,
+    iterations: int,
+) -> tuple[dict[str, Any], dict[str, float]]:
+    report: dict[str, Any] = {}
+    latencies: list[float] = []
+    for _iteration in range(max(1, int(iterations))):
+        started = time.perf_counter()
+        trainer.capture_recent_memory_anchors(
+            window_tokens=int(window_tokens),
+            strength=float(strength),
+        )
+        latencies.append((time.perf_counter() - started) * 1000.0)
+        report = dict(trainer.model.memory_store.last_anchor_capture_report)
+    return report, _latency_summary(latencies)
+
+
 def _time_sleep_selection(
     trainer: MarulhoTrainer,
     *,
@@ -173,6 +198,17 @@ def run_benchmark(
     trainer = _build_trainer(
         anchor_count=anchor_count,
         column_latent_dim=column_latent_dim,
+    )
+    capture_trainer = _build_trainer(
+        anchor_count=anchor_count,
+        column_latent_dim=column_latent_dim,
+    )
+    capture_trainer.column_anchors.clear()
+    capture_report, capture_latency = _time_anchor_capture(
+        capture_trainer,
+        window_tokens=int(anchor_count),
+        strength=2.0,
+        iterations=iterations,
     )
     legacy_ids, legacy_source_latency = _time_legacy_source(
         trainer,
@@ -237,10 +273,23 @@ def run_benchmark(
         and not bool(bounded_selection_report.get("global_score_scan"))
         and not bool(bounded_selection_report.get("global_candidate_scan"))
     )
+    capture_pass = bool(
+        capture_report.get("anchor_row_surface") == "bounded_recent_anchor_capture_row.v1"
+        and bool(capture_report.get("anchor_row_reader_owned_by_store"))
+        and int(capture_report.get("anchor_row_read_count", 0) or 0) > 0
+        and int(capture_report.get("invalid_anchor_row_count", 0) or 0) == 0
+        and bool(capture_report.get("direct_slow_memory_bucket_reads_retired"))
+        and not bool(capture_report.get("global_score_scan"))
+        and not bool(capture_report.get("global_candidate_scan"))
+        and not bool(capture_report.get("runs_live_tick"))
+        and not bool(capture_report.get("runs_every_token"))
+        and not bool(capture_report.get("raw_text_payload_loaded"))
+        and not bool(capture_report.get("language_reasoning"))
+    )
 
     return {
         "surface": "bounded_sleep_replay_anchor_source_window_benchmark.v1",
-        "status": "passed" if bounded_pass else "failed",
+        "status": "passed" if bounded_pass and capture_pass else "failed",
         "parameters": {
             "anchor_count": int(anchor_count),
             "column_latent_dim": int(column_latent_dim),
@@ -274,6 +323,24 @@ def run_benchmark(
             "selection_report": bounded_selection_report,
             "source_speedup_vs_retired_mean": source_speedup,
         },
+        "bounded_recent_anchor_capture": {
+            "capture_report": capture_report,
+            "capture_latency": capture_latency,
+            "capture_gate_pass": capture_pass,
+            "anchor_row_surface": capture_report.get("anchor_row_surface"),
+            "anchor_row_reader_owned_by_store": bool(
+                capture_report.get("anchor_row_reader_owned_by_store")
+            ),
+            "anchor_row_read_count": int(
+                capture_report.get("anchor_row_read_count", 0) or 0
+            ),
+            "invalid_anchor_row_count": int(
+                capture_report.get("invalid_anchor_row_count", 0) or 0
+            ),
+            "direct_slow_memory_bucket_reads_retired": bool(
+                capture_report.get("direct_slow_memory_bucket_reads_retired")
+            ),
+        },
         "quality": {
             "metric": "newest_anchor_window_hit_rate_and_positive_sleep_selection",
             "expected_recent_bucket_ids": expected_recent_buckets,
@@ -282,7 +349,8 @@ def run_benchmark(
             "bounded_selected_count": int(
                 bounded_selection_report.get("selected_count", 0) or 0
             ),
-            "pass": bounded_pass,
+            "anchor_capture_pass": capture_pass,
+            "pass": bool(bounded_pass and capture_pass),
         },
         "device_placement": {
             "archival_storage_device": "cpu",

@@ -4,6 +4,24 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Recent anchor-capture row note, June 2026: selected replay anchors may be
+  chosen from a bounded recent window, but sparse replay and synaptic
+  tagging/capture do not justify trainer code reading `slow_bucket_ids`
+  directly after selection. `capture_recent_memory_anchors(...)` now reads
+  anchor buckets through `DualMemoryStore.recent_anchor_capture_row(...)` under
+  `bounded_recent_anchor_capture_row.v1`; the production trainer no longer
+  indexes `slow_bucket_ids` for anchor capture. The external report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\recent-anchor-capture-store-owned-row.json`
+  passed with `64` captured rows, `anchor_row_read_count=64`, zero invalid
+  anchor rows, CPU archival placement, no raw replay text, no hidden language
+  reasoning, no live tick, no every-token work, no global scan, `0.0 MiB` CUDA
+  allocation delta, and mean capture latency `1.743 ms`. The paired hot-path
+  report
+  `..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-recent-anchor-capture-row.json`
+  processed `524288` tokens at `5916.223 tokens/sec` with p95 tick
+  `21.992 ms`, `train_compute=0.135626 ms/token`, bounded `12/65536` route
+  rows, zero graph/native/sequence failures, no observed contention, CUDA on
+  the RTX 3060, and RTX memory `1997->1998 MiB`.
 - Semantic frontier store-owned row note, June 2026: modern Hopfield-style
   recall may score a local window, but complementary learning systems,
   continual replay, synaptic tagging/capture, and sparse replay do not justify

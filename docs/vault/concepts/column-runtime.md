@@ -2053,3 +2053,22 @@ bounded-scan, quality, latency, and live-tick gates with `64` row reads at
 mutating replay-entry reader, no STC advance, no live tick, and CPU archival
 placement. The paired long hot-path check for this exact tree is recorded in
 the hot-path benchmark note when complete.
+
+## Recent Anchor-Capture Row Boundary
+
+Recent anchor capture now has one maintained row path after the recent source
+window is selected. `DualMemoryStore.collect_recent_entry_indices(...)` owns
+the bounded source window, and `DualMemoryStore.recent_anchor_capture_row(...)`
+owns selected bucket row reads under `bounded_recent_anchor_capture_row.v1`.
+`MarulhoTrainer.capture_recent_memory_anchors(...)` no longer indexes
+`slow_bucket_ids` directly.
+
+This is explicit replay setup work, not live column execution. The benchmark
+report at
+`..\..\MARULHO_reports\bounded_replay_window_20260622\recent-anchor-capture-store-owned-row.json`
+captured `64` anchor rows with zero invalid rows, CPU archival placement, no
+global scan, no live/every-token work, no raw text, no language reasoning, and
+mean capture latency `1.743 ms`. The paired long hot-path report stayed in the
+same band at `5916.223 tokens/sec` with p95 tick `21.992 ms`, bounded
+`12/65536` route rows, no observed contention, and zero graph/native/sequence
+failures.
