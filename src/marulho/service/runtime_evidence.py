@@ -416,34 +416,6 @@ class RuntimeEvidenceReporter:
         with self._lock:
             return self._replay_dataset_preview_payload_locked(limit=limit, endpoint=endpoint)
 
-    def replay_dataset_history(self, *, limit: int = DEFAULT_REPLAY_SAMPLE_HISTORY) -> dict[str, Any]:
-        with self._lock:
-            count = max(1, min(DEFAULT_REPLAY_SAMPLE_HISTORY, int(limit)))
-            before = self._replay_sample_state_counts_locked()
-            history = [deepcopy(item) for item in islice(self._replay_sample_history, count)]
-            after = self._replay_sample_state_counts_locked()
-            return cast(
-                dict[str, Any],
-                self._runtime_trace_export_safe_value(
-                    {
-                        "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
-                        "export_kind": "terminus_replay_dataset_history_preview",
-                        "training_role": REPLAY_DATASET_TRAINING_ROLE,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "endpoint": "/terminus/replay-dataset/history",
-                        "source_endpoint": "/terminus/replay-sample/history",
-                        "limit": count,
-                        "max_limit": DEFAULT_REPLAY_SAMPLE_HISTORY,
-                        "count": int(len(self._replay_sample_history)),
-                        "history": history,
-                        "replay_sample_summary": self._replay_sample_summary_locked(),
-                        "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
-                        "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
-                    },
-                    list_item_limit=max(_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS, count),
-                ),
-            )
-
     def _normalize_runtime_episode_trace(self, item: Any) -> dict[str, Any] | None:
         if not isinstance(item, Mapping):
             return None

@@ -23,6 +23,7 @@ from marulho.training.memory_consolidation_runner import (
 from marulho.training.model import MarulhoModel
 from marulho.training.replay_anchor_window import (
     SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
+    sleep_replay_anchor_bucket_source_window,
 )
 from marulho.training.trainer import MarulhoTrainer
 
@@ -64,6 +65,14 @@ class _IndexOnlyBucketSequence:
     def __reversed__(self):  # type: ignore[no-untyped-def]
         self.reversed_attempts += 1
         raise AssertionError("bucket index reverse materialization is not allowed")
+
+
+class _NonReversibleAnchorMapping(dict):
+    def __reversed__(self):  # type: ignore[no-untyped-def]
+        raise TypeError("anchor source does not expose reverse recency iteration")
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        raise AssertionError("anchor source iteration is not allowed")
 
 
 class MemoryConsolidationTests(unittest.TestCase):
@@ -1507,6 +1516,50 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(report["anchor_source_full_scan"])
         self.assertFalse(report["sleep_replay_text_payload_loaded"])
         self.assertFalse(report["sleep_replay_language_reasoning"])
+
+    def test_sleep_replay_anchor_source_blocks_non_reversible_mapping_without_materializing(self) -> None:
+        set_seed(7)
+        cfg = MarulhoConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.column_anchors = _NonReversibleAnchorMapping(
+            {
+                bucket_id: {"captured_at_token": bucket_id}
+                for bucket_id in range(32)
+            }
+        )
+
+        candidate_bucket_ids, source_window = sleep_replay_anchor_bucket_source_window(
+            trainer,
+            mode="deep",
+        )
+
+        self.assertEqual(candidate_bucket_ids, [])
+        self.assertEqual(
+            source_window["surface"],
+            "bounded_sleep_replay_anchor_bucket_source_window.v1",
+        )
+        self.assertEqual(source_window["status"], "blocked")
+        self.assertEqual(
+            source_window["fallback_reason"],
+            "non_reversible_anchor_bucket_source",
+        )
+        self.assertEqual(source_window["anchor_bucket_source_total_count"], 32)
+        self.assertEqual(source_window["anchor_bucket_window_count"], 0)
+        self.assertEqual(source_window["anchor_bucket_source_read_count"], 0)
+        self.assertEqual(source_window["anchor_bucket_source_materialized_count"], 0)
+        self.assertFalse(source_window["anchor_source_full_scan"])
+        self.assertTrue(source_window["non_reversible_anchor_source_blocked"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertFalse(source_window["runs_every_token"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["gpu_resident_archival_metadata"])
 
     def test_reconstruction_guard_rolls_back_harmful_replay_cycle(self) -> None:
         set_seed(7)

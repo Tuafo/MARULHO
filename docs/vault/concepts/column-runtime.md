@@ -1342,6 +1342,18 @@ graph/native sequence failures, and RTX 3060 memory `1615->1614 MiB`. GPU
 utilization touched the `20%` contention threshold, so this is protection
 evidence and all-anchor source retirement, not a speed promotion.
 
+The shared anchor helper now also fails closed for non-reversible anchor
+sources. The previous fallback materialized `list(anchors)` to recover a tail
+window, which kept a broad retained-anchor source path alive. Current
+`bounded_sleep_replay_anchor_bucket_source_window.v1` reports
+`status=blocked`, `fallback_reason=non_reversible_anchor_bucket_source`,
+`anchor_bucket_source_read_count=0`, `anchor_bucket_source_materialized_count=0`,
+and `anchor_source_full_scan=false` when reverse-recency iteration is absent.
+`reports/bounded_replay_window_20260622/sleep-replay-anchor-nonreversible-fallback-retired.json`
+kept the normal dict-backed path at `16/8192` anchor reads, `0` materialized
+entries, `1.0` newest-anchor hit rate, CPU placement, and `0.0 MiB` CUDA
+delta.
+
 The replay-adapter experiment stack is no longer an active column/runtime or
 service report surface. Dry-run approval, dry-run plan generation,
 metadata-only adapter output, experimental promotion gate, and
@@ -1624,6 +1636,16 @@ placement and no live-tick/every-token work. The paired `524288`-token run
 stayed in the maintained band at `6131.415 tokens/sec`, p95 `20.720 ms`,
 `train_compute=0.132230 ms/token`, bounded `12/65536` route rows, no observed
 contention, and zero graph/native/sequence failures.
+
+The dataset-history wrapper is retired as well. Replay-sample history now has
+one public source, `/terminus/replay-sample/history`; dataset preview and bundle
+remain the only dataset/export routes. The service benchmark
+`reports/bounded_replay_window_20260622/service-benchmark-replay-dataset-history-retired.json`
+shows `replay_dataset_history` and `replay_dataset_history_summary` absent,
+slow-path endpoint count `5`, and hot-path budget passing. Replay-plan,
+runtime-trace export, and replay-dataset preview response schemas now expose
+their computed `source_window` reports so public HTTP responses carry the same
+bounded Runtime Truth evidence as the internal payloads.
 
 The focused report preserved `50/50` selected target IDs and replay links
 against a diagnostic full-retained walk while reducing replay-sample and

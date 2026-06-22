@@ -1923,6 +1923,33 @@ CUDA available but unused. The paired `524288`-token protection run stayed in
 band at `6131.415 tokens/sec` with no observed contention and zero graph/native
 sequence failures.
 
+The replay-dataset history wrapper is also retired. It returned
+`/terminus/replay-sample/history` records under dataset naming, so it preserved
+a duplicate replay-history surface without adding a selected dataset window.
+Service benchmarks now time only replay plan, replay-sample history, trace
+export, dataset preview, and dataset bundle as replay/export slow paths. The
+report
+`reports/bounded_replay_window_20260622/service-benchmark-replay-dataset-history-retired.json`
+shows `replay_dataset_history` and `replay_dataset_history_summary` absent,
+slow-path endpoint count `5`, hot-path budget passing, and preview/bundle
+summaries intact. Replay-plan, runtime-trace export, and replay-dataset preview
+response models now expose their computed `source_window` reports, making the
+bounded source evidence public instead of dropping it at the schema boundary.
+
+The same selected-window rule now removes the non-reversible anchor-source
+fallback. `replay_anchor_window.py` no longer materializes `list(anchors)` when
+an anchor source lacks reverse-recency iteration; it fails closed with
+`fallback_reason=non_reversible_anchor_bucket_source`,
+`anchor_bucket_source_read_count=0`, and
+`anchor_bucket_source_materialized_count=0`. The benchmark
+`reports/bounded_replay_window_20260622/sleep-replay-anchor-nonreversible-fallback-retired.json`
+passed over `8192` anchors with `16` bounded reads, `0` materialized entries,
+`1.0` newest-anchor hit rate, CPU archival/source placement, and `0.0 MiB`
+CUDA delta. The paired long run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-dataset-history-anchor-retired.json`
+stayed in band at `6151.826 tokens/sec`, bounded `12/65536` route rows,
+`65526` cached transition rows, and zero graph/native sequence failures.
+
 The runtime trace export and replay-sample summary follow-up applies the same
 rule to the remaining status/export read path. Trace export now reports
 `bounded_runtime_trace_export_source_window.v1` before endpoint filtering or

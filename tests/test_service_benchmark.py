@@ -370,25 +370,6 @@ def _fake_service_app() -> FastAPI:
             "empty_reason": "no_items_survived_bundle_packaging_gate",
         }
 
-    @app.get("/terminus/replay-dataset/history")
-    def replay_dataset_history(limit: int = 3) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "export_kind": "terminus_replay_dataset_history_preview",
-            "training_role": "replay_dataset_preview_only_not_training_no_mutation",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "limit": limit,
-            "count": 1,
-            "source_endpoint": "/terminus/replay-sample/history",
-            "history": [],
-            "replay_sample_summary": {
-                "endpoint": "/terminus/replay-sample",
-                "count": 1,
-                "latest_history_item": {"created_at": "2026-01-01T00:00:01+00:00"},
-            },
-            "safety_flags": {"preview_only": True, "external_calls_made": False},
-        }
-
     return app
 
 
@@ -926,7 +907,6 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             "export",
             "replay_dataset_preview",
             "replay_dataset_bundle",
-            "replay_dataset_history",
         ]
         for record in result["endpoint_timings"]:
             assert record["status_code"] == 200
@@ -975,7 +955,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["endpoints_by_name"]["replay_sample_history"]["path"] == "/terminus/replay-sample/history"
         assert result["endpoints_by_name"]["replay_dataset_preview"]["path"] == "/terminus/replay-dataset/preview"
         assert result["endpoints_by_name"]["replay_dataset_bundle"]["path"] == "/terminus/replay-dataset/bundle"
-        assert result["endpoints_by_name"]["replay_dataset_history"]["path"] == "/terminus/replay-dataset/history"
+        assert "replay_dataset_history" not in result["endpoints_by_name"]
         assert result["replay_plan_summary"]["endpoint"] == "/terminus/replay-plan"
         assert result["replay_plan_summary"]["top_candidate"]["suggested_consolidation_action"] == "review_contradiction"
         assert result["replay_sample_summary"]["endpoint"] == "/terminus/replay-sample"
@@ -1004,8 +984,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["requires_separate_training_approval"] is True
         assert "replay_dataset_candidates_summary" not in result
-        assert result["replay_dataset_history_summary"]["source_endpoint"] == "/terminus/replay-sample/history"
-        assert result["replay_dataset_history_summary"]["latest_history_timestamp"] == "2026-01-01T00:00:01+00:00"
+        assert "replay_dataset_history_summary" not in result
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -1048,7 +1027,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["export"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_preview"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_bundle"]["status_code"] == 200
-        assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
+        assert "replay_dataset_history" not in result["endpoints_by_name"]
         metabolism = result["endpoint_metabolism_summary"]
         assert metabolism["setup"]["endpoint_names"] == ["terminus_configure", "terminus_tick"]
         assert metabolism["setup"]["success"] is True
@@ -1057,7 +1036,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert metabolism["hot_path"]["success"] is True
         assert metabolism["hot_path"]["latency_ms_total"] <= result["total_latency_ms"]
         assert metabolism["hot_path_budget"]["within_budget"] is True
-        assert metabolism["slow_path"]["count"] == 6
+        assert metabolism["slow_path"]["count"] == 5
         assert metabolism["semantics"]["setup_note"].startswith("Configuration and manual tick")
         assert metabolism["semantics"]["slow_path_note"].startswith("Replay, export, bundle")
         configured_source = result["configured_source_summary"]
@@ -1118,7 +1097,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert "replay_dataset_candidates_summary" not in result
-        assert result["replay_dataset_history_summary"]["count"] >= 0
+        assert "replay_dataset_history_summary" not in result
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

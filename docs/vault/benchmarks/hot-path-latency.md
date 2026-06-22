@@ -4859,6 +4859,31 @@ duplicate `/terminus/replay-dataset/candidates` path; the replacement candidate
 surface remains `/terminus/replay-plan`, while dataset preview/bundle carry
 bounded source-window evidence.
 
+Replay-dataset history wrapper and non-reversible anchor fallback retirement
+protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-replay-dataset-history-anchor-retired.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `85.224783 s`,
+`6151.826 tokens/sec`, prewarm `303628.778 ms`,
+`tick_duration_ms.p95=20.696`, `train_compute=0.132211 ms/token`,
+`prepare_training=0.006524 ms/token`, and
+`finalize_total=0.006284 ms/token`. Runtime Truth kept route scoring bounded
+at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, and recorded
+zero graph/native/sequence failures. Velocity sampled borderline GPU contention
+at the threshold (`cpu max=28%`, `gpu max=20%`, GPU memory utilization max
+`22%`), so this is same-band protection evidence, not a new speed ceiling. RTX
+3060 memory moved `1766->1769 MiB`.
+
+The paired service endpoint report
+`reports/bounded_replay_window_20260622/service-benchmark-replay-dataset-history-retired.json`
+keeps the hot-path budget passing (`p95=340.668 ms`, total `664.890 ms`) and
+shows the retired `replay_dataset_history` endpoint and
+`replay_dataset_history_summary` absent. Slow-path endpoint count is now `5`:
+replay plan, replay-sample history, trace export, dataset preview, and dataset
+bundle.
+
 Long protection run:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-replay-dataset-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 32 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.02`

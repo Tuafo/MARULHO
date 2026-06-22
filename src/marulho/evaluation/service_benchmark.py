@@ -40,7 +40,6 @@ SLOW_PATH_ENDPOINTS = frozenset(
         "export",
         "replay_dataset_preview",
         "replay_dataset_bundle",
-        "replay_dataset_history",
     }
 )
 HOT_PATH_P95_BUDGET_MS = 1000.0
@@ -588,22 +587,6 @@ def _endpoint_metabolism_summary(endpoint_timings: list[dict[str, Any]]) -> dict
     return summary
 
 
-def _latest_replay_dataset_history_timestamp(history_body: Any) -> str | None:
-    if not isinstance(history_body, dict):
-        return None
-    history = history_body.get("history")
-    if isinstance(history, list):
-        for item in history:
-            if isinstance(item, dict) and item.get("created_at"):
-                return str(item["created_at"])
-    replay_sample_summary = history_body.get("replay_sample_summary")
-    if isinstance(replay_sample_summary, dict):
-        latest = replay_sample_summary.get("latest_history_item")
-        if isinstance(latest, dict) and latest.get("created_at"):
-            return str(latest["created_at"])
-    return None
-
-
 def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
     if not isinstance(body, dict):
         return None
@@ -1002,12 +985,6 @@ def benchmark_service_app(
                     "seed": 17,
                 },
             },
-            {
-                "name": "replay_dataset_history",
-                "method": "GET",
-                "path": "/terminus/replay-dataset/history",
-                "params": {"limit": int(export_limit)},
-            },
         )
         for request in requests:
             record, body = _measure_endpoint(client, **request)
@@ -1084,11 +1061,6 @@ def benchmark_service_app(
             "latest_export_timestamp",
             replay_dataset_body.get("created_at"),
         )
-        latest_history_timestamp = _latest_replay_dataset_history_timestamp(
-            response_bodies.get("replay_dataset_history")
-        )
-        if latest_history_timestamp is not None:
-            replay_dataset_summary["latest_history_timestamp"] = latest_history_timestamp
 
     replay_dataset_bundle_summary: dict[str, Any] | None = None
     replay_dataset_bundle_body = response_bodies.get("replay_dataset_bundle")
@@ -1116,29 +1088,6 @@ def benchmark_service_app(
             )
             if key in replay_dataset_bundle_body
         }
-
-    replay_dataset_history_summary: dict[str, Any] | None = None
-    replay_dataset_history_body = response_bodies.get("replay_dataset_history")
-    if isinstance(replay_dataset_history_body, dict):
-        replay_dataset_history_summary = {
-            key: replay_dataset_history_body.get(key)
-            for key in (
-                "export_kind",
-                "schema_version",
-                "training_role",
-                "created_at",
-                "endpoint",
-                "limit",
-                "count",
-                "source_endpoint",
-                "replay_sample_summary",
-                "safety_flags",
-            )
-            if key in replay_dataset_history_body
-        }
-        replay_dataset_history_summary["latest_history_timestamp"] = _latest_replay_dataset_history_timestamp(
-            replay_dataset_history_body
-        )
 
     policy_actuator_summary: dict[str, Any] | None = None
     policy_body = response_bodies.get("policy_actuator")
@@ -1365,7 +1314,6 @@ def benchmark_service_app(
         "trace_export_summary": export_summary,
         "replay_dataset_summary": replay_dataset_summary,
         "replay_dataset_bundle_summary": replay_dataset_bundle_summary,
-        "replay_dataset_history_summary": replay_dataset_history_summary,
     }
     result["output_path"] = str(Path(output_path))
     _write_json(output_path, result)

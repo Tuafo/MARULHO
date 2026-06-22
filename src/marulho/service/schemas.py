@@ -1952,6 +1952,7 @@ class ReplayPlanResponse(BaseModel):
     priority_rules_version: str
     priority_weights: dict[str, float]
     plan_reason_codes: list[str]
+    source_window: dict[str, Any] | None = None
     candidates: list[ReplayCandidateResponse]
 
 
@@ -2032,6 +2033,7 @@ class RuntimeTraceExportResponse(BaseModel):
     replay_plan_summary: dict[str, Any] | None = None
     replay_sample_summary: dict[str, Any] | None = None
     replay_dataset_summary: dict[str, Any] | None = None
+    source_window: dict[str, Any] | None = None
     examples: list[dict[str, Any]]
     excluded_fields: list[str]
 
@@ -2056,28 +2058,13 @@ class ReplayDatasetPreviewResponse(BaseModel):
     policy_decision: dict[str, Any] | None = None
     replay_plan_summary: dict[str, Any] | None = None
     replay_sample_summary: dict[str, Any] | None = None
+    source_window: dict[str, Any] | None = None
     safety_flags: dict[str, Any]
     before: dict[str, int]
     after: dict[str, int]
     items: list[dict[str, Any]]
     excluded_fields: list[str]
     empty_reason: str | None = None
-
-
-class ReplayDatasetHistoryResponse(BaseModel):
-    schema_version: int
-    export_kind: str
-    training_role: str
-    created_at: str
-    endpoint: str
-    source_endpoint: str
-    limit: int
-    max_limit: int
-    count: int
-    history: list[dict[str, Any]]
-    replay_sample_summary: dict[str, Any] | None = None
-    safety_flags: dict[str, Any]
-    excluded_fields: list[str]
 
 
 class ReplayDatasetBundleRequest(BaseModel):

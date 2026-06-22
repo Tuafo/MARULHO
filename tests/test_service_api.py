@@ -14998,7 +14998,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 plan_response = client.get("/terminus/replay-plan?limit=5")
-                candidate = plan_response.json()["candidates"][0]
+                plan_body = plan_response.json()
+                candidate = plan_body["candidates"][0]
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
                 rejected_response = client.post(
@@ -15058,7 +15059,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 retired_replay_dataset_candidates_response = client.get("/terminus/replay-dataset/candidates?limit=5")
-                replay_dataset_history_response = client.get("/terminus/replay-dataset/history?limit=5")
+                retired_replay_dataset_history_response = client.get("/terminus/replay-dataset/history?limit=5")
                 seeded_sample_a = manager._sample_replay_candidates(
                     [
                         {"candidate_id": "a", "priority_score": 100.0, "target_type": "runtime_episode"},
@@ -15085,6 +15086,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(feed_response.status_code, 200)
         self.assertEqual(feedback_response.status_code, 200)
         self.assertEqual(plan_response.status_code, 200)
+        self.assertEqual(plan_body["source_window"]["surface"], "bounded_replay_plan_source_window.v1")
+        self.assertFalse(plan_body["source_window"]["runs_live_tick"])
+        self.assertFalse(plan_body["source_window"]["device_placement"]["gpu_used"])
         self.assertEqual(rejected_response.status_code, 422)
         self.assertEqual(sample_response.status_code, 200)
         body = sample_response.json()
@@ -15142,6 +15146,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(export_response.status_code, 200)
         export_body = export_response.json()
+        self.assertEqual(export_body["source_window"]["surface"], "bounded_runtime_trace_export_source_window.v1")
+        self.assertFalse(export_body["source_window"]["runs_live_tick"])
+        self.assertFalse(export_body["source_window"]["runs_every_token"])
+        self.assertEqual(export_body["source_window"]["archival_storage_device"], "cpu")
         self.assertEqual(export_body["replay_sample_summary"]["count"], 1)
         self.assertEqual(export_body["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
         self.assertEqual(export_body["replay_dataset_summary"]["latest_history_timestamp"], body["created_at"])
@@ -15157,6 +15165,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(replay_dataset["positive_count"], 1)
         self.assertGreaterEqual(replay_dataset["negative_count"], 1)
         self.assertEqual(replay_dataset["endpoint"], "/terminus/replay-dataset/preview")
+        self.assertEqual(replay_dataset["source_window"]["surface"], "bounded_replay_dataset_preview_source_window.v1")
+        self.assertEqual(
+            replay_dataset["source_window"]["candidate_context_source"],
+            "replay_plan_summary_inside_dataset_preview",
+        )
+        self.assertEqual(
+            replay_dataset["source_window"]["replacement_candidate_endpoint"],
+            "/terminus/replay-plan",
+        )
+        self.assertFalse(replay_dataset["source_window"]["runs_live_tick"])
+        self.assertFalse(replay_dataset["source_window"]["runs_every_token"])
         self.assertIsNotNone(replay_dataset["latest_export_timestamp"])
         self.assertEqual(replay_dataset["latest_history_timestamp"], body["created_at"])
         self.assertFalse(replay_dataset["safety_flags"]["training_started"])
@@ -15180,9 +15199,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(dataset_item["replay_sample_linkage"]["replay_sample_ids"], [body["replay_sample_id"]])
         self.assertFalse(dataset_item["safety_flags"]["eligible_for_training"])
         self.assertEqual(retired_replay_dataset_candidates_response.status_code, 404)
-        self.assertEqual(replay_dataset_history_response.status_code, 200)
-        self.assertEqual(replay_dataset_history_response.json()["export_kind"], "terminus_replay_dataset_history_preview")
-        self.assertEqual(replay_dataset_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(retired_replay_dataset_history_response.status_code, 404)
         self.assertEqual(rejected_bundle_response.status_code, 422)
         self.assertEqual(replay_dataset_bundle_response.status_code, 200)
         replay_dataset_bundle = replay_dataset_bundle_response.json()

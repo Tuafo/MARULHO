@@ -46,46 +46,58 @@ def _build_anchor_bucket_source_window(
     source_read_count = 0
     materialized_count = 0
     source_full_scan = False
+    non_reversible_source = False
 
     if limit > 0:
-        try:
-            reverse_keys = reversed(anchors)
-        except TypeError:
-            materialized_keys = list(anchors)
-            materialized_count = int(len(materialized_keys))
-            source_full_scan = bool(materialized_count > limit)
-            reverse_keys = reversed(materialized_keys)
-        for raw_bucket_id in reverse_keys:
-            source_read_count += 1
+        reverse_keys_factory = getattr(anchors, "__reversed__", None)
+        if callable(reverse_keys_factory):
             try:
-                bucket_id = int(raw_bucket_id)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            anchor = anchors.get(raw_bucket_id, {})
-            anchor_mapping = anchor if isinstance(anchor, Mapping) else {}
-            selected_bucket_ids.append(bucket_id)
-            selected_metadata.append(
-                {
-                    "bucket_id": bucket_id,
-                    "captured_at_token": _anchor_metadata_int(
-                        anchor_mapping,
-                        "captured_at_token",
-                    ),
-                    "captured_source_index": _anchor_metadata_int(
-                        anchor_mapping,
-                        "captured_source_index",
-                    ),
-                    "capture_sequence": _anchor_metadata_int(
-                        anchor_mapping,
-                        "capture_sequence",
-                    ),
-                }
-            )
-            if len(selected_bucket_ids) >= limit:
-                break
+                reverse_keys = reverse_keys_factory()
+            except TypeError:
+                reverse_keys = None
+        else:
+            reverse_keys = None
+        if reverse_keys is None:
+            non_reversible_source = total_count > 0
+        else:
+            for raw_bucket_id in reverse_keys:
+                source_read_count += 1
+                try:
+                    bucket_id = int(raw_bucket_id)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                anchor = anchors.get(raw_bucket_id, {})
+                anchor_mapping = anchor if isinstance(anchor, Mapping) else {}
+                selected_bucket_ids.append(bucket_id)
+                selected_metadata.append(
+                    {
+                        "bucket_id": bucket_id,
+                        "captured_at_token": _anchor_metadata_int(
+                            anchor_mapping,
+                            "captured_at_token",
+                        ),
+                        "captured_source_index": _anchor_metadata_int(
+                            anchor_mapping,
+                            "captured_source_index",
+                        ),
+                        "capture_sequence": _anchor_metadata_int(
+                            anchor_mapping,
+                            "capture_sequence",
+                        ),
+                    }
+                )
+                if len(selected_bucket_ids) >= limit:
+                    break
 
-    status = "selected" if selected_bucket_ids else "empty"
-    fallback_reason = None if selected_bucket_ids else "empty_anchor_bucket_source"
+    if selected_bucket_ids:
+        status = "selected"
+        fallback_reason = None
+    elif non_reversible_source:
+        status = "blocked"
+        fallback_reason = "non_reversible_anchor_bucket_source"
+    else:
+        status = "empty"
+        fallback_reason = "empty_anchor_bucket_source"
     truncated_count = max(0, total_count - len(selected_bucket_ids))
     report = {
         "surface": str(surface),
@@ -107,6 +119,7 @@ def _build_anchor_bucket_source_window(
         "global_candidate_scan": False,
         "global_score_scan": False,
         "anchor_source_full_scan": bool(source_full_scan),
+        "non_reversible_anchor_source_blocked": bool(non_reversible_source),
         "runs_live_tick": False,
         "runs_every_token": False,
         "raw_text_payload_loaded": False,

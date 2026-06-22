@@ -2249,6 +2249,54 @@ peak was `3.53 MiB`; CUDA was available on the RTX 3060 but unused by this
 CPU archival/source/link path (`gpu_used=false`, `0.23 MiB` allocated,
 `2.0 MiB` reserved).
 
+## Replay Dataset History Wrapper Retirement
+
+`GET /terminus/replay-dataset/history` is retired because replay-sample history
+already has one canonical path: `/terminus/replay-sample/history`. Dataset
+preview and bundle remain the only dataset/export surfaces.
+
+Service endpoint benchmark:
+
+`python -m marulho.evaluation.service_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\service-benchmark-replay-dataset-history-retired.json --export-limit 5`
+
+Result: `success=true`; endpoint timings contain no
+`replay_dataset_history`, the report contains no
+`replay_dataset_history_summary`, slow-path endpoint count is `5`, and the
+hot-path budget passes with `p95=340.668 ms` and total `664.890 ms`.
+
+Refreshed dataset source-window benchmark:
+
+`python -m marulho.evaluation.replay_dataset_source_window_benchmark --output reports\bounded_replay_window_20260622\replay-dataset-history-retired-source-window.json --trace-count 64 --sample-count 256 --selected-candidates-per-sample 16 --limit 50 --endpoint respond --runs 15`
+
+Result: `pass=true`; selected target and replay-link parity stayed `50/50`,
+trace work stayed `50/64`, replay-sample and selected-candidate work stayed
+`4x` reduced, mean bounded preview cost was `1956.391633 ms`, replay-sample
+summary mean was `7.152813 ms`, Python traced peak was `3.53 MiB`, CUDA was
+available but unused, and archival/source/link placement stayed CPU-resident.
+
+## Non-Reversible Anchor Source Fallback Retirement
+
+The shared replay anchor-window helper no longer materializes non-reversible
+anchor sources with `list(anchors)`. Non-reversible sources now block before
+selection with explicit source-window evidence; reversible dict-backed anchors
+still read the newest `16` anchors.
+
+Focused test:
+
+`python -m pytest tests/test_memory_consolidation.py -k "anchor_source or anchor_window or replay_window_recall_report or sleep_replay_selection_report"`
+
+Benchmark:
+
+`python -m marulho.evaluation.sleep_replay_anchor_source_window_benchmark --output reports\bounded_replay_window_20260622\sleep-replay-anchor-nonreversible-fallback-retired.json --anchor-count 8192 --replay-steps 4 --candidate-pool 8 --iterations 15 --seed 7`
+
+Result: `status=passed`; the maintained path read `16/8192` anchors,
+materialized `0` entries, kept `anchor_source_full_scan=false`, kept newest
+anchor and selected replay-bucket hit rates at `1.0`, improved source latency
+from `1.046780 ms` retired mean to `0.044360 ms` (`23.597x`), used CPU
+archival/source placement, and had `0.0 MiB` CUDA memory delta. The
+non-reversible regression test covers the blocked branch with
+`fallback_reason=non_reversible_anchor_bucket_source` and zero source reads.
+
 ## Status Transition Memory Source Window
 
 Capacity pressure, dense readout tensor integrity, applied-synapse provenance,
