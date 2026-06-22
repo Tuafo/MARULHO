@@ -91,10 +91,10 @@ from .schemas import (
     SNNLanguageConsolidationEventReviewRequest,
     SNNLanguageConsolidationExecutorRequest,
     SNNLanguageConsolidationPreflightRequest,
-    SNNLanguageCapacityMutationDesignRequest,
-    SNNLanguageCapacityMutationEventReviewRequest,
-    SNNLanguageCapacityMutationExecutorRequest,
-    SNNLanguageCapacityMutationPreflightRequest,
+    SNNLanguageReadoutCapacityMutationDesignRequest,
+    SNNLanguageReadoutCapacityMutationEventReviewRequest,
+    SNNLanguageReadoutCapacityMutationExecutorRequest,
+    SNNLanguageReadoutCapacityMutationPreflightRequest,
     SNNLanguageNewbornNeuronIntegrationDesignRequest,
     SNNLanguageNewbornNeuronIntegrationEventReviewRequest,
     SNNLanguageNewbornNeuronIntegrationExecutorRequest,
@@ -321,24 +321,18 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
     ("autonomous_snn_language_thought", "snn_language_readout"),
     ("language_thought", "language_readout"),
-    ("thought_capacity", "readout_capacity"),
     ("thought_newborn", "readout_newborn"),
     ("thought_trace", "readout_trace"),
     ("thought_driven", "readout_driven"),
     ("missing_thought", "missing_readout"),
-    ("thought-capacity", "readout-capacity"),
 )
 _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("terminus_snn_language_readout_newborn", "terminus_snn_language_autonomous_snn_language_thought_newborn"),
-    ("terminus_snn_language_readout_capacity", "terminus_snn_language_autonomous_snn_language_thought_capacity"),
     ("snn_language_readout_newborn", "snn_language_autonomous_snn_language_thought_newborn"),
-    ("snn_language_readout_capacity", "snn_language_autonomous_snn_language_thought_capacity"),
-    ("readout_capacity", "thought_capacity"),
     ("readout_newborn", "thought_newborn"),
     ("readout_trace", "thought_trace"),
     ("readout_driven", "thought_driven"),
     ("missing_readout", "missing_thought"),
-    ("readout-capacity", "thought-capacity"),
 )
 
 
@@ -2149,24 +2143,24 @@ def create_app(
             review_policy=_internal_snn_language_payload(request.review_policy),
         ))
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design")
-    def terminus_snn_language_capacity_mutation_design(
-        request: SNNLanguageCapacityMutationDesignRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design")
+    def terminus_snn_language_readout_capacity_mutation_design(
+        request: SNNLanguageReadoutCapacityMutationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_design(
+        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_design(
             snn_language_readout_structural_plasticity_event_review=(
                 _internal_snn_language_payload(request.snn_language_structural_plasticity_event_review)
             ),
             capacity_policy=_internal_snn_language_payload(request.capacity_policy),
         ))
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight")
-    def terminus_snn_language_capacity_mutation_preflight(
-        request: SNNLanguageCapacityMutationPreflightRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-preflight")
+    def terminus_snn_language_readout_capacity_mutation_preflight(
+        request: SNNLanguageReadoutCapacityMutationPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_preflight(
-            autonomous_snn_language_thought_capacity_mutation_design=(
-                _internal_snn_language_payload(request.snn_language_capacity_mutation_design)
+        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_preflight(
+            snn_language_readout_capacity_mutation_design=(
+                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_design)
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_transaction=_internal_snn_language_payload(request.checkpoint_transaction),
@@ -2174,26 +2168,26 @@ def create_app(
             executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
         ))
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor")
-    def terminus_snn_language_capacity_mutation_executor(
-        request: SNNLanguageCapacityMutationExecutorRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-executor")
+    def terminus_snn_language_readout_capacity_mutation_executor(
+        request: SNNLanguageReadoutCapacityMutationExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_executor(
-            autonomous_snn_language_thought_capacity_mutation_preflight=(
-                _internal_snn_language_payload(request.snn_language_capacity_mutation_preflight)
+        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_executor(
+            snn_language_readout_capacity_mutation_preflight=(
+                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_preflight)
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_path=request.checkpoint_path,
             requested_device=request.requested_device,
         ))
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review")
-    def terminus_snn_language_capacity_mutation_event_review(
-        request: SNNLanguageCapacityMutationEventReviewRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-event-review")
+    def terminus_snn_language_readout_capacity_mutation_event_review(
+        request: SNNLanguageReadoutCapacityMutationEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
-            autonomous_snn_language_thought_capacity_mutation_executor=(
-                _internal_snn_language_payload(request.snn_language_capacity_mutation_executor)
+        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_event_review(
+            snn_language_readout_capacity_mutation_executor=(
+                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_executor)
             ),
             expected_state_revision=request.expected_state_revision,
         ))
@@ -2203,8 +2197,8 @@ def create_app(
         request: SNNLanguageNewbornNeuronIntegrationDesignRequest,
     ) -> dict[str, Any]:
         return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design(
-            autonomous_snn_language_thought_capacity_mutation_event_review=(
-                _internal_snn_language_payload(request.snn_language_capacity_mutation_event_review)
+            snn_language_readout_capacity_mutation_event_review=(
+                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_event_review)
             ),
             integration_policy=_internal_snn_language_payload(request.integration_policy),
         ))

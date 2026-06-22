@@ -49,6 +49,7 @@ related_benchmarks: []
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)
 - [Sleep Replay All Anchor Source Pass](sleep-replay-all-anchor-source-pass.md)
 - [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
+- [Snn Language Thought Capacity Mutation Production Naming](snn-language-thought-capacity-mutation-production-naming.md)
 - [Snn Language Thought Consolidation Production Naming](snn-language-thought-consolidation-production-naming.md)
 - [Snn Language Thought Memory Production Naming](snn-language-thought-memory-production-naming.md)
 - [Snn Language Thought Structural Plasticity Production Naming](snn-language-thought-structural-plasticity-production-naming.md)

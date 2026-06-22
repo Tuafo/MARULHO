@@ -745,27 +745,27 @@ class RuntimeFacade:
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_capacity_mutation_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_capacity_mutation_design(
+    def snn_language_readout_capacity_mutation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_capacity_mutation_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_capacity_mutation_preflight(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_capacity_mutation_preflight(
+    def snn_language_readout_capacity_mutation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_capacity_mutation_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_capacity_mutation_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_plasticity_executor.apply_autonomous_snn_language_thought_capacity_mutation(
+    def snn_language_readout_capacity_mutation_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_snn_language_readout_capacity_mutation(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(self, **kwargs: Any) -> dict[str, Any]:
+    def snn_language_readout_capacity_mutation_event_review(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = (
                 self.snn_language_plasticity_runtime_state()
             )
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_capacity_mutation_event_review(
+        return self._root._snn_language_readout_ledger.snn_language_readout_capacity_mutation_event_review(
             **kwargs
         )
 

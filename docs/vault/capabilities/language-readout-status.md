@@ -19,7 +19,7 @@ related_benchmarks: []
 
             The SNN language plasticity snapshot exposes canonical `language_*` aliases for growth/pruning evidence while retaining legacy `thought_*` compatibility keys. Operators and new code should prefer the canonical names; compatibility keys do not imply free-form thought generation or language autonomy.
 
-            The surface, memory, consolidation, structural-plasticity, capacity-mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning chains now use canonical `snn-language-*` routes. They preserve the existing reviewed/checkpoint-backed promotion gates and keep thought-era public route vocabulary out of the active API.
+            The surface, memory, consolidation, structural-plasticity, readout-capacity-mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning chains now use canonical `snn-language-*` routes. They preserve the existing reviewed/checkpoint-backed promotion gates and keep thought-era public route vocabulary out of the active API.
 
             The surface chain itself is canonical in production as
             `snn_language_readout_surface_design`,
@@ -43,7 +43,14 @@ related_benchmarks: []
             path through `snn_language_readout_structural_plasticity_design`,
             `snn_language_readout_structural_plasticity_preflight`,
             `execute_snn_language_readout_structural_plasticity`, and
-            `snn_language_readout_structural_plasticity_event_review`.
+            `snn_language_readout_structural_plasticity_event_review`. The
+            readout-capacity mutation chain is also canonical through
+            `snn_language_readout_capacity_mutation_design`,
+            `snn_language_readout_capacity_mutation_preflight`,
+            `apply_snn_language_readout_capacity_mutation`, and
+            `snn_language_readout_capacity_mutation_event_review`, with public
+            routes under `snn-language-readout-capacity-mutation-*` and request
+            fields named `snn_language_readout_capacity_mutation_*`.
             Checkpoint load/save keeps canonical readout ledger fields only;
             no active API/facade/ledger call alias keeps old production paths
             alive. The current
@@ -57,6 +64,13 @@ related_benchmarks: []
             `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json`
             keeps measured throughput separate from prewarm setup and shows the
             live tick remains bounded at `12/65536` route rows.
+
+            The readout-capacity mutation naming retirement is covered by
+            `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-capacity-canonical-noprofile-rerun.json`.
+            It processed `524288` tokens at `5826.031 tokens/sec`, with
+            bounded `12/65536` route rows, `65526` cached transition rows,
+            `state_transition_runs_all_columns=false`, no observed contention,
+            and RTX memory `1798->1796 MiB`.
 
             `snn_language_readout_corpus_evaluation.v1` is now the first bounded corpus-level report for next-readout trajectories. Runtime Truth exposes the latest saved report as `snn_language_readout_corpus_runtime_truth.v1`, including available/trained/grounded/device status, mutation absence, latency, memory/VRAM cost, and the promote/reject reason. Missing reports remain a rejection/collection state, not a hidden live generator.
 

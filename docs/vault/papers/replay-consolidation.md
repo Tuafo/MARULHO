@@ -1978,6 +1978,40 @@ CUDA available but unused. The paired `524288`-token protection run stayed in
 band at `6131.415 tokens/sec` with no observed contention and zero graph/native
 sequence failures.
 
+## Readout Capacity Naming Retirement
+
+The same research boundary now applies to readout-capacity mutation naming.
+Expandable-SNN and neurogenesis literature support separating sparse topology
+evidence from checkpoint-backed tensor capacity relayout, but they do not
+justify keeping a second thought/generic production surface for the same resize
+transaction. MARULHO therefore retires `thought_capacity` state keys, generic
+`snn-language-capacity-mutation-*` routes, and
+`snn_language_capacity_mutation_*` request fields. The maintained path is
+`snn_language_readout_capacity_mutation_*` through API schema, facade, ledger,
+checkpoint-backed executor, runtime snapshot, and event review.
+
+Focused verification kept the path checkpoint-backed and single-route:
+`tests/test_snn_language_plasticity_executor.py -k readout_capacity_mutation`
+passed `2` tests, `tests/test_service_manager.py -k readout_capacity_growth`
+passed `1` checkpoint-backed manager test, the API canonical-route slice
+passed `2` tests, and the long ledger chain
+`test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_without_execution`
+passed after structural-to-capacity-to-newborn handoff used the canonical
+readout-capacity event review. A stale-name scan found old capacity spellings
+only in retired-path documentation.
+
+The accepted clean `524288`-token hot-path protection rerun
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-capacity-canonical-noprofile-rerun.json`
+processed `5826.031 tokens/sec`, p95 tick `22.668 ms`,
+`train_compute=0.137453 ms/token`, `prepare_training=0.007546 ms/token`, and
+`finalize_total=0.007064 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, observed no contention, moved RTX memory `1798->1796 MiB`, and recorded
+zero graph/native/sequence failures. Prewarm took `344.672 s`. The earlier
+trainer-stage-profiler run completed at `5555.868 tokens/sec` and is kept only
+as diagnostic evidence, not the accepted throughput gate.
+
 The replay-dataset history wrapper is also retired. It returned
 `/terminus/replay-sample/history` records under dataset naming, so it preserved
 a duplicate replay-history surface without adding a selected dataset window.

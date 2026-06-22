@@ -328,22 +328,19 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
 
         self.assertTrue(verified)
 
-    def test_manager_executes_checkpoint_backed_thought_capacity_growth(
+    def test_manager_executes_checkpoint_backed_readout_capacity_growth(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(
                 root,
-                test_case="service_manager_thought_capacity_growth",
+                test_case="service_manager_readout_capacity_growth",
             )
             try:
                 revision = int(manager._runtime_state.state_revision)
                 preflight = {
-                    "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
-                        "capacity_mutation_preflight.v1"
-                    ),
+                    "surface": "snn_language_readout_capacity_mutation_preflight.v1",
                     "accepted": True,
                     "ready": True,
                     "preflight_hash": "a" * 64,
@@ -351,8 +348,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     "loads_external_checkpoint": False,
                     "runs_replay": False,
                     "trains_runtime_model": False,
-                    "autonomous_snn_language_thought_capacity_mutation_preflight": {
-                        "thought_capacity_mutation_design_hash": "b" * 64,
+                    "snn_language_readout_capacity_mutation_preflight": {
+                        "readout_capacity_mutation_design_hash": "b" * 64,
                         "structural_event_review_hash": "c" * 64,
                         "memory_trace_hash": "d" * 64,
                         "expected_state_revision": revision,
@@ -382,7 +379,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "execution_allowed": False,
                     },
                     "promotion_gate": {
-                        "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": True,
+                        "eligible_for_snn_language_readout_capacity_mutation_executor": True,
                         "required_evidence": {
                             "cuda_relayout_verified": True,
                             "checkpoint_saved": True,
@@ -392,14 +389,14 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     },
                 }
 
-                result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_executor(
-                    autonomous_snn_language_thought_capacity_mutation_preflight=preflight,
+                result = manager.runtime_facade.snn_language_readout_capacity_mutation_executor(
+                    snn_language_readout_capacity_mutation_preflight=preflight,
                     expected_state_revision=revision,
-                    checkpoint_path=str(root / "thought-capacity.pt"),
+                    checkpoint_path=str(root / "readout-capacity.pt"),
                     requested_device="cpu",
                 )
-                review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
-                    autonomous_snn_language_thought_capacity_mutation_executor=result,
+                review = manager.runtime_facade.snn_language_readout_capacity_mutation_event_review(
+                    snn_language_readout_capacity_mutation_executor=result,
                     expected_state_revision=revision + 1,
                 )
                 runtime = (
@@ -417,7 +414,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertTrue(review["accepted"])
                 self.assertEqual(
                     review["surface"],
-                    "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+                    "snn_language_readout_capacity_mutation_event_review.v1",
                 )
                 self.assertFalse(review["requires_operator_approval"])
                 self.assertFalse(review["mutates_runtime_state"])
@@ -429,10 +426,10 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 )
                 tampered_executor = deepcopy(result)
                 tampered_executor[
-                    "autonomous_snn_language_thought_capacity_mutation_event"
+                    "snn_language_readout_capacity_mutation_event"
                 ]["added_neuron_capacity"] = 3
-                tampered_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
-                    autonomous_snn_language_thought_capacity_mutation_executor=(
+                tampered_review = manager.runtime_facade.snn_language_readout_capacity_mutation_event_review(
+                    snn_language_readout_capacity_mutation_executor=(
                         tampered_executor
                     ),
                     expected_state_revision=revision + 1,
@@ -464,7 +461,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         "thought_newborn_neuron_integration_design_hash": "n"
                         * 64,
                         "capacity_mutation_event_hash": result[
-                            "autonomous_snn_language_thought_capacity_mutation_event"
+                            "snn_language_readout_capacity_mutation_event"
                         ]["capacity_mutation_event_hash"],
                         "observation_window_id": "manager-window-1",
                         "observation_window_hash": "o" * 64,

@@ -1104,15 +1104,15 @@ class SNNLanguageStructuralPlasticityEventReviewRequest(BaseModel):
     review_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageCapacityMutationDesignRequest(BaseModel):
+class SNNLanguageReadoutCapacityMutationDesignRequest(BaseModel):
     snn_language_structural_plasticity_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     capacity_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageCapacityMutationPreflightRequest(BaseModel):
-    snn_language_capacity_mutation_design: dict[str, Any] = Field(
+class SNNLanguageReadoutCapacityMutationPreflightRequest(BaseModel):
+    snn_language_readout_capacity_mutation_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1121,8 +1121,8 @@ class SNNLanguageCapacityMutationPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageCapacityMutationExecutorRequest(BaseModel):
-    snn_language_capacity_mutation_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutCapacityMutationExecutorRequest(BaseModel):
+    snn_language_readout_capacity_mutation_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1130,15 +1130,15 @@ class SNNLanguageCapacityMutationExecutorRequest(BaseModel):
     requested_device: str | None = Field(None, min_length=1, max_length=80)
 
 
-class SNNLanguageCapacityMutationEventReviewRequest(BaseModel):
-    snn_language_capacity_mutation_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutCapacityMutationEventReviewRequest(BaseModel):
+    snn_language_readout_capacity_mutation_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
 
 
 class SNNLanguageNewbornNeuronIntegrationDesignRequest(BaseModel):
-    snn_language_capacity_mutation_event_review: dict[str, Any] = Field(
+    snn_language_readout_capacity_mutation_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     integration_policy: dict[str, Any] | None = None

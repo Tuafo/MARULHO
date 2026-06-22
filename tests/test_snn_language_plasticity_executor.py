@@ -174,15 +174,12 @@ def _dense_readout_training_loop_preflight() -> dict[str, object]:
     }
 
 
-def _thought_capacity_mutation_preflight(
+def _readout_capacity_mutation_preflight(
     *,
     expected_state_revision: int = 0,
 ) -> dict[str, object]:
     return {
-        "surface": (
-            "snn_language_autonomous_snn_language_thought_"
-            "capacity_mutation_preflight.v1"
-        ),
+        "surface": "snn_language_readout_capacity_mutation_preflight.v1",
         "accepted": True,
         "ready": True,
         "preflight_hash": "a" * 64,
@@ -190,8 +187,8 @@ def _thought_capacity_mutation_preflight(
         "loads_external_checkpoint": False,
         "runs_replay": False,
         "trains_runtime_model": False,
-        "autonomous_snn_language_thought_capacity_mutation_preflight": {
-            "thought_capacity_mutation_design_hash": "b" * 64,
+        "snn_language_readout_capacity_mutation_preflight": {
+            "readout_capacity_mutation_design_hash": "b" * 64,
             "structural_event_review_hash": "c" * 64,
             "memory_trace_hash": "d" * 64,
             "expected_state_revision": expected_state_revision,
@@ -221,7 +218,7 @@ def _thought_capacity_mutation_preflight(
             "execution_allowed": False,
         },
         "promotion_gate": {
-            "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": True,
+            "eligible_for_snn_language_readout_capacity_mutation_executor": True,
             "required_evidence": {
                 "cuda_relayout_verified": True,
                 "checkpoint_saved": True,
@@ -495,7 +492,7 @@ def test_snapshot_bounds_transition_memory_source_window_without_full_mapping_sc
     assert source_window["gpu_resident_archival_metadata"] is False
 
 
-def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
+def test_readout_capacity_mutation_grows_tensor_and_dynamic_capacity(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -508,7 +505,7 @@ def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
     }
 
     def save_checkpoint(path: str | None) -> dict[str, str]:
-        target = Path(path or tmp_path / "thought-capacity.pt")
+        target = Path(path or tmp_path / "readout-capacity.pt")
         target.write_bytes(b"checkpoint")
         return {"path": str(target)}
 
@@ -517,7 +514,7 @@ def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
         runtime_state=runtime_state,
         language_plasticity_state=lambda: language_state,
         save_checkpoint=save_checkpoint,
-        checkpoint_path=lambda: tmp_path / "thought-capacity.pt",
+        checkpoint_path=lambda: tmp_path / "readout-capacity.pt",
         verify_checkpoint=lambda path: path.exists(),
         publish_committed_checkpoint=lambda path, operation: {
             "checkpoint_path": str(path),
@@ -525,24 +522,24 @@ def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
         },
     )
 
-    result = executor.apply_autonomous_snn_language_thought_capacity_mutation(
-        autonomous_snn_language_thought_capacity_mutation_preflight=(
-            _thought_capacity_mutation_preflight()
+    result = executor.apply_snn_language_readout_capacity_mutation(
+        snn_language_readout_capacity_mutation_preflight=(
+            _readout_capacity_mutation_preflight()
         ),
         expected_state_revision=0,
-        checkpoint_path=str(tmp_path / "thought-capacity.pt"),
+        checkpoint_path=str(tmp_path / "readout-capacity.pt"),
         requested_device="cpu",
     )
     tensor = language_state["dense_readout_weights"]
     capacity = language_state["language_capacity"]
     event = result[
-        "autonomous_snn_language_thought_capacity_mutation_event"
+        "snn_language_readout_capacity_mutation_event"
     ]
     snapshot = executor.snapshot()
 
     assert result["accepted"] is True
     assert result["surface"] == (
-        "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1"
+        "snn_language_readout_capacity_mutation_executor.v1"
     )
     assert result["requires_operator_approval"] is False
     assert result["mutates_runtime_state"] is True
@@ -575,23 +572,16 @@ def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
     assert snapshot["language_neuron_count"] == 66
     assert snapshot["sparse_edge_budget"] == 258
     assert snapshot["language_capacity"]["dynamic_capacity_enabled"] is True
-    assert snapshot["language_capacity_mutation_count"] == 1
-    assert snapshot["thought_capacity_mutation_count"] == 1
-    assert (
-        snapshot["last_language_capacity_mutation"]
-        == snapshot["last_thought_capacity_mutation"]
-    )
-    assert (
-        snapshot["recent_language_capacity_mutations"]
-        == snapshot["recent_thought_capacity_mutations"]
-    )
+    assert snapshot["readout_capacity_mutation_count"] == 1
+    assert snapshot["last_readout_capacity_mutation"] == event
+    assert snapshot["recent_readout_capacity_mutations"] == [event]
     assert snapshot["canonical_field_names"][
-        "language_capacity_mutation_count"
-    ] == "canonical_alias_for_legacy_thought_capacity_mutation_count"
+        "readout_capacity_mutation_count"
+    ] == "canonical_readout_capacity_mutation_count"
     assert runtime_state.state_revision == 1
 
 
-def test_thought_capacity_mutation_blocks_stale_revision_before_checkpoint(
+def test_readout_capacity_mutation_blocks_stale_revision_before_checkpoint(
     tmp_path: Path,
 ) -> None:
     lock = RLock()
@@ -606,14 +596,14 @@ def test_thought_capacity_mutation_blocks_stale_revision_before_checkpoint(
         runtime_state=runtime_state,
         language_plasticity_state=lambda: language_state,
         save_checkpoint=lambda path: checkpoint_calls.append(path)
-        or {"path": str(tmp_path / "thought-capacity.pt")},
-        checkpoint_path=lambda: tmp_path / "thought-capacity.pt",
+        or {"path": str(tmp_path / "readout-capacity.pt")},
+        checkpoint_path=lambda: tmp_path / "readout-capacity.pt",
         verify_checkpoint=lambda path: path.exists(),
     )
 
-    result = executor.apply_autonomous_snn_language_thought_capacity_mutation(
-        autonomous_snn_language_thought_capacity_mutation_preflight=(
-            _thought_capacity_mutation_preflight(expected_state_revision=1)
+    result = executor.apply_snn_language_readout_capacity_mutation(
+        snn_language_readout_capacity_mutation_preflight=(
+            _readout_capacity_mutation_preflight(expected_state_revision=1)
         ),
         expected_state_revision=1,
         requested_device="cpu",

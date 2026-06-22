@@ -1950,3 +1950,21 @@ maintained band at `6487.329 tokens/sec`, `train_compute=0.125633 ms/token`,
 `prepare_training=0.005922 ms/token`, `finalize_total=0.005852 ms/token`,
 bounded `12/65536` route scoring, `65526` cached rows, zero graph/native
 sequence failures, no observed contention, and RTX memory `1709->1707 MiB`.
+
+## Readout Capacity Naming Boundary
+
+Readout-capacity mutation is now a slow-path developmental boundary with one
+production name: `snn_language_readout_capacity_mutation_*`. The public route
+family is `snn-language-readout-capacity-mutation-*`, schema fields are
+`snn_language_readout_capacity_mutation_*`, and the executor records
+`readout_capacity_mutation` state. The retired thought/generic capacity names
+are documented only as retired paths, not live aliases.
+
+The accepted protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-capacity-canonical-noprofile-rerun.json`
+processed `524288` tokens at `5826.031 tokens/sec`, with bounded route scoring
+at `12/65536`, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, no observed contention, CPU max
+`18%`, GPU max `15%`, RTX memory `1798->1796 MiB`, and zero graph/native
+sequence failures. This capacity naming retirement did not add live-tick
+recall, replay, resize, status, or every-token slow-memory work.

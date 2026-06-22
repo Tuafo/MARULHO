@@ -5649,3 +5649,29 @@ kept route scoring bounded at `12/65536`, cached `65526` transition rows, kept
 recorded zero graph/native sequence failures. Velocity reported no observed
 contention, CPU max `38%`, GPU max `13%`, GPU memory utilization max `18%`, and
 RTX memory flat at `1775->1775 MiB`.
+
+## Readout Capacity Naming Retirement Protection
+
+This run protects the live tick after retiring the thought/generic
+capacity-mutation production naming path. The code slice changes service API
+schema, facade, ledger, executor state, and tests for
+`snn_language_readout_capacity_mutation_*`; it does not add live-tick recall,
+replay, resize, or status work.
+
+The diagnostic profiler run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-capacity-canonical.json`
+completed successfully but measured only `5555.868 tokens/sec`, so it is not
+used as the accepted throughput gate. The clean rerun without the trainer-stage
+profiler is the protection report:
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-capacity-canonical-noprofile-rerun.json`.
+
+Result: `success=true`, `524288` tokens in `89.990602 s` at
+`5826.031 tokens/sec`, `tick_duration_ms.p95=22.668`,
+`train_compute=0.137453 ms/token`, `prepare_training=0.007546 ms/token`, and
+`finalize_total=0.007064 ms/token`. Prewarm took `344.672 s` and
+`full_warm_ready=true` before measurement. Runtime Truth kept route scoring
+bounded at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
+on the RTX 3060, and recorded zero graph/native sequence failures. Velocity
+reported no observed contention, CPU max `18%`, GPU max `15%`, GPU memory
+utilization max `18%`, and RTX memory `1798->1796 MiB`.

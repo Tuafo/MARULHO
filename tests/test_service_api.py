@@ -447,7 +447,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 status_response = client.get("/status")
                 expected_revision = status_response.json()["state_revision"]
                 design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design",
                     json={
                         "snn_language_structural_plasticity_event_review": {
                             "surface": (
@@ -467,9 +467,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 preflight_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-preflight",
                     json={
-                        "snn_language_capacity_mutation_design": (
+                        "snn_language_readout_capacity_mutation_design": (
                             design_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -484,14 +484,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             "cuda_available": False,
                         },
                         "executor_capabilities": {
-                            "snn_language_capacity_mutation_executor": True
+                            "snn_language_readout_capacity_mutation_executor": True
                         },
                     },
                 )
                 executor_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-executor",
                     json={
-                        "snn_language_capacity_mutation_preflight": (
+                        "snn_language_readout_capacity_mutation_preflight": (
                             preflight_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -499,9 +499,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 review_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-event-review",
                     json={
-                        "snn_language_capacity_mutation_executor": (
+                        "snn_language_readout_capacity_mutation_executor": (
                             executor_response.json()
                         ),
                         "expected_state_revision": expected_revision,
@@ -510,7 +510,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 newborn_design_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
                     json={
-                        "snn_language_capacity_mutation_event_review": (
+                        "snn_language_readout_capacity_mutation_event_review": (
                             review_response.json()
                         ),
                         "integration_policy": {
@@ -2701,13 +2701,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_capacity_mutation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design",
                         json={
                             "snn_language_structural_plasticity_event_review": (
                                 snn_language_readout_structural_plasticity_event_review_response.json()
                             ),
                             "capacity_policy": {
-                                "mutation_scope": "thought_driven_sparse_capacity",
+                                "mutation_scope": "readout_driven_sparse_capacity",
                                 "mutation_route": "reviewed_structural_plasticity_to_capacity_resize",
                                 "current_neuron_capacity": 64,
                                 "current_sparse_synapse_budget": 256,
@@ -2720,9 +2720,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_capacity_mutation_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-preflight",
                         json={
-                            "snn_language_capacity_mutation_design": (
+                            "snn_language_readout_capacity_mutation_design": (
                                 snn_language_readout_capacity_mutation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2730,9 +2730,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             ],
                             "checkpoint_transaction": {
                                 "checkpoint_path": (
-                                    "memory://thought-capacity-preflight"
+                                    "memory://readout-capacity-preflight"
                                 ),
-                                "snapshot_id": "thought-capacity-snapshot",
+                                "snapshot_id": "readout-capacity-snapshot",
                                 "pre_capacity_mutation_checkpoint_saved": True,
                                 "pre_capacity_mutation_checkpoint_restore_verified": True,
                             },
@@ -2749,9 +2749,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_capacity_mutation_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-executor",
                         json={
-                            "snn_language_capacity_mutation_preflight": (
+                            "snn_language_readout_capacity_mutation_preflight": (
                                 snn_language_readout_capacity_mutation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2763,9 +2763,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_capacity_mutation_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-event-review",
                         json={
-                            "snn_language_capacity_mutation_executor": (
+                            "snn_language_readout_capacity_mutation_executor": (
                                 snn_language_readout_capacity_mutation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2778,7 +2778,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
                         json={
-                            "snn_language_capacity_mutation_event_review": (
+                            "snn_language_readout_capacity_mutation_event_review": (
                                 snn_language_readout_capacity_mutation_event_review_response.json()
                             ),
                             "integration_policy": {

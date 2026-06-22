@@ -931,10 +931,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "after": self._runtime_state.mutation_summary(),
             }
 
-    def apply_autonomous_snn_language_thought_capacity_mutation(
+    def apply_snn_language_readout_capacity_mutation(
         self,
         *,
-        autonomous_snn_language_thought_capacity_mutation_preflight: Mapping[
+        snn_language_readout_capacity_mutation_preflight: Mapping[
             str, Any
         ],
         expected_state_revision: int,
@@ -946,7 +946,7 @@ class SNNLanguagePlasticityApplicationExecutor:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_capacity_mutation_preflight or {}
+                snn_language_readout_capacity_mutation_preflight or {}
             )
             gate = (
                 artifact.get("promotion_gate")
@@ -960,11 +960,11 @@ class SNNLanguagePlasticityApplicationExecutor:
             )
             preflight = (
                 artifact.get(
-                    "autonomous_snn_language_thought_capacity_mutation_preflight"
+                    "snn_language_readout_capacity_mutation_preflight"
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_capacity_mutation_preflight"
+                        "snn_language_readout_capacity_mutation_preflight"
                     ),
                     Mapping,
                 )
@@ -1028,15 +1028,12 @@ class SNNLanguagePlasticityApplicationExecutor:
                 normalized_preflight_expected_revision = -1
             required = {
                 "preflight_surface_available": artifact.get("surface")
-                == (
-                    "snn_language_autonomous_snn_language_thought_"
-                    "capacity_mutation_preflight.v1"
-                ),
+                == "snn_language_readout_capacity_mutation_preflight.v1",
                 "preflight_ready": bool(artifact.get("accepted"))
                 and bool(artifact.get("ready")),
                 "executor_gate_ready": bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "capacity_mutation_executor"
                     )
                 ),
@@ -1054,7 +1051,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "design_hash_available": len(
                     str(
                         preflight.get(
-                            "thought_capacity_mutation_design_hash"
+                            "readout_capacity_mutation_design_hash"
                         )
                         or ""
                     )
@@ -1125,8 +1122,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "no_training": not bool(artifact.get("trains_runtime_model")),
             }
             if not all(required.values()):
-                return self._blocked_thought_capacity_mutation(
-                    reason="blocked_missing_thought_capacity_mutation_evidence",
+                return self._blocked_readout_capacity_mutation(
+                    reason="blocked_missing_readout_capacity_mutation_evidence",
                     before_revision=before_revision,
                     required_evidence=required,
                 )
@@ -1143,7 +1140,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 before_revision,
             )
             if not checkpoint_verified:
-                return self._blocked_thought_capacity_mutation(
+                return self._blocked_readout_capacity_mutation(
                     reason="checkpoint_save_missing",
                     before_revision=before_revision,
                     required_evidence={
@@ -1207,15 +1204,15 @@ class SNNLanguagePlasticityApplicationExecutor:
             completed_at = datetime.now(timezone.utc).isoformat()
             committed_checkpoint_file = self._committed_checkpoint_path(
                 checkpoint_file,
-                "thought_capacity_mutation",
+                "readout_capacity_mutation",
             )
             event = {
                 "completed_at": completed_at,
                 "before_state_revision": before_revision,
                 "after_state_revision": before_revision + 1,
                 "preflight_hash": preflight_hash,
-                "thought_capacity_mutation_design_hash": preflight.get(
-                    "thought_capacity_mutation_design_hash"
+                "readout_capacity_mutation_design_hash": preflight.get(
+                    "readout_capacity_mutation_design_hash"
                 ),
                 "structural_event_review_hash": preflight.get(
                     "structural_event_review_hash"
@@ -1292,11 +1289,11 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "checkpoint_required_before_resize": False,
                     "dense_resize_applied": True,
                     "dynamic_dense_readout_enabled": True,
-                    "migration_status": "thought_capacity_mutation_applied",
-                    "thought_capacity_mutation": deepcopy(event),
+                    "migration_status": "readout_capacity_mutation_applied",
+                    "readout_capacity_mutation": deepcopy(event),
                 }
             )
-            mutation_state = state.setdefault("thought_capacity_mutation", {})
+            mutation_state = state.setdefault("readout_capacity_mutation", {})
             mutation_state["mutation_count"] = int(
                 mutation_state.get("mutation_count", 0) or 0
             ) + 1
@@ -1309,29 +1306,29 @@ class SNNLanguagePlasticityApplicationExecutor:
             self._runtime_state.mark_mutated()
             commit = self._commit_mutation(
                 committed_checkpoint_file=committed_checkpoint_file,
-                operation="thought_capacity_mutation",
+                operation="readout_capacity_mutation",
                 before_state=checkpoint_state,
                 before_revision=before_revision,
                 before_dirty_state=before_dirty_state,
             )
             if not commit["committed"]:
-                return self._blocked_thought_capacity_mutation(
+                return self._blocked_readout_capacity_mutation(
                     reason="post_capacity_mutation_checkpoint_commit_failed",
                     before_revision=before_revision,
                     required_evidence={**required, **commit},
                 )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "capacity_mutation_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "capacity_mutation_executor.v1"
                 ),
                 "accepted": True,
                 "ready": True,
-                "status": "thought_capacity_mutation_applied",
+                "status": "readout_capacity_mutation_applied",
                 "requires_operator_approval": False,
                 "owned_by_marulho": True,
                 "external_dependency": False,
@@ -1366,7 +1363,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     ],
                     "restore_verified": checkpoint_verified,
                 },
-                "autonomous_snn_language_thought_capacity_mutation_event": deepcopy(
+                "snn_language_readout_capacity_mutation_event": deepcopy(
                     event
                 ),
                 "dense_readout_tensor": self._dense_tensor_summary(target),
@@ -1383,10 +1380,10 @@ class SNNLanguagePlasticityApplicationExecutor:
                 },
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_"
+                        "ready_for_snn_language_readout_"
                         "capacity_mutation_event_review"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_"
+                    "eligible_for_snn_language_readout_"
                     "capacity_mutation_event_review": True,
                     "eligible_for_language_generation": False,
                     "eligible_for_replay_memory": False,
@@ -3453,7 +3450,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             regeneration = dict(state.get("synapse_regeneration") or {})
             live_application = dict(state.get("live_application") or {})
             dense_training = dict(state.get("dense_readout_training") or {})
-            capacity_mutation = dict(state.get("thought_capacity_mutation") or {})
+            capacity_mutation = dict(state.get("readout_capacity_mutation") or {})
             newborn_integration = dict(
                 state.get("thought_newborn_neuron_integration") or {}
             )
@@ -3536,9 +3533,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "owned_by_marulho": True,
                 "external_dependency": False,
                 "canonical_field_names": {
-                    "language_capacity_mutation_count": (
-                        "canonical_alias_for_legacy_thought_capacity_mutation_count"
-                    ),
+                    "readout_capacity_mutation_count": "canonical_readout_capacity_mutation_count",
                     "language_newborn_neuron_integration_count": (
                         "canonical_alias_for_legacy_thought_newborn_neuron_integration_count"
                     ),
@@ -3599,12 +3594,9 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "recent_synapse_regeneration": deepcopy(list(regeneration.get("recent_events") or [])),
                 "last_live_application": deepcopy(live_application.get("last_application")),
                 "recent_live_applications": deepcopy(list(live_application.get("recent_events") or [])),
-                "language_capacity_mutation_count": capacity_mutation_count,
-                "last_language_capacity_mutation": deepcopy(last_capacity_mutation),
-                "recent_language_capacity_mutations": deepcopy(recent_capacity_mutations),
-                "thought_capacity_mutation_count": capacity_mutation_count,
-                "last_thought_capacity_mutation": deepcopy(last_capacity_mutation),
-                "recent_thought_capacity_mutations": deepcopy(recent_capacity_mutations),
+                "readout_capacity_mutation_count": capacity_mutation_count,
+                "last_readout_capacity_mutation": deepcopy(last_capacity_mutation),
+                "recent_readout_capacity_mutations": deepcopy(recent_capacity_mutations),
                 "language_newborn_neuron_integration_count": newborn_integration_count,
                 "last_language_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
                 "recent_language_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
@@ -4812,7 +4804,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             },
         }
 
-    def _blocked_thought_capacity_mutation(
+    def _blocked_readout_capacity_mutation(
         self,
         *,
         reason: str,
@@ -4821,11 +4813,11 @@ class SNNLanguagePlasticityApplicationExecutor:
     ) -> dict[str, Any]:
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "capacity_mutation_executor"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "capacity_mutation_executor.v1"
             ),
             "accepted": False,
@@ -4852,10 +4844,10 @@ class SNNLanguagePlasticityApplicationExecutor:
             "prunes_network": False,
             "promotion_gate": {
                 "status": (
-                    "blocked_missing_autonomous_snn_language_thought_"
+                    "blocked_missing_snn_language_readout_"
                     "capacity_mutation_executor_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_"
+                "eligible_for_snn_language_readout_"
                 "capacity_mutation_event_review": False,
                 "eligible_for_language_generation": False,
                 "eligible_for_replay_memory": False,

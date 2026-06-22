@@ -7145,13 +7145,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_capacity_mutation_design = (
-        ledger.autonomous_snn_language_thought_capacity_mutation_design(
+    blocked_snn_language_readout_capacity_mutation_design = (
+        ledger.snn_language_readout_capacity_mutation_design(
             snn_language_readout_structural_plasticity_event_review=(
                 blocked_snn_language_readout_structural_plasticity_event_review
             ),
             capacity_policy={
-                "mutation_scope": "thought_driven_sparse_capacity",
+                "mutation_scope": "readout_driven_sparse_capacity",
                 "mutation_route": "reviewed_structural_plasticity_to_capacity_resize",
                 "current_neuron_capacity": 64,
                 "current_sparse_synapse_budget": 256,
@@ -7161,13 +7161,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_capacity_mutation_design = (
-        ledger.autonomous_snn_language_thought_capacity_mutation_design(
+    snn_language_readout_capacity_mutation_design = (
+        ledger.snn_language_readout_capacity_mutation_design(
             snn_language_readout_structural_plasticity_event_review=(
                 snn_language_readout_structural_plasticity_event_review
             ),
             capacity_policy={
-                "mutation_scope": "thought_driven_sparse_capacity",
+                "mutation_scope": "readout_driven_sparse_capacity",
                 "mutation_route": "reviewed_structural_plasticity_to_capacity_resize",
                 "current_neuron_capacity": 64,
                 "current_sparse_synapse_budget": 256,
@@ -7177,15 +7177,15 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_capacity_mutation_preflight = (
-        ledger.autonomous_snn_language_thought_capacity_mutation_preflight(
-            autonomous_snn_language_thought_capacity_mutation_design=(
-                blocked_snn_language_thought_capacity_mutation_design
+    blocked_snn_language_readout_capacity_mutation_preflight = (
+        ledger.snn_language_readout_capacity_mutation_preflight(
+            snn_language_readout_capacity_mutation_design=(
+                blocked_snn_language_readout_capacity_mutation_design
             ),
             expected_state_revision=runtime_state.state_revision,
             checkpoint_transaction={
-                "checkpoint_path": "memory://thought-capacity-before",
-                "snapshot_id": "thought-capacity-snapshot",
+                "checkpoint_path": "memory://readout-capacity-before",
+                "snapshot_id": "readout-capacity-snapshot",
                 "pre_capacity_mutation_checkpoint_saved": True,
                 "pre_capacity_mutation_checkpoint_restore_verified": True,
             },
@@ -7195,19 +7195,19 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
                 "cuda_relayout_verified": True,
             },
             executor_capabilities={
-                "autonomous_snn_language_thought_capacity_mutation_executor": True
+                "snn_language_readout_capacity_mutation_executor": True
             },
         )
     )
-    snn_language_thought_capacity_mutation_preflight = (
-        ledger.autonomous_snn_language_thought_capacity_mutation_preflight(
-            autonomous_snn_language_thought_capacity_mutation_design=(
-                snn_language_thought_capacity_mutation_design
+    snn_language_readout_capacity_mutation_preflight = (
+        ledger.snn_language_readout_capacity_mutation_preflight(
+            snn_language_readout_capacity_mutation_design=(
+                snn_language_readout_capacity_mutation_design
             ),
             expected_state_revision=runtime_state.state_revision,
             checkpoint_transaction={
-                "checkpoint_path": "memory://thought-capacity-before",
-                "snapshot_id": "thought-capacity-snapshot",
+                "checkpoint_path": "memory://readout-capacity-before",
+                "snapshot_id": "readout-capacity-snapshot",
                 "pre_capacity_mutation_checkpoint_saved": True,
                 "pre_capacity_mutation_checkpoint_restore_verified": True,
             },
@@ -7217,7 +7217,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
                 "cuda_relayout_verified": True,
             },
             executor_capabilities={
-                "autonomous_snn_language_thought_capacity_mutation_executor": True
+                "snn_language_readout_capacity_mutation_executor": True
             },
         )
     )
@@ -10332,7 +10332,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         expected_count=1,
     )
     assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
+        "eligible_for_snn_language_readout_capacity_mutation_design"
     ] is True
     assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
@@ -10343,198 +10343,198 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_capacity_mutation_design[
+    assert blocked_snn_language_readout_capacity_mutation_design[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_capacity_mutation_design[
+        blocked_snn_language_readout_capacity_mutation_design[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_capacity_mutation_design["promotion_gate"][
+    assert blocked_snn_language_readout_capacity_mutation_design["promotion_gate"][
         "required_evidence"
     ]["structural_event_review_ready"] is False
-    assert snn_language_thought_capacity_mutation_design["surface"] == (
-        "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1"
+    assert snn_language_readout_capacity_mutation_design["surface"] == (
+        "snn_language_readout_capacity_mutation_design.v1"
     )
-    assert snn_language_thought_capacity_mutation_design["accepted"] is True
-    assert snn_language_thought_capacity_mutation_design["ready"] is True
+    assert snn_language_readout_capacity_mutation_design["accepted"] is True
+    assert snn_language_readout_capacity_mutation_design["ready"] is True
     assert len(
-        snn_language_thought_capacity_mutation_design[
-            "thought_capacity_mutation_design_hash"
+        snn_language_readout_capacity_mutation_design[
+            "readout_capacity_mutation_design_hash"
         ]
     ) == 64
     assert (
-        snn_language_thought_capacity_mutation_design["requires_operator_approval"]
+        snn_language_readout_capacity_mutation_design["requires_operator_approval"]
         is False
     )
-    assert snn_language_thought_capacity_mutation_design["advisory"] is True
-    assert snn_language_thought_capacity_mutation_design["executable"] is False
+    assert snn_language_readout_capacity_mutation_design["advisory"] is True
+    assert snn_language_readout_capacity_mutation_design["executable"] is False
     assert (
-        snn_language_thought_capacity_mutation_design["records_ledger_event"]
+        snn_language_readout_capacity_mutation_design["records_ledger_event"]
         is False
     )
     assert (
-        snn_language_thought_capacity_mutation_design["mutates_runtime_state"]
+        snn_language_readout_capacity_mutation_design["mutates_runtime_state"]
         is False
     )
-    assert snn_language_thought_capacity_mutation_design["runs_replay"] is False
-    assert snn_language_thought_capacity_mutation_design["writes_checkpoint"] is False
-    assert snn_language_thought_capacity_mutation_design["generates_text"] is True
-    assert snn_language_thought_capacity_mutation_design["decodes_text"] is True
+    assert snn_language_readout_capacity_mutation_design["runs_replay"] is False
+    assert snn_language_readout_capacity_mutation_design["writes_checkpoint"] is False
+    assert snn_language_readout_capacity_mutation_design["generates_text"] is True
+    assert snn_language_readout_capacity_mutation_design["decodes_text"] is True
     assert (
-        snn_language_thought_capacity_mutation_design["trains_runtime_model"]
+        snn_language_readout_capacity_mutation_design["trains_runtime_model"]
         is False
     )
-    assert snn_language_thought_capacity_mutation_design["applies_plasticity"] is False
-    assert snn_language_thought_capacity_mutation_design["resizes_network"] is False
-    assert snn_language_thought_capacity_mutation_design["adds_neurons"] is False
-    assert snn_language_thought_capacity_mutation_design["adds_synapses"] is False
-    assert snn_language_thought_capacity_mutation_design["prunes_network"] is False
-    thought_capacity_design = snn_language_thought_capacity_mutation_design[
-        "autonomous_snn_language_thought_capacity_mutation_design"
+    assert snn_language_readout_capacity_mutation_design["applies_plasticity"] is False
+    assert snn_language_readout_capacity_mutation_design["resizes_network"] is False
+    assert snn_language_readout_capacity_mutation_design["adds_neurons"] is False
+    assert snn_language_readout_capacity_mutation_design["adds_synapses"] is False
+    assert snn_language_readout_capacity_mutation_design["prunes_network"] is False
+    readout_capacity_design = snn_language_readout_capacity_mutation_design[
+        "snn_language_readout_capacity_mutation_design"
     ]
-    assert thought_capacity_design["mutation_scope"] == "thought_driven_sparse_capacity"
-    assert thought_capacity_design["mutation_route"] == (
+    assert readout_capacity_design["mutation_scope"] == "readout_driven_sparse_capacity"
+    assert readout_capacity_design["mutation_route"] == (
         "reviewed_structural_plasticity_to_capacity_resize"
     )
-    assert thought_capacity_design["current_neuron_capacity"] == 64
-    assert thought_capacity_design["target_neuron_capacity"] == 66
-    assert thought_capacity_design["current_sparse_synapse_budget"] == 256
-    assert thought_capacity_design["target_sparse_synapse_budget"] == 258
-    assert thought_capacity_design["current_dense_shape"] == [64, 64]
-    assert thought_capacity_design["target_dense_shape"] == [66, 66]
-    assert thought_capacity_design["preserved_dense_shape"] == [64, 64]
-    assert thought_capacity_design["zero_initialized_new_rows"] == 2
-    assert thought_capacity_design["zero_initialized_new_cols"] == 2
-    assert thought_capacity_design["proposed_new_neuron_count"] == 2
-    assert thought_capacity_design["proposed_new_synapse_count"] == 2
-    assert thought_capacity_design["proposed_prune_synapse_count"] == 1
-    assert thought_capacity_design["requires_cuda_relayout"] is True
-    assert thought_capacity_design["requires_checkpoint"] is True
-    assert thought_capacity_design["requires_restore_validation"] is True
-    assert thought_capacity_design["capacity_mutation_designed"] is True
-    assert thought_capacity_design["resize_allowed"] is False
-    assert thought_capacity_design["growth_allowed"] is False
-    assert thought_capacity_design["prune_allowed"] is False
-    assert thought_capacity_design["replay_allowed"] is False
-    assert thought_capacity_design["plasticity_allowed"] is False
-    assert thought_capacity_design["training_allowed"] is False
-    assert thought_capacity_design["checkpoint_allowed"] is False
-    assert thought_capacity_design["fact_promotion_allowed"] is False
-    assert thought_capacity_design["action_allowed"] is False
-    assert thought_capacity_design["cognition_substrate_claimed"] is False
-    assert snn_language_thought_capacity_mutation_design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+    assert readout_capacity_design["current_neuron_capacity"] == 64
+    assert readout_capacity_design["target_neuron_capacity"] == 66
+    assert readout_capacity_design["current_sparse_synapse_budget"] == 256
+    assert readout_capacity_design["target_sparse_synapse_budget"] == 258
+    assert readout_capacity_design["current_dense_shape"] == [64, 64]
+    assert readout_capacity_design["target_dense_shape"] == [66, 66]
+    assert readout_capacity_design["preserved_dense_shape"] == [64, 64]
+    assert readout_capacity_design["zero_initialized_new_rows"] == 2
+    assert readout_capacity_design["zero_initialized_new_cols"] == 2
+    assert readout_capacity_design["proposed_new_neuron_count"] == 2
+    assert readout_capacity_design["proposed_new_synapse_count"] == 2
+    assert readout_capacity_design["proposed_prune_synapse_count"] == 1
+    assert readout_capacity_design["requires_cuda_relayout"] is True
+    assert readout_capacity_design["requires_checkpoint"] is True
+    assert readout_capacity_design["requires_restore_validation"] is True
+    assert readout_capacity_design["capacity_mutation_designed"] is True
+    assert readout_capacity_design["resize_allowed"] is False
+    assert readout_capacity_design["growth_allowed"] is False
+    assert readout_capacity_design["prune_allowed"] is False
+    assert readout_capacity_design["replay_allowed"] is False
+    assert readout_capacity_design["plasticity_allowed"] is False
+    assert readout_capacity_design["training_allowed"] is False
+    assert readout_capacity_design["checkpoint_allowed"] is False
+    assert readout_capacity_design["fact_promotion_allowed"] is False
+    assert readout_capacity_design["action_allowed"] is False
+    assert readout_capacity_design["cognition_substrate_claimed"] is False
+    assert snn_language_readout_capacity_mutation_design["promotion_gate"][
+        "eligible_for_snn_language_readout_capacity_mutation_preflight"
     ] is True
-    assert snn_language_thought_capacity_mutation_design["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_design["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_capacity_mutation_design["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_design["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_capacity_mutation_design["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_design["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_capacity_mutation_preflight[
+    assert blocked_snn_language_readout_capacity_mutation_preflight[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_capacity_mutation_preflight[
+        blocked_snn_language_readout_capacity_mutation_preflight[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_capacity_mutation_preflight[
+    assert blocked_snn_language_readout_capacity_mutation_preflight[
         "promotion_gate"
     ]["required_evidence"]["capacity_mutation_design_ready"] is False
-    assert snn_language_thought_capacity_mutation_preflight["surface"] == (
-        "snn_language_autonomous_snn_language_thought_capacity_mutation_preflight.v1"
+    assert snn_language_readout_capacity_mutation_preflight["surface"] == (
+        "snn_language_readout_capacity_mutation_preflight.v1"
     )
-    assert snn_language_thought_capacity_mutation_preflight["accepted"] is True
-    assert snn_language_thought_capacity_mutation_preflight["ready"] is True
-    assert len(snn_language_thought_capacity_mutation_preflight["preflight_hash"]) == 64
+    assert snn_language_readout_capacity_mutation_preflight["accepted"] is True
+    assert snn_language_readout_capacity_mutation_preflight["ready"] is True
+    assert len(snn_language_readout_capacity_mutation_preflight["preflight_hash"]) == 64
     assert (
-        snn_language_thought_capacity_mutation_preflight["requires_operator_approval"]
+        snn_language_readout_capacity_mutation_preflight["requires_operator_approval"]
         is False
     )
-    assert snn_language_thought_capacity_mutation_preflight["advisory"] is True
-    assert snn_language_thought_capacity_mutation_preflight["executable"] is True
+    assert snn_language_readout_capacity_mutation_preflight["advisory"] is True
+    assert snn_language_readout_capacity_mutation_preflight["executable"] is True
     assert (
-        snn_language_thought_capacity_mutation_preflight["records_ledger_event"]
-        is False
-    )
-    assert (
-        snn_language_thought_capacity_mutation_preflight["mutates_runtime_state"]
-        is False
-    )
-    assert snn_language_thought_capacity_mutation_preflight["runs_replay"] is False
-    assert (
-        snn_language_thought_capacity_mutation_preflight["writes_checkpoint"]
-        is False
-    )
-    assert snn_language_thought_capacity_mutation_preflight["generates_text"] is True
-    assert snn_language_thought_capacity_mutation_preflight["decodes_text"] is True
-    assert (
-        snn_language_thought_capacity_mutation_preflight["trains_runtime_model"]
+        snn_language_readout_capacity_mutation_preflight["records_ledger_event"]
         is False
     )
     assert (
-        snn_language_thought_capacity_mutation_preflight["applies_plasticity"]
+        snn_language_readout_capacity_mutation_preflight["mutates_runtime_state"]
         is False
     )
-    assert snn_language_thought_capacity_mutation_preflight["resizes_network"] is False
-    assert snn_language_thought_capacity_mutation_preflight["adds_neurons"] is False
-    assert snn_language_thought_capacity_mutation_preflight["adds_synapses"] is False
-    assert snn_language_thought_capacity_mutation_preflight["prunes_network"] is False
-    thought_capacity_preflight = snn_language_thought_capacity_mutation_preflight[
-        "autonomous_snn_language_thought_capacity_mutation_preflight"
+    assert snn_language_readout_capacity_mutation_preflight["runs_replay"] is False
+    assert (
+        snn_language_readout_capacity_mutation_preflight["writes_checkpoint"]
+        is False
+    )
+    assert snn_language_readout_capacity_mutation_preflight["generates_text"] is True
+    assert snn_language_readout_capacity_mutation_preflight["decodes_text"] is True
+    assert (
+        snn_language_readout_capacity_mutation_preflight["trains_runtime_model"]
+        is False
+    )
+    assert (
+        snn_language_readout_capacity_mutation_preflight["applies_plasticity"]
+        is False
+    )
+    assert snn_language_readout_capacity_mutation_preflight["resizes_network"] is False
+    assert snn_language_readout_capacity_mutation_preflight["adds_neurons"] is False
+    assert snn_language_readout_capacity_mutation_preflight["adds_synapses"] is False
+    assert snn_language_readout_capacity_mutation_preflight["prunes_network"] is False
+    readout_capacity_preflight = snn_language_readout_capacity_mutation_preflight[
+        "snn_language_readout_capacity_mutation_preflight"
     ]
-    assert thought_capacity_preflight["requested_device"] == "cuda:0"
-    assert thought_capacity_preflight["cuda_available"] is True
-    assert thought_capacity_preflight["cuda_relayout_verified"] is True
-    assert thought_capacity_preflight["executor_ready"] is True
-    assert thought_capacity_preflight["checkpoint_path"] == (
-        "memory://thought-capacity-before"
+    assert readout_capacity_preflight["requested_device"] == "cuda:0"
+    assert readout_capacity_preflight["cuda_available"] is True
+    assert readout_capacity_preflight["cuda_relayout_verified"] is True
+    assert readout_capacity_preflight["executor_ready"] is True
+    assert readout_capacity_preflight["checkpoint_path"] == (
+        "memory://readout-capacity-before"
     )
-    assert thought_capacity_preflight["snapshot_id"] == "thought-capacity-snapshot"
-    assert thought_capacity_preflight["checkpoint_saved"] is True
-    assert thought_capacity_preflight["restore_verified"] is True
-    assert thought_capacity_preflight["current_neuron_capacity"] == 64
-    assert thought_capacity_preflight["target_neuron_capacity"] == 66
-    assert thought_capacity_preflight["current_sparse_synapse_budget"] == 256
-    assert thought_capacity_preflight["target_sparse_synapse_budget"] == 258
-    assert thought_capacity_preflight["current_dense_shape"] == [64, 64]
-    assert thought_capacity_preflight["target_dense_shape"] == [66, 66]
-    assert thought_capacity_preflight["preserved_dense_shape"] == [64, 64]
-    assert thought_capacity_preflight["zero_initialized_new_rows"] == 2
-    assert thought_capacity_preflight["zero_initialized_new_cols"] == 2
-    assert thought_capacity_preflight["growth_candidate_count"] == 2
-    assert len(thought_capacity_preflight["growth_candidates"]) == 2
-    assert thought_capacity_preflight["prune_candidate_count"] == 1
-    assert len(thought_capacity_preflight["prune_candidates"]) == 1
-    assert thought_capacity_preflight["execution_allowed"] is False
-    assert thought_capacity_preflight["resize_allowed"] is False
-    assert thought_capacity_preflight["growth_allowed"] is False
-    assert thought_capacity_preflight["prune_allowed"] is False
-    assert thought_capacity_preflight["replay_allowed"] is False
-    assert thought_capacity_preflight["plasticity_allowed"] is False
-    assert thought_capacity_preflight["training_allowed"] is False
-    assert thought_capacity_preflight["checkpoint_allowed"] is False
-    assert thought_capacity_preflight["fact_promotion_allowed"] is False
-    assert thought_capacity_preflight["action_allowed"] is False
-    assert thought_capacity_preflight["cognition_substrate_claimed"] is False
-    assert snn_language_thought_capacity_mutation_preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor"
+    assert readout_capacity_preflight["snapshot_id"] == "readout-capacity-snapshot"
+    assert readout_capacity_preflight["checkpoint_saved"] is True
+    assert readout_capacity_preflight["restore_verified"] is True
+    assert readout_capacity_preflight["current_neuron_capacity"] == 64
+    assert readout_capacity_preflight["target_neuron_capacity"] == 66
+    assert readout_capacity_preflight["current_sparse_synapse_budget"] == 256
+    assert readout_capacity_preflight["target_sparse_synapse_budget"] == 258
+    assert readout_capacity_preflight["current_dense_shape"] == [64, 64]
+    assert readout_capacity_preflight["target_dense_shape"] == [66, 66]
+    assert readout_capacity_preflight["preserved_dense_shape"] == [64, 64]
+    assert readout_capacity_preflight["zero_initialized_new_rows"] == 2
+    assert readout_capacity_preflight["zero_initialized_new_cols"] == 2
+    assert readout_capacity_preflight["growth_candidate_count"] == 2
+    assert len(readout_capacity_preflight["growth_candidates"]) == 2
+    assert readout_capacity_preflight["prune_candidate_count"] == 1
+    assert len(readout_capacity_preflight["prune_candidates"]) == 1
+    assert readout_capacity_preflight["execution_allowed"] is False
+    assert readout_capacity_preflight["resize_allowed"] is False
+    assert readout_capacity_preflight["growth_allowed"] is False
+    assert readout_capacity_preflight["prune_allowed"] is False
+    assert readout_capacity_preflight["replay_allowed"] is False
+    assert readout_capacity_preflight["plasticity_allowed"] is False
+    assert readout_capacity_preflight["training_allowed"] is False
+    assert readout_capacity_preflight["checkpoint_allowed"] is False
+    assert readout_capacity_preflight["fact_promotion_allowed"] is False
+    assert readout_capacity_preflight["action_allowed"] is False
+    assert readout_capacity_preflight["cognition_substrate_claimed"] is False
+    assert snn_language_readout_capacity_mutation_preflight["promotion_gate"][
+        "eligible_for_snn_language_readout_capacity_mutation_executor"
     ] is True
-    assert snn_language_thought_capacity_mutation_preflight["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_preflight["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_capacity_mutation_preflight["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_preflight["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_capacity_mutation_preflight["promotion_gate"][
+    assert snn_language_readout_capacity_mutation_preflight["promotion_gate"][
         "eligible_for_action"
     ] is False
 
@@ -10595,10 +10595,10 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
         "requires_operator_approval": False,
         "mutates_runtime_state": False,
         "capacity_mutation_event_hash": hashes["event"],
-        "autonomous_snn_language_thought_capacity_mutation_event_review": {
+        "snn_language_readout_capacity_mutation_event_review": {
             "capacity_mutation_event_hash": hashes["event"],
             "preflight_hash": hashes["preflight"],
-            "thought_capacity_mutation_design_hash": hashes["design"],
+            "readout_capacity_mutation_design_hash": hashes["design"],
             "structural_event_review_hash": hashes["structural"],
             "memory_trace_hash": hashes["memory"],
             "requested_device": "cuda:0",
@@ -10623,7 +10623,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
 
     design = (
         ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
-            autonomous_snn_language_thought_capacity_mutation_event_review=(
+            snn_language_readout_capacity_mutation_event_review=(
                 capacity_review
             ),
             integration_policy={
@@ -10640,7 +10640,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     )
     repeat = (
         ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
-            autonomous_snn_language_thought_capacity_mutation_event_review=(
+            snn_language_readout_capacity_mutation_event_review=(
                 capacity_review
             ),
             integration_policy={
@@ -10659,7 +10659,7 @@ def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_withou
     blocked_review["accepted"] = False
     blocked = (
         ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
-            autonomous_snn_language_thought_capacity_mutation_event_review=(
+            snn_language_readout_capacity_mutation_event_review=(
                 blocked_review
             )
         )

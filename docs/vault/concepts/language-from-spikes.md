@@ -22,9 +22,9 @@ related_benchmarks: []
 
         ## Runtime State Naming
 
-        `snn_language_plasticity_runtime_state.v1` now exposes canonical `language_*` evidence names for capacity mutation, newborn-neuron integration, critical-period learning, and newborn-synapse pruning. Legacy `thought_*` keys remain compatibility aliases only; they are not a claim that MARULHO has a hidden text-thought substrate.
+        `snn_language_plasticity_runtime_state.v1` now exposes canonical `language_*` and `readout_*` evidence names for capacity mutation, newborn-neuron integration, critical-period learning, and newborn-synapse pruning. The readout-capacity mutation chain is canonical; remaining legacy `thought_*` keys are downstream developmental compatibility aliases only and are not a claim that MARULHO has a hidden text-thought substrate.
 
-        Surface, memory, consolidation, structural plasticity, capacity mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning APIs now use canonical `snn-language-*` routes with `snn_language_*`/`surface_*` request fields. These routes delegate to the same reviewed ledger/executor gates and do not introduce a new mutation path. Thought-era public route vocabulary is no longer part of the active API.
+        Surface, memory, consolidation, structural plasticity, readout-capacity mutation, newborn-neuron integration, critical-period learning, maturation review, and newborn-synapse pruning APIs now use canonical `snn-language-*` routes with `snn_language_*`/`surface_*` request fields. The capacity route family is explicitly `snn-language-readout-capacity-mutation-*` with `snn_language_readout_capacity_mutation_*` request fields. These routes delegate to the same reviewed ledger/executor gates and do not introduce a new mutation path. Thought-era public route vocabulary is no longer part of the active API.
 
         The readout-surface chain is now canonical inside production code:
         `snn_language_readout_surface_design`,

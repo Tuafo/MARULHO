@@ -27401,11 +27401,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_capacity_mutation_design"
+                        "ready_for_snn_language_readout_capacity_mutation_design"
                         if ready
                         else "blocked_missing_snn_language_readout_structural_plasticity_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_design": ready,
+                    "eligible_for_snn_language_readout_capacity_mutation_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
                     "eligible_for_replay_memory": False,
@@ -27416,7 +27416,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_capacity_mutation_design"
+                        "snn_language_readout_capacity_mutation_design"
                         if ready
                         else "collect_snn_language_readout_structural_plasticity_event_evidence"
                     ),
@@ -27424,7 +27424,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_capacity_mutation_design(
+    def snn_language_readout_capacity_mutation_design(
         self,
         *,
         snn_language_readout_structural_plasticity_event_review: Mapping[str, Any],
@@ -27457,16 +27457,16 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         policy = dict(capacity_policy or {})
         mutation_scope = str(
-            policy.get("mutation_scope") or "thought_driven_sparse_capacity"
+            policy.get("mutation_scope") or "readout_driven_sparse_capacity"
         ).strip()
         mutation_route = str(
             policy.get("mutation_route")
             or "reviewed_structural_plasticity_to_capacity_resize"
         ).strip()
         allowed_scopes = {
-            "thought_driven_sparse_capacity",
-            "thought_driven_dense_readout_capacity",
-            "thought_driven_hybrid_capacity",
+            "readout_driven_sparse_capacity",
+            "readout_driven_dense_capacity",
+            "readout_driven_hybrid_capacity",
         }
         allowed_routes = {
             "reviewed_structural_plasticity_to_capacity_resize",
@@ -27474,7 +27474,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "reviewed_structural_plasticity_to_dense_relayout",
         }
         if mutation_scope not in allowed_scopes:
-            mutation_scope = "thought_driven_sparse_capacity"
+            mutation_scope = "readout_driven_sparse_capacity"
         if mutation_route not in allowed_routes:
             mutation_route = "reviewed_structural_plasticity_to_capacity_resize"
         current_neuron_capacity = min(
@@ -27581,7 +27581,7 @@ class SNNLanguageReadoutEvidenceLedger:
             and bool(review_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
+                    "eligible_for_snn_language_readout_capacity_mutation_design"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -27642,7 +27642,7 @@ class SNNLanguageReadoutEvidenceLedger:
         design = {
             "mutation_scope": mutation_scope,
             "mutation_route": mutation_route,
-            "thought_capacity_mutation_design_hash": capacity_design_hash,
+            "readout_capacity_mutation_design_hash": capacity_design_hash,
             "structural_event_review_hash": structural_event_review_hash,
             "snn_language_readout_structural_plasticity_event_hash": (
                 structural_event_hash
@@ -27691,21 +27691,17 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
-                "capacity_mutation_design"
+                "terminus_snn_language_readout_capacity_mutation_design"
             ),
-            "surface": (
-                "snn_language_autonomous_snn_language_thought_"
-                "capacity_mutation_design.v1"
-            ),
+            "surface": "snn_language_readout_capacity_mutation_design.v1",
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_capacity_mutation_design"
+                "snn_language_readout_capacity_mutation_design"
             ),
             "available": bool(review_artifact),
             "ready": ready,
             "accepted": ready,
-            "thought_capacity_mutation_design_hash": capacity_design_hash,
+            "readout_capacity_mutation_design_hash": capacity_design_hash,
             "requires_operator_approval": False,
             "owned_by_marulho": True,
             "external_dependency": False,
@@ -27731,14 +27727,14 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_capacity_mutation_design": design,
+            "snn_language_readout_capacity_mutation_design": design,
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+                    "ready_for_snn_language_readout_capacity_mutation_preflight"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_capacity_mutation_design_evidence"
+                    else "blocked_missing_snn_language_readout_capacity_mutation_design_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight": ready,
+                "eligible_for_snn_language_readout_capacity_mutation_preflight": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -27749,28 +27745,28 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_capacity_mutation_preflight"
+                    "snn_language_readout_capacity_mutation_preflight"
                     if ready
-                    else "collect_snn_language_thought_capacity_mutation_design_evidence"
+                    else "collect_snn_language_readout_capacity_mutation_design_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def autonomous_snn_language_thought_capacity_mutation_preflight(
+    def snn_language_readout_capacity_mutation_preflight(
         self,
         *,
-        autonomous_snn_language_thought_capacity_mutation_design: Mapping[str, Any],
+        snn_language_readout_capacity_mutation_design: Mapping[str, Any],
         expected_state_revision: int,
         checkpoint_transaction: Mapping[str, Any] | None = None,
         device_evidence: Mapping[str, Any] | None = None,
         executor_capabilities: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Preflight thought-driven capacity mutation without resizing tensors."""
+        """Preflight readout-capacity mutation without resizing tensors."""
 
         before_revision = int(self._runtime_state.state_revision)
         design_artifact = dict(
-            autonomous_snn_language_thought_capacity_mutation_design or {}
+            snn_language_readout_capacity_mutation_design or {}
         )
         gate = (
             design_artifact.get("promotion_gate")
@@ -27779,11 +27775,11 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         body = (
             design_artifact.get(
-                "autonomous_snn_language_thought_capacity_mutation_design"
+                "snn_language_readout_capacity_mutation_design"
             )
             if isinstance(
                 design_artifact.get(
-                    "autonomous_snn_language_thought_capacity_mutation_design"
+                    "snn_language_readout_capacity_mutation_design"
                 ),
                 Mapping,
             )
@@ -27793,8 +27789,8 @@ class SNNLanguageReadoutEvidenceLedger:
         device = dict(device_evidence or {})
         capabilities = dict(executor_capabilities or {})
         design_hash = str(
-            design_artifact.get("thought_capacity_mutation_design_hash")
-            or body.get("thought_capacity_mutation_design_hash")
+            design_artifact.get("readout_capacity_mutation_design_hash")
+            or body.get("readout_capacity_mutation_design_hash")
             or ""
         )
         structural_event_review_hash = str(
@@ -27874,13 +27870,13 @@ class SNNLanguageReadoutEvidenceLedger:
         snapshot_id = str(checkpoint.get("snapshot_id") or "")
         executor_ready = bool(
             capabilities.get(
-                "autonomous_snn_language_thought_capacity_mutation_executor"
+                "snn_language_readout_capacity_mutation_executor"
             )
         )
         preflight = {
             "mutation_scope": str(body.get("mutation_scope") or ""),
             "mutation_route": str(body.get("mutation_route") or ""),
-            "thought_capacity_mutation_design_hash": design_hash,
+            "readout_capacity_mutation_design_hash": design_hash,
             "structural_event_review_hash": structural_event_review_hash,
             "snn_language_readout_structural_plasticity_event_hash": (
                 structural_event_hash
@@ -27940,12 +27936,12 @@ class SNNLanguageReadoutEvidenceLedger:
         preflight["preflight_hash"] = preflight_hash
         required = {
             "capacity_mutation_design_available": design_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1",
+            == "snn_language_readout_capacity_mutation_design.v1",
             "capacity_mutation_design_ready": bool(design_artifact.get("accepted"))
             and bool(design_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+                    "eligible_for_snn_language_readout_capacity_mutation_preflight"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -28022,16 +28018,12 @@ class SNNLanguageReadoutEvidenceLedger:
         ready = all(required.values())
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
-                "capacity_mutation_preflight"
+                "terminus_snn_language_readout_capacity_mutation_preflight"
             ),
-            "surface": (
-                "snn_language_autonomous_snn_language_thought_"
-                "capacity_mutation_preflight.v1"
-            ),
+            "surface": "snn_language_readout_capacity_mutation_preflight.v1",
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_capacity_mutation_preflight"
+                "snn_language_readout_capacity_mutation_preflight"
             ),
             "available": bool(design_artifact),
             "ready": ready,
@@ -28064,18 +28056,18 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_capacity_mutation_preflight": (
+            "snn_language_readout_capacity_mutation_preflight": (
                 preflight
                 if ready
                 else {**preflight, "growth_candidates": [], "prune_candidates": []}
             ),
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_capacity_mutation_executor"
+                    "ready_for_snn_language_readout_capacity_mutation_executor"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_capacity_mutation_preflight_evidence"
+                    else "blocked_missing_snn_language_readout_capacity_mutation_preflight_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": ready,
+                "eligible_for_snn_language_readout_capacity_mutation_executor": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -28086,29 +28078,29 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_capacity_mutation_executor"
+                    "snn_language_readout_capacity_mutation_executor"
                     if ready
-                    else "collect_snn_language_thought_capacity_mutation_preflight_evidence"
+                    else "collect_snn_language_readout_capacity_mutation_preflight_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def autonomous_snn_language_thought_capacity_mutation_event_review(
+    def snn_language_readout_capacity_mutation_event_review(
         self,
         *,
-        autonomous_snn_language_thought_capacity_mutation_executor: Mapping[
+        snn_language_readout_capacity_mutation_executor: Mapping[
             str, Any
         ],
         plasticity_runtime_state: Mapping[str, Any],
         expected_state_revision: int,
     ) -> dict[str, Any]:
-        """Review committed thought-capacity growth against live runtime state."""
+        """Review committed readout-capacity growth against live runtime state."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             executor = dict(
-                autonomous_snn_language_thought_capacity_mutation_executor or {}
+                snn_language_readout_capacity_mutation_executor or {}
             )
             runtime = dict(plasticity_runtime_state or {})
             gate = (
@@ -28119,12 +28111,12 @@ class SNNLanguageReadoutEvidenceLedger:
             event = (
                 dict(
                     executor.get(
-                        "autonomous_snn_language_thought_capacity_mutation_event"
+                        "snn_language_readout_capacity_mutation_event"
                     )
                 )
                 if isinstance(
                     executor.get(
-                        "autonomous_snn_language_thought_capacity_mutation_event"
+                        "snn_language_readout_capacity_mutation_event"
                     ),
                     Mapping,
                 )
@@ -28146,9 +28138,9 @@ class SNNLanguageReadoutEvidenceLedger:
                 else {}
             )
             runtime_last_event = (
-                dict(runtime.get("last_thought_capacity_mutation"))
+                dict(runtime.get("last_readout_capacity_mutation"))
                 if isinstance(
-                    runtime.get("last_thought_capacity_mutation"), Mapping
+                    runtime.get("last_readout_capacity_mutation"), Mapping
                 )
                 else {}
             )
@@ -28217,15 +28209,12 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             required = {
                 "executor_surface_available": executor.get("surface")
-                == (
-                    "snn_language_autonomous_snn_language_thought_"
-                    "capacity_mutation_executor.v1"
-                ),
+                == "snn_language_readout_capacity_mutation_executor.v1",
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(executor.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_"
+                        "eligible_for_snn_language_readout_"
                         "capacity_mutation_event_review"
                     )
                 ),
@@ -28246,7 +28235,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 == 64,
                 "design_hash_available": len(
                     str(
-                        event.get("thought_capacity_mutation_design_hash")
+                        event.get("readout_capacity_mutation_design_hash")
                         or ""
                     )
                 )
@@ -28305,7 +28294,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     runtime_capacity.get("capacity_expansion_count", 0) or 0
                 )
                 >= 1
-                and int(runtime.get("thought_capacity_mutation_count", 0) or 0)
+                and int(runtime.get("readout_capacity_mutation_count", 0) or 0)
                 >= 1,
                 "runtime_tensor_available": bool(
                     runtime_tensor.get("available")
@@ -28372,8 +28361,8 @@ class SNNLanguageReadoutEvidenceLedger:
             review = {
                 "capacity_mutation_event_hash": event_hash,
                 "preflight_hash": str(event.get("preflight_hash") or ""),
-                "thought_capacity_mutation_design_hash": str(
-                    event.get("thought_capacity_mutation_design_hash") or ""
+                "readout_capacity_mutation_design_hash": str(
+                    event.get("readout_capacity_mutation_design_hash") or ""
                 ),
                 "structural_event_review_hash": str(
                     event.get("structural_event_review_hash") or ""
@@ -28440,29 +28429,26 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
-                        "capacity_mutation_event_review.v1"
+                        "snn_language_readout_capacity_mutation_event_review.v1"
                     ),
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
                     "required_evidence": required,
-                    "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                    "snn_language_readout_capacity_mutation_event_review": (
                         review
                     ),
                 }
             )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
-                    "capacity_mutation_event_review"
+                    "terminus_snn_language_readout_capacity_mutation_event_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
-                    "capacity_mutation_event_review.v1"
+                    "snn_language_readout_capacity_mutation_event_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_capacity_mutation_event_review"
+                    "snn_language_readout_capacity_mutation_event_review"
                 ),
                 "available": bool(executor),
                 "ready": ready,
@@ -28490,7 +28476,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "prunes_network": False,
                 "mutates_runtime_state": False,
                 "capacity_mutation_event_hash": event_hash,
-                "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                "snn_language_readout_capacity_mutation_event_review": (
                     review
                 ),
                 "promotion_gate": {
@@ -28498,7 +28484,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         "ready_for_autonomous_snn_language_thought_"
                         "newborn_neuron_integration_design"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_"
+                        else "blocked_missing_snn_language_readout_"
                         "capacity_mutation_event_evidence"
                     ),
                     "eligible_for_autonomous_snn_language_thought_"
@@ -28516,7 +28502,7 @@ class SNNLanguageReadoutEvidenceLedger:
                         "autonomous_snn_language_thought_"
                         "newborn_neuron_integration_design"
                         if ready
-                        else "collect_snn_language_thought_"
+                        else "collect_snn_language_readout_"
                         "capacity_mutation_event_evidence"
                     ),
                     "required_evidence": required,
@@ -28526,7 +28512,7 @@ class SNNLanguageReadoutEvidenceLedger:
     def autonomous_snn_language_thought_newborn_neuron_integration_design(
         self,
         *,
-        autonomous_snn_language_thought_capacity_mutation_event_review: Mapping[
+        snn_language_readout_capacity_mutation_event_review: Mapping[
             str, Any
         ],
         integration_policy: Mapping[str, Any] | None = None,
@@ -28536,18 +28522,18 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             artifact = dict(
-                autonomous_snn_language_thought_capacity_mutation_event_review
+                snn_language_readout_capacity_mutation_event_review
                 or {}
             )
             review = (
                 dict(
                     artifact.get(
-                        "autonomous_snn_language_thought_capacity_mutation_event_review"
+                        "snn_language_readout_capacity_mutation_event_review"
                     )
                 )
                 if isinstance(
                     artifact.get(
-                        "autonomous_snn_language_thought_capacity_mutation_event_review"
+                        "snn_language_readout_capacity_mutation_event_review"
                     ),
                     Mapping,
                 )
@@ -28723,8 +28709,8 @@ class SNNLanguageReadoutEvidenceLedger:
                 "capacity_mutation_event_review_hash": capacity_review_hash,
                 "capacity_mutation_event_hash": mutation_event_hash,
                 "preflight_hash": str(review.get("preflight_hash") or ""),
-                "thought_capacity_mutation_design_hash": str(
-                    review.get("thought_capacity_mutation_design_hash") or ""
+                "readout_capacity_mutation_design_hash": str(
+                    review.get("readout_capacity_mutation_design_hash") or ""
                 ),
                 "structural_event_review_hash": str(
                     review.get("structural_event_review_hash") or ""
@@ -28751,10 +28737,7 @@ class SNNLanguageReadoutEvidenceLedger:
             required = {
                 "capacity_mutation_event_review_surface_available": (
                     artifact.get("surface")
-                    == (
-                        "snn_language_autonomous_snn_language_thought_"
-                        "capacity_mutation_event_review.v1"
-                    )
+                    == "snn_language_readout_capacity_mutation_event_review.v1"
                 ),
                 "capacity_mutation_event_review_ready": bool(
                     artifact.get("accepted")
@@ -28775,7 +28758,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     len(str(value or "")) == 64
                     for value in (
                         review.get("preflight_hash"),
-                        review.get("thought_capacity_mutation_design_hash"),
+                        review.get("readout_capacity_mutation_design_hash"),
                         review.get("structural_event_review_hash"),
                         review.get("memory_trace_hash"),
                     )
