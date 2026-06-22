@@ -135,13 +135,19 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("stop first", response.json()["detail"])
 
-    def test_checkpoint_save_migrates_legacy_readout_surface_ledger_state(self) -> None:
-        legacy_event = {"snn_language_readout_surface_event_hash": "1" * 64}
+    def test_checkpoint_save_migrates_legacy_readout_ledger_state(self) -> None:
+        legacy_surface_event = {"snn_language_readout_surface_event_hash": "1" * 64}
+        legacy_memory_event = {"snn_language_readout_memory_event_hash": "2" * 64}
         legacy_ledger_state = {
-            "autonomous_snn_language_thought_surface_events": [legacy_event],
+            "autonomous_snn_language_thought_surface_events": [legacy_surface_event],
             "total_autonomous_snn_language_thought_surface_count": 1,
             "last_autonomous_snn_language_thought_surface_recorded_at": (
                 "2026-06-22T00:00:00+00:00"
+            ),
+            "autonomous_snn_language_thought_memory_events": [legacy_memory_event],
+            "total_autonomous_snn_language_thought_memory_count": 1,
+            "last_autonomous_snn_language_thought_memory_recorded_at": (
+                "2026-06-22T00:01:00+00:00"
             ),
         }
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -174,12 +180,21 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         ]
         self.assertEqual(
             saved_ledger_state["snn_language_readout_surface_events"],
-            [legacy_event],
+            [legacy_surface_event],
         )
         self.assertEqual(saved_ledger_state["total_snn_language_readout_surface_count"], 1)
         self.assertEqual(
             saved_ledger_state["last_snn_language_readout_surface_recorded_at"],
             "2026-06-22T00:00:00+00:00",
+        )
+        self.assertEqual(
+            saved_ledger_state["snn_language_readout_memory_events"],
+            [legacy_memory_event],
+        )
+        self.assertEqual(saved_ledger_state["total_snn_language_readout_memory_count"], 1)
+        self.assertEqual(
+            saved_ledger_state["last_snn_language_readout_memory_recorded_at"],
+            "2026-06-22T00:01:00+00:00",
         )
         self.assertNotIn(
             "autonomous_snn_language_thought_surface_events",
@@ -191,6 +206,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertNotIn(
             "last_autonomous_snn_language_thought_surface_recorded_at",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "autonomous_snn_language_thought_memory_events",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "total_autonomous_snn_language_thought_memory_count",
+            saved_ledger_state,
+        )
+        self.assertNotIn(
+            "last_autonomous_snn_language_thought_memory_recorded_at",
             saved_ledger_state,
         )
 
@@ -232,6 +259,39 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(
             internalized_payload["snn_language_readout_surface_design"]["readout_role"],
             "bounded_readout_candidate",
+        )
+        readout_memory_payload = {
+            "artifact_kind": "terminus_snn_language_readout_memory_design",
+            "surface": "snn_language_readout_memory_design.v1",
+            "snn_language_readout_memory_design": {
+                "memory_scope": "working_trace",
+                "consolidation_route": "deferred_local_trace",
+                "language_readout_memory_design_hash": "1" * 64,
+            },
+            "promotion_gate": {
+                "eligible_for_snn_language_readout_memory_preflight": True,
+                "next_gate": "snn_language_readout_memory_preflight",
+            },
+        }
+
+        public_memory_payload = _public_snn_language_payload(readout_memory_payload)
+        public_memory_text = json.dumps(public_memory_payload, sort_keys=True)
+
+        self.assertNotIn("autonomous_snn_language_thought_memory", public_memory_text)
+        self.assertNotIn("thought_memory", public_memory_text)
+        self.assertIn("snn_language_readout_memory_design", public_memory_text)
+        internalized_memory_payload = _internal_snn_language_payload(public_memory_payload)
+        self.assertEqual(
+            internalized_memory_payload["surface"],
+            "snn_language_readout_memory_design.v1",
+        )
+        self.assertIn(
+            "snn_language_readout_memory_design",
+            internalized_memory_payload,
+        )
+        self.assertNotIn(
+            "snn_language_autonomous_snn_language_thought_memory_design",
+            internalized_memory_payload,
         )
 
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:

@@ -1831,11 +1831,21 @@ benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
 
 SNN language decoding through thought structural plasticity now follows the same
-single-family ledger boundary. Decoding, readout-surface, thought-memory,
+single-family ledger boundary. Decoding, readout-surface, readout-memory,
 thought-consolidation, and thought-structural-plasticity executor/review pairs
 read only their target event family, return
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and do not normalize
 all retained readout/replay ledger families. The benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`
+passed after the readout-memory production rename with bounded mean
+`380.146067 ms` versus legacy diagnostic `5619.687233 ms` (`16x` source-work
+reduction), while the autonomous-chain bounded mean stayed `944.358700 ms`
+versus `19539.615767 ms`. The accepted `524288`-token hot-path rerun
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-memory-canonical-rerun.json`
+stayed in band at `5987.142 tokens/sec`, p95 `21.546300 ms`,
+`train_compute=0.134307 ms/token`, bounded `12/65536` route rows, no observed
+contention, GPU memory `1827->1825 MiB`, and zero graph/native sequence
+failures. The older full-chain benchmark
 `reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json`
 preserved hash, review-match, total-count, and current-pointer parity across the
 expanded seventeen-component autonomous readout/language/thought chain while

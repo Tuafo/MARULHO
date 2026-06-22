@@ -1576,12 +1576,22 @@ placement on CPU. The paired long run stayed in band at `6074.417 tokens/sec`,
 and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `2044->2047 MiB`.
 
-SNN language decoding, readout-surface, thought-memory,
+SNN language decoding, readout-surface, readout-memory,
 thought-consolidation, and thought-structural-plasticity now stay on the same
 one-path ledger boundary. Execution/review reads only the target downstream
 language/readout event family, reports
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and updates only
-that family count/timestamp. The benchmark
+that family count/timestamp. The current readout-memory canonicalization
+benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`
+passed with bounded mean `380.146067 ms` versus legacy diagnostic
+`5619.687233 ms` (`16x` source-work reduction), while the autonomous-chain
+bounded mean stayed `944.358700 ms` versus `19539.615767 ms`. The accepted
+`524288`-token hot-path rerun
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-memory-canonical-rerun.json`
+stayed in band at `5987.142 tokens/sec`, with bounded `12/65536` route rows,
+`65526` cached transition rows, and zero graph/native sequence failures. The older
+full-chain benchmark
 `reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json`
 kept hash, review-match, total-count, and current-pointer parity across the
 seventeen-component readout/language/thought chain while reducing checked rows

@@ -321,7 +321,6 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
     ("autonomous_snn_language_thought", "snn_language_readout"),
     ("language_thought", "language_readout"),
-    ("thought_memory", "readout_memory"),
     ("thought_consolidation", "readout_consolidation"),
     ("thought_structural", "readout_structural"),
     ("thought_capacity", "readout_capacity"),
@@ -336,13 +335,10 @@ _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("terminus_snn_language_readout_capacity", "terminus_snn_language_autonomous_snn_language_thought_capacity"),
     ("terminus_snn_language_readout_structural", "terminus_snn_language_autonomous_snn_language_thought_structural"),
     ("terminus_snn_language_readout_consolidation", "terminus_snn_language_autonomous_snn_language_thought_consolidation"),
-    ("terminus_snn_language_readout_memory", "terminus_snn_language_autonomous_snn_language_thought_memory"),
     ("snn_language_readout_newborn", "snn_language_autonomous_snn_language_thought_newborn"),
     ("snn_language_readout_capacity", "snn_language_autonomous_snn_language_thought_capacity"),
     ("snn_language_readout_structural", "snn_language_autonomous_snn_language_thought_structural"),
     ("snn_language_readout_consolidation", "snn_language_autonomous_snn_language_thought_consolidation"),
-    ("snn_language_readout_memory", "snn_language_autonomous_snn_language_thought_memory"),
-    ("readout_memory", "thought_memory"),
     ("readout_consolidation", "thought_consolidation"),
     ("readout_structural", "thought_structural"),
     ("readout_capacity", "thought_capacity"),
@@ -2021,7 +2017,7 @@ def create_app(
     def terminus_snn_language_memory_design(
         request: SNNLanguageMemoryDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_memory_design(
+        return _public_snn_language_payload(runtime.snn_language_readout_memory_design(
             snn_language_readout_surface_event_review=(
                 request.snn_language_surface_event_review
             ),
@@ -2032,8 +2028,8 @@ def create_app(
     def terminus_snn_language_memory_preflight(
         request: SNNLanguageMemoryPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_memory_preflight(
-            autonomous_snn_language_thought_memory_design=(
+        return _public_snn_language_payload(runtime.snn_language_readout_memory_preflight(
+            snn_language_readout_memory_design=(
                 _internal_snn_language_payload(request.snn_language_memory_design)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2045,8 +2041,8 @@ def create_app(
     def terminus_snn_language_memory_executor(
         request: SNNLanguageMemoryExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_memory_executor(
-            autonomous_snn_language_thought_memory_preflight=(
+        return _public_snn_language_payload(runtime.snn_language_readout_memory_executor(
+            snn_language_readout_memory_preflight=(
                 _internal_snn_language_payload(request.snn_language_memory_preflight)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2057,8 +2053,8 @@ def create_app(
     def terminus_snn_language_memory_event_review(
         request: SNNLanguageMemoryEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_memory_event_review(
-            autonomous_snn_language_thought_memory_executor=(
+        return _public_snn_language_payload(runtime.snn_language_readout_memory_event_review(
+            snn_language_readout_memory_executor=(
                 _internal_snn_language_payload(request.snn_language_memory_executor)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2070,7 +2066,7 @@ def create_app(
         request: SNNLanguageConsolidationDesignRequest,
     ) -> dict[str, Any]:
         return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_consolidation_design(
-            autonomous_snn_language_thought_memory_event_review=(
+            snn_language_readout_memory_event_review=(
                 _internal_snn_language_payload(request.snn_language_memory_event_review)
             ),
             consolidation_policy=_internal_snn_language_payload(request.consolidation_policy),

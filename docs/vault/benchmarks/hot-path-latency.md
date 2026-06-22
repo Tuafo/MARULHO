@@ -4674,9 +4674,9 @@ contention (`cpu max=50%`, `gpu max=13%`, `gpu memory util max=18%`). Runtime
 CUDA memory moved `2044->2047 MiB`; the replay/ledger benchmark itself kept
 archival/source/review metadata on CPU.
 
-## Autonomous Language-Thought Ledger Windows
+## Autonomous Language-Readout Ledger Windows
 
-SNN language decoding, readout-surface, thought-memory, thought-consolidation,
+SNN language decoding, readout-surface, readout-memory, thought-consolidation,
 and thought-structural-plasticity now use the same record-family source-window
 path instead of normalizing every retained readout-ledger event family. The
 production path uses `bounded_snn_readout_ledger_record_family_source_window.v1`
@@ -4684,6 +4684,36 @@ for each downstream language/readout event family, with archival/source/review
 metadata on CPU and no live-tick, every-token, or hidden language-reasoning work.
 
 Focused quality benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260622\snn-readout-ledger-normalization-readout-memory-canonical.json`
+
+Result: `pass=true`; after the production memory-chain rename, the bounded
+path preserved canonical readout-memory hash/review/count behavior. Bounded
+mean was `380.146067 ms` versus legacy diagnostic `5619.687233 ms` (`16x`
+source-work reduction), and the autonomous-chain bounded mean stayed
+`944.358700 ms` versus `19539.615767 ms`. Archival/source/review placement is
+CPU-only; CUDA was available on the RTX 3060 but unused for archival ledger
+metadata, with `0.0 MiB` CUDA allocation/reservation and Python tracemalloc peak
+`429.774527 MiB`. No live tick, every-token cadence, replay execution, or
+hidden language reasoning is involved.
+
+Accepted hot-path protection rerun:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-readout-memory-canonical-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `87.568988 s`,
+`5987.142 tokens/sec`, tick p95 `21.546300 ms`, `train_compute=0.134307
+ms/token`, `prepare_training=0.007037 ms/token`, and
+`finalize_total=0.006893 ms/token`. Prewarm was explicit slow-path work
+(`324830.668 ms`) and reached `full_warm_ready=true` before measurement. Route
+scoring stayed bounded at `12/65536` input rows with `10` output candidates,
+`65526` cached transition rows, `state_transition_runs_all_columns=false`, and
+zero graph/native sequence failures or fallbacks. Runtime device was CUDA on an
+RTX 3060; the environment sampler reported no observed contention, CPU max
+`29%`, GPU max `13%`, GPU memory util max `18%`, and GPU memory
+`1827->1825 MiB`.
+
+Historical full-chain quality benchmark:
 
 `python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260619\snn-readout-ledger-normalization-thought-structural-chain.json`
 

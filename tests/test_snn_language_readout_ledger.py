@@ -63,6 +63,32 @@ def test_readout_ledger_state_migrates_legacy_surface_fields_once() -> None:
     )
 
 
+def test_readout_ledger_state_migrates_legacy_memory_fields_once() -> None:
+    legacy_event = {"snn_language_readout_memory_event_hash": "2" * 64}
+    migrated = normalize_snn_language_readout_ledger_state(
+        {
+            "autonomous_snn_language_thought_memory_events": [legacy_event],
+            "total_autonomous_snn_language_thought_memory_count": 1,
+            "last_autonomous_snn_language_thought_memory_recorded_at": (
+                "2026-06-22T00:00:00+00:00"
+            ),
+        }
+    )
+
+    assert migrated["snn_language_readout_memory_events"] == [legacy_event]
+    assert migrated["total_snn_language_readout_memory_count"] == 1
+    assert (
+        migrated["last_snn_language_readout_memory_recorded_at"]
+        == "2026-06-22T00:00:00+00:00"
+    )
+    assert "autonomous_snn_language_thought_memory_events" not in migrated
+    assert "total_autonomous_snn_language_thought_memory_count" not in migrated
+    assert (
+        "last_autonomous_snn_language_thought_memory_recorded_at"
+        not in migrated
+    )
+
+
 def _ready_draft() -> dict[str, object]:
     return _ready_draft_for("prediction-hash-1", "evaluation-hash-1", "weights-hash-1", ["memory pressure"])
 
@@ -6806,8 +6832,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_memory_design = (
-        ledger.autonomous_snn_language_thought_memory_design(
+    blocked_snn_language_readout_memory_design = (
+        ledger.snn_language_readout_memory_design(
             snn_language_readout_surface_event_review=(
                 blocked_snn_language_readout_surface_event_review
             ),
@@ -6820,8 +6846,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_memory_design = (
-        ledger.autonomous_snn_language_thought_memory_design(
+    snn_language_readout_memory_design = (
+        ledger.snn_language_readout_memory_design(
             snn_language_readout_surface_event_review=(
                 snn_language_readout_surface_event_review
             ),
@@ -6834,50 +6860,50 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_memory_preflight = (
-        ledger.autonomous_snn_language_thought_memory_preflight(
-            autonomous_snn_language_thought_memory_design=(
-                blocked_snn_language_thought_memory_design
+    blocked_snn_language_readout_memory_preflight = (
+        ledger.snn_language_readout_memory_preflight(
+            snn_language_readout_memory_design=(
+                blocked_snn_language_readout_memory_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_memory_executor": True
+                "snn_language_readout_memory_executor": True
             },
         )
     )
-    snn_language_thought_memory_preflight = (
-        ledger.autonomous_snn_language_thought_memory_preflight(
-            autonomous_snn_language_thought_memory_design=(
-                snn_language_thought_memory_design
+    snn_language_readout_memory_preflight = (
+        ledger.snn_language_readout_memory_preflight(
+            snn_language_readout_memory_design=(
+                snn_language_readout_memory_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_memory_executor": True
+                "snn_language_readout_memory_executor": True
             },
         )
     )
-    blocked_snn_language_thought_memory_executor = (
-        ledger.execute_autonomous_snn_language_thought_memory(
-            autonomous_snn_language_thought_memory_preflight=(
-                blocked_snn_language_thought_memory_preflight
+    blocked_snn_language_readout_memory_executor = (
+        ledger.execute_snn_language_readout_memory(
+            snn_language_readout_memory_preflight=(
+                blocked_snn_language_readout_memory_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    snn_language_thought_memory_executor = (
-        ledger.execute_autonomous_snn_language_thought_memory(
-            autonomous_snn_language_thought_memory_preflight=(
-                snn_language_thought_memory_preflight
+    snn_language_readout_memory_executor = (
+        ledger.execute_snn_language_readout_memory(
+            snn_language_readout_memory_preflight=(
+                snn_language_readout_memory_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    blocked_snn_language_thought_memory_event_review = (
-        ledger.autonomous_snn_language_thought_memory_event_review(
-            autonomous_snn_language_thought_memory_executor=(
-                blocked_snn_language_thought_memory_executor
+    blocked_snn_language_readout_memory_event_review = (
+        ledger.snn_language_readout_memory_event_review(
+            snn_language_readout_memory_executor=(
+                blocked_snn_language_readout_memory_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -6887,10 +6913,10 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_memory_event_review = (
-        ledger.autonomous_snn_language_thought_memory_event_review(
-            autonomous_snn_language_thought_memory_executor=(
-                snn_language_thought_memory_executor
+    snn_language_readout_memory_event_review = (
+        ledger.snn_language_readout_memory_event_review(
+            snn_language_readout_memory_executor=(
+                snn_language_readout_memory_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -6902,8 +6928,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     blocked_snn_language_thought_consolidation_design = (
         ledger.autonomous_snn_language_thought_consolidation_design(
-            autonomous_snn_language_thought_memory_event_review=(
-                blocked_snn_language_thought_memory_event_review
+            snn_language_readout_memory_event_review=(
+                blocked_snn_language_readout_memory_event_review
             ),
             consolidation_policy={
                 "consolidation_scope": "local_trace_reinforcement",
@@ -6917,8 +6943,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     snn_language_thought_consolidation_design = (
         ledger.autonomous_snn_language_thought_consolidation_design(
-            autonomous_snn_language_thought_memory_event_review=(
-                snn_language_thought_memory_event_review
+            snn_language_readout_memory_event_review=(
+                snn_language_readout_memory_event_review
             ),
             consolidation_policy={
                 "consolidation_scope": "local_trace_reinforcement",
@@ -9187,7 +9213,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         not in surface_chain_text
     )
     assert snn_language_readout_surface_event_review["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_memory_design"
+        "eligible_for_snn_language_readout_memory_design"
     ] is True
     assert snn_language_readout_surface_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
@@ -9198,276 +9224,276 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_readout_surface_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_memory_design["accepted"] is False
+    assert blocked_snn_language_readout_memory_design["accepted"] is False
     assert (
-        blocked_snn_language_thought_memory_design["requires_operator_approval"]
+        blocked_snn_language_readout_memory_design["requires_operator_approval"]
         is False
     )
-    assert blocked_snn_language_thought_memory_design["promotion_gate"][
+    assert blocked_snn_language_readout_memory_design["promotion_gate"][
         "required_evidence"
     ]["readout_surface_event_review_ready"] is False
-    assert snn_language_thought_memory_design["surface"] == (
-        "snn_language_autonomous_snn_language_thought_memory_design.v1"
+    assert snn_language_readout_memory_design["surface"] == (
+        "snn_language_readout_memory_design.v1"
     )
-    assert snn_language_thought_memory_design["accepted"] is True
-    assert snn_language_thought_memory_design["ready"] is True
+    assert snn_language_readout_memory_design["accepted"] is True
+    assert snn_language_readout_memory_design["ready"] is True
     assert len(
-        snn_language_thought_memory_design[
-            "language_thought_memory_design_hash"
+        snn_language_readout_memory_design[
+            "language_readout_memory_design_hash"
         ]
     ) == 64
-    assert len(snn_language_thought_memory_design["memory_trace_hash"]) == 64
-    assert snn_language_thought_memory_design["requires_operator_approval"] is False
-    assert snn_language_thought_memory_design["advisory"] is True
-    assert snn_language_thought_memory_design["executable"] is False
-    assert snn_language_thought_memory_design["records_ledger_event"] is False
-    assert snn_language_thought_memory_design["mutates_runtime_state"] is False
-    assert snn_language_thought_memory_design["runs_replay"] is False
-    assert snn_language_thought_memory_design["writes_checkpoint"] is False
-    assert snn_language_thought_memory_design["generates_text"] is True
-    assert snn_language_thought_memory_design["decodes_text"] is True
-    assert snn_language_thought_memory_design["trains_runtime_model"] is False
-    assert snn_language_thought_memory_design["applies_plasticity"] is False
-    thought_memory_body = snn_language_thought_memory_design[
-        "autonomous_snn_language_thought_memory_design"
+    assert len(snn_language_readout_memory_design["memory_trace_hash"]) == 64
+    assert snn_language_readout_memory_design["requires_operator_approval"] is False
+    assert snn_language_readout_memory_design["advisory"] is True
+    assert snn_language_readout_memory_design["executable"] is False
+    assert snn_language_readout_memory_design["records_ledger_event"] is False
+    assert snn_language_readout_memory_design["mutates_runtime_state"] is False
+    assert snn_language_readout_memory_design["runs_replay"] is False
+    assert snn_language_readout_memory_design["writes_checkpoint"] is False
+    assert snn_language_readout_memory_design["generates_text"] is True
+    assert snn_language_readout_memory_design["decodes_text"] is True
+    assert snn_language_readout_memory_design["trains_runtime_model"] is False
+    assert snn_language_readout_memory_design["applies_plasticity"] is False
+    readout_memory_body = snn_language_readout_memory_design[
+        "snn_language_readout_memory_design"
     ]
-    assert thought_memory_body["memory_scope"] == "working_trace"
-    assert thought_memory_body["consolidation_route"] == "deferred_local_trace"
-    assert thought_memory_body["rendered_text"] == "spike language"
-    assert thought_memory_body["decoded_text_fragments"] == ["spike language"]
-    assert len(thought_memory_body["local_learning_target_hashes"]) == 2
+    assert readout_memory_body["memory_scope"] == "working_trace"
+    assert readout_memory_body["consolidation_route"] == "deferred_local_trace"
+    assert readout_memory_body["rendered_text"] == "spike language"
+    assert readout_memory_body["decoded_text_fragments"] == ["spike language"]
+    assert len(readout_memory_body["local_learning_target_hashes"]) == 2
     assert all(
         len(value) == 64
-        for value in thought_memory_body["local_learning_target_hashes"]
+        for value in readout_memory_body["local_learning_target_hashes"]
     )
-    assert thought_memory_body["memory_recording_allowed"] is False
-    assert thought_memory_body["replay_allowed"] is False
-    assert thought_memory_body["plasticity_allowed"] is False
-    assert thought_memory_body["training_allowed"] is False
-    assert thought_memory_body["checkpoint_allowed"] is False
-    assert thought_memory_body["fact_promotion_allowed"] is False
-    assert thought_memory_body["action_allowed"] is False
-    assert thought_memory_body["cognition_substrate_claimed"] is False
-    assert snn_language_thought_memory_design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_memory_preflight"
+    assert readout_memory_body["memory_recording_allowed"] is False
+    assert readout_memory_body["replay_allowed"] is False
+    assert readout_memory_body["plasticity_allowed"] is False
+    assert readout_memory_body["training_allowed"] is False
+    assert readout_memory_body["checkpoint_allowed"] is False
+    assert readout_memory_body["fact_promotion_allowed"] is False
+    assert readout_memory_body["action_allowed"] is False
+    assert readout_memory_body["cognition_substrate_claimed"] is False
+    assert snn_language_readout_memory_design["promotion_gate"][
+        "eligible_for_snn_language_readout_memory_preflight"
     ] is True
-    assert snn_language_thought_memory_design["promotion_gate"][
+    assert snn_language_readout_memory_design["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_memory_design["promotion_gate"][
+    assert snn_language_readout_memory_design["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_memory_design["promotion_gate"][
+    assert snn_language_readout_memory_design["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_memory_preflight["accepted"] is False
+    assert blocked_snn_language_readout_memory_preflight["accepted"] is False
     assert (
-        blocked_snn_language_thought_memory_preflight["requires_operator_approval"]
+        blocked_snn_language_readout_memory_preflight["requires_operator_approval"]
         is False
     )
-    assert blocked_snn_language_thought_memory_preflight["promotion_gate"][
+    assert blocked_snn_language_readout_memory_preflight["promotion_gate"][
         "required_evidence"
-    ]["thought_memory_design_ready"] is False
-    assert snn_language_thought_memory_preflight["surface"] == (
-        "snn_language_autonomous_snn_language_thought_memory_preflight.v1"
+    ]["readout_memory_design_ready"] is False
+    assert snn_language_readout_memory_preflight["surface"] == (
+        "snn_language_readout_memory_preflight.v1"
     )
-    assert snn_language_thought_memory_preflight["accepted"] is True
-    assert snn_language_thought_memory_preflight["ready"] is True
-    assert len(snn_language_thought_memory_preflight["preflight_hash"]) == 64
-    assert snn_language_thought_memory_preflight["requires_operator_approval"] is False
-    assert snn_language_thought_memory_preflight["advisory"] is True
-    assert snn_language_thought_memory_preflight["executable"] is True
-    assert snn_language_thought_memory_preflight["records_ledger_event"] is False
-    assert snn_language_thought_memory_preflight["mutates_runtime_state"] is False
-    assert snn_language_thought_memory_preflight["runs_replay"] is False
-    assert snn_language_thought_memory_preflight["writes_checkpoint"] is False
-    assert snn_language_thought_memory_preflight["generates_text"] is True
-    assert snn_language_thought_memory_preflight["decodes_text"] is True
-    assert snn_language_thought_memory_preflight["trains_runtime_model"] is False
-    assert snn_language_thought_memory_preflight["applies_plasticity"] is False
-    thought_memory_preflight_body = snn_language_thought_memory_preflight[
-        "autonomous_snn_language_thought_memory_preflight"
+    assert snn_language_readout_memory_preflight["accepted"] is True
+    assert snn_language_readout_memory_preflight["ready"] is True
+    assert len(snn_language_readout_memory_preflight["preflight_hash"]) == 64
+    assert snn_language_readout_memory_preflight["requires_operator_approval"] is False
+    assert snn_language_readout_memory_preflight["advisory"] is True
+    assert snn_language_readout_memory_preflight["executable"] is True
+    assert snn_language_readout_memory_preflight["records_ledger_event"] is False
+    assert snn_language_readout_memory_preflight["mutates_runtime_state"] is False
+    assert snn_language_readout_memory_preflight["runs_replay"] is False
+    assert snn_language_readout_memory_preflight["writes_checkpoint"] is False
+    assert snn_language_readout_memory_preflight["generates_text"] is True
+    assert snn_language_readout_memory_preflight["decodes_text"] is True
+    assert snn_language_readout_memory_preflight["trains_runtime_model"] is False
+    assert snn_language_readout_memory_preflight["applies_plasticity"] is False
+    readout_memory_preflight_body = snn_language_readout_memory_preflight[
+        "snn_language_readout_memory_preflight"
     ]
-    assert thought_memory_preflight_body["memory_scope"] == "working_trace"
+    assert readout_memory_preflight_body["memory_scope"] == "working_trace"
     assert (
-        thought_memory_preflight_body["consolidation_route"]
+        readout_memory_preflight_body["consolidation_route"]
         == "deferred_local_trace"
     )
-    assert thought_memory_preflight_body["requested_device"] == "cuda:0"
-    assert thought_memory_preflight_body["requires_cuda"] is True
-    assert thought_memory_preflight_body["cuda_satisfied"] is True
-    assert thought_memory_preflight_body["executor_ready"] is True
-    assert thought_memory_preflight_body["execution_allowed"] is True
-    assert thought_memory_preflight_body["rendered_text"] == "spike language"
-    assert len(thought_memory_preflight_body["memory_trace_hash"]) == 64
+    assert readout_memory_preflight_body["requested_device"] == "cuda:0"
+    assert readout_memory_preflight_body["requires_cuda"] is True
+    assert readout_memory_preflight_body["cuda_satisfied"] is True
+    assert readout_memory_preflight_body["executor_ready"] is True
+    assert readout_memory_preflight_body["execution_allowed"] is True
+    assert readout_memory_preflight_body["rendered_text"] == "spike language"
+    assert len(readout_memory_preflight_body["memory_trace_hash"]) == 64
     assert len(
-        thought_memory_preflight_body["local_learning_target_hashes"]
+        readout_memory_preflight_body["local_learning_target_hashes"]
     ) == 2
-    assert thought_memory_preflight_body["memory_recording_allowed"] is False
-    assert thought_memory_preflight_body["replay_allowed"] is False
-    assert thought_memory_preflight_body["plasticity_allowed"] is False
-    assert thought_memory_preflight_body["training_allowed"] is False
-    assert thought_memory_preflight_body["checkpoint_allowed"] is False
-    assert thought_memory_preflight_body["fact_promotion_allowed"] is False
-    assert thought_memory_preflight_body["action_allowed"] is False
-    assert thought_memory_preflight_body["cognition_substrate_claimed"] is False
-    assert snn_language_thought_memory_preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_memory_executor"
+    assert readout_memory_preflight_body["memory_recording_allowed"] is False
+    assert readout_memory_preflight_body["replay_allowed"] is False
+    assert readout_memory_preflight_body["plasticity_allowed"] is False
+    assert readout_memory_preflight_body["training_allowed"] is False
+    assert readout_memory_preflight_body["checkpoint_allowed"] is False
+    assert readout_memory_preflight_body["fact_promotion_allowed"] is False
+    assert readout_memory_preflight_body["action_allowed"] is False
+    assert readout_memory_preflight_body["cognition_substrate_claimed"] is False
+    assert snn_language_readout_memory_preflight["promotion_gate"][
+        "eligible_for_snn_language_readout_memory_executor"
     ] is True
-    assert snn_language_thought_memory_preflight["promotion_gate"][
+    assert snn_language_readout_memory_preflight["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_memory_preflight["promotion_gate"][
+    assert snn_language_readout_memory_preflight["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_memory_preflight["promotion_gate"][
+    assert snn_language_readout_memory_preflight["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_memory_executor["accepted"] is False
+    assert blocked_snn_language_readout_memory_executor["accepted"] is False
     assert (
-        blocked_snn_language_thought_memory_executor["requires_operator_approval"]
+        blocked_snn_language_readout_memory_executor["requires_operator_approval"]
         is False
     )
-    assert blocked_snn_language_thought_memory_executor["promotion_gate"][
+    assert blocked_snn_language_readout_memory_executor["promotion_gate"][
         "required_evidence"
     ]["preflight_ready"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_memory_executor["source_window"],
-        field="autonomous_snn_language_thought_memory_events",
+        blocked_snn_language_readout_memory_executor["source_window"],
+        field="snn_language_readout_memory_events",
         expected_count=0,
     )
-    assert snn_language_thought_memory_executor["surface"] == (
-        "snn_language_autonomous_snn_language_thought_memory_executor.v1"
+    assert snn_language_readout_memory_executor["surface"] == (
+        "snn_language_readout_memory_executor.v1"
     )
-    assert snn_language_thought_memory_executor["accepted"] is True
-    assert snn_language_thought_memory_executor["ready"] is True
+    assert snn_language_readout_memory_executor["accepted"] is True
+    assert snn_language_readout_memory_executor["ready"] is True
     assert len(
-        snn_language_thought_memory_executor[
-            "autonomous_snn_language_thought_memory_event_hash"
+        snn_language_readout_memory_executor[
+            "snn_language_readout_memory_event_hash"
         ]
     ) == 64
-    assert len(snn_language_thought_memory_executor["memory_trace_hash"]) == 64
-    assert snn_language_thought_memory_executor["requires_operator_approval"] is False
-    assert snn_language_thought_memory_executor["advisory"] is False
-    assert snn_language_thought_memory_executor["executable"] is True
-    assert snn_language_thought_memory_executor["records_ledger_event"] is True
-    assert snn_language_thought_memory_executor["mutates_runtime_state"] is True
-    assert snn_language_thought_memory_executor["runs_replay"] is False
-    assert snn_language_thought_memory_executor["writes_checkpoint"] is False
-    assert snn_language_thought_memory_executor["generates_text"] is True
-    assert snn_language_thought_memory_executor["decodes_text"] is True
-    assert snn_language_thought_memory_executor["trains_runtime_model"] is False
-    assert snn_language_thought_memory_executor["applies_plasticity"] is False
-    assert snn_language_thought_memory_executor["resizes_network"] is False
-    assert snn_language_thought_memory_executor["prunes_network"] is False
-    thought_memory_event = snn_language_thought_memory_executor[
-        "autonomous_snn_language_thought_memory_event"
+    assert len(snn_language_readout_memory_executor["memory_trace_hash"]) == 64
+    assert snn_language_readout_memory_executor["requires_operator_approval"] is False
+    assert snn_language_readout_memory_executor["advisory"] is False
+    assert snn_language_readout_memory_executor["executable"] is True
+    assert snn_language_readout_memory_executor["records_ledger_event"] is True
+    assert snn_language_readout_memory_executor["mutates_runtime_state"] is True
+    assert snn_language_readout_memory_executor["runs_replay"] is False
+    assert snn_language_readout_memory_executor["writes_checkpoint"] is False
+    assert snn_language_readout_memory_executor["generates_text"] is True
+    assert snn_language_readout_memory_executor["decodes_text"] is True
+    assert snn_language_readout_memory_executor["trains_runtime_model"] is False
+    assert snn_language_readout_memory_executor["applies_plasticity"] is False
+    assert snn_language_readout_memory_executor["resizes_network"] is False
+    assert snn_language_readout_memory_executor["prunes_network"] is False
+    readout_memory_event = snn_language_readout_memory_executor[
+        "snn_language_readout_memory_event"
     ]
-    assert thought_memory_event["memory_scope"] == "working_trace"
-    assert thought_memory_event["consolidation_route"] == "deferred_local_trace"
-    assert thought_memory_event["memory_recorded"] is True
-    assert thought_memory_event["rendered_text"] == "spike language"
-    assert len(thought_memory_event["local_learning_target_hashes"]) == 2
-    assert thought_memory_event["runs_replay"] is False
-    assert thought_memory_event["applies_plasticity"] is False
-    assert thought_memory_event["trains_runtime_model"] is False
-    assert thought_memory_event["writes_checkpoint"] is False
-    assert thought_memory_event["resizes_network"] is False
-    assert thought_memory_event["prunes_network"] is False
-    assert thought_memory_event["promotes_fact"] is False
-    assert thought_memory_event["executes_action"] is False
-    assert thought_memory_event["cognition_substrate_claimed"] is False
-    assert ledger_state["total_autonomous_snn_language_thought_memory_count"] == 1
-    assert len(ledger_state["autonomous_snn_language_thought_memory_events"]) == 1
+    assert readout_memory_event["memory_scope"] == "working_trace"
+    assert readout_memory_event["consolidation_route"] == "deferred_local_trace"
+    assert readout_memory_event["memory_recorded"] is True
+    assert readout_memory_event["rendered_text"] == "spike language"
+    assert len(readout_memory_event["local_learning_target_hashes"]) == 2
+    assert readout_memory_event["runs_replay"] is False
+    assert readout_memory_event["applies_plasticity"] is False
+    assert readout_memory_event["trains_runtime_model"] is False
+    assert readout_memory_event["writes_checkpoint"] is False
+    assert readout_memory_event["resizes_network"] is False
+    assert readout_memory_event["prunes_network"] is False
+    assert readout_memory_event["promotes_fact"] is False
+    assert readout_memory_event["executes_action"] is False
+    assert readout_memory_event["cognition_substrate_claimed"] is False
+    assert ledger_state["total_snn_language_readout_memory_count"] == 1
+    assert len(ledger_state["snn_language_readout_memory_events"]) == 1
     _assert_record_family_source_window(
-        snn_language_thought_memory_executor["source_window"],
-        field="autonomous_snn_language_thought_memory_events",
+        snn_language_readout_memory_executor["source_window"],
+        field="snn_language_readout_memory_events",
         expected_count=0,
     )
-    assert snn_language_thought_memory_executor["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_memory_event_review"
+    assert snn_language_readout_memory_executor["promotion_gate"][
+        "eligible_for_snn_language_readout_memory_event_review"
     ] is True
-    assert snn_language_thought_memory_executor["promotion_gate"][
+    assert snn_language_readout_memory_executor["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_memory_executor["promotion_gate"][
+    assert snn_language_readout_memory_executor["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_memory_executor["promotion_gate"][
+    assert snn_language_readout_memory_executor["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_memory_event_review["accepted"] is False
+    assert blocked_snn_language_readout_memory_event_review["accepted"] is False
     assert (
-        blocked_snn_language_thought_memory_event_review[
+        blocked_snn_language_readout_memory_event_review[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_memory_event_review["promotion_gate"][
+    assert blocked_snn_language_readout_memory_event_review["promotion_gate"][
         "required_evidence"
     ]["executor_accepted"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_memory_event_review["source_window"],
-        field="autonomous_snn_language_thought_memory_events",
+        blocked_snn_language_readout_memory_event_review["source_window"],
+        field="snn_language_readout_memory_events",
         expected_count=1,
     )
-    assert snn_language_thought_memory_event_review["surface"] == (
-        "snn_language_autonomous_snn_language_thought_memory_event_review.v1"
+    assert snn_language_readout_memory_event_review["surface"] == (
+        "snn_language_readout_memory_event_review.v1"
     )
-    assert snn_language_thought_memory_event_review["accepted"] is True
-    assert snn_language_thought_memory_event_review["ready"] is True
-    assert len(snn_language_thought_memory_event_review["review_hash"]) == 64
-    assert snn_language_thought_memory_event_review[
+    assert snn_language_readout_memory_event_review["accepted"] is True
+    assert snn_language_readout_memory_event_review["ready"] is True
+    assert len(snn_language_readout_memory_event_review["review_hash"]) == 64
+    assert snn_language_readout_memory_event_review[
         "requires_operator_approval"
     ] is False
-    assert snn_language_thought_memory_event_review["advisory"] is True
-    assert snn_language_thought_memory_event_review["executable"] is False
-    assert snn_language_thought_memory_event_review["records_ledger_event"] is False
-    assert snn_language_thought_memory_event_review["mutates_runtime_state"] is False
-    assert snn_language_thought_memory_event_review["runs_replay"] is False
-    assert snn_language_thought_memory_event_review["writes_checkpoint"] is False
-    assert snn_language_thought_memory_event_review["generates_text"] is True
-    assert snn_language_thought_memory_event_review["decodes_text"] is True
-    assert snn_language_thought_memory_event_review["trains_runtime_model"] is False
-    assert snn_language_thought_memory_event_review["applies_plasticity"] is False
-    assert snn_language_thought_memory_event_review["resizes_network"] is False
-    assert snn_language_thought_memory_event_review["prunes_network"] is False
-    thought_memory_review = snn_language_thought_memory_event_review[
-        "autonomous_snn_language_thought_memory_event_review"
+    assert snn_language_readout_memory_event_review["advisory"] is True
+    assert snn_language_readout_memory_event_review["executable"] is False
+    assert snn_language_readout_memory_event_review["records_ledger_event"] is False
+    assert snn_language_readout_memory_event_review["mutates_runtime_state"] is False
+    assert snn_language_readout_memory_event_review["runs_replay"] is False
+    assert snn_language_readout_memory_event_review["writes_checkpoint"] is False
+    assert snn_language_readout_memory_event_review["generates_text"] is True
+    assert snn_language_readout_memory_event_review["decodes_text"] is True
+    assert snn_language_readout_memory_event_review["trains_runtime_model"] is False
+    assert snn_language_readout_memory_event_review["applies_plasticity"] is False
+    assert snn_language_readout_memory_event_review["resizes_network"] is False
+    assert snn_language_readout_memory_event_review["prunes_network"] is False
+    readout_memory_review = snn_language_readout_memory_event_review[
+        "snn_language_readout_memory_event_review"
     ]
-    assert thought_memory_review["event_recorded_in_ledger"] is True
-    assert thought_memory_review["memory_scope"] == "working_trace"
+    assert readout_memory_review["event_recorded_in_ledger"] is True
+    assert readout_memory_review["memory_scope"] == "working_trace"
     assert (
-        thought_memory_review["consolidation_route"] == "deferred_local_trace"
+        readout_memory_review["consolidation_route"] == "deferred_local_trace"
     )
-    assert thought_memory_review["memory_recorded"] is True
-    assert thought_memory_review["rendered_text"] == "spike language"
-    assert len(thought_memory_review["memory_trace_hash"]) == 64
-    assert len(thought_memory_review["local_learning_target_hashes"]) == 2
-    assert thought_memory_review["replay_allowed"] is False
-    assert thought_memory_review["plasticity_allowed"] is False
-    assert thought_memory_review["training_allowed"] is False
-    assert thought_memory_review["checkpoint_allowed"] is False
-    assert thought_memory_review["resize_allowed"] is False
-    assert thought_memory_review["prune_allowed"] is False
-    assert thought_memory_review["fact_promotion_allowed"] is False
-    assert thought_memory_review["action_allowed"] is False
-    assert thought_memory_review["cognition_substrate_claimed"] is False
+    assert readout_memory_review["memory_recorded"] is True
+    assert readout_memory_review["rendered_text"] == "spike language"
+    assert len(readout_memory_review["memory_trace_hash"]) == 64
+    assert len(readout_memory_review["local_learning_target_hashes"]) == 2
+    assert readout_memory_review["replay_allowed"] is False
+    assert readout_memory_review["plasticity_allowed"] is False
+    assert readout_memory_review["training_allowed"] is False
+    assert readout_memory_review["checkpoint_allowed"] is False
+    assert readout_memory_review["resize_allowed"] is False
+    assert readout_memory_review["prune_allowed"] is False
+    assert readout_memory_review["fact_promotion_allowed"] is False
+    assert readout_memory_review["action_allowed"] is False
+    assert readout_memory_review["cognition_substrate_claimed"] is False
     _assert_record_family_source_window(
-        snn_language_thought_memory_event_review["source_window"],
-        field="autonomous_snn_language_thought_memory_events",
+        snn_language_readout_memory_event_review["source_window"],
+        field="snn_language_readout_memory_events",
         expected_count=1,
     )
-    assert snn_language_thought_memory_event_review["promotion_gate"][
+    assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_consolidation_design"
     ] is True
-    assert snn_language_thought_memory_event_review["promotion_gate"][
+    assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_memory_event_review["promotion_gate"][
+    assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_memory_event_review["promotion_gate"][
+    assert snn_language_readout_memory_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
     assert blocked_snn_language_thought_consolidation_design["accepted"] is False
@@ -9479,7 +9505,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     assert blocked_snn_language_thought_consolidation_design["promotion_gate"][
         "required_evidence"
-    ]["thought_memory_event_review_ready"] is False
+    ]["readout_memory_event_review_ready"] is False
     assert snn_language_thought_consolidation_design["surface"] == (
         "snn_language_autonomous_snn_language_thought_consolidation_design.v1"
     )
