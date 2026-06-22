@@ -135,30 +135,41 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("stop first", response.json()["detail"])
 
-    def test_checkpoint_save_migrates_legacy_readout_ledger_state(self) -> None:
-        legacy_surface_event = {"snn_language_readout_surface_event_hash": "1" * 64}
-        legacy_memory_event = {"snn_language_readout_memory_event_hash": "2" * 64}
-        legacy_consolidation_event = {
+    def test_checkpoint_save_keeps_only_canonical_readout_ledger_state(self) -> None:
+        surface_event = {"snn_language_readout_surface_event_hash": "1" * 64}
+        memory_event = {"snn_language_readout_memory_event_hash": "2" * 64}
+        consolidation_event = {
             "snn_language_readout_consolidation_event_hash": "3" * 64
         }
-        legacy_ledger_state = {
-            "autonomous_snn_language_thought_surface_events": [legacy_surface_event],
-            "total_autonomous_snn_language_thought_surface_count": 1,
-            "last_autonomous_snn_language_thought_surface_recorded_at": (
+        structural_event = {
+            "snn_language_readout_structural_plasticity_event_hash": "4" * 64
+        }
+        ledger_state = {
+            "snn_language_readout_surface_events": [surface_event],
+            "total_snn_language_readout_surface_count": 1,
+            "last_snn_language_readout_surface_recorded_at": (
                 "2026-06-22T00:00:00+00:00"
             ),
-            "autonomous_snn_language_thought_memory_events": [legacy_memory_event],
-            "total_autonomous_snn_language_thought_memory_count": 1,
-            "last_autonomous_snn_language_thought_memory_recorded_at": (
+            "snn_language_readout_memory_events": [memory_event],
+            "total_snn_language_readout_memory_count": 1,
+            "last_snn_language_readout_memory_recorded_at": (
                 "2026-06-22T00:01:00+00:00"
             ),
-            "autonomous_snn_language_thought_consolidation_events": [
-                legacy_consolidation_event
+            "snn_language_readout_consolidation_events": [
+                consolidation_event
             ],
-            "total_autonomous_snn_language_thought_consolidation_count": 1,
-            "last_autonomous_snn_language_thought_consolidated_at": (
+            "total_snn_language_readout_consolidation_count": 1,
+            "last_snn_language_readout_consolidated_at": (
                 "2026-06-22T00:02:00+00:00"
             ),
+            "snn_language_readout_structural_plasticity_events": [
+                structural_event
+            ],
+            "total_snn_language_readout_structural_plasticity_count": 1,
+            "last_snn_language_readout_structural_plasticity_applied_at": (
+                "2026-06-22T00:03:00+00:00"
+            ),
+            "retired_readout_surface_events": [{"dropped": True}],
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -167,7 +178,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 test_case="service_api_readout_surface_legacy_migration",
                 metadata={
                     "service_state": {
-                        "snn_language_readout_ledger": legacy_ledger_state,
+                        "snn_language_readout_ledger": ledger_state,
                     }
                 },
             )
@@ -190,7 +201,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         ]
         self.assertEqual(
             saved_ledger_state["snn_language_readout_surface_events"],
-            [legacy_surface_event],
+            [surface_event],
         )
         self.assertEqual(saved_ledger_state["total_snn_language_readout_surface_count"], 1)
         self.assertEqual(
@@ -199,7 +210,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             saved_ledger_state["snn_language_readout_memory_events"],
-            [legacy_memory_event],
+            [memory_event],
         )
         self.assertEqual(saved_ledger_state["total_snn_language_readout_memory_count"], 1)
         self.assertEqual(
@@ -208,7 +219,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             saved_ledger_state["snn_language_readout_consolidation_events"],
-            [legacy_consolidation_event],
+            [consolidation_event],
         )
         self.assertEqual(
             saved_ledger_state["total_snn_language_readout_consolidation_count"],
@@ -218,42 +229,23 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             saved_ledger_state["last_snn_language_readout_consolidated_at"],
             "2026-06-22T00:02:00+00:00",
         )
-        self.assertNotIn(
-            "autonomous_snn_language_thought_surface_events",
-            saved_ledger_state,
+        self.assertEqual(
+            saved_ledger_state["snn_language_readout_structural_plasticity_events"],
+            [structural_event],
         )
-        self.assertNotIn(
-            "total_autonomous_snn_language_thought_surface_count",
-            saved_ledger_state,
+        self.assertEqual(
+            saved_ledger_state[
+                "total_snn_language_readout_structural_plasticity_count"
+            ],
+            1,
         )
-        self.assertNotIn(
-            "last_autonomous_snn_language_thought_surface_recorded_at",
-            saved_ledger_state,
+        self.assertEqual(
+            saved_ledger_state[
+                "last_snn_language_readout_structural_plasticity_applied_at"
+            ],
+            "2026-06-22T00:03:00+00:00",
         )
-        self.assertNotIn(
-            "autonomous_snn_language_thought_memory_events",
-            saved_ledger_state,
-        )
-        self.assertNotIn(
-            "total_autonomous_snn_language_thought_memory_count",
-            saved_ledger_state,
-        )
-        self.assertNotIn(
-            "last_autonomous_snn_language_thought_memory_recorded_at",
-            saved_ledger_state,
-        )
-        self.assertNotIn(
-            "autonomous_snn_language_thought_consolidation_events",
-            saved_ledger_state,
-        )
-        self.assertNotIn(
-            "total_autonomous_snn_language_thought_consolidation_count",
-            saved_ledger_state,
-        )
-        self.assertNotIn(
-            "last_autonomous_snn_language_thought_consolidated_at",
-            saved_ledger_state,
-        )
+        self.assertNotIn("retired_readout_surface_events", saved_ledger_state)
 
     def test_snn_language_surface_payload_stays_readout_vocabulary(self) -> None:
         readout_surface_payload = {
@@ -373,6 +365,56 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn(
             "snn_language_autonomous_snn_language_thought_consolidation_design",
             internalized_consolidation_payload,
+        )
+
+        readout_structural_payload = {
+            "artifact_kind": (
+                "terminus_snn_language_readout_structural_plasticity_design"
+            ),
+            "surface": "snn_language_readout_structural_plasticity_design.v1",
+            "snn_language_readout_structural_plasticity_design": {
+                "structural_scope": "readout_trace_sparse_capacity",
+                "structural_route": "reviewed_consolidation_to_growth_prune",
+                "readout_structural_plasticity_design_hash": "4" * 64,
+                "snn_language_readout_consolidation_event_hash": "3" * 64,
+            },
+            "promotion_gate": {
+                "eligible_for_snn_language_readout_structural_plasticity_preflight": True,
+                "next_gate": "snn_language_readout_structural_plasticity_preflight",
+            },
+        }
+
+        public_structural_payload = _public_snn_language_payload(
+            readout_structural_payload
+        )
+        public_structural_text = json.dumps(
+            public_structural_payload,
+            sort_keys=True,
+        )
+
+        self.assertNotIn(
+            "autonomous_snn_language_thought_structural_plasticity",
+            public_structural_text,
+        )
+        self.assertNotIn("thought_structural", public_structural_text)
+        self.assertIn(
+            "snn_language_readout_structural_plasticity_design",
+            public_structural_text,
+        )
+        internalized_structural_payload = _internal_snn_language_payload(
+            public_structural_payload
+        )
+        self.assertEqual(
+            internalized_structural_payload["surface"],
+            "snn_language_readout_structural_plasticity_design.v1",
+        )
+        self.assertIn(
+            "snn_language_readout_structural_plasticity_design",
+            internalized_structural_payload,
+        )
+        self.assertNotIn(
+            "snn_language_autonomous_snn_language_thought_structural_plasticity_design",
+            internalized_structural_payload,
         )
 
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
@@ -2593,7 +2635,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 snn_language_readout_consolidation_event_review_response.json()
                             ),
                             "structural_policy": {
-                                "structural_scope": "thought_trace_sparse_capacity",
+                                "structural_scope": "readout_trace_sparse_capacity",
                                 "structural_route": "reviewed_consolidation_to_growth_prune",
                                 "max_growth_candidates": 4,
                                 "max_prune_candidates": 2,

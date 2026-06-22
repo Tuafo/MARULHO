@@ -40,15 +40,15 @@ The maintained route is the canonical readout-memory chain:
 
 The ledger saves canonical fields such as `snn_language_readout_memory_events`,
 `total_snn_language_readout_memory_count`, and
-`last_snn_language_readout_memory_recorded_at`. Legacy persisted
-`autonomous_snn_language_thought_memory_*` fields migrate once on load/save and
-are not exposed as facade, API, or ledger call aliases.
+`last_snn_language_readout_memory_recorded_at`. Checkpoint load/save keeps
+canonical readout-ledger fields and drops noncanonical persisted fields instead
+of maintaining compatibility aliases.
 
 ## Evidence
 
 Focused tests prove canonical memory route JSON contains no retired memory
-vocabulary and that service checkpoint save migrates legacy persisted memory
-fields to canonical readout-memory keys.
+vocabulary and that service checkpoint save keeps canonical readout-memory keys
+while dropping noncanonical readout-ledger state.
 
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`
 passed with bounded mean `380.146067 ms` versus the benchmark-local legacy

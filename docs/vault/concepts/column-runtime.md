@@ -206,8 +206,9 @@ borderline `21%` GPU contention.
 The 2026-06-22 readout-consolidation cleanup keeps that source-window rule but
 removes another thought-era production name. `snn_language_readout_consolidation_*`
 is now the single active consolidation chain through API, facade, ledger, and
-checkpoint save state; old `autonomous_snn_language_thought_consolidation_*`
-fields migrate once on load/save. The focused benchmark
+checkpoint save state. Checkpoint load/save keeps only canonical readout-ledger
+fields and drops noncanonical readout-ledger state instead of maintaining old
+field aliases. The focused benchmark
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`
 kept bounded mean `371.891600 ms` versus `5302.309467 ms` for the retired
 diagnostic (`16x` less source work), while the `524288`-token protection run
@@ -1589,9 +1590,9 @@ placement on CPU. The paired long run stayed in band at `6074.417 tokens/sec`,
 and zero graph/native sequence failures with no observed contention. RTX 3060
 runtime memory moved `2044->2047 MiB`.
 
-SNN language decoding, readout-surface, readout-memory,
-readout-consolidation, and the remaining thought-structural-plasticity path now stay on the same
-one-path ledger boundary. Execution/review reads only the target downstream
+SNN language decoding, readout-surface, readout-memory, readout-consolidation,
+and readout-structural-plasticity now stay on the same one-path ledger boundary.
+Execution/review reads only the target downstream
 language/readout event family, reports
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and updates only
 that family count/timestamp. The current readout-memory canonicalization
@@ -1630,8 +1631,23 @@ stayed in band at `6012.300 tokens/sec`, p95 `21.322 ms`,
 `train_compute=0.134205 ms/token`, bounded `12/65536` route rows, no observed
 contention, CPU max `59%`, GPU max `13%`, RTX memory `1771->1772 MiB`, and zero
 graph/native sequence failures. Legacy
-`autonomous_snn_language_thought_surface_*` persisted fields are migration-only
-aliases; production uses `snn_language_readout_surface_*`.
+`autonomous_snn_language_thought_surface_*` production names are retired;
+checkpoint load/save keeps canonical readout-ledger fields and drops
+noncanonical readout-ledger state instead of maintaining compatibility aliases.
+
+The 2026-06-22 readout-structural cleanup carries the same rule through
+`snn_language_readout_structural_plasticity_*`. The benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json`
+passed with bounded mean `568.337767 ms` versus legacy diagnostic
+`7518.428000 ms` (`16x` source-work reduction), and the downstream
+autonomous-chain bounded mean stayed `967.423500 ms` versus
+`21131.022800 ms`. The paired `524288`-token run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json`
+stayed in band at `5885.572 tokens/sec`, p95 `22.879800 ms`,
+`train_compute=0.136747 ms/token`, bounded `12/65536` route rows, no observed
+contention, CPU max `88%`, GPU max `13%`, RTX memory `1741->1970 MiB`, and zero
+graph/native sequence failures. Prewarm was slow-path setup at `418.781 s` and
+completed before the measured throughput window.
 
 Synapse provenance audit now keeps the same one-path rule for readout evidence
 hash validation. `synapse_provenance_audit(...)` collects only hashes referenced

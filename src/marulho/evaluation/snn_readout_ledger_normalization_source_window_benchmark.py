@@ -59,7 +59,7 @@ _AUTONOMOUS_CHAIN_COMPONENT_NAMES = (
     "readout_surface",
     "readout_memory",
     "readout_consolidation",
-    "thought_structural_plasticity",
+    "readout_structural_plasticity",
 )
 
 
@@ -132,7 +132,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "total_snn_language_readout_surface_count": count,
             "total_snn_language_readout_memory_count": count,
             "total_snn_language_readout_consolidation_count": count,
-            "total_autonomous_snn_language_thought_structural_plasticity_count": count,
+            "total_snn_language_readout_structural_plasticity_count": count,
             "last_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_rollout_recorded_at": "2026-06-18T00:00:00+00:00",
             "last_emission_reviewed_at": "2026-06-18T00:00:00+00:00",
@@ -191,7 +191,7 @@ def _seed_ledger_state(*, retention_count: int) -> dict[str, Any]:
             "last_snn_language_readout_consolidated_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
-            "last_autonomous_snn_language_thought_structural_plasticity_applied_at": (
+            "last_snn_language_readout_structural_plasticity_applied_at": (
                 "2026-06-18T00:00:00+00:00"
             ),
         }
@@ -1578,7 +1578,7 @@ def _snn_language_readout_consolidation_event() -> dict[str, Any]:
     }
 
 
-def _autonomous_snn_language_thought_structural_plasticity_event() -> dict[str, Any]:
+def _snn_language_readout_structural_plasticity_event() -> dict[str, Any]:
     growth_candidates = [
         {
             "local_learning_target_hash": "46" * 32,
@@ -1587,21 +1587,21 @@ def _autonomous_snn_language_thought_structural_plasticity_event() -> dict[str, 
         }
     ]
     return {
-        "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+        "snn_language_readout_structural_plasticity_event_hash": (
             "61" * 32
         ),
-        "autonomous_snn_language_thought_structural_plasticity_event_id": (
-            "benchmark-snn-language-thought-structural-plasticity"
+        "snn_language_readout_structural_plasticity_event_id": (
+            "benchmark-snn-language-readout-structural-plasticity"
         ),
         "recorded_at": "2026-06-19T00:00:05+00:00",
         "state_revision": 16,
-        "thought_structural_plasticity_preflight_hash": "62" * 32,
-        "thought_structural_plasticity_design_hash": "63" * 32,
+        "readout_structural_plasticity_preflight_hash": "62" * 32,
+        "readout_structural_plasticity_design_hash": "63" * 32,
         "consolidation_event_review_hash": "64" * 32,
         "snn_language_readout_consolidation_event_hash": "51" * 32,
         "memory_trace_hash": "45" * 32,
         "snn_language_readout_memory_event_hash": "41" * 32,
-        "structural_scope": "thought_trace_sparse_capacity",
+        "structural_scope": "readout_trace_sparse_capacity",
         "structural_route": "reviewed_consolidation_to_growth_prune",
         "requested_device": "cpu",
         "growth_candidate_count": len(growth_candidates),
@@ -1759,19 +1759,19 @@ def _snn_language_thought_family_specs() -> tuple[dict[str, Any], ...]:
             "timestamp_value_key": "recorded_at",
         },
         {
-            "name": "thought_structural_plasticity",
+            "name": "readout_structural_plasticity",
             "field": (
-                "autonomous_snn_language_thought_structural_plasticity_events"
+                "snn_language_readout_structural_plasticity_events"
             ),
-            "event": _autonomous_snn_language_thought_structural_plasticity_event(),
+            "event": _snn_language_readout_structural_plasticity_event(),
             "duplicate_key": (
-                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                "snn_language_readout_structural_plasticity_event_hash"
             ),
             "total_count_key": (
-                "total_autonomous_snn_language_thought_structural_plasticity_count"
+                "total_snn_language_readout_structural_plasticity_count"
             ),
             "timestamp_key": (
-                "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                "last_snn_language_readout_structural_plasticity_applied_at"
             ),
             "timestamp_value_key": "recorded_at",
         },
@@ -4061,19 +4061,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "+snn_language_readout_surface_events"
                 "+snn_language_readout_memory_events"
                 "+snn_language_readout_consolidation_events"
-                "+autonomous_snn_language_thought_structural_plasticity_events"
+                "+snn_language_readout_structural_plasticity_events"
             ),
             "selection_criteria": [
                 (
                     "binding_observation_training_decoder_output_text_commit_"
-                    "materialization_language_surface_generation_thought_"
-                    "event_families_only"
+                    "materialization_language_surface_generation_readout_"
+                    "structural_event_families_only"
                 ),
                 "bounded_source_window_before_duplicate_or_review_lookup",
             ],
             "quality": {
                 "metric": (
-                    "autonomous_hash_readout_thought_structural_chain_hash_count"
+                    "autonomous_hash_readout_structural_chain_hash_count"
                     "_review_current_pointer_parity"
                 ),
                 "component_hash_parity": {
@@ -4144,7 +4144,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "retired_path_comparison": {
                 "old_policy": (
                     "normalize_all_ledger_event_fields_before_autonomous_hash"
-                    "_readout_thought_structural_chain_append_or_review"
+                    "_readout_structural_chain_append_or_review"
                 ),
                 "bounded_checked_record_count": autonomous_chain_rows,
                 "old_checked_record_count": broad_autonomous_chain_rows,

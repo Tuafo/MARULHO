@@ -321,7 +321,6 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
     ("autonomous_snn_language_thought", "snn_language_readout"),
     ("language_thought", "language_readout"),
-    ("thought_structural", "readout_structural"),
     ("thought_capacity", "readout_capacity"),
     ("thought_newborn", "readout_newborn"),
     ("thought_trace", "readout_trace"),
@@ -332,11 +331,8 @@ _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
 _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("terminus_snn_language_readout_newborn", "terminus_snn_language_autonomous_snn_language_thought_newborn"),
     ("terminus_snn_language_readout_capacity", "terminus_snn_language_autonomous_snn_language_thought_capacity"),
-    ("terminus_snn_language_readout_structural", "terminus_snn_language_autonomous_snn_language_thought_structural"),
     ("snn_language_readout_newborn", "snn_language_autonomous_snn_language_thought_newborn"),
     ("snn_language_readout_capacity", "snn_language_autonomous_snn_language_thought_capacity"),
-    ("snn_language_readout_structural", "snn_language_autonomous_snn_language_thought_structural"),
-    ("readout_structural", "thought_structural"),
     ("readout_capacity", "thought_capacity"),
     ("readout_newborn", "thought_newborn"),
     ("readout_trace", "thought_trace"),
@@ -2109,7 +2105,7 @@ def create_app(
     def terminus_snn_language_structural_plasticity_design(
         request: SNNLanguageStructuralPlasticityDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_design(
+        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_design(
             snn_language_readout_consolidation_event_review=(
                 _internal_snn_language_payload(request.snn_language_consolidation_event_review)
             ),
@@ -2120,8 +2116,8 @@ def create_app(
     def terminus_snn_language_structural_plasticity_preflight(
         request: SNNLanguageStructuralPlasticityPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_preflight(
-            autonomous_snn_language_thought_structural_plasticity_design=(
+        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_preflight(
+            snn_language_readout_structural_plasticity_design=(
                 _internal_snn_language_payload(request.snn_language_structural_plasticity_design)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2133,8 +2129,8 @@ def create_app(
     def terminus_snn_language_structural_plasticity_executor(
         request: SNNLanguageStructuralPlasticityExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_executor(
-            autonomous_snn_language_thought_structural_plasticity_preflight=(
+        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_executor(
+            snn_language_readout_structural_plasticity_preflight=(
                 _internal_snn_language_payload(request.snn_language_structural_plasticity_preflight)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2145,8 +2141,8 @@ def create_app(
     def terminus_snn_language_structural_plasticity_event_review(
         request: SNNLanguageStructuralPlasticityEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_event_review(
-            autonomous_snn_language_thought_structural_plasticity_executor=(
+        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_event_review(
+            snn_language_readout_structural_plasticity_executor=(
                 _internal_snn_language_payload(request.snn_language_structural_plasticity_executor)
             ),
             expected_state_revision=request.expected_state_revision,
@@ -2158,7 +2154,7 @@ def create_app(
         request: SNNLanguageCapacityMutationDesignRequest,
     ) -> dict[str, Any]:
         return _public_snn_language_payload(runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_design(
-            autonomous_snn_language_thought_structural_plasticity_event_review=(
+            snn_language_readout_structural_plasticity_event_review=(
                 _internal_snn_language_payload(request.snn_language_structural_plasticity_event_review)
             ),
             capacity_policy=_internal_snn_language_payload(request.capacity_policy),

@@ -37,89 +37,75 @@ def test_readout_ledger_does_not_expose_all_family_normalizer() -> None:
     assert not hasattr(SNNLanguageReadoutEvidenceLedger, "_normalized_state")
 
 
-def test_readout_ledger_state_migrates_legacy_surface_fields_once() -> None:
-    legacy_event = {"snn_language_readout_surface_event_hash": "1" * 64}
-    migrated = normalize_snn_language_readout_ledger_state(
+def test_readout_ledger_state_keeps_only_canonical_fields() -> None:
+    surface_event = {"snn_language_readout_surface_event_hash": "1" * 64}
+    memory_event = {"snn_language_readout_memory_event_hash": "2" * 64}
+    consolidation_event = {
+        "snn_language_readout_consolidation_event_hash": "3" * 64
+    }
+    structural_event = {
+        "snn_language_readout_structural_plasticity_event_hash": "4" * 64
+    }
+
+    normalized = normalize_snn_language_readout_ledger_state(
         {
-            "autonomous_snn_language_thought_surface_events": [legacy_event],
-            "total_autonomous_snn_language_thought_surface_count": 1,
-            "last_autonomous_snn_language_thought_surface_recorded_at": (
+            "snn_language_readout_surface_events": [surface_event],
+            "total_snn_language_readout_surface_count": 1,
+            "last_snn_language_readout_surface_recorded_at": (
                 "2026-06-22T00:00:00+00:00"
             ),
-        }
-    )
-
-    assert migrated["snn_language_readout_surface_events"] == [legacy_event]
-    assert migrated["total_snn_language_readout_surface_count"] == 1
-    assert (
-        migrated["last_snn_language_readout_surface_recorded_at"]
-        == "2026-06-22T00:00:00+00:00"
-    )
-    assert "autonomous_snn_language_thought_surface_events" not in migrated
-    assert "total_autonomous_snn_language_thought_surface_count" not in migrated
-    assert (
-        "last_autonomous_snn_language_thought_surface_recorded_at"
-        not in migrated
-    )
-
-
-def test_readout_ledger_state_migrates_legacy_memory_fields_once() -> None:
-    legacy_event = {"snn_language_readout_memory_event_hash": "2" * 64}
-    migrated = normalize_snn_language_readout_ledger_state(
-        {
-            "autonomous_snn_language_thought_memory_events": [legacy_event],
-            "total_autonomous_snn_language_thought_memory_count": 1,
-            "last_autonomous_snn_language_thought_memory_recorded_at": (
-                "2026-06-22T00:00:00+00:00"
+            "snn_language_readout_memory_events": [memory_event],
+            "total_snn_language_readout_memory_count": 1,
+            "last_snn_language_readout_memory_recorded_at": (
+                "2026-06-22T00:01:00+00:00"
             ),
-        }
-    )
-
-    assert migrated["snn_language_readout_memory_events"] == [legacy_event]
-    assert migrated["total_snn_language_readout_memory_count"] == 1
-    assert (
-        migrated["last_snn_language_readout_memory_recorded_at"]
-        == "2026-06-22T00:00:00+00:00"
-    )
-    assert "autonomous_snn_language_thought_memory_events" not in migrated
-    assert "total_autonomous_snn_language_thought_memory_count" not in migrated
-    assert (
-        "last_autonomous_snn_language_thought_memory_recorded_at"
-        not in migrated
-    )
-
-
-def test_readout_ledger_state_migrates_legacy_consolidation_fields_once() -> None:
-    legacy_event = {"snn_language_readout_consolidation_event_hash": "3" * 64}
-    migrated = normalize_snn_language_readout_ledger_state(
-        {
-            "autonomous_snn_language_thought_consolidation_events": [
-                legacy_event
+            "snn_language_readout_consolidation_events": [
+                consolidation_event
             ],
-            "total_autonomous_snn_language_thought_consolidation_count": 1,
-            "last_autonomous_snn_language_thought_consolidated_at": (
+            "total_snn_language_readout_consolidation_count": 1,
+            "last_snn_language_readout_consolidated_at": (
                 "2026-06-22T00:02:00+00:00"
             ),
+            "snn_language_readout_structural_plasticity_events": [
+                structural_event
+            ],
+            "total_snn_language_readout_structural_plasticity_count": 1,
+            "last_snn_language_readout_structural_plasticity_applied_at": (
+                "2026-06-22T00:03:00+00:00"
+            ),
+            "retired_readout_surface_events": [{"dropped": True}],
         }
     )
 
-    assert migrated["snn_language_readout_consolidation_events"] == [
-        legacy_event
-    ]
-    assert migrated["total_snn_language_readout_consolidation_count"] == 1
+    assert normalized["snn_language_readout_surface_events"] == [surface_event]
+    assert normalized["total_snn_language_readout_surface_count"] == 1
     assert (
-        migrated["last_snn_language_readout_consolidated_at"]
+        normalized["last_snn_language_readout_surface_recorded_at"]
+        == "2026-06-22T00:00:00+00:00"
+    )
+    assert normalized["snn_language_readout_memory_events"] == [memory_event]
+    assert normalized["total_snn_language_readout_memory_count"] == 1
+    assert (
+        normalized["last_snn_language_readout_memory_recorded_at"]
+        == "2026-06-22T00:01:00+00:00"
+    )
+    assert normalized["snn_language_readout_consolidation_events"] == [
+        consolidation_event
+    ]
+    assert normalized["total_snn_language_readout_consolidation_count"] == 1
+    assert (
+        normalized["last_snn_language_readout_consolidated_at"]
         == "2026-06-22T00:02:00+00:00"
     )
-    assert "autonomous_snn_language_thought_consolidation_events" not in migrated
+    assert normalized["snn_language_readout_structural_plasticity_events"] == [
+        structural_event
+    ]
+    assert normalized["total_snn_language_readout_structural_plasticity_count"] == 1
     assert (
-        "total_autonomous_snn_language_thought_consolidation_count"
-        not in migrated
+        normalized["last_snn_language_readout_structural_plasticity_applied_at"]
+        == "2026-06-22T00:03:00+00:00"
     )
-    assert (
-        "last_autonomous_snn_language_thought_consolidated_at"
-        not in migrated
-    )
+    assert "retired_readout_surface_events" not in normalized
 
 
 def _ready_draft() -> dict[str, object]:
@@ -7057,13 +7043,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_structural_plasticity_design = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_design(
+    blocked_snn_language_readout_structural_plasticity_design = (
+        ledger.snn_language_readout_structural_plasticity_design(
             snn_language_readout_consolidation_event_review=(
                 blocked_snn_language_readout_consolidation_event_review
             ),
             structural_policy={
-                "structural_scope": "thought_trace_sparse_capacity",
+                "structural_scope": "readout_trace_sparse_capacity",
                 "structural_route": "reviewed_consolidation_to_growth_prune",
                 "max_growth_candidates": 4,
                 "max_prune_candidates": 2,
@@ -7073,13 +7059,13 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_structural_plasticity_design = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_design(
+    snn_language_readout_structural_plasticity_design = (
+        ledger.snn_language_readout_structural_plasticity_design(
             snn_language_readout_consolidation_event_review=(
                 snn_language_readout_consolidation_event_review
             ),
             structural_policy={
-                "structural_scope": "thought_trace_sparse_capacity",
+                "structural_scope": "readout_trace_sparse_capacity",
                 "structural_route": "reviewed_consolidation_to_growth_prune",
                 "max_growth_candidates": 4,
                 "max_prune_candidates": 2,
@@ -7089,50 +7075,50 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    blocked_snn_language_thought_structural_plasticity_preflight = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_preflight(
-            autonomous_snn_language_thought_structural_plasticity_design=(
-                blocked_snn_language_thought_structural_plasticity_design
+    blocked_snn_language_readout_structural_plasticity_preflight = (
+        ledger.snn_language_readout_structural_plasticity_preflight(
+            snn_language_readout_structural_plasticity_design=(
+                blocked_snn_language_readout_structural_plasticity_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_structural_plasticity_executor": True
+                "snn_language_readout_structural_plasticity_executor": True
             },
         )
     )
-    snn_language_thought_structural_plasticity_preflight = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_preflight(
-            autonomous_snn_language_thought_structural_plasticity_design=(
-                snn_language_thought_structural_plasticity_design
+    snn_language_readout_structural_plasticity_preflight = (
+        ledger.snn_language_readout_structural_plasticity_preflight(
+            snn_language_readout_structural_plasticity_design=(
+                snn_language_readout_structural_plasticity_design
             ),
             expected_state_revision=runtime_state.state_revision,
             device_evidence={"device": "cuda:0", "cuda_available": True},
             executor_capabilities={
-                "autonomous_snn_language_thought_structural_plasticity_executor": True
+                "snn_language_readout_structural_plasticity_executor": True
             },
         )
     )
-    blocked_snn_language_thought_structural_plasticity_executor = (
-        ledger.execute_autonomous_snn_language_thought_structural_plasticity(
-            autonomous_snn_language_thought_structural_plasticity_preflight=(
-                blocked_snn_language_thought_structural_plasticity_preflight
+    blocked_snn_language_readout_structural_plasticity_executor = (
+        ledger.execute_snn_language_readout_structural_plasticity(
+            snn_language_readout_structural_plasticity_preflight=(
+                blocked_snn_language_readout_structural_plasticity_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    snn_language_thought_structural_plasticity_executor = (
-        ledger.execute_autonomous_snn_language_thought_structural_plasticity(
-            autonomous_snn_language_thought_structural_plasticity_preflight=(
-                snn_language_thought_structural_plasticity_preflight
+    snn_language_readout_structural_plasticity_executor = (
+        ledger.execute_snn_language_readout_structural_plasticity(
+            snn_language_readout_structural_plasticity_preflight=(
+                snn_language_readout_structural_plasticity_preflight
             ),
             expected_state_revision=runtime_state.state_revision,
         )
     )
-    blocked_snn_language_thought_structural_plasticity_event_review = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_event_review(
-            autonomous_snn_language_thought_structural_plasticity_executor=(
-                blocked_snn_language_thought_structural_plasticity_executor
+    blocked_snn_language_readout_structural_plasticity_event_review = (
+        ledger.snn_language_readout_structural_plasticity_event_review(
+            snn_language_readout_structural_plasticity_executor=(
+                blocked_snn_language_readout_structural_plasticity_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -7144,10 +7130,10 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
             },
         )
     )
-    snn_language_thought_structural_plasticity_event_review = (
-        ledger.autonomous_snn_language_thought_structural_plasticity_event_review(
-            autonomous_snn_language_thought_structural_plasticity_executor=(
-                snn_language_thought_structural_plasticity_executor
+    snn_language_readout_structural_plasticity_event_review = (
+        ledger.snn_language_readout_structural_plasticity_event_review(
+            snn_language_readout_structural_plasticity_executor=(
+                snn_language_readout_structural_plasticity_executor
             ),
             expected_state_revision=runtime_state.state_revision,
             review_policy={
@@ -7161,8 +7147,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     blocked_snn_language_thought_capacity_mutation_design = (
         ledger.autonomous_snn_language_thought_capacity_mutation_design(
-            autonomous_snn_language_thought_structural_plasticity_event_review=(
-                blocked_snn_language_thought_structural_plasticity_event_review
+            snn_language_readout_structural_plasticity_event_review=(
+                blocked_snn_language_readout_structural_plasticity_event_review
             ),
             capacity_policy={
                 "mutation_scope": "thought_driven_sparse_capacity",
@@ -7177,8 +7163,8 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     )
     snn_language_thought_capacity_mutation_design = (
         ledger.autonomous_snn_language_thought_capacity_mutation_design(
-            autonomous_snn_language_thought_structural_plasticity_event_review=(
-                snn_language_thought_structural_plasticity_event_review
+            snn_language_readout_structural_plasticity_event_review=(
+                snn_language_readout_structural_plasticity_event_review
             ),
             capacity_policy={
                 "mutation_scope": "thought_driven_sparse_capacity",
@@ -9876,7 +9862,7 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
         expected_count=1,
     )
     assert snn_language_readout_consolidation_event_review["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
+        "eligible_for_snn_language_readout_structural_plasticity_design"
     ] is True
     assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
@@ -9887,474 +9873,474 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     assert snn_language_readout_consolidation_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_structural_plasticity_design[
+    assert blocked_snn_language_readout_structural_plasticity_design[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_structural_plasticity_design[
+        blocked_snn_language_readout_structural_plasticity_design[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_structural_plasticity_design[
+    assert blocked_snn_language_readout_structural_plasticity_design[
         "promotion_gate"
     ]["required_evidence"]["consolidation_event_review_ready"] is False
-    assert snn_language_thought_structural_plasticity_design["surface"] == (
-        "snn_language_autonomous_snn_language_thought_structural_plasticity_design.v1"
+    assert snn_language_readout_structural_plasticity_design["surface"] == (
+        "snn_language_readout_structural_plasticity_design.v1"
     )
-    assert snn_language_thought_structural_plasticity_design["accepted"] is True
-    assert snn_language_thought_structural_plasticity_design["ready"] is True
+    assert snn_language_readout_structural_plasticity_design["accepted"] is True
+    assert snn_language_readout_structural_plasticity_design["ready"] is True
     assert len(
-        snn_language_thought_structural_plasticity_design[
-            "thought_structural_plasticity_design_hash"
+        snn_language_readout_structural_plasticity_design[
+            "readout_structural_plasticity_design_hash"
         ]
     ) == 64
     assert (
-        snn_language_thought_structural_plasticity_design[
+        snn_language_readout_structural_plasticity_design[
             "requires_operator_approval"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_design["advisory"] is True
-    assert snn_language_thought_structural_plasticity_design["executable"] is False
+    assert snn_language_readout_structural_plasticity_design["advisory"] is True
+    assert snn_language_readout_structural_plasticity_design["executable"] is False
     assert (
-        snn_language_thought_structural_plasticity_design["records_ledger_event"]
+        snn_language_readout_structural_plasticity_design["records_ledger_event"]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_design["mutates_runtime_state"]
+        snn_language_readout_structural_plasticity_design["mutates_runtime_state"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_design["runs_replay"] is False
+    assert snn_language_readout_structural_plasticity_design["runs_replay"] is False
     assert (
-        snn_language_thought_structural_plasticity_design["writes_checkpoint"]
+        snn_language_readout_structural_plasticity_design["writes_checkpoint"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_design["generates_text"] is True
-    assert snn_language_thought_structural_plasticity_design["decodes_text"] is True
+    assert snn_language_readout_structural_plasticity_design["generates_text"] is True
+    assert snn_language_readout_structural_plasticity_design["decodes_text"] is True
     assert (
-        snn_language_thought_structural_plasticity_design["trains_runtime_model"]
+        snn_language_readout_structural_plasticity_design["trains_runtime_model"]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_design["applies_plasticity"]
+        snn_language_readout_structural_plasticity_design["applies_plasticity"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_design["resizes_network"] is False
-    assert snn_language_thought_structural_plasticity_design["prunes_network"] is False
-    assert snn_language_thought_structural_plasticity_design["adds_neurons"] is False
-    assert snn_language_thought_structural_plasticity_design["adds_synapses"] is False
-    thought_structural_design = snn_language_thought_structural_plasticity_design[
-        "autonomous_snn_language_thought_structural_plasticity_design"
+    assert snn_language_readout_structural_plasticity_design["resizes_network"] is False
+    assert snn_language_readout_structural_plasticity_design["prunes_network"] is False
+    assert snn_language_readout_structural_plasticity_design["adds_neurons"] is False
+    assert snn_language_readout_structural_plasticity_design["adds_synapses"] is False
+    readout_structural_design = snn_language_readout_structural_plasticity_design[
+        "snn_language_readout_structural_plasticity_design"
     ]
-    assert thought_structural_design["structural_scope"] == (
-        "thought_trace_sparse_capacity"
+    assert readout_structural_design["structural_scope"] == (
+        "readout_trace_sparse_capacity"
     )
-    assert thought_structural_design["structural_route"] == (
+    assert readout_structural_design["structural_route"] == (
         "reviewed_consolidation_to_growth_prune"
     )
-    assert thought_structural_design["growth_candidate_count"] == 2
-    assert len(thought_structural_design["growth_candidates"]) == 2
-    assert thought_structural_design["prune_candidate_count"] == 1
-    assert len(thought_structural_design["prune_candidates"]) == 1
+    assert readout_structural_design["growth_candidate_count"] == 2
+    assert len(readout_structural_design["growth_candidates"]) == 2
+    assert readout_structural_design["prune_candidate_count"] == 1
+    assert len(readout_structural_design["prune_candidates"]) == 1
     assert all(
         item["applied_to_runtime"] is False
-        for item in thought_structural_design["growth_candidates"]
+        for item in readout_structural_design["growth_candidates"]
     )
     assert all(
         item["applied_to_runtime"] is False
-        for item in thought_structural_design["prune_candidates"]
+        for item in readout_structural_design["prune_candidates"]
     )
-    assert thought_structural_design["structural_growth_designed"] is True
-    assert thought_structural_design["structural_prune_designed"] is True
-    assert thought_structural_design["growth_allowed"] is False
-    assert thought_structural_design["prune_allowed"] is False
-    assert thought_structural_design["replay_allowed"] is False
-    assert thought_structural_design["plasticity_allowed"] is False
-    assert thought_structural_design["training_allowed"] is False
-    assert thought_structural_design["checkpoint_allowed"] is False
-    assert thought_structural_design["resize_allowed"] is False
-    assert thought_structural_design["fact_promotion_allowed"] is False
-    assert thought_structural_design["action_allowed"] is False
-    assert thought_structural_design["cognition_substrate_claimed"] is False
-    assert snn_language_thought_structural_plasticity_design["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+    assert readout_structural_design["structural_growth_designed"] is True
+    assert readout_structural_design["structural_prune_designed"] is True
+    assert readout_structural_design["growth_allowed"] is False
+    assert readout_structural_design["prune_allowed"] is False
+    assert readout_structural_design["replay_allowed"] is False
+    assert readout_structural_design["plasticity_allowed"] is False
+    assert readout_structural_design["training_allowed"] is False
+    assert readout_structural_design["checkpoint_allowed"] is False
+    assert readout_structural_design["resize_allowed"] is False
+    assert readout_structural_design["fact_promotion_allowed"] is False
+    assert readout_structural_design["action_allowed"] is False
+    assert readout_structural_design["cognition_substrate_claimed"] is False
+    assert snn_language_readout_structural_plasticity_design["promotion_gate"][
+        "eligible_for_snn_language_readout_structural_plasticity_preflight"
     ] is True
-    assert snn_language_thought_structural_plasticity_design["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_design["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_structural_plasticity_design["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_design["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_structural_plasticity_design["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_design["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_structural_plasticity_preflight[
+    assert blocked_snn_language_readout_structural_plasticity_preflight[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_structural_plasticity_preflight[
+        blocked_snn_language_readout_structural_plasticity_preflight[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_structural_plasticity_preflight[
+    assert blocked_snn_language_readout_structural_plasticity_preflight[
         "promotion_gate"
     ]["required_evidence"]["structural_plasticity_design_ready"] is False
-    assert snn_language_thought_structural_plasticity_preflight["surface"] == (
-        "snn_language_autonomous_snn_language_thought_structural_plasticity_preflight.v1"
+    assert snn_language_readout_structural_plasticity_preflight["surface"] == (
+        "snn_language_readout_structural_plasticity_preflight.v1"
     )
-    assert snn_language_thought_structural_plasticity_preflight["accepted"] is True
-    assert snn_language_thought_structural_plasticity_preflight["ready"] is True
-    assert len(snn_language_thought_structural_plasticity_preflight["preflight_hash"]) == 64
+    assert snn_language_readout_structural_plasticity_preflight["accepted"] is True
+    assert snn_language_readout_structural_plasticity_preflight["ready"] is True
+    assert len(snn_language_readout_structural_plasticity_preflight["preflight_hash"]) == 64
     assert (
-        snn_language_thought_structural_plasticity_preflight[
+        snn_language_readout_structural_plasticity_preflight[
             "requires_operator_approval"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_preflight["advisory"] is True
-    assert snn_language_thought_structural_plasticity_preflight["executable"] is True
+    assert snn_language_readout_structural_plasticity_preflight["advisory"] is True
+    assert snn_language_readout_structural_plasticity_preflight["executable"] is True
     assert (
-        snn_language_thought_structural_plasticity_preflight[
+        snn_language_readout_structural_plasticity_preflight[
             "records_ledger_event"
         ]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_preflight[
+        snn_language_readout_structural_plasticity_preflight[
             "mutates_runtime_state"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_preflight["runs_replay"] is False
+    assert snn_language_readout_structural_plasticity_preflight["runs_replay"] is False
     assert (
-        snn_language_thought_structural_plasticity_preflight["writes_checkpoint"]
+        snn_language_readout_structural_plasticity_preflight["writes_checkpoint"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_preflight["generates_text"] is True
-    assert snn_language_thought_structural_plasticity_preflight["decodes_text"] is True
+    assert snn_language_readout_structural_plasticity_preflight["generates_text"] is True
+    assert snn_language_readout_structural_plasticity_preflight["decodes_text"] is True
     assert (
-        snn_language_thought_structural_plasticity_preflight["trains_runtime_model"]
+        snn_language_readout_structural_plasticity_preflight["trains_runtime_model"]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_preflight["applies_plasticity"]
+        snn_language_readout_structural_plasticity_preflight["applies_plasticity"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_preflight["resizes_network"] is False
-    assert snn_language_thought_structural_plasticity_preflight["prunes_network"] is False
-    assert snn_language_thought_structural_plasticity_preflight["adds_neurons"] is False
-    assert snn_language_thought_structural_plasticity_preflight["adds_synapses"] is False
-    thought_structural_preflight = snn_language_thought_structural_plasticity_preflight[
-        "autonomous_snn_language_thought_structural_plasticity_preflight"
+    assert snn_language_readout_structural_plasticity_preflight["resizes_network"] is False
+    assert snn_language_readout_structural_plasticity_preflight["prunes_network"] is False
+    assert snn_language_readout_structural_plasticity_preflight["adds_neurons"] is False
+    assert snn_language_readout_structural_plasticity_preflight["adds_synapses"] is False
+    readout_structural_preflight = snn_language_readout_structural_plasticity_preflight[
+        "snn_language_readout_structural_plasticity_preflight"
     ]
-    assert thought_structural_preflight["requested_device"] == "cuda:0"
-    assert thought_structural_preflight["requires_cuda"] is True
-    assert thought_structural_preflight["cuda_satisfied"] is True
-    assert thought_structural_preflight["executor_ready"] is True
-    assert thought_structural_preflight["execution_allowed"] is False
-    assert thought_structural_preflight["growth_candidate_count"] == 2
-    assert len(thought_structural_preflight["growth_candidates"]) == 2
-    assert thought_structural_preflight["prune_candidate_count"] == 1
-    assert len(thought_structural_preflight["prune_candidates"]) == 1
-    assert thought_structural_preflight["proposed_new_neuron_count"] == 2
-    assert thought_structural_preflight["proposed_new_synapse_count"] == 2
-    assert thought_structural_preflight["proposed_prune_synapse_count"] == 1
-    assert thought_structural_preflight["growth_allowed"] is False
-    assert thought_structural_preflight["prune_allowed"] is False
-    assert thought_structural_preflight["replay_allowed"] is False
-    assert thought_structural_preflight["plasticity_allowed"] is False
-    assert thought_structural_preflight["training_allowed"] is False
-    assert thought_structural_preflight["checkpoint_allowed"] is False
-    assert thought_structural_preflight["resize_allowed"] is False
-    assert thought_structural_preflight["fact_promotion_allowed"] is False
-    assert thought_structural_preflight["action_allowed"] is False
-    assert thought_structural_preflight["cognition_substrate_claimed"] is False
-    assert snn_language_thought_structural_plasticity_preflight["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor"
+    assert readout_structural_preflight["requested_device"] == "cuda:0"
+    assert readout_structural_preflight["requires_cuda"] is True
+    assert readout_structural_preflight["cuda_satisfied"] is True
+    assert readout_structural_preflight["executor_ready"] is True
+    assert readout_structural_preflight["execution_allowed"] is False
+    assert readout_structural_preflight["growth_candidate_count"] == 2
+    assert len(readout_structural_preflight["growth_candidates"]) == 2
+    assert readout_structural_preflight["prune_candidate_count"] == 1
+    assert len(readout_structural_preflight["prune_candidates"]) == 1
+    assert readout_structural_preflight["proposed_new_neuron_count"] == 2
+    assert readout_structural_preflight["proposed_new_synapse_count"] == 2
+    assert readout_structural_preflight["proposed_prune_synapse_count"] == 1
+    assert readout_structural_preflight["growth_allowed"] is False
+    assert readout_structural_preflight["prune_allowed"] is False
+    assert readout_structural_preflight["replay_allowed"] is False
+    assert readout_structural_preflight["plasticity_allowed"] is False
+    assert readout_structural_preflight["training_allowed"] is False
+    assert readout_structural_preflight["checkpoint_allowed"] is False
+    assert readout_structural_preflight["resize_allowed"] is False
+    assert readout_structural_preflight["fact_promotion_allowed"] is False
+    assert readout_structural_preflight["action_allowed"] is False
+    assert readout_structural_preflight["cognition_substrate_claimed"] is False
+    assert snn_language_readout_structural_plasticity_preflight["promotion_gate"][
+        "eligible_for_snn_language_readout_structural_plasticity_executor"
     ] is True
-    assert snn_language_thought_structural_plasticity_preflight["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_preflight["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_structural_plasticity_preflight["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_preflight["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_structural_plasticity_preflight["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_preflight["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_structural_plasticity_executor[
+    assert blocked_snn_language_readout_structural_plasticity_executor[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_structural_plasticity_executor[
+        blocked_snn_language_readout_structural_plasticity_executor[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_structural_plasticity_executor[
+    assert blocked_snn_language_readout_structural_plasticity_executor[
         "promotion_gate"
     ]["required_evidence"]["preflight_ready"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_structural_plasticity_executor[
+        blocked_snn_language_readout_structural_plasticity_executor[
             "source_window"
         ],
-        field="autonomous_snn_language_thought_structural_plasticity_events",
+        field="snn_language_readout_structural_plasticity_events",
         expected_count=0,
     )
-    assert snn_language_thought_structural_plasticity_executor["surface"] == (
-        "snn_language_autonomous_snn_language_thought_structural_plasticity_executor.v1"
+    assert snn_language_readout_structural_plasticity_executor["surface"] == (
+        "snn_language_readout_structural_plasticity_executor.v1"
     )
-    assert snn_language_thought_structural_plasticity_executor["accepted"] is True
-    assert snn_language_thought_structural_plasticity_executor["ready"] is True
+    assert snn_language_readout_structural_plasticity_executor["accepted"] is True
+    assert snn_language_readout_structural_plasticity_executor["ready"] is True
     assert len(
-        snn_language_thought_structural_plasticity_executor[
-            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+        snn_language_readout_structural_plasticity_executor[
+            "snn_language_readout_structural_plasticity_event_hash"
         ]
     ) == 64
     assert (
-        snn_language_thought_structural_plasticity_executor[
+        snn_language_readout_structural_plasticity_executor[
             "requires_operator_approval"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_executor["advisory"] is False
-    assert snn_language_thought_structural_plasticity_executor["executable"] is True
+    assert snn_language_readout_structural_plasticity_executor["advisory"] is False
+    assert snn_language_readout_structural_plasticity_executor["executable"] is True
     assert (
-        snn_language_thought_structural_plasticity_executor["records_ledger_event"]
+        snn_language_readout_structural_plasticity_executor["records_ledger_event"]
         is True
     )
     assert (
-        snn_language_thought_structural_plasticity_executor["mutates_runtime_state"]
+        snn_language_readout_structural_plasticity_executor["mutates_runtime_state"]
         is True
     )
-    assert snn_language_thought_structural_plasticity_executor["runs_replay"] is False
+    assert snn_language_readout_structural_plasticity_executor["runs_replay"] is False
     assert (
-        snn_language_thought_structural_plasticity_executor["writes_checkpoint"]
+        snn_language_readout_structural_plasticity_executor["writes_checkpoint"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_executor["generates_text"] is True
-    assert snn_language_thought_structural_plasticity_executor["decodes_text"] is True
+    assert snn_language_readout_structural_plasticity_executor["generates_text"] is True
+    assert snn_language_readout_structural_plasticity_executor["decodes_text"] is True
     assert (
-        snn_language_thought_structural_plasticity_executor["trains_runtime_model"]
+        snn_language_readout_structural_plasticity_executor["trains_runtime_model"]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_executor["applies_plasticity"]
+        snn_language_readout_structural_plasticity_executor["applies_plasticity"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_executor[
+    assert snn_language_readout_structural_plasticity_executor[
         "structural_plasticity_applied"
     ] is True
-    assert snn_language_thought_structural_plasticity_executor["resizes_network"] is False
-    assert snn_language_thought_structural_plasticity_executor["adds_neurons"] is True
-    assert snn_language_thought_structural_plasticity_executor["adds_synapses"] is True
-    assert snn_language_thought_structural_plasticity_executor["prunes_network"] is True
-    thought_structural_event = snn_language_thought_structural_plasticity_executor[
-        "autonomous_snn_language_thought_structural_plasticity_event"
+    assert snn_language_readout_structural_plasticity_executor["resizes_network"] is False
+    assert snn_language_readout_structural_plasticity_executor["adds_neurons"] is True
+    assert snn_language_readout_structural_plasticity_executor["adds_synapses"] is True
+    assert snn_language_readout_structural_plasticity_executor["prunes_network"] is True
+    readout_structural_event = snn_language_readout_structural_plasticity_executor[
+        "snn_language_readout_structural_plasticity_event"
     ]
-    assert thought_structural_event["structural_plasticity_applied"] is True
-    assert thought_structural_event["growth_candidate_count"] == 2
-    assert len(thought_structural_event["growth_candidates"]) == 2
-    assert thought_structural_event["prune_candidate_count"] == 1
-    assert len(thought_structural_event["prune_candidates"]) == 1
+    assert readout_structural_event["structural_plasticity_applied"] is True
+    assert readout_structural_event["growth_candidate_count"] == 2
+    assert len(readout_structural_event["growth_candidates"]) == 2
+    assert readout_structural_event["prune_candidate_count"] == 1
+    assert len(readout_structural_event["prune_candidates"]) == 1
     assert all(
         item["applied_to_runtime"] is True
         and item["applied_in_ledger"] is True
-        for item in thought_structural_event["growth_candidates"]
+        for item in readout_structural_event["growth_candidates"]
     )
     assert all(
         item["applied_to_runtime"] is True
         and item["applied_in_ledger"] is True
-        for item in thought_structural_event["prune_candidates"]
+        for item in readout_structural_event["prune_candidates"]
     )
-    assert thought_structural_event["proposed_new_neuron_count"] == 2
-    assert thought_structural_event["proposed_new_synapse_count"] == 2
-    assert thought_structural_event["proposed_prune_synapse_count"] == 1
-    assert thought_structural_event["runs_replay"] is False
-    assert thought_structural_event["writes_checkpoint"] is False
-    assert thought_structural_event["trains_runtime_model"] is False
-    assert thought_structural_event["resizes_network"] is False
-    assert thought_structural_event["adds_neurons"] is True
-    assert thought_structural_event["adds_synapses"] is True
-    assert thought_structural_event["prunes_network"] is True
-    assert thought_structural_event["promotes_fact"] is False
-    assert thought_structural_event["executes_action"] is False
-    assert thought_structural_event["cognition_substrate_claimed"] is False
+    assert readout_structural_event["proposed_new_neuron_count"] == 2
+    assert readout_structural_event["proposed_new_synapse_count"] == 2
+    assert readout_structural_event["proposed_prune_synapse_count"] == 1
+    assert readout_structural_event["runs_replay"] is False
+    assert readout_structural_event["writes_checkpoint"] is False
+    assert readout_structural_event["trains_runtime_model"] is False
+    assert readout_structural_event["resizes_network"] is False
+    assert readout_structural_event["adds_neurons"] is True
+    assert readout_structural_event["adds_synapses"] is True
+    assert readout_structural_event["prunes_network"] is True
+    assert readout_structural_event["promotes_fact"] is False
+    assert readout_structural_event["executes_action"] is False
+    assert readout_structural_event["cognition_substrate_claimed"] is False
     assert (
         ledger_state[
-            "total_autonomous_snn_language_thought_structural_plasticity_count"
+            "total_snn_language_readout_structural_plasticity_count"
         ]
         == 1
     )
     assert (
         len(
             ledger_state[
-                "autonomous_snn_language_thought_structural_plasticity_events"
+                "snn_language_readout_structural_plasticity_events"
             ]
         )
         == 1
     )
     _assert_record_family_source_window(
-        snn_language_thought_structural_plasticity_executor["source_window"],
-        field="autonomous_snn_language_thought_structural_plasticity_events",
+        snn_language_readout_structural_plasticity_executor["source_window"],
+        field="snn_language_readout_structural_plasticity_events",
         expected_count=0,
     )
-    assert snn_language_thought_structural_plasticity_executor["promotion_gate"][
-        "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review"
+    assert snn_language_readout_structural_plasticity_executor["promotion_gate"][
+        "eligible_for_snn_language_readout_structural_plasticity_event_review"
     ] is True
-    assert snn_language_thought_structural_plasticity_executor["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_executor["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_structural_plasticity_executor["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_executor["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_structural_plasticity_executor["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_executor["promotion_gate"][
         "eligible_for_action"
     ] is False
-    assert blocked_snn_language_thought_structural_plasticity_event_review[
+    assert blocked_snn_language_readout_structural_plasticity_event_review[
         "accepted"
     ] is False
     assert (
-        blocked_snn_language_thought_structural_plasticity_event_review[
+        blocked_snn_language_readout_structural_plasticity_event_review[
             "requires_operator_approval"
         ]
         is False
     )
-    assert blocked_snn_language_thought_structural_plasticity_event_review[
+    assert blocked_snn_language_readout_structural_plasticity_event_review[
         "promotion_gate"
     ]["required_evidence"]["executor_accepted"] is False
     _assert_record_family_source_window(
-        blocked_snn_language_thought_structural_plasticity_event_review[
+        blocked_snn_language_readout_structural_plasticity_event_review[
             "source_window"
         ],
-        field="autonomous_snn_language_thought_structural_plasticity_events",
+        field="snn_language_readout_structural_plasticity_events",
         expected_count=1,
     )
-    assert snn_language_thought_structural_plasticity_event_review["surface"] == (
-        "snn_language_autonomous_snn_language_thought_structural_plasticity_event_review.v1"
+    assert snn_language_readout_structural_plasticity_event_review["surface"] == (
+        "snn_language_readout_structural_plasticity_event_review.v1"
     )
-    assert snn_language_thought_structural_plasticity_event_review["accepted"] is True
-    assert snn_language_thought_structural_plasticity_event_review["ready"] is True
+    assert snn_language_readout_structural_plasticity_event_review["accepted"] is True
+    assert snn_language_readout_structural_plasticity_event_review["ready"] is True
     assert len(
-        snn_language_thought_structural_plasticity_event_review["review_hash"]
+        snn_language_readout_structural_plasticity_event_review["review_hash"]
     ) == 64
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "requires_operator_approval"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_event_review["advisory"] is True
-    assert snn_language_thought_structural_plasticity_event_review["executable"] is False
+    assert snn_language_readout_structural_plasticity_event_review["advisory"] is True
+    assert snn_language_readout_structural_plasticity_event_review["executable"] is False
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "records_ledger_event"
         ]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "mutates_runtime_state"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_event_review["runs_replay"] is False
+    assert snn_language_readout_structural_plasticity_event_review["runs_replay"] is False
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "writes_checkpoint"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_event_review["generates_text"] is True
-    assert snn_language_thought_structural_plasticity_event_review["decodes_text"] is True
+    assert snn_language_readout_structural_plasticity_event_review["generates_text"] is True
+    assert snn_language_readout_structural_plasticity_event_review["decodes_text"] is True
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "trains_runtime_model"
         ]
         is False
     )
     assert (
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "applies_plasticity"
         ]
         is False
     )
-    assert snn_language_thought_structural_plasticity_event_review[
+    assert snn_language_readout_structural_plasticity_event_review[
         "structural_plasticity_applied"
     ] is True
     assert (
-        snn_language_thought_structural_plasticity_event_review["resizes_network"]
+        snn_language_readout_structural_plasticity_event_review["resizes_network"]
         is False
     )
-    assert snn_language_thought_structural_plasticity_event_review["adds_neurons"] is True
-    assert snn_language_thought_structural_plasticity_event_review["adds_synapses"] is True
-    assert snn_language_thought_structural_plasticity_event_review["prunes_network"] is True
-    thought_structural_event_review = (
-        snn_language_thought_structural_plasticity_event_review[
-            "autonomous_snn_language_thought_structural_plasticity_event_review"
+    assert snn_language_readout_structural_plasticity_event_review["adds_neurons"] is True
+    assert snn_language_readout_structural_plasticity_event_review["adds_synapses"] is True
+    assert snn_language_readout_structural_plasticity_event_review["prunes_network"] is True
+    readout_structural_event_review = (
+        snn_language_readout_structural_plasticity_event_review[
+            "snn_language_readout_structural_plasticity_event_review"
         ]
     )
-    assert thought_structural_event_review["event_recorded_in_ledger"] is True
+    assert readout_structural_event_review["event_recorded_in_ledger"] is True
     assert (
-        thought_structural_event_review[
-            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+        readout_structural_event_review[
+            "snn_language_readout_structural_plasticity_event_hash"
         ]
-        == thought_structural_event[
-            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+        == readout_structural_event[
+            "snn_language_readout_structural_plasticity_event_hash"
         ]
     )
-    assert thought_structural_event_review["structural_scope"] == (
-        "thought_trace_sparse_capacity"
+    assert readout_structural_event_review["structural_scope"] == (
+        "readout_trace_sparse_capacity"
     )
-    assert thought_structural_event_review["structural_route"] == (
+    assert readout_structural_event_review["structural_route"] == (
         "reviewed_consolidation_to_growth_prune"
     )
-    assert thought_structural_event_review["requested_device"] == "cuda:0"
-    assert thought_structural_event_review["growth_candidate_count"] == 2
-    assert len(thought_structural_event_review["growth_candidates"]) == 2
-    assert thought_structural_event_review["prune_candidate_count"] == 1
-    assert len(thought_structural_event_review["prune_candidates"]) == 1
+    assert readout_structural_event_review["requested_device"] == "cuda:0"
+    assert readout_structural_event_review["growth_candidate_count"] == 2
+    assert len(readout_structural_event_review["growth_candidates"]) == 2
+    assert readout_structural_event_review["prune_candidate_count"] == 1
+    assert len(readout_structural_event_review["prune_candidates"]) == 1
     assert all(
         item["applied_to_runtime"] is True
         and item["applied_in_ledger"] is True
-        for item in thought_structural_event_review["growth_candidates"]
+        for item in readout_structural_event_review["growth_candidates"]
     )
     assert all(
         item["applied_to_runtime"] is True
         and item["applied_in_ledger"] is True
-        for item in thought_structural_event_review["prune_candidates"]
+        for item in readout_structural_event_review["prune_candidates"]
     )
-    assert thought_structural_event_review["proposed_new_neuron_count"] == 2
-    assert thought_structural_event_review["proposed_new_synapse_count"] == 2
-    assert thought_structural_event_review["proposed_prune_synapse_count"] == 1
-    assert thought_structural_event_review["structural_plasticity_applied"] is True
-    assert thought_structural_event_review["runtime_state_mutated"] is True
-    assert thought_structural_event_review["checkpoint_allowed"] is False
-    assert thought_structural_event_review["replay_allowed"] is False
-    assert thought_structural_event_review["plasticity_allowed"] is False
-    assert thought_structural_event_review["training_allowed"] is False
-    assert thought_structural_event_review["resize_allowed"] is False
-    assert thought_structural_event_review["fact_promotion_allowed"] is False
-    assert thought_structural_event_review["action_allowed"] is False
-    assert thought_structural_event_review["cognition_substrate_claimed"] is False
+    assert readout_structural_event_review["proposed_new_neuron_count"] == 2
+    assert readout_structural_event_review["proposed_new_synapse_count"] == 2
+    assert readout_structural_event_review["proposed_prune_synapse_count"] == 1
+    assert readout_structural_event_review["structural_plasticity_applied"] is True
+    assert readout_structural_event_review["runtime_state_mutated"] is True
+    assert readout_structural_event_review["checkpoint_allowed"] is False
+    assert readout_structural_event_review["replay_allowed"] is False
+    assert readout_structural_event_review["plasticity_allowed"] is False
+    assert readout_structural_event_review["training_allowed"] is False
+    assert readout_structural_event_review["resize_allowed"] is False
+    assert readout_structural_event_review["fact_promotion_allowed"] is False
+    assert readout_structural_event_review["action_allowed"] is False
+    assert readout_structural_event_review["cognition_substrate_claimed"] is False
     _assert_record_family_source_window(
-        snn_language_thought_structural_plasticity_event_review[
+        snn_language_readout_structural_plasticity_event_review[
             "source_window"
         ],
-        field="autonomous_snn_language_thought_structural_plasticity_events",
+        field="snn_language_readout_structural_plasticity_events",
         expected_count=1,
     )
-    assert snn_language_thought_structural_plasticity_event_review["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
     ] is True
-    assert snn_language_thought_structural_plasticity_event_review["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_cognition_substrate"
     ] is False
-    assert snn_language_thought_structural_plasticity_event_review["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_fact_promotion"
     ] is False
-    assert snn_language_thought_structural_plasticity_event_review["promotion_gate"][
+    assert snn_language_readout_structural_plasticity_event_review["promotion_gate"][
         "eligible_for_action"
     ] is False
     assert blocked_snn_language_thought_capacity_mutation_design[

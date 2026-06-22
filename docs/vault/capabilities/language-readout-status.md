@@ -26,9 +26,9 @@ related_benchmarks: []
             `snn_language_readout_surface_preflight`,
             `execute_snn_language_readout_surface`, and
             `snn_language_readout_surface_event_review`. Checkpoint load/save
-            migrates legacy `autonomous_snn_language_thought_surface_*` state to
-            readout-surface fields once; status should not treat those legacy
-            names as live capability evidence.
+            keeps canonical readout-surface fields and drops noncanonical
+            readout-ledger state; status should not treat retired names as live
+            capability evidence.
 
             The readout-memory and readout-consolidation chains are canonical in production as
             `snn_language_readout_memory_design`,
@@ -38,16 +38,25 @@ related_benchmarks: []
             `snn_language_readout_consolidation_design`,
             `snn_language_readout_consolidation_preflight`,
             `execute_snn_language_readout_consolidation`, and
-            `snn_language_readout_consolidation_event_review`. Checkpoint load/save
-            migrates legacy `autonomous_snn_language_thought_memory_*` state to
-            readout-memory fields and legacy
-            `autonomous_snn_language_thought_consolidation_*` state to
-            readout-consolidation fields once; no active API/facade/ledger call
-            alias keeps either old production path alive. The current
+            `snn_language_readout_consolidation_event_review`. The
+            readout-structural-plasticity chain now continues that canonical
+            path through `snn_language_readout_structural_plasticity_design`,
+            `snn_language_readout_structural_plasticity_preflight`,
+            `execute_snn_language_readout_structural_plasticity`, and
+            `snn_language_readout_structural_plasticity_event_review`.
+            Checkpoint load/save keeps canonical readout ledger fields only;
+            no active API/facade/ledger call alias keeps old production paths
+            alive. The current
             source-window benchmarks are
             `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-memory-canonical.json`
             and
-            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`.
+            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`,
+            followed by
+            `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json`.
+            The paired structural hot-path report
+            `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json`
+            keeps measured throughput separate from prewarm setup and shows the
+            live tick remains bounded at `12/65536` route rows.
 
             `snn_language_readout_corpus_evaluation.v1` is now the first bounded corpus-level report for next-readout trajectories. Runtime Truth exposes the latest saved report as `snn_language_readout_corpus_runtime_truth.v1`, including available/trained/grounded/device status, mutation absence, latency, memory/VRAM cost, and the promote/reject reason. Missing reports remain a rejection/collection state, not a hidden live generator.
 

@@ -51,6 +51,7 @@ related_benchmarks: []
 - [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
 - [Snn Language Thought Consolidation Production Naming](snn-language-thought-consolidation-production-naming.md)
 - [Snn Language Thought Memory Production Naming](snn-language-thought-memory-production-naming.md)
+- [Snn Language Thought Structural Plasticity Production Naming](snn-language-thought-structural-plasticity-production-naming.md)
 - [Snn Language Thought Surface Production Naming](snn-language-thought-surface-production-naming.md)
 - [Source Bank Per Probe Query Recall](source-bank-per-probe-query-recall.md)
 - [Source Tick Sleep Replay Fallback](source-tick-sleep-replay-fallback.md)

@@ -107,6 +107,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-language-generation-chain.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-thought-structural-chain.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-thought-structural-chain-rerun.json
+  - reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-synapse-provenance-map.json
   - reports/bounded_replay_window_20260619/hotpath-active-pressure-65536-524288-i32-synapse-provenance-map.json
   - reports/bounded_replay_window_20260619/snn-readout-ledger-normalization-emission-history.json
@@ -4677,7 +4679,7 @@ archival/source/review metadata on CPU.
 ## Autonomous Language-Readout Ledger Windows
 
 SNN language decoding, readout-surface, readout-memory, readout-consolidation,
-and the remaining thought-structural-plasticity path now use the same record-family source-window
+and readout-structural-plasticity now use the same record-family source-window
 path instead of normalizing every retained readout-ledger event family. The
 production path uses `bounded_snn_readout_ledger_record_family_source_window.v1`
 for each downstream language/readout event family, with archival/source/review
@@ -4742,6 +4744,36 @@ zero graph/native sequence failures or fallbacks. Runtime device was CUDA on an
 RTX 3060; the environment sampler reported no observed contention, CPU max
 `18%`, GPU max `14%`, GPU memory util max `18%`, and GPU memory
 `1829->1828 MiB`.
+
+Readout-structural-plasticity canonicalization benchmark:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 3 --output reports\bounded_replay_window_20260622\snn-readout-ledger-normalization-readout-structural-canonical.json`
+
+Result: `pass=true`; after retiring the
+`autonomous_snn_language_thought_structural_plasticity_*` production names, the
+bounded path preserved canonical readout-structural hash/review/count behavior.
+Bounded mean was `568.337767 ms` versus legacy diagnostic `7518.428000 ms`
+(`16x` source-work reduction), and the downstream autonomous-chain bounded mean
+stayed `967.423500 ms` versus `21131.022800 ms`. Archival/source/review
+placement is CPU-only; CUDA was available on the RTX 3060 but unused for
+archival ledger metadata. No live tick, every-token cadence, replay execution,
+raw replay text, or hidden language reasoning is involved.
+
+Readout-structural-plasticity hot-path protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` measured tokens in `89.080214 s`,
+`5885.572 tokens/sec`, tick p95 `22.879800 ms`, `train_compute=0.136747
+ms/token`, `prepare_training=0.007215 ms/token`, and
+`finalize_total=0.006836 ms/token`. Prewarm was explicit slow-path setup
+(`418781.090 ms`) and reached `full_warm_ready=true` before measurement, so it
+is not included in the steady throughput score. Route scoring stayed bounded at
+`12/65536` input rows with `10` output candidates, `65526` cached transition
+rows, `state_transition_runs_all_columns=false`, and zero graph/native sequence
+failures. Runtime device was CUDA on an RTX 3060; the environment sampler
+reported no observed contention, CPU max `88%`, GPU max `13%`, GPU memory util
+max `18%`, and GPU memory `1741->1970 MiB`.
 
 Historical full-chain quality benchmark:
 

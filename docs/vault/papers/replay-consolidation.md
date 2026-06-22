@@ -178,6 +178,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260621/hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window-rerun.json
   - reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json
   - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-consolidation-canonical.json
+  - reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json
+  - reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json
 ---
 
 # Replay/consolidation
@@ -1832,9 +1834,9 @@ CUDA runtime on RTX 3060, and GPU memory `2044->2047 MiB`. The replay/ledger
 benchmark kept archival/source/review metadata on CPU, reported no live tick or
 every-token work, and did no hidden language reasoning.
 
-SNN language decoding through the remaining thought structural-plasticity path
-now follows the same single-family ledger boundary. Decoding, readout-surface,
-readout-memory, readout-consolidation, and thought-structural-plasticity executor/review pairs
+SNN language decoding through readout-structural-plasticity now follows the same
+single-family ledger boundary. Decoding, readout-surface, readout-memory,
+readout-consolidation, and readout-structural-plasticity executor/review pairs
 read only their target event family, return
 `bounded_snn_readout_ledger_record_family_source_window.v1`, and do not normalize
 all retained readout/replay ledger families. The benchmark
@@ -1864,12 +1866,31 @@ contention. The replay/ledger benchmark kept archival/source/review metadata on
 CPU, reported no live tick or every-token work, and did no hidden language
 reasoning.
 
+The 2026-06-22 readout-structural-plasticity cleanup removes the last active
+thought-structural production vocabulary from the readout-ledger path. Production
+uses `snn_language_readout_structural_plasticity_*` route/facade/ledger names,
+and checkpoint load/save keeps only canonical readout-ledger fields while
+dropping noncanonical state. The focused benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json`
+passed with bounded mean `568.337767 ms` versus legacy diagnostic
+`7518.428000 ms` (`16x` source-work reduction), and the downstream
+autonomous-chain bounded mean stayed `967.423500 ms` versus
+`21131.022800 ms`. The paired hot-path run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json`
+processed `524288` measured tokens at `5885.572 tokens/sec`, p95
+`22.879800 ms`, `train_compute=0.136747 ms/token`, bounded `12/65536` route
+rows, no observed contention, CPU max `88%`, GPU max `13%`, RTX memory
+`1741->1970 MiB`, and zero graph/native sequence failures. Prewarm was explicit
+slow-path setup at `418.781 s` and reached `full_warm_ready=true` before
+measurement.
+
 The 2026-06-22 readout-surface naming cleanup applies the same literature
 boundary to active vocabulary: internal representational surfaces are useful
 only as bounded readout evidence, not hidden replay text or a second thought
 path. Production now uses `snn_language_readout_surface_*` route/facade/ledger
-names, while legacy `autonomous_snn_language_thought_surface_*` persisted keys
-migrate once on checkpoint load/save. The focused benchmark
+names. Checkpoint load/save keeps only canonical readout-ledger fields and
+drops noncanonical readout-ledger state instead of maintaining old field
+aliases. The focused benchmark
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-surface-canonical.json`
 passed with bounded mean `408.799567 ms` versus legacy diagnostic
 `6288.893500 ms` (`16x` work reduction). The paired hot-path run
@@ -2336,10 +2357,9 @@ sparse replay do not justify keeping hidden-thought vocabulary as a second
 production path. MARULHO therefore retires the active
 `autonomous_snn_language_thought_consolidation_*` API/facade/ledger chain and
 keeps readout consolidation on the canonical
-`snn_language_readout_consolidation_*` path. Old persisted checkpoint fields
-migrate once to `snn_language_readout_consolidation_events`,
-`total_snn_language_readout_consolidation_count`, and
-`last_snn_language_readout_consolidated_at`.
+`snn_language_readout_consolidation_*` path. Checkpoint load/save keeps
+canonical readout-ledger fields and drops noncanonical readout-ledger state
+instead of maintaining old field aliases.
 
 The focused benchmark
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`
@@ -2360,6 +2380,37 @@ stayed same-band at `5938.794 tokens/sec`, p95 tick `22.043 ms`,
 rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 3060, observed no contention, moved GPU memory `1829->1828 MiB`, and recorded
 zero graph/native/sequence failures. Prewarm took `316.785 s`, so this is
+live-tick protection evidence, not startup-speed evidence.
+
+## Readout Structural Plasticity Naming Retirement
+
+The same research boundary now applies to readout-structural plasticity naming:
+local growth/prune evidence belongs behind bounded source windows and explicit
+review gates, not hidden-thought production vocabulary. MARULHO therefore
+retires the active `autonomous_snn_language_thought_structural_plasticity_*`
+API/facade/ledger chain and keeps structural evidence on
+`snn_language_readout_structural_plasticity_*`. Checkpoint load/save keeps only
+canonical readout-ledger fields and drops noncanonical readout-ledger state.
+
+The focused benchmark
+`reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-structural-canonical.json`
+passed with bounded mean `568.337767 ms` versus the benchmark-local retired
+diagnostic `7518.428000 ms` (`16x` source-work reduction). The downstream
+autonomous-chain comparison stayed bounded at `967.423500 ms` versus
+`21131.022800 ms`. Archival/source/review placement stays CPU-resident, CUDA
+was available but unused for ledger archival work, and the path reports no live
+tick, every-token work, replay execution, raw replay text, hidden language
+reasoning, or GPU-resident archival metadata.
+
+The `524288`-token hot-path protection run
+`reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-readout-structural-canonical.json`
+stayed same-band at `5885.572 tokens/sec`, p95 tick `22.879800 ms`,
+`train_compute=0.136747 ms/token`, `prepare_training=0.007215 ms/token`, and
+`finalize_total=0.006836 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, observed no contention, moved GPU memory `1741->1970 MiB`, and recorded
+zero graph/native/sequence failures. Prewarm took `418.781 s`, so this is
 live-tick protection evidence, not startup-speed evidence.
 
 ## Query Fallback Retirement And Bundle Source Windows

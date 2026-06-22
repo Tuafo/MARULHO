@@ -27,11 +27,11 @@ The maintained path is:
 - `execute_snn_language_readout_consolidation`
 - `snn_language_readout_consolidation_event_review`
 
-Checkpoint load/save migrates old persisted consolidation fields once into
+Checkpoint load/save keeps canonical readout-ledger fields such as
 `snn_language_readout_consolidation_events`,
 `total_snn_language_readout_consolidation_count`, and
-`last_snn_language_readout_consolidated_at`. API/facade/ledger call aliases are
-not retained.
+`last_snn_language_readout_consolidated_at`, and drops noncanonical persisted
+fields instead of maintaining compatibility aliases.
 
 Evidence:
 

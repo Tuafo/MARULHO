@@ -39,15 +39,15 @@ The maintained route is the canonical readout-surface chain:
 
 The ledger saves canonical fields such as `snn_language_readout_surface_events`,
 `total_snn_language_readout_surface_count`, and
-`last_snn_language_readout_surface_recorded_at`. Legacy persisted
-`autonomous_snn_language_thought_surface_*` fields migrate once on load/save and
-are not exposed as facade, API, or ledger call aliases.
+`last_snn_language_readout_surface_recorded_at`. Checkpoint load/save keeps
+canonical readout-ledger fields and drops noncanonical persisted fields instead
+of maintaining compatibility aliases.
 
 ## Evidence
 
 Focused tests prove canonical route JSON contains no retired surface vocabulary
-and that service checkpoint save migrates legacy persisted surface fields to the
-canonical readout-surface keys.
+and that service checkpoint save keeps canonical readout-surface keys while
+dropping noncanonical readout-ledger state.
 
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-surface-canonical.json`
 passed with bounded mean `408.799567 ms` versus the benchmark-local legacy

@@ -725,23 +725,23 @@ class RuntimeFacade:
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_structural_plasticity_design(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_design(
+    def snn_language_readout_structural_plasticity_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_structural_plasticity_design(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_structural_plasticity_preflight(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_preflight(
+    def snn_language_readout_structural_plasticity_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_structural_plasticity_preflight(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_structural_plasticity_executor(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_structural_plasticity(
+    def snn_language_readout_structural_plasticity_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_snn_language_readout_structural_plasticity(
             **kwargs
         )
 
-    def snn_language_autonomous_snn_language_thought_structural_plasticity_event_review(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_event_review(
+    def snn_language_readout_structural_plasticity_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snn_language_readout_structural_plasticity_event_review(
             **kwargs
         )
 

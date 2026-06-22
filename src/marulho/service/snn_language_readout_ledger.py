@@ -69,7 +69,7 @@ SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS = (
     "snn_language_readout_surface_events",
     "snn_language_readout_memory_events",
     "snn_language_readout_consolidation_events",
-    "autonomous_snn_language_thought_structural_plasticity_events",
+    "snn_language_readout_structural_plasticity_events",
 )
 SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS = (
     "events",
@@ -115,7 +115,7 @@ SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS = (
     "total_snn_language_readout_surface_count",
     "total_snn_language_readout_memory_count",
     "total_snn_language_readout_consolidation_count",
-    "total_autonomous_snn_language_thought_structural_plasticity_count",
+    "total_snn_language_readout_structural_plasticity_count",
 )
 SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
     "last_recorded_at",
@@ -140,45 +140,13 @@ SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS = (
     "last_snn_language_readout_surface_recorded_at",
     "last_snn_language_readout_memory_recorded_at",
     "last_snn_language_readout_consolidated_at",
-    "last_autonomous_snn_language_thought_structural_plasticity_applied_at",
+    "last_snn_language_readout_structural_plasticity_applied_at",
 )
-SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES = (
-    (
-        "autonomous_snn_language_thought_surface_events",
-        "snn_language_readout_surface_events",
-    ),
-    (
-        "total_autonomous_snn_language_thought_surface_count",
-        "total_snn_language_readout_surface_count",
-    ),
-    (
-        "last_autonomous_snn_language_thought_surface_recorded_at",
-        "last_snn_language_readout_surface_recorded_at",
-    ),
-    (
-        "autonomous_snn_language_thought_memory_events",
-        "snn_language_readout_memory_events",
-    ),
-    (
-        "total_autonomous_snn_language_thought_memory_count",
-        "total_snn_language_readout_memory_count",
-    ),
-    (
-        "last_autonomous_snn_language_thought_memory_recorded_at",
-        "last_snn_language_readout_memory_recorded_at",
-    ),
-    (
-        "autonomous_snn_language_thought_consolidation_events",
-        "snn_language_readout_consolidation_events",
-    ),
-    (
-        "total_autonomous_snn_language_thought_consolidation_count",
-        "total_snn_language_readout_consolidation_count",
-    ),
-    (
-        "last_autonomous_snn_language_thought_consolidated_at",
-        "last_snn_language_readout_consolidated_at",
-    ),
+SNN_LANGUAGE_READOUT_LEDGER_STATE_FIELDS = frozenset(
+    SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS
+    + SNN_LANGUAGE_READOUT_LEDGER_CURRENT_MAPPING_FIELDS
+    + SNN_LANGUAGE_READOUT_LEDGER_COUNT_FIELDS
+    + SNN_LANGUAGE_READOUT_LEDGER_TIMESTAMP_FIELDS
 )
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_LIMIT = 32
 SNN_READOUT_REPLAY_PRIORITY_SOURCE_WINDOW_POLICY = (
@@ -212,17 +180,13 @@ SNN_READOUT_REPLAY_TARGET_WINDOW_POLICY = (
 def normalize_snn_language_readout_ledger_state(
     state: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Migrate retired surface-chain field names to canonical readout fields."""
+    """Keep only canonical readout-ledger state fields."""
 
-    normalized = deepcopy(dict(state or {}))
-    for old_key, new_key in SNN_LANGUAGE_READOUT_LEDGER_LEGACY_FIELD_ALIASES:
-        old_value = normalized.pop(old_key, None)
-        if old_value is None:
-            continue
-        current_value = normalized.get(new_key)
-        if current_value in (None, [], {}, 0, ""):
-            normalized[new_key] = old_value
-    return normalized
+    return {
+        key: deepcopy(value)
+        for key, value in dict(state or {}).items()
+        if key in SNN_LANGUAGE_READOUT_LEDGER_STATE_FIELDS
+    }
 SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT = 64
 SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_POLICY = (
     "recent_applied_synapse_provenance_audit_source_window_v1"
@@ -25991,11 +25955,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "ready_for_autonomous_snn_language_thought_structural_plasticity_design"
+                        "ready_for_snn_language_readout_structural_plasticity_design"
                         if ready
                         else "blocked_missing_snn_language_readout_consolidation_event_evidence"
                     ),
-                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_design": ready,
+                    "eligible_for_snn_language_readout_structural_plasticity_design": ready,
                     "eligible_for_language_generation": False,
                     "eligible_for_dense_readout_training": False,
                     "eligible_for_replay_memory": False,
@@ -26006,7 +25970,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_structural_plasticity_design"
+                        "snn_language_readout_structural_plasticity_design"
                         if ready
                         else "collect_snn_language_readout_consolidation_event_evidence"
                     ),
@@ -26014,13 +25978,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
-    def autonomous_snn_language_thought_structural_plasticity_design(
+    def snn_language_readout_structural_plasticity_design(
         self,
         *,
         snn_language_readout_consolidation_event_review: Mapping[str, Any],
         structural_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Design bounded thought-driven structural plasticity without mutation."""
+        """Design bounded readout-structural plasticity without mutation."""
 
         review_artifact = dict(
             snn_language_readout_consolidation_event_review or {}
@@ -26046,16 +26010,16 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         policy = dict(structural_policy or {})
         structural_scope = str(
-            policy.get("structural_scope") or "thought_trace_sparse_capacity"
+            policy.get("structural_scope") or "readout_trace_sparse_capacity"
         ).strip()
         structural_route = str(
             policy.get("structural_route")
             or "reviewed_consolidation_to_growth_prune"
         ).strip()
         allowed_scopes = {
-            "thought_trace_sparse_capacity",
-            "thought_trace_neurogenesis_candidate",
-            "thought_trace_homeostatic_prune_candidate",
+            "readout_trace_sparse_capacity",
+            "readout_trace_neurogenesis_candidate",
+            "readout_trace_homeostatic_prune_candidate",
         }
         allowed_routes = {
             "reviewed_consolidation_to_growth_prune",
@@ -26063,7 +26027,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "reviewed_consolidation_to_homeostatic_prune",
         }
         if structural_scope not in allowed_scopes:
-            structural_scope = "thought_trace_sparse_capacity"
+            structural_scope = "readout_trace_sparse_capacity"
         if structural_route not in allowed_routes:
             structural_route = "reviewed_consolidation_to_growth_prune"
         max_growth_candidates = min(
@@ -26143,7 +26107,7 @@ class SNNLanguageReadoutEvidenceLedger:
             growth_candidates.append(
                 {
                     "growth_candidate_id": (
-                        f"snn-thought-growth:{consolidation_event_hash[:12]}:{index}"
+                        f"snn-readout-growth:{consolidation_event_hash[:12]}:{index}"
                     ),
                     "candidate_update_id": str(
                         update.get("candidate_update_id") or ""
@@ -26193,7 +26157,7 @@ class SNNLanguageReadoutEvidenceLedger:
             prune_candidates.append(
                 {
                     "prune_candidate_id": (
-                        f"snn-thought-prune:{consolidation_event_hash[:12]}:{index}"
+                        f"snn-readout-prune:{consolidation_event_hash[:12]}:{index}"
                     ),
                     "source_hash": source_hash,
                     "proposed_prune_synapse_count": 1
@@ -26227,7 +26191,7 @@ class SNNLanguageReadoutEvidenceLedger:
             and bool(review_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
+                    "eligible_for_snn_language_readout_structural_plasticity_design"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -26312,7 +26276,7 @@ class SNNLanguageReadoutEvidenceLedger:
         design = {
             "structural_scope": structural_scope,
             "structural_route": structural_route,
-            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "readout_structural_plasticity_design_hash": structural_design_hash,
             "consolidation_event_review_hash": review_hash,
             "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
@@ -26345,21 +26309,21 @@ class SNNLanguageReadoutEvidenceLedger:
         }
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "structural_plasticity_design"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "structural_plasticity_design.v1"
             ),
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_structural_plasticity_design"
+                "snn_language_readout_structural_plasticity_design"
             ),
             "available": bool(review_artifact),
             "ready": ready,
             "accepted": ready,
-            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "readout_structural_plasticity_design_hash": structural_design_hash,
             "requires_operator_approval": False,
             "owned_by_marulho": True,
             "external_dependency": False,
@@ -26385,16 +26349,16 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_structural_plasticity_design": (
+            "snn_language_readout_structural_plasticity_design": (
                 design
             ),
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+                    "ready_for_snn_language_readout_structural_plasticity_preflight"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_design_evidence"
+                    else "blocked_missing_snn_language_readout_structural_plasticity_design_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight": ready,
+                "eligible_for_snn_language_readout_structural_plasticity_preflight": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -26405,27 +26369,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_structural_plasticity_preflight"
+                    "snn_language_readout_structural_plasticity_preflight"
                     if ready
-                    else "collect_snn_language_thought_structural_plasticity_design_evidence"
+                    else "collect_snn_language_readout_structural_plasticity_design_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def autonomous_snn_language_thought_structural_plasticity_preflight(
+    def snn_language_readout_structural_plasticity_preflight(
         self,
         *,
-        autonomous_snn_language_thought_structural_plasticity_design: Mapping[str, Any],
+        snn_language_readout_structural_plasticity_design: Mapping[str, Any],
         expected_state_revision: int,
         device_evidence: Mapping[str, Any] | None = None,
         executor_capabilities: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Preflight bounded thought-driven structural plasticity."""
+        """Preflight bounded readout-structural plasticity."""
 
         before_revision = int(self._runtime_state.state_revision)
         design_artifact = dict(
-            autonomous_snn_language_thought_structural_plasticity_design or {}
+            snn_language_readout_structural_plasticity_design or {}
         )
         gate = (
             design_artifact.get("promotion_gate")
@@ -26434,11 +26398,11 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         body = (
             design_artifact.get(
-                "autonomous_snn_language_thought_structural_plasticity_design"
+                "snn_language_readout_structural_plasticity_design"
             )
             if isinstance(
                 design_artifact.get(
-                    "autonomous_snn_language_thought_structural_plasticity_design"
+                    "snn_language_readout_structural_plasticity_design"
                 ),
                 Mapping,
             )
@@ -26455,11 +26419,11 @@ class SNNLanguageReadoutEvidenceLedger:
         cuda_available = bool(device.get("cuda_available", True))
         requires_cuda = bool(device.get("requires_cuda", True))
         executor_ready = bool(
-            capabilities.get("autonomous_snn_language_thought_structural_plasticity_executor")
+            capabilities.get("snn_language_readout_structural_plasticity_executor")
         )
         design_hash = str(
-            design_artifact.get("thought_structural_plasticity_design_hash")
-            or body.get("thought_structural_plasticity_design_hash")
+            design_artifact.get("readout_structural_plasticity_design_hash")
+            or body.get("readout_structural_plasticity_design_hash")
             or ""
         )
         consolidation_event_review_hash = str(
@@ -26514,7 +26478,7 @@ class SNNLanguageReadoutEvidenceLedger:
         preflight = {
             "structural_scope": str(body.get("structural_scope") or ""),
             "structural_route": str(body.get("structural_route") or ""),
-            "thought_structural_plasticity_design_hash": design_hash,
+            "readout_structural_plasticity_design_hash": design_hash,
             "consolidation_event_review_hash": consolidation_event_review_hash,
             "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
@@ -26563,14 +26527,14 @@ class SNNLanguageReadoutEvidenceLedger:
         preflight["preflight_hash"] = preflight_hash
         required = {
             "structural_plasticity_design_available": design_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_structural_plasticity_design.v1",
+            == "snn_language_readout_structural_plasticity_design.v1",
             "structural_plasticity_design_ready": bool(
                 design_artifact.get("accepted")
             )
             and bool(design_artifact.get("ready"))
             and bool(
                 gate.get(
-                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+                    "eligible_for_snn_language_readout_structural_plasticity_preflight"
                 )
             ),
             "operator_approval_not_required": not bool(
@@ -26648,16 +26612,16 @@ class SNNLanguageReadoutEvidenceLedger:
         ready = all(required.values())
         return {
             "artifact_kind": (
-                "terminus_snn_language_autonomous_snn_language_thought_"
+                "terminus_snn_language_readout_"
                 "structural_plasticity_preflight"
             ),
             "surface": (
-                "snn_language_autonomous_snn_language_thought_"
+                "snn_language_readout_"
                 "structural_plasticity_preflight.v1"
             ),
             "source": (
                 "service.snn_language_readout_ledger."
-                "autonomous_snn_language_thought_structural_plasticity_preflight"
+                "snn_language_readout_structural_plasticity_preflight"
             ),
             "available": bool(design_artifact),
             "ready": ready,
@@ -26690,16 +26654,16 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutates_runtime_state": False,
             "literal_text_returned": ready,
             "generated_text_returned": ready,
-            "autonomous_snn_language_thought_structural_plasticity_preflight": (
+            "snn_language_readout_structural_plasticity_preflight": (
                 preflight if ready else {**preflight, "growth_candidates": [], "prune_candidates": []}
             ),
             "promotion_gate": {
                 "status": (
-                    "ready_for_autonomous_snn_language_thought_structural_plasticity_executor"
+                    "ready_for_snn_language_readout_structural_plasticity_executor"
                     if ready
-                    else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_preflight_evidence"
+                    else "blocked_missing_snn_language_readout_structural_plasticity_preflight_evidence"
                 ),
-                "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor": ready,
+                "eligible_for_snn_language_readout_structural_plasticity_executor": ready,
                 "eligible_for_language_generation": False,
                 "eligible_for_dense_readout_training": False,
                 "eligible_for_replay_memory": False,
@@ -26710,27 +26674,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 "eligible_for_fact_promotion": False,
                 "eligible_for_action": False,
                 "next_gate": (
-                    "autonomous_snn_language_thought_structural_plasticity_executor"
+                    "snn_language_readout_structural_plasticity_executor"
                     if ready
-                    else "collect_snn_language_thought_structural_plasticity_preflight_evidence"
+                    else "collect_snn_language_readout_structural_plasticity_preflight_evidence"
                 ),
                 "required_evidence": required,
             },
         }
 
-    def execute_autonomous_snn_language_thought_structural_plasticity(
+    def execute_snn_language_readout_structural_plasticity(
         self,
         *,
-        autonomous_snn_language_thought_structural_plasticity_preflight: Mapping[str, Any],
+        snn_language_readout_structural_plasticity_preflight: Mapping[str, Any],
         expected_state_revision: int,
         execution_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Apply bounded thought-driven structural plasticity to the ledger."""
+        """Apply bounded readout-structural plasticity to the ledger."""
 
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             preflight = dict(
-                autonomous_snn_language_thought_structural_plasticity_preflight
+                snn_language_readout_structural_plasticity_preflight
                 or {}
             )
             gate = (
@@ -26740,11 +26704,11 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             body = (
                 preflight.get(
-                    "autonomous_snn_language_thought_structural_plasticity_preflight"
+                    "snn_language_readout_structural_plasticity_preflight"
                 )
                 if isinstance(
                     preflight.get(
-                        "autonomous_snn_language_thought_structural_plasticity_preflight"
+                        "snn_language_readout_structural_plasticity_preflight"
                     ),
                     Mapping,
                 )
@@ -26779,7 +26743,7 @@ class SNNLanguageReadoutEvidenceLedger:
             ]
             preflight_hash = str(preflight.get("preflight_hash") or "")
             design_hash = str(
-                body.get("thought_structural_plasticity_design_hash") or ""
+                body.get("readout_structural_plasticity_design_hash") or ""
             )
             consolidation_event_review_hash = str(
                 body.get("consolidation_event_review_hash") or ""
@@ -26813,17 +26777,17 @@ class SNNLanguageReadoutEvidenceLedger:
             ]
             event = {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "structural_plasticity_event"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "structural_plasticity_event.v1"
                 ),
                 "state_revision": before_revision,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
-                "thought_structural_plasticity_preflight_hash": preflight_hash,
-                "thought_structural_plasticity_design_hash": design_hash,
+                "readout_structural_plasticity_preflight_hash": preflight_hash,
+                "readout_structural_plasticity_design_hash": design_hash,
                 "consolidation_event_review_hash": (
                     consolidation_event_review_hash
                 ),
@@ -26872,20 +26836,20 @@ class SNNLanguageReadoutEvidenceLedger:
                     for key, value in event.items()
                     if key != "recorded_at"
                     and key
-                    != "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                    != "snn_language_readout_structural_plasticity_event_hash"
                 }
             )
             event[
-                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                "snn_language_readout_structural_plasticity_event_hash"
             ] = event_hash
             required = {
                 "preflight_surface_available": preflight.get("surface")
-                == "snn_language_autonomous_snn_language_thought_structural_plasticity_preflight.v1",
+                == "snn_language_readout_structural_plasticity_preflight.v1",
                 "preflight_ready": bool(preflight.get("accepted"))
                 and bool(preflight.get("ready"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor"
+                        "eligible_for_snn_language_readout_structural_plasticity_executor"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -26959,16 +26923,16 @@ class SNNLanguageReadoutEvidenceLedger:
             ledger_summary, source_window = (
                 self._record_family_current_summary_with_report(
                     field=(
-                        "autonomous_snn_language_thought_structural_plasticity_events"
+                        "snn_language_readout_structural_plasticity_events"
                     ),
                     duplicate_key=(
-                        "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                        "snn_language_readout_structural_plasticity_event_hash"
                     ),
                     total_count_key=(
-                        "total_autonomous_snn_language_thought_structural_plasticity_count"
+                        "total_snn_language_readout_structural_plasticity_count"
                     ),
                     timestamp_key=(
-                        "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                        "last_snn_language_readout_structural_plasticity_applied_at"
                     ),
                 )
             )
@@ -26977,17 +26941,17 @@ class SNNLanguageReadoutEvidenceLedger:
                 duplicate, ledger_summary, source_window = (
                     self._append_record_family_window(
                         field=(
-                            "autonomous_snn_language_thought_structural_plasticity_events"
+                            "snn_language_readout_structural_plasticity_events"
                         ),
                         event=event,
                         duplicate_key=(
-                            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                            "snn_language_readout_structural_plasticity_event_hash"
                         ),
                         total_count_key=(
-                            "total_autonomous_snn_language_thought_structural_plasticity_count"
+                            "total_snn_language_readout_structural_plasticity_count"
                         ),
                         timestamp_key=(
-                            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                            "last_snn_language_readout_structural_plasticity_applied_at"
                         ),
                         timestamp_value=event["recorded_at"],
                     )
@@ -26996,22 +26960,22 @@ class SNNLanguageReadoutEvidenceLedger:
                     self._runtime_state.mark_dirty_without_revision()
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "structural_plasticity_executor"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "structural_plasticity_executor.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "execute_autonomous_snn_language_thought_structural_plasticity"
+                    "execute_snn_language_readout_structural_plasticity"
                 ),
                 "available": bool(preflight),
                 "ready": accepted,
                 "accepted": accepted,
                 "duplicate": duplicate,
-                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                "snn_language_readout_structural_plasticity_event_hash": (
                     event_hash
                 ),
                 "requires_operator_approval": False,
@@ -27042,22 +27006,22 @@ class SNNLanguageReadoutEvidenceLedger:
                 "generated_text_returned": accepted,
                 "before": {"state_revision": before_revision},
                 "after": self._runtime_state.mutation_summary(),
-                "autonomous_snn_language_thought_structural_plasticity_event": (
+                "snn_language_readout_structural_plasticity_event": (
                     event if accepted else None
                 ),
                 "ledger_summary": ledger_summary,
                 "source_window": source_window,
                 "promotion_gate": {
                     "status": (
-                        "autonomous_snn_language_thought_structural_plasticity_recorded"
+                        "snn_language_readout_structural_plasticity_recorded"
                         if accepted and not duplicate
                         else (
-                            "duplicate_autonomous_snn_language_thought_structural_plasticity_already_recorded"
+                            "duplicate_snn_language_readout_structural_plasticity_already_recorded"
                             if accepted
-                            else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_executor_evidence"
+                            else "blocked_missing_snn_language_readout_structural_plasticity_executor_evidence"
                         )
                     ),
-                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review": (
+                    "eligible_for_snn_language_readout_structural_plasticity_event_review": (
                         accepted
                     ),
                     "eligible_for_language_generation": False,
@@ -27070,18 +27034,18 @@ class SNNLanguageReadoutEvidenceLedger:
                     "eligible_for_fact_promotion": False,
                     "eligible_for_action": False,
                     "next_gate": (
-                        "autonomous_snn_language_thought_structural_plasticity_event_review"
+                        "snn_language_readout_structural_plasticity_event_review"
                         if accepted
-                        else "collect_snn_language_thought_structural_plasticity_execution_evidence"
+                        else "collect_snn_language_readout_structural_plasticity_execution_evidence"
                     ),
                     "required_evidence": required,
                 },
             }
 
-    def autonomous_snn_language_thought_structural_plasticity_event_review(
+    def snn_language_readout_structural_plasticity_event_review(
         self,
         *,
-        autonomous_snn_language_thought_structural_plasticity_executor: Mapping[str, Any],
+        snn_language_readout_structural_plasticity_executor: Mapping[str, Any],
         expected_state_revision: int,
         review_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -27090,7 +27054,7 @@ class SNNLanguageReadoutEvidenceLedger:
         with self._lock:
             before_revision = int(self._runtime_state.state_revision)
             executor = dict(
-                autonomous_snn_language_thought_structural_plasticity_executor
+                snn_language_readout_structural_plasticity_executor
                 or {}
             )
             gate = (
@@ -27101,12 +27065,12 @@ class SNNLanguageReadoutEvidenceLedger:
             event = (
                 dict(
                     executor.get(
-                        "autonomous_snn_language_thought_structural_plasticity_event"
+                        "snn_language_readout_structural_plasticity_event"
                     )
                 )
                 if isinstance(
                     executor.get(
-                        "autonomous_snn_language_thought_structural_plasticity_event"
+                        "snn_language_readout_structural_plasticity_event"
                     ),
                     Mapping,
                 )
@@ -27135,13 +27099,13 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             event_hash = str(
                 event.get(
-                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                    "snn_language_readout_structural_plasticity_event_hash"
                 )
                 or ""
             )
             executor_event_hash = str(
                 executor.get(
-                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                    "snn_language_readout_structural_plasticity_event_hash"
                 )
                 or ""
             )
@@ -27157,10 +27121,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 if isinstance(item, Mapping)
             ]
             preflight_hash = str(
-                event.get("thought_structural_plasticity_preflight_hash") or ""
+                event.get("readout_structural_plasticity_preflight_hash") or ""
             )
             design_hash = str(
-                event.get("thought_structural_plasticity_design_hash") or ""
+                event.get("readout_structural_plasticity_design_hash") or ""
             )
             consolidation_event_review_hash = str(
                 event.get("consolidation_event_review_hash") or ""
@@ -27196,10 +27160,10 @@ class SNNLanguageReadoutEvidenceLedger:
             ]
             source_events, source_window = self._record_family_window_with_report(
                 field=(
-                    "autonomous_snn_language_thought_structural_plasticity_events"
+                    "snn_language_readout_structural_plasticity_events"
                 ),
                 duplicate_key=(
-                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                    "snn_language_readout_structural_plasticity_event_hash"
                 ),
             )
             recorded_event = next(
@@ -27208,7 +27172,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     for item in source_events
                     if str(
                         item.get(
-                            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                            "snn_language_readout_structural_plasticity_event_hash"
                         )
                         or ""
                     )
@@ -27219,11 +27183,11 @@ class SNNLanguageReadoutEvidenceLedger:
             event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
             required = {
                 "executor_surface_available": executor.get("surface")
-                == "snn_language_autonomous_snn_language_thought_structural_plasticity_executor.v1",
+                == "snn_language_readout_structural_plasticity_executor.v1",
                 "executor_accepted": bool(executor.get("accepted"))
                 and bool(
                     gate.get(
-                        "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review"
+                        "eligible_for_snn_language_readout_structural_plasticity_event_review"
                     )
                 ),
                 "operator_approval_not_required": not bool(
@@ -27319,11 +27283,11 @@ class SNNLanguageReadoutEvidenceLedger:
             review = {
                 "event_recorded_in_ledger": event_recorded_in_ledger,
                 "event_revision": event_revision if event else None,
-                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                "snn_language_readout_structural_plasticity_event_hash": (
                     event_hash
                 ),
-                "thought_structural_plasticity_preflight_hash": preflight_hash,
-                "thought_structural_plasticity_design_hash": design_hash,
+                "readout_structural_plasticity_preflight_hash": preflight_hash,
+                "readout_structural_plasticity_design_hash": design_hash,
                 "consolidation_event_review_hash": (
                     consolidation_event_review_hash
                 ),
@@ -27373,29 +27337,29 @@ class SNNLanguageReadoutEvidenceLedger:
             review_hash = self._sha256_json(
                 {
                     "surface": (
-                        "snn_language_autonomous_snn_language_thought_"
+                        "snn_language_readout_"
                         "structural_plasticity_event_review.v1"
                     ),
                     "expected_state_revision": int(expected_state_revision),
                     "ready": ready,
                     "required_evidence": required,
-                    "autonomous_snn_language_thought_structural_plasticity_event_review": (
+                    "snn_language_readout_structural_plasticity_event_review": (
                         review
                     ),
                 }
             )
             return {
                 "artifact_kind": (
-                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "terminus_snn_language_readout_"
                     "structural_plasticity_event_review"
                 ),
                 "surface": (
-                    "snn_language_autonomous_snn_language_thought_"
+                    "snn_language_readout_"
                     "structural_plasticity_event_review.v1"
                 ),
                 "source": (
                     "service.snn_language_readout_ledger."
-                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                    "snn_language_readout_structural_plasticity_event_review"
                 ),
                 "available": bool(executor),
                 "ready": ready,
@@ -27427,11 +27391,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "mutates_runtime_state": False,
                 "literal_text_returned": ready,
                 "generated_text_returned": ready,
-                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                "snn_language_readout_structural_plasticity_event_hash": (
                     event_hash
                 ),
                 "memory_trace_hash": memory_trace_hash,
-                "autonomous_snn_language_thought_structural_plasticity_event_review": (
+                "snn_language_readout_structural_plasticity_event_review": (
                     review
                 ),
                 "source_window": source_window,
@@ -27439,7 +27403,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "status": (
                         "ready_for_autonomous_snn_language_thought_capacity_mutation_design"
                         if ready
-                        else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_event_evidence"
+                        else "blocked_missing_snn_language_readout_structural_plasticity_event_evidence"
                     ),
                     "eligible_for_autonomous_snn_language_thought_capacity_mutation_design": ready,
                     "eligible_for_language_generation": False,
@@ -27454,7 +27418,7 @@ class SNNLanguageReadoutEvidenceLedger:
                     "next_gate": (
                         "autonomous_snn_language_thought_capacity_mutation_design"
                         if ready
-                        else "collect_snn_language_thought_structural_plasticity_event_evidence"
+                        else "collect_snn_language_readout_structural_plasticity_event_evidence"
                     ),
                     "required_evidence": required,
                 },
@@ -27463,13 +27427,13 @@ class SNNLanguageReadoutEvidenceLedger:
     def autonomous_snn_language_thought_capacity_mutation_design(
         self,
         *,
-        autonomous_snn_language_thought_structural_plasticity_event_review: Mapping[str, Any],
+        snn_language_readout_structural_plasticity_event_review: Mapping[str, Any],
         capacity_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Design bounded thought-driven capacity mutation without resizing tensors."""
 
         review_artifact = dict(
-            autonomous_snn_language_thought_structural_plasticity_event_review
+            snn_language_readout_structural_plasticity_event_review
             or {}
         )
         gate = (
@@ -27480,12 +27444,12 @@ class SNNLanguageReadoutEvidenceLedger:
         review = (
             dict(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                    "snn_language_readout_structural_plasticity_event_review"
                 )
             )
             if isinstance(
                 review_artifact.get(
-                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                    "snn_language_readout_structural_plasticity_event_review"
                 ),
                 Mapping,
             )
@@ -27557,15 +27521,15 @@ class SNNLanguageReadoutEvidenceLedger:
         structural_event_review_hash = str(review_artifact.get("review_hash") or "")
         structural_event_hash = str(
             review.get(
-                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                "snn_language_readout_structural_plasticity_event_hash"
             )
             or ""
         )
         structural_preflight_hash = str(
-            review.get("thought_structural_plasticity_preflight_hash") or ""
+            review.get("readout_structural_plasticity_preflight_hash") or ""
         )
         structural_design_hash = str(
-            review.get("thought_structural_plasticity_design_hash") or ""
+            review.get("readout_structural_plasticity_design_hash") or ""
         )
         consolidation_event_hash = str(
             review.get("snn_language_readout_consolidation_event_hash")
@@ -27612,7 +27576,7 @@ class SNNLanguageReadoutEvidenceLedger:
         capacity_design_hash = self._sha256_json(capacity_design_material)
         required = {
             "structural_event_review_available": review_artifact.get("surface")
-            == "snn_language_autonomous_snn_language_thought_structural_plasticity_event_review.v1",
+            == "snn_language_readout_structural_plasticity_event_review.v1",
             "structural_event_review_ready": bool(review_artifact.get("accepted"))
             and bool(review_artifact.get("ready"))
             and bool(
@@ -27680,13 +27644,13 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutation_route": mutation_route,
             "thought_capacity_mutation_design_hash": capacity_design_hash,
             "structural_event_review_hash": structural_event_review_hash,
-            "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+            "snn_language_readout_structural_plasticity_event_hash": (
                 structural_event_hash
             ),
-            "thought_structural_plasticity_preflight_hash": (
+            "readout_structural_plasticity_preflight_hash": (
                 structural_preflight_hash
             ),
-            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "readout_structural_plasticity_design_hash": structural_design_hash,
             "snn_language_readout_consolidation_event_hash": (
                 consolidation_event_hash
             ),
@@ -27838,15 +27802,15 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         structural_event_hash = str(
             body.get(
-                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                "snn_language_readout_structural_plasticity_event_hash"
             )
             or ""
         )
         structural_preflight_hash = str(
-            body.get("thought_structural_plasticity_preflight_hash") or ""
+            body.get("readout_structural_plasticity_preflight_hash") or ""
         )
         structural_design_hash = str(
-            body.get("thought_structural_plasticity_design_hash") or ""
+            body.get("readout_structural_plasticity_design_hash") or ""
         )
         memory_trace_hash = str(body.get("memory_trace_hash") or "")
         current_neuron_capacity = int(body.get("current_neuron_capacity", 0) or 0)
@@ -27918,13 +27882,13 @@ class SNNLanguageReadoutEvidenceLedger:
             "mutation_route": str(body.get("mutation_route") or ""),
             "thought_capacity_mutation_design_hash": design_hash,
             "structural_event_review_hash": structural_event_review_hash,
-            "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+            "snn_language_readout_structural_plasticity_event_hash": (
                 structural_event_hash
             ),
-            "thought_structural_plasticity_preflight_hash": (
+            "readout_structural_plasticity_preflight_hash": (
                 structural_preflight_hash
             ),
-            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "readout_structural_plasticity_design_hash": structural_design_hash,
             "memory_trace_hash": memory_trace_hash,
             "observed_state_revision": before_revision,
             "expected_state_revision": int(expected_state_revision),
