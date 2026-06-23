@@ -5762,6 +5762,14 @@ rows while the active path read `0` provenance records. Active mean latency was
 Python peak was `0.001343 MiB` versus `24.036118 MiB`, with CUDA available but
 unused at `0.0 MiB` allocation/reservation.
 
+The 2026-06-23 maintained-only refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\applied-replay-lineage-checkpoint-legacy-baseline-removed.json`
+removes the executable benchmark-local full scan. It passed by matching the
+seeded mutation-maintained incremental summary for `65536` replay-lineage rows,
+reading `0` provenance records, averaging `0.082714 ms`, using `0.001343 MiB`
+Python peak, keeping CUDA allocation/reservation at `0.0 MiB`, and reporting
+`retired_full_scan_absence.implementation_present=false`.
+
 The protection run
 `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json`
 processed `524288` tokens in `87.483241 s` at `5993.011 tokens/sec`,
@@ -5773,6 +5781,18 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 3060, and recorded zero graph/native sequence failures. Prewarm took
 `335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+The cleanup hot-path runs
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample.json`
+and
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample-rerun.json`
+succeeded at `5744.182` and `5790.952 tokens/sec`, p95 `25.045` and
+`24.141 ms`, `train_compute=0.141092` and `0.138900 ms/token`, bounded
+`12/65536` route rows, `65526` cached rows, no all-column transition, no
+observed contention, RTX memory `1816->1814` and `1813->1814 MiB`, and zero
+graph/native sequence failures. Because this cleanup changes only
+evaluation/tests/docs, these lower readings are retained as variance evidence
+rather than a production hot-path regression.
 
 ## Sleep Replay Anchor Source Window Protection
 

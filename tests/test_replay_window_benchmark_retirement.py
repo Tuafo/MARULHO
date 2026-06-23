@@ -21,6 +21,9 @@ from marulho.evaluation.source_bank_memory_match_benchmark import (
 from marulho.evaluation.status_replay_path_source_window_benchmark import (
     run_benchmark as run_status_replay_path_benchmark,
 )
+from marulho.evaluation.applied_replay_lineage_checkpoint_summary_benchmark import (
+    run_benchmark as run_applied_replay_lineage_checkpoint_summary_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +37,8 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/status_replay_path_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -55,6 +60,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "legacy_history",
         "_diagnostic_sleep_ticket_queue",
         "_diagnostic_scheduler_design_ticket_queue",
+        "_retired_full_scan_summary",
+        "retired_applied_replay_lineage_full_scan_summary",
+        "counts_match_retired_diagnostic",
+        "active_speedup_vs_retired",
         "diagnostic_full_retained_sleep_plasticity_review_ticket_queue",
         "diagnostic_full_retained_sleep_plasticity_scheduler_design",
         "sleep_latest_verified_matches_diagnostic",
@@ -239,3 +248,29 @@ def test_sleep_plasticity_ticket_queue_benchmark_reports_maintained_only_path() 
     assert design_window["runs_every_token"] is False
     assert design_window["global_candidate_scan"] is False
     assert design_window["global_score_scan"] is False
+
+
+def test_applied_replay_lineage_benchmark_reports_maintained_only_path() -> None:
+    report = run_applied_replay_lineage_checkpoint_summary_benchmark(
+        argparse.Namespace(entry_count=64, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["lineage_incremental_summary_parity"] is True
+    assert report["quality"]["source_reads_eliminated"] is True
+    assert report["work"]["active_source_reads"] == 0
+    assert report["work"]["source_reads_removed"] == "all_provenance_reads_eliminated"
+    assert report["retired_full_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": (
+            "runtime_persistence_checkpoint_summary_full_synapse_provenance_scan"
+        ),
+    }
+    assert "retired_path_comparison" not in report
+    assert "retired_full_scan" not in report["latency"]
+    assert "retired_python_peak_mib" not in report["resource_behavior"]
+    assert report["active_evidence"]["full_provenance_scan"] is False
+    assert report["active_evidence"]["source_record_scan_count"] == 0
+    assert report["active_evidence"]["language_reasoning"] is False

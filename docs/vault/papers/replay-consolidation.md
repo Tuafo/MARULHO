@@ -2480,6 +2480,15 @@ Python traced peak. The retired diagnostic read `196608` source records,
 averaged `6766.639043 ms`, and used `24.036118 MiB` traced peak. CUDA was
 available but unused with `0.0 MiB` allocated/reserved.
 
+The 2026-06-23 maintained-only cleanup
+`..\..\MARULHO_reports\bounded_replay_window_20260623\applied-replay-lineage-checkpoint-legacy-baseline-removed.json`
+removes the executable benchmark-local full-provenance scan instead of keeping
+it beside the maintained path. It passes by matching the seeded
+mutation-maintained incremental summary for `65536` replay-lineage rows, reads
+`0` provenance source records, averages `0.082714 ms`, uses `0.001343 MiB`
+Python peak, keeps CPU archival placement with `0.0 MiB` CUDA allocation, and
+reports `retired_full_scan_absence.implementation_present=false`.
+
 The paired hot-path run
 `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json`
 processed `524288` tokens in `87.483241 s` at `5993.011 tokens/sec`, p95
@@ -2491,6 +2500,18 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
 `335.271 s`; velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+The cleanup hot-path runs
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample.json`
+and
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample-rerun.json`
+succeeded without observed contention at `5744.182` and
+`5790.952 tokens/sec`, with bounded `12/65536` route rows, `65526` cached rows,
+no all-column transition, RTX memory `1816->1814` and `1813->1814 MiB`, and
+zero graph/native sequence failures. This slice changes only evaluation/tests
+and docs, so the lower readings are retained as variance evidence while the
+production checkpoint/restore lineage path remains the mutation-maintained CPU
+summary.
 
 ## Plasticity Runtime-State Source Window
 

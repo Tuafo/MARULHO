@@ -2849,6 +2849,19 @@ mean latency was `6766.639043 ms` (`103261.747364x`). Active traced Python peak
 was `0.001343 MiB`; retired traced peak was `24.036118 MiB`. CUDA was
 available on the RTX 3060 but unused with `0.0 MiB` allocated/reserved.
 
+Maintained-only refresh:
+
+`python -m marulho.evaluation.applied_replay_lineage_checkpoint_summary_benchmark --entry-count 65536 --runs 7 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260623\applied-replay-lineage-checkpoint-legacy-baseline-removed.json`
+
+Result: `pass=true`; the executable benchmark-local full scan is removed. The
+active checkpoint summary matched the seeded
+`snn_applied_replay_lineage_incremental_summary.v1` counts and digest for
+`65536` replay-lineage rows, read `0` provenance source records, averaged
+`0.082714 ms`, used `0.001343 MiB` traced Python peak, kept archival metadata
+CPU-resident, and allocated/reserved `0.0 MiB` CUDA. The report carries
+`retired_full_scan_absence.implementation_present=false` and no
+`retired_path_comparison`.
+
 Accepted hot-path protection:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-applied-replay-lineage-checkpoint-summary.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
@@ -2862,6 +2875,22 @@ kept route scoring at `12/65536` input rows and `10` output candidates, cached
 selected CUDA on the RTX 3060, and recorded zero graph/native sequence
 failures. Velocity reported no observed contention, CPU max `15%`, GPU max
 `13%`, GPU memory utilization max `18%`, and RTX memory `2082->2084 MiB`.
+
+Cleanup hot-path variance reports:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-applied-lineage-legacy-baseline-removed-default-nosample-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Both runs succeeded with no observed contention, bounded `12/65536` route rows,
+`65526` cached rows, `state_transition_runs_all_columns=false`, and zero
+graph/native sequence failures. They measured `5744.182` and
+`5790.952 tokens/sec` with `train_compute=0.141092` and
+`0.138900 ms/token`, p95 `25.045` and `24.141 ms`, prewarm `250.803` and
+`253.107 s`, CPU max `52%` and `28%`, GPU max `11%` and `10%`, and RTX memory
+`1816->1814` and `1813->1814 MiB`. This cleanup changes only evaluation/tests
+and docs, so these lower readings are retained as variance evidence rather
+than a production runtime regression.
 
 ## Sleep Replay Associative Recall And Sequence Deferral
 

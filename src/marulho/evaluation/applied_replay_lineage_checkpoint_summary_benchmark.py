@@ -1,14 +1,14 @@
 """Benchmark incremental applied-replay lineage checkpoint summaries.
 
-The retired comparison in this file is diagnostic only. Production checkpoint
-save/restore must read the mutation-maintained CPU summary and must not scan
-``synapse_provenance_by_key`` to derive replay lineage.
+Production checkpoint save/restore must read the mutation-maintained CPU
+summary and must not scan ``synapse_provenance_by_key`` to derive replay
+lineage. The retired full-provenance scan is intentionally absent from this
+benchmark; older broad-scan results live only in reports and retired-path docs.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from collections.abc import Mapping as CollectionsMapping
 from pathlib import Path
@@ -23,10 +23,6 @@ from marulho.service.applied_replay_lineage import (
     applied_replay_lineage_checkpoint_summary,
     record_applied_replay_lineage_provenance,
 )
-
-_DIGEST_MODULUS = 1 << 256
-_ZERO_DIGEST = "0" * 64
-
 
 class CountedMapping(CollectionsMapping):
     def __init__(self, payload: dict[str, Any]) -> None:
@@ -55,27 +51,6 @@ class CountedMapping(CollectionsMapping):
     @property
     def source_reads(self) -> int:
         return int(self.keys_iterated + self.items_iterated + self.getitem_count)
-
-
-def _sha256_json(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _digest_int(value: Any) -> int:
-    try:
-        return int(str(value), 16)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _digest_hex(value: int) -> str:
-    return f"{int(value) % _DIGEST_MODULUS:064x}"
 
 
 def _provenance_row(index: int, key: str) -> dict[str, Any]:
@@ -119,92 +94,25 @@ def _seed_state(entry_count: int) -> dict[str, Any]:
     return state
 
 
-def _row_material(key: str, provenance: Mapping[str, Any]) -> dict[str, Any] | None:
-    if str(provenance.get("provenance_type") or "") != "replay_regeneration":
-        return None
-    source_metadata_hash = str(provenance.get("source_metadata_hash") or "")
-    emission_lineage = (
-        dict(provenance.get("emission_lineage"))
-        if isinstance(provenance.get("emission_lineage"), Mapping)
-        else {}
-    )
-    if not source_metadata_hash and not emission_lineage:
-        return None
+def _expected_incremental_summary(state: Mapping[str, Any]) -> dict[str, Any]:
+    summary = state.get("applied_replay_lineage_incremental_summary")
+    if not isinstance(summary, Mapping):
+        return {}
     return {
-        "synapse_key": str(key),
-        "source_metadata_hash": source_metadata_hash,
-        "emission_lineage": emission_lineage,
-    }
-
-
-def _row_complete(material: Mapping[str, Any]) -> bool:
-    emission_lineage = (
-        material.get("emission_lineage")
-        if isinstance(material.get("emission_lineage"), Mapping)
-        else {}
-    )
-    return bool(
-        material.get("source_metadata_hash")
-        and emission_lineage.get("emission_hash")
-        and emission_lineage.get("readout_evidence_hash")
-        and emission_lineage.get("prediction_hash")
-    )
-
-
-def _retired_full_scan_summary(state: Mapping[str, Any]) -> dict[str, Any]:
-    provenance_by_key = (
-        state.get("synapse_provenance_by_key")
-        if isinstance(state.get("synapse_provenance_by_key"), Mapping)
-        else {}
-    )
-    material: list[dict[str, Any]] = []
-    complete_rows = 0
-    for key in sorted(dict(provenance_by_key).keys()):
-        provenance = provenance_by_key.get(key)
-        if not isinstance(provenance, Mapping):
-            continue
-        row = _row_material(str(key), provenance)
-        if row is None:
-            continue
-        material.append(row)
-        complete_rows += int(_row_complete(row))
-    xor_value = 0
-    sum_value = 0
-    for row in material:
-        row_hash = _sha256_json(row)
-        row_int = _digest_int(row_hash)
-        xor_value ^= row_int
-        sum_value += row_int
-    count = len(material)
-    digest_xor = _digest_hex(xor_value)
-    digest_sum = _digest_hex(sum_value)
-    material_hash = (
-        _sha256_json(
-            {
-                "applied_replay_lineage_count": count,
-                "complete_applied_replay_lineage_count": complete_rows,
-                "incomplete_applied_replay_lineage_count": max(
-                    0,
-                    count - complete_rows,
-                ),
-                "lineage_digest_xor": digest_xor,
-                "lineage_digest_sum_mod_2_256": digest_sum,
-            }
-        )
-        if count
-        else None
-    )
-    return {
-        "surface": "retired_applied_replay_lineage_full_scan_summary.v1",
-        "production_callable": False,
-        "benchmark_local_only": True,
-        "applied_replay_lineage_count": count,
-        "complete_applied_replay_lineage_count": complete_rows,
-        "incomplete_applied_replay_lineage_count": max(0, count - complete_rows),
-        "lineage_digest_xor": digest_xor,
-        "lineage_digest_sum_mod_2_256": digest_sum,
-        "lineage_material_hash": material_hash,
-        "full_provenance_scan": True,
+        "applied_replay_lineage_count": int(
+            summary.get("applied_replay_lineage_count", 0) or 0
+        ),
+        "complete_applied_replay_lineage_count": int(
+            summary.get("complete_applied_replay_lineage_count", 0) or 0
+        ),
+        "incomplete_applied_replay_lineage_count": int(
+            summary.get("incomplete_applied_replay_lineage_count", 0) or 0
+        ),
+        "lineage_digest_xor": str(summary.get("lineage_digest_xor") or ""),
+        "lineage_digest_sum_mod_2_256": str(
+            summary.get("lineage_digest_sum_mod_2_256") or ""
+        ),
+        "lineage_material_hash": summary.get("lineage_material_hash"),
     }
 
 
@@ -228,6 +136,7 @@ def _measure(
         tracemalloc.start()
         started = time.perf_counter()
         evidence = fn(state)
+        expected_summary = _expected_incremental_summary(state)
         latency_ms = (time.perf_counter() - started) * 1000.0
         _current, peak_bytes = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -239,6 +148,7 @@ def _measure(
                 "source_reads": int(provenance.source_reads)
                 if isinstance(provenance, CountedMapping)
                 else -1,
+                "expected_summary": expected_summary,
             }
         )
     latencies = [float(record["latency_ms"]) for record in records]
@@ -261,6 +171,7 @@ def _measure(
             "mean": round(statistics.fmean(source_reads), 6),
         },
         "last_evidence": records[-1]["evidence"],
+        "last_expected_summary": records[-1]["expected_summary"],
     }
 
 
@@ -300,35 +211,34 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         _active_summary,
         runs=runs,
     )
-    retired = _measure(
-        lambda: _seed_state(entry_count),
-        _retired_full_scan_summary,
-        runs=runs,
-    )
     cuda_after = _cuda_snapshot()
     active_last = active["last_evidence"]
-    retired_last = retired["last_evidence"]
+    expected_last = active["last_expected_summary"]
     active_reads = int(active["source_reads"]["last"])
-    retired_reads = int(retired["source_reads"]["last"])
     active_mean = float(active["latency_ms"]["mean"])
-    retired_mean = float(retired["latency_ms"]["mean"])
+    summary_fields = (
+        "applied_replay_lineage_count",
+        "complete_applied_replay_lineage_count",
+        "incomplete_applied_replay_lineage_count",
+        "lineage_digest_xor",
+        "lineage_digest_sum_mod_2_256",
+        "lineage_material_hash",
+    )
     quality_checks = {
-        "counts_match_retired_diagnostic": all(
-            active_last.get(key) == retired_last.get(key)
-            for key in (
-                "applied_replay_lineage_count",
-                "complete_applied_replay_lineage_count",
-                "incomplete_applied_replay_lineage_count",
-                "lineage_digest_xor",
-                "lineage_digest_sum_mod_2_256",
-                "lineage_material_hash",
-            )
+        "matches_seeded_incremental_summary": all(
+            active_last.get(key) == expected_last.get(key) for key in summary_fields
+        ),
+        "seeded_lineage_count_matches_entry_count": (
+            int(expected_last.get("applied_replay_lineage_count", -1)) == entry_count
+            and int(expected_last.get("complete_applied_replay_lineage_count", -1))
+            == entry_count
+            and int(expected_last.get("incomplete_applied_replay_lineage_count", -1))
+            == 0
         ),
         "active_summary_source_available": bool(
             active_last.get("summary_source_available")
         ),
         "active_zero_source_reads": active_reads == 0,
-        "retired_scans_source_records": retired_reads >= entry_count,
         "no_production_full_scan": active_last.get("full_provenance_scan") is False
         and int(active_last.get("source_record_scan_count", -1)) == 0,
         "cpu_archival_metadata": active_last.get("archival_metadata_device") == "cpu"
@@ -350,41 +260,32 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "quality_checks": quality_checks,
         "quality": {
             "quality_gate_passed": all(quality_checks.values()),
-            "lineage_reconstruction_parity": quality_checks[
-                "counts_match_retired_diagnostic"
+            "lineage_incremental_summary_parity": quality_checks[
+                "matches_seeded_incremental_summary"
             ],
             "source_reads_eliminated": quality_checks["active_zero_source_reads"],
         },
         "latency": {
             "active_incremental": active["latency_ms"],
-            "retired_full_scan": retired["latency_ms"],
             "active_incremental_mean_ms": active_mean,
-            "retired_full_scan_mean_ms": retired_mean,
-            "active_speedup_vs_retired": round(
-                retired_mean / max(active_mean, 1e-9),
-                6,
-            ),
         },
         "work": {
             "active_source_reads": active_reads,
-            "retired_source_reads": retired_reads,
-            "source_reads_removed": max(0, retired_reads - active_reads),
-            "source_read_reduction": (
-                "all_provenance_reads_eliminated"
-                if active_reads == 0
-                else round(retired_reads / max(1, active_reads), 6)
-            ),
+            "source_reads_removed": "all_provenance_reads_eliminated",
+            "retired_full_scan_source_read_floor": entry_count,
         },
         "active_evidence": active_last,
-        "retired_path_comparison": {
-            "old_policy": "runtime_persistence_checkpoint_summary_full_synapse_provenance_scan",
-            "production_callable": False,
-            "benchmark_local_only": True,
-            "evidence": retired_last,
+        "expected_incremental_summary": expected_last,
+        "retired_full_scan_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": (
+                "runtime_persistence_checkpoint_summary_full_synapse_provenance_scan"
+            ),
         },
         "resource_behavior": {
             "active_python_peak_mib": active["python_peak_mib"],
-            "retired_python_peak_mib": retired["python_peak_mib"],
             "cuda_before": cuda_before,
             "cuda_after": cuda_after,
             "cuda_allocated_delta_mib": round(

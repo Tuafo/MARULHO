@@ -2053,6 +2053,18 @@ provenance records. Active mean latency was `0.065529 ms` versus
 `65526` cached rows, no observed contention, RTX memory `2082->2084 MiB`, and
 zero graph/native sequence failures.
 
+The maintained-only refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\applied-replay-lineage-checkpoint-legacy-baseline-removed.json`
+removes the executable benchmark-local full scan: the active checkpoint summary
+matches the seeded incremental summary for `65536` replay-lineage rows, reads
+`0` provenance rows, averages `0.082714 ms`, uses `0.001343 MiB` Python peak,
+keeps CUDA allocation at `0.0 MiB`, and reports the retired full-scan
+implementation absent. The paired cleanup hot-path reruns changed no
+production runtime module and succeeded at `5744.182` and
+`5790.952 tokens/sec` with bounded `12/65536` route rows, no observed
+contention, and zero graph/native sequence failures, so they are retained as
+variance evidence rather than a new runtime path claim.
+
 ## Sleep Replay Associative Recall
 
 Trainer-owned deep sleep now has one maintained associative recall path after

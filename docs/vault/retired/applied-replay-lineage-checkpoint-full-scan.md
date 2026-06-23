@@ -50,11 +50,24 @@ processed `524288` tokens at `5993.011 tokens/sec`, kept route scoring bounded
 at `12/65536`, cached `65526` transition rows, reported no observed contention,
 and recorded zero graph/native sequence failures.
 
+The maintained-only refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\applied-replay-lineage-checkpoint-legacy-baseline-removed.json`
+removes the executable benchmark-local full scan. It passed over `65536`
+replay-lineage rows by comparing the checkpoint summary to the seeded
+mutation-maintained incremental summary, read `0` provenance records, averaged
+`0.082714 ms`, used `0.001343 MiB` traced Python peak, kept CUDA allocation at
+`0.0 MiB`, and reported
+`retired_full_scan_absence.implementation_present=false`. The paired long-run
+cleanup reports stayed bounded with no observed contention and zero
+graph/native sequence failures; they measured `5744.182` and
+`5790.952 tokens/sec`, so they are recorded as variance evidence while the
+production runtime path remains unchanged by this benchmark-only cleanup.
+
 ## Revisit Condition
 
-Do not reintroduce this production scan. Full provenance comparisons belong only
-in benchmark-local diagnostics unless a future architecture replaces them with
-a bounded indexed validator that proves quality benefit, CPU archival placement,
-no hidden language reasoning, no live/every-token work, and repeated 6k-ish
-hot-path protection. Do not reintroduce legacy-source compatibility fields as a
+Do not reintroduce this production scan or the executable benchmark-local full
+scan. Full provenance comparisons may return only through a bounded indexed
+validator that proves quality benefit, CPU archival placement, no hidden
+language reasoning, no live/every-token work, and repeated 6k-ish hot-path
+protection. Do not reintroduce legacy-source compatibility fields as a
 substitute for exact incremental summary evidence.
