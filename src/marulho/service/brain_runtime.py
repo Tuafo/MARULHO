@@ -1556,7 +1556,7 @@ class BrainRuntime:
             ),
         }
 
-    def _brain_runtime_snapshot_locked(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
+    def _brain_runtime_snapshot_locked(self) -> dict[str, Any]:
         autonomy = self._brain_config.get("autonomy")
         exhausted_source_count = sum(1 for runtime in self._brain_source_runtimes if runtime.exhausted)
         background_focus_plan: Mapping[str, Any] | None = None
@@ -1646,9 +1646,7 @@ class BrainRuntime:
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        living_loop_snapshot = self._living_loop_snapshot_locked(
-            include_replay_dataset_summary=include_replay_dataset_summary,
-        )
+        living_loop_snapshot = self._living_loop_snapshot_locked()
         sleep_plasticity_review_scheduler = (
             self._deps.replay_controller().snn_sleep_plasticity_review_scheduler_runtime()
         )
@@ -1856,7 +1854,6 @@ class BrainRuntime:
             "recent_query_gaps": self._interaction_pipeline.recent_query_gaps(),
             "action_history": [deepcopy(item) for item in list(self._action_history)],
             "runtime_episode_traces": self._interaction_pipeline.runtime_episode_traces(),
-            "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
             "replay_regeneration_permits": [deepcopy(item) for item in list(self._replay_regeneration_permits)],
             "snn_replay_evaluation_contexts": [
                 deepcopy(item) for item in list(self._snn_replay_evaluation_contexts)
@@ -1997,7 +1994,6 @@ _install_dependency_object_property("_brain_config", "brain_config")
 _install_dependency_object_property("_interaction_pipeline", "interaction_pipeline")
 _install_dependency_alias_property("_action_history", "action_executor", "history")
 _install_dependency_property("_action_loop_summary_locked", "action_executor")
-_install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
 _install_dependency_alias_property("_replay_regeneration_permits", "replay_controller", "regeneration_permits")
 _install_dependency_alias_property(
     "_snn_replay_evaluation_contexts",

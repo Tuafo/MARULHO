@@ -44,8 +44,7 @@ def _fake_service_app() -> FastAPI:
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
             "memory_pressure": {"fill_fraction": 0.1, "size": 2, "capacity": 64, "pressure": "low"},
-            "replay_role": "preview_only_not_training",
-            "safety_flags": {"replay_dataset_preview_only": True, "training_started": False},
+            "safety_flags": {},
             "latency_ms": {"last_tick": 1.0, "tokens_per_second": 10.0},
             "evidence": {
                 "configured": True,
@@ -206,86 +205,6 @@ def _fake_service_app() -> FastAPI:
             "created_at": "2026-01-01T00:00:00+00:00",
         }
 
-    @app.get("/terminus/replay-plan")
-    def replay_plan(limit: int = 3) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "generated_at": "2026-01-01T00:00:00+00:00",
-            "advisory": True,
-            "executable": False,
-            "endpoint": "/terminus/replay-plan",
-            "limit": limit,
-            "count": 1,
-            "state_revision": 1,
-            "token_count": 0,
-            "snapshot_counts": {"runtime_episodes": 0, "actions": 0, "predictions": 0, "feedback": 2},
-            "priority_rules_version": "deterministic-v1",
-            "priority_weights": {"safety": 100.0},
-            "plan_reason_codes": ["contradicted_feedback"],
-            "candidates": [
-                {
-                    "candidate_id": "replay-1",
-                    "rank": 1,
-                    "target_type": "action",
-                    "target_id": "act-1",
-                    "target_ids": ["act-1"],
-                    "operation": "workspace_search",
-                    "created_at": "2026-01-01T00:00:00+00:00",
-                    "completed_at": "",
-                    "reason_codes": ["contradicted_feedback"],
-                    "priority_score": 125.0,
-                    "priority_components": {"safety": 1.0},
-                    "suggested_consolidation_action": "review_contradiction",
-                    "suggested_endpoint": "/terminus/runtime-feedback",
-                    "suggested_input": {"target_type": "action", "target_id": "act-1"},
-                    "summary": "test",
-                    "provenance": {},
-                    "risk": 0.75,
-                    "uncertainty": 0.1,
-                    "latency": {},
-                    "memory_health": {},
-                    "feedback": {},
-                    "policy": {},
-                }
-            ],
-        }
-
-    @app.get("/terminus/replay-sample/history")
-    def replay_sample_history(limit: int = 3) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "endpoint": "/terminus/replay-sample/history",
-            "count": 1,
-            "limit": limit,
-            "history": [
-                {
-                    "schema_version": 1,
-                    "replay_sample_id": "replay-sample-1",
-                    "created_at": "2026-01-01T00:00:01+00:00",
-                    "mode": "sample",
-                    "status": "recorded",
-                    "reason": "operator-gated replay sample recorded without side effects",
-                    "endpoint": "/terminus/replay-sample",
-                    "operator_id": "benchmark-operator",
-                    "operator_note": "",
-                    "requested_candidate_id": "replay-1",
-                    "target_type": "action",
-                    "target_id": "act-1",
-                    "requested_count": 1,
-                    "alpha": 1.0,
-                    "seed": None,
-                    "candidate_ids": ["replay-1"],
-                    "selected_candidate_ids": ["replay-1"],
-                    "selected_candidates": [],
-                    "safety_checks": {"passed": True},
-                    "safety_flags": {"audit_only": True, "external_calls_made": False, "training_started": False},
-                    "before": {"token_count": 0, "state_revision": 1, "action_history_count": 0, "feedback_count": 2},
-                    "after": {"token_count": 0, "state_revision": 1, "action_history_count": 0, "feedback_count": 2},
-                    "plan_summary": {"endpoint": "/terminus/replay-plan", "count": 1},
-                }
-            ],
-        }
-
     @app.get("/terminus/runtime-traces/export")
     def export(limit: int = 3) -> dict[str, Any]:
         return {
@@ -294,93 +213,7 @@ def _fake_service_app() -> FastAPI:
             "training_role": "adapter_distillation_dataset_preview_only_not_training",
             "limit": limit,
             "count": 0,
-            "replay_sample_summary": {
-                "endpoint": "/terminus/replay-sample",
-                "history_endpoint": "/terminus/replay-sample/history",
-                "count": 1,
-                "mode_counts": {"sample": 1},
-                "status_counts": {"recorded": 1},
-                "safety_flags": {"audit_only": True, "external_calls_made": False},
-            },
             "examples": [],
-        }
-
-    @app.get("/terminus/replay-dataset/preview")
-    def replay_dataset_preview(limit: int = 3) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "export_kind": "terminus_replay_dataset_preview",
-            "training_role": "replay_dataset_preview_only_not_training_no_mutation",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "latest_export_timestamp": "2026-01-01T00:00:00+00:00",
-            "latest_history_timestamp": "2026-01-01T00:00:01+00:00",
-            "endpoint": "/terminus/replay-dataset/preview",
-            "limit": limit,
-            "count": 0,
-            "positive_count": 0,
-            "negative_count": 0,
-            "provenance_counts": {},
-            "example_type_counts": {},
-            "safety_flags": {
-                "preview_only": True,
-                "training_started": False,
-                "memory_mutated": False,
-                "feedback_posted": False,
-                "digital_action_executed": False,
-                "external_calls_made": False,
-            },
-            "items": [],
-            "empty_reason": "checkpoint_contains_no_eligible_sanitized_runtime_traces",
-        }
-
-    @app.post("/terminus/replay-dataset/bundle")
-    def replay_dataset_bundle(payload: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "schema_version": 1,
-            "export_kind": "terminus_replay_dataset_bundle_preview",
-            "training_role": "replay_dataset_bundle_preview_only_not_training_operator_approved",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "endpoint": "/terminus/replay-dataset/bundle",
-            "source_endpoint": "/terminus/replay-dataset/preview",
-            "limit": int(payload.get("limit", 3)),
-            "bundle_id": "terminus-replay-dataset-bundle-v1-empty",
-            "bundle_version": "v1.empty",
-            "source_count": 0,
-            "count": 0,
-            "excluded_count": 0,
-            "positive_count": 0,
-            "negative_count": 0,
-            "preference_pair_count": 0,
-            "sft_count": 0,
-            "split_counts": {"train": 0, "holdout": 0, "eval": 0},
-            "source_window": {
-                "surface": "bounded_replay_dataset_bundle_source_window.v1",
-                "source_preview_window_surface": "bounded_replay_dataset_preview_source_window.v1",
-                "source_window_count": 0,
-                "packaged_item_count": 0,
-                "excluded_item_count": 0,
-                "runs_live_tick": False,
-                "runs_every_token": False,
-                "runs_replay": False,
-                "language_reasoning": False,
-                "archival_storage_device": "cpu",
-                "gpu_resident_archival_metadata": False,
-            },
-            "operator_approval": {
-                "approved": True,
-                "operator_id": payload.get("operator_id", "benchmark-operator"),
-            },
-            "training_gate": {
-                "status": "blocked_preview_only",
-                "eligible_for_training": False,
-                "next_action": "run_offline_replay_training_eval_gate",
-            },
-            "safety_flags": {
-                "preview_only": True,
-                "training_started": False,
-                "requires_separate_training_approval": True,
-            },
-            "empty_reason": "no_items_survived_bundle_packaging_gate",
         }
 
     return app
@@ -413,7 +246,7 @@ def _benchmark_report(
                 "latency_ms_total": hot_total,
                 "success": True,
             },
-            "slow_path": {"endpoint_names": ["replay_plan", "replay_dataset_preview"], "success": True},
+            "slow_path": {"endpoint_names": ["export"], "success": True},
             "hot_path_budget": {"within_budget": hot_p95 <= 1000.0 and hot_total <= 3000.0},
         },
         "configured_source_summary": {
@@ -915,11 +748,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             "respond",
             "living_loop",
             "policy_actuator",
-            "replay_plan",
-            "replay_sample_history",
             "export",
-            "replay_dataset_preview",
-            "replay_dataset_bundle",
         ]
         for record in result["endpoint_timings"]:
             assert record["status_code"] == 200
@@ -933,7 +762,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert metabolism["hot_path"]["latency_ms_p95"] is not None
         assert metabolism["hot_path_budget"]["within_budget"] is True
         assert metabolism["hot_path_budget"]["hot_path_protection_role"] == "benchmark_evidence_only_not_runtime_work"
-        assert "replay_dataset_bundle" in metabolism["slow_path"]["endpoint_names"]
+        assert metabolism["slow_path"]["endpoint_names"] == ["export"]
         assert metabolism["uncategorized"]["count"] == 0
         assert metabolism["semantics"]["setup_endpoints"] == ["terminus_configure", "terminus_tick"]
         assert metabolism["semantics"]["hot_path_endpoints"] == ["feed", "query", "respond"]
@@ -964,47 +793,16 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["endpoints_by_name"]["policy_actuator"]["path"] == "/terminus/policy-actuator"
         assert result["policy_actuator_summary"]["action"] == "investigate_contradictions"
         assert result["policy_actuator_summary"]["reason_codes"] == ["contradicted_feedback"]
-        assert result["endpoints_by_name"]["replay_plan"]["path"] == "/terminus/replay-plan"
-        assert result["endpoints_by_name"]["replay_sample_history"]["path"] == "/terminus/replay-sample/history"
-        assert result["endpoints_by_name"]["replay_dataset_preview"]["path"] == "/terminus/replay-dataset/preview"
-        assert result["endpoints_by_name"]["replay_dataset_bundle"]["path"] == "/terminus/replay-dataset/bundle"
+        assert "replay_plan" not in result["endpoints_by_name"]
+        assert "replay_sample_history" not in result["endpoints_by_name"]
+        assert "replay_dataset_preview" not in result["endpoints_by_name"]
+        assert "replay_dataset_bundle" not in result["endpoints_by_name"]
         assert "replay_dataset_history" not in result["endpoints_by_name"]
-        assert result["replay_plan_summary"]["endpoint"] == "/terminus/replay-plan"
-        assert result["replay_plan_summary"]["top_candidate"]["suggested_consolidation_action"] == "review_contradiction"
-        assert result["replay_sample_summary"]["endpoint"] == "/terminus/replay-sample"
-        assert result["replay_sample_summary"]["history_endpoint"] == "/terminus/replay-sample/history"
-        assert result["replay_sample_summary"]["count"] == 1
-        assert result["replay_sample_summary"]["mode_counts"]["sample"] == 1
-        assert result["replay_sample_summary"]["status_counts"]["recorded"] == 1
-        assert result["replay_sample_summary"]["latest_history_item"]["selected_count"] == 1
-        assert result["replay_sample_summary"]["safety_flags"]["audit_only"] is True
-        assert result["replay_sample_summary"]["safety_flags"]["external_calls_made"] is False
         assert result["trace_export_summary"]["count"] == 0
-        assert result["replay_dataset_summary"]["export_kind"] == "terminus_replay_dataset_preview"
-        assert result["replay_dataset_summary"]["training_role"] == "replay_dataset_preview_only_not_training_no_mutation"
-        assert result["replay_dataset_summary"]["endpoint"] == "/terminus/replay-dataset/preview"
-        assert result["replay_dataset_summary"]["positive_count"] == 0
-        assert result["replay_dataset_summary"]["negative_count"] == 0
-        assert result["replay_dataset_summary"]["empty_reason"] == "checkpoint_contains_no_eligible_sanitized_runtime_traces"
-        assert result["replay_dataset_summary"]["latest_export_timestamp"] == "2026-01-01T00:00:00+00:00"
-        assert result["replay_dataset_summary"]["latest_history_timestamp"] == "2026-01-01T00:00:01+00:00"
-        assert result["replay_dataset_summary"]["safety_flags"]["external_calls_made"] is False
-        assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
-        assert result["replay_dataset_bundle_summary"]["training_role"] == "replay_dataset_bundle_preview_only_not_training_operator_approved"
-        assert result["replay_dataset_bundle_summary"]["operator_approval"]["operator_id"] == "benchmark-operator"
-        bundle_source_window = result["replay_dataset_bundle_summary"]["source_window"]
-        assert bundle_source_window["surface"] == "bounded_replay_dataset_bundle_source_window.v1"
-        assert bundle_source_window["source_preview_window_surface"] == "bounded_replay_dataset_preview_source_window.v1"
-        assert bundle_source_window["runs_live_tick"] is False
-        assert bundle_source_window["runs_every_token"] is False
-        assert bundle_source_window["runs_replay"] is False
-        assert bundle_source_window["language_reasoning"] is False
-        assert bundle_source_window["archival_storage_device"] == "cpu"
-        assert bundle_source_window["gpu_resident_archival_metadata"] is False
-        assert result["replay_dataset_bundle_summary"]["training_gate"]["status"] == "blocked_preview_only"
-        assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
-        assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
-        assert result["replay_dataset_bundle_summary"]["safety_flags"]["requires_separate_training_approval"] is True
+        assert "replay_plan_summary" not in result
+        assert "replay_sample_summary" not in result
+        assert "replay_dataset_summary" not in result
+        assert "replay_dataset_bundle_summary" not in result
         assert "replay_dataset_candidates_summary" not in result
         assert "replay_dataset_history_summary" not in result
     finally:
@@ -1044,11 +842,11 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["respond"]["status_code"] == 200
         assert result["endpoints_by_name"]["living_loop"]["status_code"] == 200
         assert result["endpoints_by_name"]["policy_actuator"]["status_code"] == 200
-        assert result["endpoints_by_name"]["replay_plan"]["status_code"] == 200
-        assert result["endpoints_by_name"]["replay_sample_history"]["status_code"] == 200
         assert result["endpoints_by_name"]["export"]["status_code"] == 200
-        assert result["endpoints_by_name"]["replay_dataset_preview"]["status_code"] == 200
-        assert result["endpoints_by_name"]["replay_dataset_bundle"]["status_code"] == 200
+        assert "replay_plan" not in result["endpoints_by_name"]
+        assert "replay_sample_history" not in result["endpoints_by_name"]
+        assert "replay_dataset_preview" not in result["endpoints_by_name"]
+        assert "replay_dataset_bundle" not in result["endpoints_by_name"]
         assert "replay_dataset_history" not in result["endpoints_by_name"]
         metabolism = result["endpoint_metabolism_summary"]
         assert metabolism["setup"]["endpoint_names"] == ["terminus_configure", "terminus_tick"]
@@ -1058,9 +856,9 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert metabolism["hot_path"]["success"] is True
         assert metabolism["hot_path"]["latency_ms_total"] <= result["total_latency_ms"]
         assert metabolism["hot_path_budget"]["within_budget"] is True
-        assert metabolism["slow_path"]["count"] == 5
+        assert metabolism["slow_path"]["count"] == 1
         assert metabolism["semantics"]["setup_note"].startswith("Configuration and manual tick")
-        assert metabolism["semantics"]["slow_path_note"].startswith("Replay, export, bundle")
+        assert metabolism["semantics"]["slow_path_note"].startswith("Runtime trace export")
         configured_source = result["configured_source_summary"]
         assert configured_source["enabled"] is True
         assert configured_source["configured"] is True
@@ -1101,23 +899,11 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert isinstance(result["feedback_telemetry"], dict)
         assert isinstance(result["policy_actuator_summary"], dict)
         assert isinstance(result["policy_actuator_summary"]["action"], str)
-        assert isinstance(result["replay_plan_summary"], dict)
-        assert result["replay_plan_summary"]["endpoint"] == "/terminus/replay-plan"
-        assert isinstance(result["replay_sample_summary"], dict)
-        assert result["replay_sample_summary"]["endpoint"] == "/terminus/replay-sample"
-        assert result["replay_sample_summary"]["history_endpoint"] == "/terminus/replay-sample/history"
-        assert result["replay_sample_summary"]["safety_flags"]["audit_only"] is True
         assert result["trace_export_summary"]["count"] <= 2
-        assert result["trace_export_summary"]["replay_dataset_summary"]["endpoint"] == "/terminus/replay-dataset/preview"
-        assert result["replay_dataset_summary"]["count"] <= 2
-        assert result["replay_dataset_summary"]["endpoint"] == "/terminus/replay-dataset/preview"
-        assert "latest_export_timestamp" in result["replay_dataset_summary"]
-        assert result["replay_dataset_summary"]["safety_flags"]["training_started"] is False
-        assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
-        assert result["replay_dataset_bundle_summary"]["operator_approval"]["approved"] is True
-        assert result["replay_dataset_bundle_summary"]["training_gate"]["status"] == "blocked_preview_only"
-        assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
-        assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
+        assert "replay_plan_summary" not in result
+        assert "replay_sample_summary" not in result
+        assert "replay_dataset_summary" not in result
+        assert "replay_dataset_bundle_summary" not in result
         assert "replay_dataset_candidates_summary" not in result
         assert "replay_dataset_history_summary" not in result
     finally:

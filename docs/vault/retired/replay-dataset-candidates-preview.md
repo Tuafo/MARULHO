@@ -20,12 +20,15 @@ second public replay-plan candidate preview beside `/terminus/replay-plan` and
 the bounded replay-dataset preview/bundle export path, but it did not add
 dataset source-window evidence.
 
-Replacement:
+Superseded replacement:
 
-- Use `/terminus/replay-plan` for replay-plan candidates.
-- Use `/terminus/replay-dataset/preview` for dataset/export source-window
-  evidence.
-- Use `/terminus/replay-dataset/bundle` for operator-approved package previews.
+- The whole service advisory replay lane is now retired: `/terminus/replay-plan`,
+  `/terminus/replay-dataset/preview`, and `/terminus/replay-dataset/bundle`
+  are deleted too.
+- Use trainer/SNN slow-window evidence and ReplayController artifacts,
+  regeneration permits, sleep-plasticity review tickets, scheduler tickets, and
+  transition-memory replay artifacts for bounded replay/consolidation review.
+- Use `/terminus/runtime-traces/export` only for trace-only export.
 
 Current evidence:
 
@@ -43,5 +46,5 @@ Current evidence:
   contention, flat RTX 3060 memory, and zero graph/native/sequence failures.
 
 Revisit only with a measured candidate-export contract that proves unique value
-over `/terminus/replay-plan`, carries explicit source-window evidence, and
-preserves repeated long-run throughput.
+over the trainer/SNN slow-window path, carries explicit source-window evidence,
+and preserves repeated long-run throughput.

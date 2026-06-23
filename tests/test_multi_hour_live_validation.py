@@ -49,16 +49,7 @@ def _multi_hour(memory_fill: float = 0.2, health: str = "alive") -> dict[str, ob
         "final_runtime_truth": {
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
-            "safety_flags": {
-                "replay_safety": {
-                    "training_started": False,
-                    "memory_mutated": False,
-                    "feedback_posted": False,
-                    "digital_action_executed": False,
-                    "external_calls_made": False,
-                    "sleep_started": False,
-                }
-            },
+            "safety_flags": {},
         },
     }
 

@@ -26,7 +26,6 @@ related_code:
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
-  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
   - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/service/replay_runtime.py
@@ -140,6 +139,62 @@ related_benchmarks:
 # Hot Path Latency
 
 Latency-sensitive runtime surface checks.
+
+## Service Replay Surface Retirement, 2026-06-23
+
+The current slice removes service replay-plan/sample/dataset endpoints and
+summaries instead of preserving them as bounded side paths. The hot-path claim
+to verify is therefore absence: no service replay planning, sample history,
+dataset preview, dataset bundle, status summary, trace-export summary, or
+benchmark endpoint may enter the live tick. Runtime trace export remains an
+explicit slow tooling surface, and ReplayController keeps only SNN
+artifact/permit/ticket review windows. The paired hot-path run for this slice
+must stay in the maintained 6k-ish throughput band with bounded route rows and
+flat device behavior.
+
+Current local long-run evidence is rejected, not accepted. The two local-only
+reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` completed `524288`
+tokens with the expected bounded route shape (`12/65536` rows,
+`state_transition_runs_all_columns=false`, `poll_snapshots_during_measurement=false`),
+but throughput fell below the maintained band: `3982.916 tokens/sec` with
+`train_compute=0.199245 ms/token`, then `4559.668 tokens/sec` with
+`train_compute=0.180726 ms/token`. Both reports recorded
+`velocity_environment.v1` contention. The second run saw CPU max `92%`, GPU max
+`25%`, and GPU memory-util max `20%`; a follow-up idle sampler hit CPU `100%`,
+queue `10`, and GPU `29%`. Do not cite this slice as hot-path protected until a
+fresh `524288`-token run returns to the 6k-ish band under clean run conditions.
+
+The same-session A/B on 2026-06-23 also remains rejected. Clean HEAD
+`c7a07c56` from `..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-service-replay-surfaces-retired-baseline-c7a07c56-same-session.json`
+reached `5067.347 tokens/sec`, `tick_duration_ms.p95=28.934`,
+`train_compute=0.159613 ms/token`, `prepare_training=0.008008 ms/token`, and
+`finalize_total=0.008240 ms/token` while recording CPU contention. The current
+worktree rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-service-replay-surfaces-retired-current-same-session-rerun.json`
+recorded no contention but reached only `4859.400 tokens/sec`,
+`tick_duration_ms.p95=33.118`, `train_compute=0.163895 ms/token`,
+`prepare_training=0.008507 ms/token`, and `finalize_total=0.008381 ms/token`.
+Both preserved bounded route rows (`12/65536`), no all-column transition, no
+measurement-window status polling, CUDA on RTX 3060, and zero graph/native
+sequence failures. Because the current worktree trailed the clean baseline, the
+service replay surface retirement must not be committed as hot-path protected
+until the slowdown is explained or reversed.
+
+The old known-good control on the current machine also failed the band. A
+throwaway worktree at `fbb788de`, the commit that previously measured
+`6120.090 tokens/sec` under the same benchmark shape, reran as
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-fbb788de-current-machine-rerun.json`
+and reached only `4201.009 tokens/sec`, `tick_duration_ms.p95=42.690`,
+`train_compute=0.189376 ms/token`, `prepare_training=0.009332 ms/token`,
+`finalize_total=0.009142 ms/token`, and `397639.837 ms` startup warm latency.
+It still preserved bounded `12/65536` route rows, no all-column transition, no
+measurement-window snapshot polling, zero graph/native sequence failures, and
+CPU/GPU placement on RTX 3060, but `velocity_environment.v1` recorded CPU max
+`100%` and GPU max `22%`. This distinguishes the service replay cleanup from
+the current throughput loss: today the hot-path gate is blocked by run
+conditions or a machine-level performance state, not by the deleted service
+replay surfaces.
 
 ## Sustained Velocity Recheck, 2026-06-14
 

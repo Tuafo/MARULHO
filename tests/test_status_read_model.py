@@ -1656,10 +1656,10 @@ class StatusReadModelTelemetryTests(unittest.TestCase):
         result = model.telemetry_snapshot()
         self.assertIn("terminus_runtime", result)
 
-    def test_telemetry_snapshot_returns_replay_dataset_summary(self) -> None:
+    def test_telemetry_snapshot_omits_replay_dataset_summary(self) -> None:
         model, _, _, _ = _build_read_model()
         result = model.telemetry_snapshot()
-        self.assertIn("replay_dataset_summary", result)
+        self.assertNotIn("replay_dataset_summary", result)
 
     def test_telemetry_snapshot_returns_sleep_events(self) -> None:
         model, _, _, _ = _build_read_model()
@@ -1820,12 +1820,9 @@ def _build_living_loop_snapshot() -> dict[str, Any]:
             "contradicted_feedback_count": 0,
             "unverified_feedback_count": 0,
             "recent_feedback": [],
-            "replay_sample_summary": {},
             "grounding_health": {},
             "benchmark_telemetry": {},
             "policy_decision": {},
-            "replay_plan": {},
-            "replay_dataset_summary": None,
             "world_model_lite": None,
         },
         "state_revision": 1,
@@ -3939,13 +3936,13 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertIn("pressure", memory_pressure)
         self.assertIn("working_set_policy", memory_pressure)
 
-    def test_verdict_safety_flags_reflect_replay_role(self) -> None:
-        """Runtime Truth safety_flags include replay_dataset_preview_only flag."""
+    def test_verdict_safety_flags_exclude_retired_replay_dataset_role(self) -> None:
+        """Runtime Truth safety_flags do not preserve the retired replay dataset flag."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_alive_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
         safety = truth["safety_flags"]
-        self.assertIn("replay_dataset_preview_only", safety)
+        self.assertNotIn("replay_dataset_preview_only", safety)
 
     def test_verdict_latency_includes_tick_and_tps(self) -> None:
         """Runtime Truth latency_ms includes last_tick and tokens_per_second."""
@@ -4141,7 +4138,6 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "trace_storage_dir",
             "checkpoint_metadata",
             "runtime_scope",
-            "replay_dataset_summary",
         ]
         for key in required_keys:
             self.assertIn(key, result, f"status() missing key: {key}")
@@ -4214,7 +4210,6 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "multimodal",
             "runtime_scope",
             "memory_store",
-            "replay_dataset_summary",
         ]
         for key in required_keys:
             self.assertIn(key, result, f"terminus_status() missing key: {key}")
@@ -4255,7 +4250,6 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "terminus_runtime",
             "runtime_scope",
             "memory_store",
-            "replay_dataset_summary",
         ]
         for key in required_keys:
             self.assertIn(key, result, f"telemetry_snapshot() missing key: {key}")

@@ -17,21 +17,13 @@ from marulho.service.interaction_pipeline import (
     build_respond_runtime_verification,
 )
 from marulho.service.living_loop_records import RuntimeEpisodeTrace
-from marulho.service.living_loop_replay import build_replay_plan
+from marulho.service.living_status import LivingStatusCore
 
 DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
-DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT
-MAX_REPLAY_DATASET_EXPORT_LIMIT = MAX_RUNTIME_TRACE_EXPORT_LIMIT
-DEFAULT_REPLAY_SAMPLE_HISTORY = 256
-REPLAY_DATASET_PREVIEW_TRACE_SOURCE_WINDOW_LIMIT = MAX_REPLAY_DATASET_EXPORT_LIMIT
-REPLAY_DATASET_SAMPLE_LINK_SOURCE_WINDOW_LIMIT = 64
-REPLAY_DATASET_SAMPLE_LINK_CANDIDATE_WINDOW_LIMIT = 16
 RUNTIME_TRACE_STATUS_SOURCE_WINDOW_LIMIT = 12
 RUNTIME_TRACE_FEEDBACK_SOURCE_WINDOW_LIMIT = 64
 RUNTIME_TRACE_EXPORT_SCHEMA_VERSION = 1
-REPLAY_DATASET_SCHEMA_VERSION = 1
-REPLAY_DATASET_TRAINING_ROLE = "replay_dataset_preview_only_not_training_no_mutation"
 DEFAULT_RUNTIME_FEEDBACK_HISTORY = 8
 DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
 _RUNTIME_TRACE_EXPORT_MAX_STRING_CHARS = 2000
@@ -69,235 +61,11 @@ _RUNTIME_TRACE_EXPORT_UNSAFE_KEYS = {
 
 
 class RuntimeEvidenceReporter:
-    """Runtime trace, feedback summary, and replay dataset preview helpers.
+    """Runtime trace and feedback summary helpers.
 
-    This is the learning-evidence lane: it creates sanitized audit/export
-    artifacts but does not train adapters, mutate memory, execute actions, or
-    promote facts.
+    This is the evidence lane: it creates sanitized trace/export artifacts but
+    does not train adapters, mutate memory, execute actions, or promote facts.
     """
-
-    @staticmethod
-    def _replay_dataset_count_map(value: Any) -> dict[str, int]:
-        if not isinstance(value, Mapping):
-            return {}
-        result: dict[str, int] = {}
-        for key, count in value.items():
-            try:
-                result[str(key)] = int(count or 0)
-            except (TypeError, ValueError):
-                result[str(key)] = 0
-        return result
-
-    def _replay_dataset_latest_history_timestamp_locked(self) -> str | None:
-        for record in self._replay_sample_history:
-            if not isinstance(record, Mapping):
-                continue
-            created_at = self._normalize_feedback_text(record.get("created_at", ""), max_chars=80)
-            if created_at:
-                return created_at
-        return None
-
-    def _replay_dataset_summary_from_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        replay_sample_summary = payload.get("replay_sample_summary")
-        latest_history_timestamp = payload.get("latest_history_timestamp")
-        if latest_history_timestamp in ("", None) and isinstance(replay_sample_summary, Mapping):
-            latest = replay_sample_summary.get("latest_history_item")
-            if isinstance(latest, Mapping):
-                latest_history_timestamp = latest.get("created_at")
-        if latest_history_timestamp in ("", None):
-            latest_history_timestamp = self._replay_dataset_latest_history_timestamp_locked()
-
-        latest_export_timestamp = (
-            payload.get("latest_export_timestamp")
-            or payload.get("created_at")
-        )
-        summary = {
-            "export_kind": str(payload.get("export_kind") or "terminus_replay_dataset_preview"),
-            "schema_version": int(payload.get("schema_version", REPLAY_DATASET_SCHEMA_VERSION) or REPLAY_DATASET_SCHEMA_VERSION),
-            "training_role": str(payload.get("training_role") or REPLAY_DATASET_TRAINING_ROLE),
-            "endpoint": str(payload.get("endpoint") or "/terminus/replay-dataset/preview"),
-            "filter_endpoint": payload.get("filter_endpoint"),
-            "limit": int(payload.get("limit", 0) or 0),
-            "max_limit": int(payload.get("max_limit", MAX_REPLAY_DATASET_EXPORT_LIMIT) or MAX_REPLAY_DATASET_EXPORT_LIMIT),
-            "count": int(payload.get("count", 0) or 0),
-            "positive_count": int(payload.get("positive_count", 0) or 0),
-            "negative_count": int(payload.get("negative_count", 0) or 0),
-            "provenance_counts": self._replay_dataset_count_map(payload.get("provenance_counts")),
-            "example_type_counts": self._replay_dataset_count_map(payload.get("example_type_counts")),
-            "safety_flags": dict(payload.get("safety_flags", {})) if isinstance(payload.get("safety_flags"), Mapping) else {},
-            "empty_reason": payload.get("empty_reason"),
-            "latest_export_timestamp": str(latest_export_timestamp) if latest_export_timestamp not in ("", None) else None,
-            "latest_history_timestamp": str(latest_history_timestamp) if latest_history_timestamp not in ("", None) else None,
-        }
-        source_window = payload.get("source_window")
-        if isinstance(source_window, Mapping):
-            summary["source_window"] = self._runtime_trace_export_safe_value(
-                dict(source_window)
-            )
-        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
-
-    def _replay_dataset_preview_payload_locked(
-        self,
-        *,
-        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
-        endpoint: str | None = None,
-        living_loop: Mapping[str, Any] | None = None,
-        plan: Mapping[str, Any] | None = None,
-        replay_sample_summary: Mapping[str, Any] | None = None,
-        created_at: str | None = None,
-    ) -> dict[str, Any]:
-        count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
-        endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
-        export_created_at = created_at or datetime.now(timezone.utc).isoformat()
-        before = self._replay_sample_state_counts_locked()
-        if living_loop is None:
-            living_loop = self._living_loop_snapshot_locked(
-                include_replay_dataset_summary=False,
-            )
-        policy_decision = self._runtime_trace_export_policy_decision_summary(
-            living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
-        )
-        replay_plan = dict(plan) if isinstance(plan, Mapping) else build_replay_plan(living_loop, limit=MAX_REPLAY_DATASET_EXPORT_LIMIT).to_payload()
-        replay_plan_summary = self._replay_plan_summary(replay_plan)
-        sample_summary = (
-            dict(replay_sample_summary)
-            if isinstance(replay_sample_summary, Mapping)
-            else self._replay_sample_summary_locked()
-        )
-        source_traces, source_window = self._replay_dataset_preview_source_window_locked()
-        source_trace_ids = {
-            str(episode.get("trace_id", "") or "")
-            for episode in source_traces
-            if isinstance(episode, Mapping) and str(episode.get("trace_id", "") or "")
-        }
-        state_by_trace_id = self._runtime_trace_state_by_trace_id_locked(
-            trace_ids=source_trace_ids,
-        )
-        candidates_by_target = self._replay_dataset_candidates_by_target(replay_plan.get("candidates", []))
-        sample_links_by_target, replay_sample_link_source_window = (
-            self._replay_dataset_sample_links_by_target_locked(with_report=True)
-        )
-        source_window["replay_sample_link_source_window"] = replay_sample_link_source_window
-        source_window["state_lookup"] = {
-            "requested_trace_id_count": int(len(source_trace_ids)),
-            "matched_trace_state_count": int(len(state_by_trace_id)),
-            "source": "runtime_trace_state_by_selected_trace_ids",
-            "lookup_device": "cpu",
-        }
-        items: list[dict[str, Any]] = []
-        matched_trace_count = 0
-        scanned_trace_count = 0
-        for episode in source_traces:
-            scanned_trace_count += 1
-            operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
-            endpoint_path = self._runtime_trace_export_endpoint(operation)
-            if endpoint_filter is not None and endpoint_filter not in {operation, endpoint_path.lower(), endpoint_path.lower().lstrip("/")}:
-                continue
-            matched_trace_count += 1
-            trace_id = str(episode.get("trace_id", "") or "")
-            example = self._runtime_trace_export_example_locked(
-                episode,
-                endpoint_path=endpoint_path,
-                state_after=state_by_trace_id.get(trace_id, {}),
-                policy_decision=policy_decision,
-                replay_plan_summary=replay_plan_summary,
-                replay_sample_summary=sample_summary,
-            )
-            target_id = str(example.get("example_id", "") or episode.get("episode_id", "") or "")
-            target_key = ("runtime_episode", target_id)
-            items.append(
-                self._replay_dataset_item_from_trace_example(
-                    example,
-                    replay_candidate=candidates_by_target.get(target_key),
-                    replay_sample_linkage=sample_links_by_target.get(target_key),
-                )
-            )
-            if len(items) >= count:
-                break
-        source_window.update(
-            {
-                "endpoint_filter": endpoint_filter,
-                "source_trace_count_evaluated": int(scanned_trace_count),
-                "matched_trace_count_evaluated": int(matched_trace_count),
-                "candidate_count_returned": int(len(items)),
-                "returned_count": int(len(items)),
-                "return_limit_reached": bool(len(items) >= count),
-                "source_window_exhausted": bool(scanned_trace_count >= len(source_traces)),
-                "quality_metric": "bounded_replay_dataset_preview_trace_selection",
-                "candidate_context_source": "replay_plan_summary_inside_dataset_preview",
-                "retired_public_candidate_preview_endpoint": "/terminus/replay-dataset/candidates",
-                "replacement_candidate_endpoint": "/terminus/replay-plan",
-            }
-        )
-
-        positive_count = sum(1 for item in items if bool(item.get("has_positive_example")))
-        negative_count = sum(1 for item in items if bool(item.get("has_negative_example")))
-        provenance_counts: Counter[str] = Counter(
-            str(item.get("provenance_label", "unknown") or "unknown") for item in items
-        )
-        example_type_counts: Counter[str] = Counter(
-            str(item.get("example_type", "unknown") or "unknown") for item in items
-        )
-        after = self._replay_sample_state_counts_locked()
-        payload = {
-            "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
-            "export_kind": "terminus_replay_dataset_preview",
-            "training_role": REPLAY_DATASET_TRAINING_ROLE,
-            "description": (
-                "Curated replay dataset preview assembled from sanitized runtime traces, feedback, "
-                "replay-plan context, and operator-gated replay-sample linkage. This endpoint is "
-                "export-only and does not train, mutate memory, post feedback, execute actions, or "
-                "make external calls."
-            ),
-            "created_at": export_created_at,
-            "latest_export_timestamp": export_created_at,
-            "latest_history_timestamp": self._replay_dataset_latest_history_timestamp_locked(),
-            "endpoint": "/terminus/replay-dataset/preview",
-            "limit": count,
-            "max_limit": MAX_REPLAY_DATASET_EXPORT_LIMIT,
-            "filter_endpoint": endpoint_filter,
-            "count": len(items),
-            "positive_count": positive_count,
-            "negative_count": negative_count,
-            "provenance_counts": dict(provenance_counts),
-            "example_type_counts": dict(example_type_counts),
-            "policy_decision": policy_decision,
-            "replay_plan_summary": replay_plan_summary,
-            "replay_sample_summary": sample_summary,
-            "source_window": source_window,
-            "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
-            "before": before,
-            "after": after,
-            "items": items,
-            "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
-        }
-        if not items:
-            payload["empty_reason"] = "checkpoint_contains_no_eligible_sanitized_runtime_traces"
-        return cast(
-            dict[str, Any],
-            self._runtime_trace_export_safe_value(
-                payload,
-                list_item_limit=max(_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS, count),
-            ),
-        )
-
-    def _replay_dataset_preview_summary_locked(
-        self,
-        *,
-        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
-        endpoint: str | None = None,
-        living_loop: Mapping[str, Any] | None = None,
-        plan: Mapping[str, Any] | None = None,
-        replay_sample_summary: Mapping[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        payload = self._replay_dataset_preview_payload_locked(
-            limit=limit,
-            endpoint=endpoint,
-            living_loop=living_loop,
-            plan=plan,
-            replay_sample_summary=replay_sample_summary,
-        )
-        return self._replay_dataset_summary_from_payload(payload)
 
     def export_runtime_trace_examples(
         self,
@@ -308,23 +76,9 @@ class RuntimeEvidenceReporter:
         with self._lock:
             count = min(MAX_RUNTIME_TRACE_EXPORT_LIMIT, max(1, int(limit)))
             endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
-            living_loop = self._living_loop_snapshot_locked()
+            living_loop = LivingStatusCore._living_loop_snapshot_locked(self)
             policy_decision = self._runtime_trace_export_policy_decision_summary(
                 living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
-            )
-            replay_plan = (
-                dict(living_loop.get("replay_plan"))
-                if isinstance(living_loop, Mapping) and isinstance(living_loop.get("replay_plan"), Mapping)
-                else build_replay_plan(living_loop, limit=MAX_REPLAY_DATASET_EXPORT_LIMIT).to_payload()
-            )
-            replay_plan_summary = self._replay_plan_summary(replay_plan)
-            replay_sample_summary = self._replay_sample_summary_locked()
-            replay_dataset_summary = self._replay_dataset_preview_summary_locked(
-                limit=count,
-                endpoint=endpoint_filter,
-                living_loop=living_loop,
-                plan=replay_plan,
-                replay_sample_summary=replay_sample_summary,
             )
             source_traces, source_window = RuntimeEvidenceReporter._runtime_episode_trace_source_window_locked(
                 self,
@@ -362,8 +116,6 @@ class RuntimeEvidenceReporter:
                         endpoint_path=endpoint_path,
                         state_after=state_by_trace_id.get(trace_id, {}),
                         policy_decision=policy_decision,
-                        replay_plan_summary=replay_plan_summary,
-                        replay_sample_summary=replay_sample_summary,
                     )
                 )
                 if len(examples) >= count:
@@ -399,22 +151,10 @@ class RuntimeEvidenceReporter:
                 "endpoint": endpoint_filter,
                 "count": len(examples),
                 "policy_decision": policy_decision,
-                "replay_plan_summary": replay_plan_summary,
-                "replay_sample_summary": replay_sample_summary,
-                "replay_dataset_summary": replay_dataset_summary,
                 "source_window": source_window,
                 "examples": examples,
                 "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
             }
-
-    def replay_dataset_preview(
-        self,
-        *,
-        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
-        endpoint: str | None = None,
-    ) -> dict[str, Any]:
-        with self._lock:
-            return self._replay_dataset_preview_payload_locked(limit=limit, endpoint=endpoint)
 
     def _normalize_runtime_episode_trace(self, item: Any) -> dict[str, Any] | None:
         if not isinstance(item, Mapping):
@@ -496,34 +236,6 @@ class RuntimeEvidenceReporter:
             },
         }
 
-    def _replay_dataset_preview_source_window_locked(
-        self,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        source_limit = max(1, int(REPLAY_DATASET_PREVIEW_TRACE_SOURCE_WINDOW_LIMIT))
-        traces, source_window = RuntimeEvidenceReporter._runtime_episode_trace_source_window_locked(
-            self,
-            surface="bounded_replay_dataset_preview_source_window.v1",
-            policy="recent_runtime_episode_trace_window_with_bounded_replay_links",
-            limit=source_limit,
-            selection_criteria=[
-                "newest_runtime_episode_traces_first",
-                "bounded_source_window_before_dataset_preview",
-                "operator_replay_sample_links_indexed_from_recent_window",
-            ],
-        )
-        source_window["memory_budget"] = {
-            **dict(source_window.get("memory_budget") or {}),
-            "max_runtime_episode_traces": int(source_limit),
-            "max_replay_sample_records": int(
-                REPLAY_DATASET_SAMPLE_LINK_SOURCE_WINDOW_LIMIT
-            ),
-            "max_selected_candidates_per_replay_sample": int(
-                REPLAY_DATASET_SAMPLE_LINK_CANDIDATE_WINDOW_LIMIT
-            ),
-            "archival_storage_device": "cpu",
-        }
-        return traces, source_window
-
     def _runtime_trace_state_by_trace_id_locked(
         self,
         *,
@@ -558,8 +270,6 @@ class RuntimeEvidenceReporter:
         endpoint_path: str,
         state_after: Mapping[str, Any],
         policy_decision: Mapping[str, Any],
-        replay_plan_summary: Mapping[str, Any],
-        replay_sample_summary: Mapping[str, Any],
     ) -> dict[str, Any]:
         operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
         prediction = self._runtime_trace_export_safe_value(episode.get("prediction") or {})
@@ -614,8 +324,6 @@ class RuntimeEvidenceReporter:
             "feedback": feedback,
             "feedback_summary": feedback_summary,
             "policy_decision": self._runtime_trace_export_policy_decision_summary(policy_decision),
-            "replay_plan_summary": self._replay_plan_summary(replay_plan_summary),
-            "replay_sample_summary": self._runtime_trace_export_safe_value(dict(replay_sample_summary)),
             "corrected_output": self._runtime_trace_export_safe_value(episode.get("corrected_output"))
             if episode.get("corrected_output") is not None
             else None,
@@ -625,365 +333,6 @@ class RuntimeEvidenceReporter:
             "error": failure_map.get("message") if failure_map else None,
         }
         return cast(dict[str, Any], self._runtime_trace_export_safe_value(example))
-
-    @staticmethod
-    def _replay_dataset_candidates_by_target(candidates: Any) -> dict[tuple[str, str], dict[str, Any]]:
-        by_target: dict[tuple[str, str], dict[str, Any]] = {}
-        if not isinstance(candidates, Sequence) or isinstance(candidates, (str, bytes)):
-            return by_target
-        for raw in candidates:
-            if not isinstance(raw, Mapping):
-                continue
-            target_type = str(raw.get("target_type", "") or "").strip()
-            target_id = str(raw.get("target_id", "") or "").strip()
-            if target_type and target_id:
-                by_target.setdefault((target_type, target_id), dict(raw))
-        return by_target
-
-    def _replay_dataset_sample_links_by_target_locked(
-        self,
-        *,
-        with_report: bool = False,
-    ) -> Any:
-        links: dict[tuple[str, str], dict[str, Any]] = {}
-        retained_count = int(len(self._replay_sample_history))
-        source_limit = max(0, int(REPLAY_DATASET_SAMPLE_LINK_SOURCE_WINDOW_LIMIT))
-        candidate_limit = max(0, int(REPLAY_DATASET_SAMPLE_LINK_CANDIDATE_WINDOW_LIMIT))
-        source_window_count = 0
-        selected_candidate_source_count = 0
-        selected_candidate_window_count = 0
-        selected_candidate_truncated_count = 0
-        for record in islice(self._replay_sample_history, source_limit):
-            source_window_count += 1
-            if not isinstance(record, Mapping):
-                continue
-            selected_candidates = record.get("selected_candidates")
-            if not isinstance(selected_candidates, Sequence) or isinstance(selected_candidates, (str, bytes)):
-                continue
-            candidate_count = len(selected_candidates)
-            selected_candidate_source_count += int(candidate_count)
-            selected_candidate_truncated_count += max(0, int(candidate_count) - candidate_limit)
-            for raw_candidate in islice(selected_candidates, candidate_limit):
-                selected_candidate_window_count += 1
-                if not isinstance(raw_candidate, Mapping):
-                    continue
-                target_type = self._normalize_feedback_text(raw_candidate.get("target_type", ""), max_chars=64)
-                target_id = self._normalize_feedback_text(raw_candidate.get("target_id", ""), max_chars=160)
-                if not target_type or not target_id:
-                    continue
-                key = (target_type, target_id)
-                link = links.setdefault(
-                    key,
-                    {
-                        "selected": True,
-                        "target_type": target_type,
-                        "target_id": target_id,
-                        "replay_sample_ids": [],
-                        "modes": [],
-                        "candidate_ids": [],
-                        "latest": None,
-                    },
-                )
-                replay_sample_id = self._normalize_feedback_text(record.get("replay_sample_id", ""), max_chars=160)
-                mode = self._normalize_feedback_text(record.get("mode", ""), max_chars=32)
-                candidate_id = self._normalize_feedback_text(raw_candidate.get("candidate_id", ""), max_chars=160)
-                if replay_sample_id and replay_sample_id not in link["replay_sample_ids"]:
-                    link["replay_sample_ids"].append(replay_sample_id)
-                if mode and mode not in link["modes"]:
-                    link["modes"].append(mode)
-                if candidate_id and candidate_id not in link["candidate_ids"]:
-                    link["candidate_ids"].append(candidate_id)
-                if link["latest"] is None:
-                    link["latest"] = {
-                        "replay_sample_id": replay_sample_id,
-                        "created_at": self._normalize_feedback_text(record.get("created_at", ""), max_chars=80),
-                        "mode": mode,
-                        "status": self._normalize_feedback_text(record.get("status", ""), max_chars=80),
-                        "candidate_id": candidate_id,
-                        "operator_id": self._normalize_feedback_text(record.get("operator_id", ""), max_chars=160),
-                        "safety_flags": dict(record.get("safety_flags", {})) if isinstance(record.get("safety_flags"), Mapping) else {},
-                    }
-        if not with_report:
-            return links
-        report = {
-            "surface": "bounded_replay_dataset_sample_link_source_window.v1",
-            "policy": "recent_replay_sample_link_window",
-            "window_policy": "recent_replay_sample_link_window",
-            "source": "replay_controller.replay_sample_history",
-            "selection_criteria": [
-                "newest_replay_sample_records_first",
-                "bounded_selected_candidates_per_sample",
-                "link_runtime_episode_targets_only_for_preview_context",
-            ],
-            "source_window_limit": int(source_limit),
-            "source_window_count": int(source_window_count),
-            "source_record_count": int(retained_count),
-            "source_record_count_known": True,
-            "source_payload_truncated": bool(retained_count > source_window_count),
-            "source_truncated_count": max(0, retained_count - source_window_count),
-            "selected_candidate_window_limit_per_sample": int(candidate_limit),
-            "selected_candidate_source_scope": "stored_sanitized_replay_sample_payload",
-            "raw_selected_candidate_count_known": False,
-            "stored_selected_candidate_payload_limit": int(_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS),
-            "selected_candidate_source_count": int(selected_candidate_source_count),
-            "selected_candidate_window_count": int(selected_candidate_window_count),
-            "selected_candidate_truncated_count": int(selected_candidate_truncated_count),
-            "target_link_count": int(len(links)),
-            "global_candidate_scan": False,
-            "global_score_scan": False,
-            "raw_replay_text_payload_loaded": False,
-            "language_reasoning": False,
-            "runs_live_tick": False,
-            "runs_every_token": False,
-            "mutates_runtime_state": False,
-            "applies_plasticity": False,
-            "trains_adapter": False,
-            "archival_storage_device": "cpu",
-            "lookup_device": "cpu",
-            "gpu_used": False,
-            "gpu_resident_archival_metadata": False,
-            "memory_budget": {
-                "max_replay_sample_records": int(source_limit),
-                "max_selected_candidates_per_sample": int(candidate_limit),
-                "archival_storage_device": "cpu",
-            },
-        }
-        return links, report
-
-    def _replay_dataset_verification_label(self, example: Mapping[str, Any]) -> str:
-        feedback_summary = example.get("feedback_summary") if isinstance(example.get("feedback_summary"), Mapping) else {}
-        if int(feedback_summary.get("contradicted_count", 0) or 0) > 0:
-            return "contradicted"
-        if int(feedback_summary.get("verified_count", 0) or 0) > 0:
-            return "verified"
-        verification = example.get("verification") if isinstance(example.get("verification"), Mapping) else {}
-        status = self._normalize_action_text(verification.get("status", example.get("status", "unverified"))).lower()
-        if status in {"verified", "contradicted", "failed"}:
-            return status
-        if bool(verification.get("contradiction", False)):
-            return "contradicted"
-        if bool(verification.get("success", False)):
-            return "verified"
-        return "unverified"
-
-    def _replay_dataset_output_or_none(self, value: Any) -> Any:
-        safe = self._runtime_trace_export_safe_value(value)
-        if safe in ({}, [], "", None):
-            return None
-        return safe
-
-    def _replay_dataset_item_from_trace_example(
-        self,
-        example: Mapping[str, Any],
-        *,
-        replay_candidate: Mapping[str, Any] | None,
-        replay_sample_linkage: Mapping[str, Any] | None,
-    ) -> dict[str, Any]:
-        verification_label = self._replay_dataset_verification_label(example)
-        runtime_status = self._normalize_action_text(example.get("status", "unknown")).lower() or "unknown"
-        raw_provenance = self._normalize_action_text(example.get("provenance", "observed")).lower() or "observed"
-        synthetic_provenance = raw_provenance in {"dreamed", "synthetic"}
-        provenance_label = (
-            raw_provenance
-            if synthetic_provenance
-            else verification_label
-            if verification_label in {"verified", "contradicted"}
-            else raw_provenance
-        )
-        corrected_output = self._replay_dataset_output_or_none(example.get("corrected_output"))
-        actual_output = self._replay_dataset_output_or_none(example.get("actual_output"))
-        prediction = self._replay_dataset_output_or_none(example.get("prediction"))
-        failure = self._replay_dataset_output_or_none(example.get("failure"))
-
-        chosen_output: Any = None
-        chosen_source = ""
-        if corrected_output is not None:
-            chosen_output = corrected_output
-            chosen_source = "corrected_output"
-        elif verification_label == "verified" and actual_output is not None:
-            chosen_output = actual_output
-            chosen_source = "verified_actual_output"
-
-        rejected_output: Any = None
-        rejected_source = ""
-        if verification_label == "contradicted":
-            rejected_output = actual_output if actual_output is not None else prediction
-            rejected_source = "contradicted_actual_output" if actual_output is not None else "contradicted_prediction"
-        elif runtime_status == "failed" or failure is not None or verification_label == "failed":
-            rejected_output = failure if failure is not None else actual_output if actual_output is not None else prediction
-            rejected_source = "failed_runtime_output"
-
-        has_positive = chosen_output is not None
-        has_negative = rejected_output is not None
-        if has_positive and has_negative:
-            example_type = "dpo_preference_pair_preview"
-        elif has_positive:
-            example_type = "sft_example_preview"
-        elif has_negative:
-            example_type = "negative_only_preview_context"
-        else:
-            example_type = "excluded_preview_context"
-
-        target_id = str(example.get("example_id", "") or "")
-        context = example.get("context") if isinstance(example.get("context"), Mapping) else {}
-        sft_example = (
-            {
-                "input": self._runtime_trace_export_safe_value(context),
-                "output": chosen_output,
-                "output_source": chosen_source,
-                "eligible_source": chosen_source in {"corrected_output", "verified_actual_output"},
-                "preview_only": True,
-            }
-            if has_positive
-            else None
-        )
-        preference_pair = (
-            {
-                "chosen": chosen_output,
-                "chosen_source": chosen_source,
-                "rejected": rejected_output,
-                "rejected_source": rejected_source,
-                "preview_only": True,
-            }
-            if has_positive and has_negative
-            else None
-        )
-        is_verified_fact = (
-            verification_label == "verified"
-            and not synthetic_provenance
-            and provenance_label not in {"contradicted", "dreamed", "synthetic"}
-        )
-        item = {
-            "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
-            "item_id": f"replay-dataset-{target_id or example.get('trace_id', uuid4())}",
-            "training_role": REPLAY_DATASET_TRAINING_ROLE,
-            "dataset_role": "replay_dataset_item_preview",
-            "example_type": example_type,
-            "target_type": "runtime_episode",
-            "target_id": target_id,
-            "trace_id": example.get("trace_id"),
-            "endpoint": example.get("endpoint"),
-            "operation": example.get("operation"),
-            "timestamp": example.get("timestamp") or example.get("created_at"),
-            "status": runtime_status,
-            "verification_label": verification_label,
-            "provenance_label": provenance_label,
-            "is_verified_fact": is_verified_fact,
-            "has_positive_example": has_positive,
-            "has_negative_example": has_negative,
-            "sft_example": sft_example,
-            "preference_pair": preference_pair,
-            "runtime_trace": self._runtime_trace_export_safe_value(dict(example)),
-            "feedback": self._runtime_trace_export_safe_value(example.get("feedback", [])),
-            "feedback_summary": self._runtime_trace_export_safe_value(example.get("feedback_summary", {})),
-            "policy_context": self._runtime_trace_export_policy_decision_summary(example.get("policy_decision")),
-            "replay_plan_context": self._runtime_trace_export_safe_value(dict(replay_candidate or {})),
-            "replay_sample_linkage": self._runtime_trace_export_safe_value(
-                dict(replay_sample_linkage)
-                if isinstance(replay_sample_linkage, Mapping)
-                else {
-                    "selected": False,
-                    "target_type": "runtime_episode",
-                    "target_id": target_id,
-                    "replay_sample_ids": [],
-                    "modes": [],
-                    "candidate_ids": [],
-                    "latest": None,
-                }
-            ),
-            "safety_flags": {
-                "preview_only": True,
-                "training_started": False,
-                "sleep_started": False,
-                "memory_verification_promoted": False,
-                "feedback_posted": False,
-                "digital_action_executed": False,
-                "external_calls_made": False,
-                "memory_mutated": False,
-                "not_promoted": True,
-                "eligible_for_training": False,
-            },
-        }
-        if example_type == "excluded_preview_context":
-            item["excluded_reason"] = "no_verified_or_corrected_positive_output_and_no_failed_or_contradicted_rejected_output"
-        elif example_type == "negative_only_preview_context":
-            item["excluded_reason"] = "negative_signal_without_verified_or_corrected_chosen_output"
-        return cast(dict[str, Any], self._runtime_trace_export_safe_value(item))
-
-    def _replay_plan_summary(self, replay_plan: Any) -> dict[str, Any]:
-        data = dict(replay_plan) if isinstance(replay_plan, Mapping) else {}
-        if not data:
-            return {}
-        candidates = data.get("candidates")
-        reason_codes = data.get("plan_reason_codes")
-        if not isinstance(reason_codes, Sequence) or isinstance(reason_codes, (str, bytes)):
-            reason_counter: Counter[str] = Counter()
-            if isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
-                for candidate in candidates:
-                    if not isinstance(candidate, Mapping):
-                        continue
-                    for code in candidate.get("reason_codes", []):
-                        text = str(code).strip()
-                        if text:
-                            reason_counter[text] += 1
-            reason_codes = list(reason_counter.keys())
-        top_candidate: Mapping[str, Any] = {}
-        if isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)) and candidates:
-            first = candidates[0]
-            if isinstance(first, Mapping):
-                top_candidate = first
-        summary = {
-            "schema_version": data.get("schema_version"),
-            "generated_at": data.get("generated_at"),
-            "advisory": data.get("advisory", True),
-            "executable": data.get("executable", False),
-            "endpoint": data.get("endpoint", "/terminus/replay-plan"),
-            "limit": data.get("limit"),
-            "count": data.get("count"),
-            "priority_rules_version": data.get("priority_rules_version"),
-            "plan_reason_codes": [str(item) for item in list(reason_codes or [])[:12]],
-            "top_candidate": {
-                "candidate_id": top_candidate.get("candidate_id"),
-                "rank": top_candidate.get("rank"),
-                "target_type": top_candidate.get("target_type"),
-                "target_id": top_candidate.get("target_id"),
-                "operation": top_candidate.get("operation"),
-                "priority_score": top_candidate.get("priority_score"),
-                "reason_codes": list(top_candidate.get("reason_codes") or [])[:8],
-                "suggested_consolidation_action": top_candidate.get("suggested_consolidation_action"),
-                "suggested_endpoint": top_candidate.get("suggested_endpoint"),
-            }
-            if top_candidate
-            else None,
-        }
-        source_window = data.get("source_window")
-        if isinstance(source_window, Mapping):
-            summary["source_window"] = {
-                "surface": source_window.get("surface"),
-                "window_policy": source_window.get("window_policy"),
-                "runs_live_tick": bool(source_window.get("runs_live_tick", False)),
-                "selection_criteria": list(source_window.get("selection_criteria") or [])[:8],
-                "source_limits": dict(source_window.get("source_limits") or {})
-                if isinstance(source_window.get("source_limits"), Mapping)
-                else {},
-                "source_counts": dict(source_window.get("source_counts") or {})
-                if isinstance(source_window.get("source_counts"), Mapping)
-                else {},
-                "window_counts": dict(source_window.get("window_counts") or {})
-                if isinstance(source_window.get("window_counts"), Mapping)
-                else {},
-                "truncated_source_counts": dict(source_window.get("truncated_source_counts") or {})
-                if isinstance(source_window.get("truncated_source_counts"), Mapping)
-                else {},
-                "feedback_index_entry_count": source_window.get("feedback_index_entry_count"),
-                "feedback_index_target_count": source_window.get("feedback_index_target_count"),
-                "candidate_count_before_rank": source_window.get("candidate_count_before_rank"),
-                "candidate_count_returned": source_window.get("candidate_count_returned"),
-                "device_placement": dict(source_window.get("device_placement") or {})
-                if isinstance(source_window.get("device_placement"), Mapping)
-                else {},
-            }
-        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
 
     def _runtime_trace_export_policy_decision_summary(self, policy_decision: Any) -> dict[str, Any]:
         data = dict(policy_decision) if isinstance(policy_decision, Mapping) else {}
@@ -1194,7 +543,7 @@ class RuntimeEvidenceReporter:
             limit=RUNTIME_TRACE_FEEDBACK_SOURCE_WINDOW_LIMIT,
             selection_criteria=[
                 "newest_runtime_episode_traces_first",
-                "bounded_feedback_summary_before_status_or_replay_plan",
+                "bounded_feedback_summary_before_status_or_trace_export",
                 "feedback_entries_read_only_from_selected_traces",
             ],
         )
@@ -1215,7 +564,7 @@ class RuntimeEvidenceReporter:
             "selection_criteria": [
                 "newest_runtime_episode_traces_first",
                 "newest_action_records_first",
-                "bounded_feedback_summary_before_status_or_replay_plan",
+                "bounded_feedback_summary_before_status_or_trace_export",
             ],
             "runtime_episode_trace_source_window": trace_source_window,
             "action_history_window_limit": int(action_limit),

@@ -6,16 +6,12 @@ related_code:
   - ../../../src/marulho/retrieval/routing_index.py
   - ../../../src/marulho/training/trainer.py
   - ../../../src/marulho/training/query_runner.py
-  - ../../../src/marulho/service/living_loop_replay.py
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
-  - ../../../src/marulho/service/replay_dataset_bundle.py
   - ../../../src/marulho/service/applied_replay_lineage.py
   - ../../../src/marulho/service/brain_runtime.py
   - ../../../src/marulho/evaluation/bounded_replay_window_benchmark.py
-  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
-  - ../../../src/marulho/evaluation/replay_plan_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/emission_replay_context_review_window_benchmark.py
@@ -37,7 +33,6 @@ related_code:
   - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
   - ../../../src/marulho/evaluation/query_recent_fallback_retirement_benchmark.py
-  - ../../../src/marulho/evaluation/replay_dataset_source_window_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/service/transition_memory_source_window.py
 related_docs:
@@ -183,6 +178,41 @@ related_benchmarks:
 ---
 
 # Replay/consolidation
+
+## Current MARULHO Boundary
+
+The service advisory replay-plan/sample/dataset lane is retired and removed.
+Replay research remains relevant only as bounded local recall or selected
+slow-window consolidation inside trainer/SNN-owned paths. The maintained code
+keeps `ReplayController` for SNN replay artifacts, regeneration permits,
+sleep-plasticity review tickets, scheduler tickets, and transition-memory
+replay artifacts. Runtime trace export is trace-only. Deleted service routes,
+schemas, persisted replay-sample history, replay dataset packagers/runners, and
+living-loop replay planning are not compatibility surfaces.
+
+This retirement is not yet a hot-path promotion claim. The current local
+`524288`-token reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` are rejected because
+contention was observed and throughput stayed below the maintained band
+(`3982.916` and `4559.668 tokens/sec`), even though the reports preserved the
+bounded route shape and did not poll status snapshots during measurement.
+The later same-session A/B is also rejected: clean HEAD `c7a07c56` reached
+`5067.347 tokens/sec`, while the current worktree rerun reached
+`4859.400 tokens/sec` with no observed contention. The research boundary and
+deleted service path remain directionally correct, but this code slice cannot
+claim long-run live-tick protection yet. A current-machine control reran the
+old known-good `fbb788de` worktree and reached only `4201.009 tokens/sec`
+with CPU max `100%`, GPU max `22%`, `tick_duration_ms.p95=42.690`, and
+`train_compute=0.189376 ms/token`, despite the same bounded `12/65536` route
+rows and zero graph/native sequence failures. Treat current 2026-06-23 hot-path
+numbers as rejected run-condition evidence until a clean 6k-ish rerun returns.
+
+This follows the paper trail: CLS and hippocampal replay argue for separated
+fast/slow learning windows; continual replay argues for selected rehearsal, not
+always-on background work; synaptic tagging/capture argues for local tags and
+capture windows; sparse replay argues for bounded candidate sets; modern
+Hopfield-style attention-like recall is treated here as a local associative
+memory operator, not as a transformer-like mind.
 
 ## Claim
 
@@ -2306,7 +2336,7 @@ synapse; non-replay overwrites and pruning clear the row for that synapse.
 `snn_applied_replay_lineage_checkpoint_summary.v1`, and restore validation
 compares saved/restored counts and digests. If the incremental summary is
 missing, exact validation is blocked instead of falling back to a full
-provenance rebuild.
+provenance rebuild or preserving a legacy-source compatibility field.
 
 This follows the replay/consolidation research boundary: modern-Hopfield-like
 association and continual replay are useful only inside selected local windows;

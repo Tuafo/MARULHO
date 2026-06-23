@@ -18,21 +18,14 @@ from marulho.service.living_loop_records import (
     RuntimeEpisodeTrace,
 )
 from marulho.service.living_loop_policy import build_policy_actuator_status
-from marulho.service.living_loop_replay import build_replay_plan
 from marulho.service.living_loop_self_model import (
     OperationalSelfModel,
     build_runtime_benchmark_telemetry,
 )
 
-DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = 20
-
 
 class LivingStatusCore:
-    def _living_loop_snapshot_locked(
-        self,
-        *,
-        include_replay_dataset_summary: bool = False,
-    ) -> dict[str, Any]:
+    def _living_loop_snapshot_locked(self) -> dict[str, Any]:
         memory_snapshot = self._trainer.model.memory_store.live_summary_stats()
         provenance = ProvenanceState.from_distribution(
             cast(Mapping[str, Any], memory_snapshot).get("provenance_distribution")
@@ -77,8 +70,6 @@ class LivingStatusCore:
         payload["contradicted_feedback_count"] = int(feedback_summary["contradicted_count"])
         payload["unverified_feedback_count"] = int(feedback_summary["unverified_count"])
         payload["recent_feedback"] = [deepcopy(item) for item in feedback_summary["recent_feedback"]]
-        replay_sample_summary = self._replay_sample_summary_locked()
-        payload["replay_sample_summary"] = replay_sample_summary
         grounding_health = (
             dict(payload.get("grounding_health") or {})
             if isinstance(payload.get("grounding_health"), Mapping)
@@ -127,44 +118,25 @@ class LivingStatusCore:
                 "last_tick_token_delta": int(self._brain_last_tick_token_delta),
             },
             feedback_summary=feedback_summary,
-            replay_sample_summary=replay_sample_summary,
             generated_at=str(payload.get("generated_at", "")) or None,
         )
         payload["policy_decision"] = build_policy_actuator_status(
             payload,
         ).to_payload()
-        replay_plan = build_replay_plan(payload).to_payload()
-        payload["replay_plan"] = replay_plan
-        replay_dataset_summary: dict[str, Any] | None = None
-        if include_replay_dataset_summary:
-            replay_dataset_summary = self._replay_dataset_preview_summary_locked(
-                living_loop=payload,
-                plan=replay_plan,
-                replay_sample_summary=replay_sample_summary,
-                limit=DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
-            )
-            payload["replay_dataset_summary"] = replay_dataset_summary
-        if isinstance(payload.get("benchmark_telemetry"), Mapping):
-            payload["benchmark_telemetry"]["replay_plan_summary"] = self._replay_plan_summary(replay_plan)
-            payload["benchmark_telemetry"]["replay_sample_summary"] = replay_sample_summary
-            if replay_dataset_summary is not None:
-                payload["benchmark_telemetry"]["replay_dataset_summary"] = replay_dataset_summary
         return payload
 
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
             runtime_mutation = self._runtime_state.mutation_summary()
             return {
-                "living_loop": self._living_loop_snapshot_locked(
-                    include_replay_dataset_summary=True,
-                ),
+                "living_loop": LivingStatusCore._living_loop_snapshot_locked(self),
                 **runtime_mutation,
                 "token_count": int(self._trainer.token_count),
             }
 
     def policy_actuator_status(self) -> dict[str, Any]:
         with self._lock:
-            living_loop = self._living_loop_snapshot_locked()
+            living_loop = LivingStatusCore._living_loop_snapshot_locked(self)
             return build_policy_actuator_status(
                 living_loop,
             ).to_payload()

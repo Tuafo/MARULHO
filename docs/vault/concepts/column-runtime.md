@@ -36,7 +36,6 @@ related_code:
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
   - ../../../src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
-  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
   - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
 related_docs:
   - ../modules/core.md
@@ -70,6 +69,23 @@ related_benchmarks:
 ---
 
 # Column Runtime
+
+## Replay Surface Boundary
+
+Column Runtime is the live tick owner for bounded wake/route/transition work.
+It is not the owner of service replay-plan/sample/dataset summaries. Those
+service replay surfaces are retired and removed. Active replay/consolidation
+evidence that can influence cognition must come from trainer-owned selected
+slow windows or SNN ReplayController artifacts/permits/tickets with explicit
+source windows, CPU archival placement, no hidden replay-text reasoning, and
+hot-path protection evidence.
+
+The 2026-06-23 service replay-lane retirement has code/tests/docs evidence for
+removing side paths, but not accepted live-tick evidence. Same-session hot-path
+runs fell below band, and a current-machine rerun of old known-good `fbb788de`
+also fell to `4201.009 tokens/sec` with CPU/GPU contention. Do not treat the
+retirement as a throughput promotion until a fresh clean run returns to the
+6k-ish band.
 
 Column Runtime is the MARULHO control-plane direction where many small predictive columns can exist, but only a bounded subset should wake on a tick.
 
@@ -1902,7 +1918,8 @@ provenance overwrites or pruning removes that synapse, and has
 `RuntimePersistence` read the maintained counts/digest with
 `source_record_scan_count=0` and `full_provenance_scan=false`. Restore
 validation compares saved and restored summary fields; missing incremental
-state blocks exact validation rather than scanning `synapse_provenance_by_key`.
+state blocks exact validation rather than scanning `synapse_provenance_by_key`
+or carrying a legacy-source compatibility label.
 
 The focused `65536`-row report
 `reports/bounded_replay_window_20260620/applied-replay-lineage-checkpoint-summary.json`

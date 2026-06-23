@@ -444,15 +444,6 @@ class StatusReadModel:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _replay_dataset_summary_from_runtime(runtime: Mapping[str, Any]) -> dict[str, Any] | None:
-        """Extract replay dataset summary from a terminus runtime snapshot."""
-        living_loop = runtime.get("living_loop") if isinstance(runtime, Mapping) else None
-        if not isinstance(living_loop, Mapping):
-            return None
-        summary = living_loop.get("replay_dataset_summary")
-        return deepcopy(dict(summary)) if isinstance(summary, Mapping) else None
-
-    @staticmethod
     def _runtime_source_configuration_evidence(terminus_runtime: Mapping[str, Any]) -> dict[str, Any]:
         """Build source configuration evidence from a terminus runtime snapshot."""
         source_bank = [
@@ -526,7 +517,6 @@ class StatusReadModel:
         *,
         terminus_runtime: Mapping[str, Any],
         memory_store: Mapping[str, Any],
-        replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
         runtime_scope: Mapping[str, Any] | None = None,
         sleep_plasticity_autonomy_proposal: Mapping[str, Any] | None = None,
@@ -564,14 +554,6 @@ class StatusReadModel:
         else:
             verdict = "alive"
             recommended_action = "continue_monitoring"
-
-        replay_role = "none"
-        replay_endpoint = None
-        replay_safety_flags: dict[str, Any] = {}
-        if isinstance(replay_dataset_summary, Mapping):
-            replay_endpoint = replay_dataset_summary.get("endpoint")
-            replay_safety_flags = dict(replay_dataset_summary.get("safety_flags") or {})
-            replay_role = str(replay_dataset_summary.get("training_role") or "preview_export_only")
 
         fill_fraction = float(memory_store.get("fill_fraction", 0.0) or 0.0)
         if fill_fraction >= 0.85:
@@ -1294,11 +1276,7 @@ class StatusReadModel:
             "recommended_action": recommended_action,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
-            "replay_role": replay_role,
-            "safety_flags": {
-                "replay_dataset_preview_only": replay_role != "training",
-                "replay_safety": replay_safety_flags,
-            },
+            "safety_flags": {},
             "latency_ms": latency_ms,
             "evidence": {
                 "configured": configured,
@@ -1310,7 +1288,6 @@ class StatusReadModel:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
-                "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "runtime_device": runtime_device,
                 "device": runtime_device["resolved_device"],
@@ -4018,7 +3995,6 @@ class StatusReadModel:
         """Build the full status snapshot. Caller MUST hold self._lock."""
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.live_summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
         runtime_scope = self._runtime_scope_report_locked(
@@ -4054,7 +4030,6 @@ class StatusReadModel:
             "memory_store": memory_store,
             "concept_store": self._concept_store_snapshot_fn(),
             "terminus_runtime": terminus_runtime,
-            "replay_dataset_summary": replay_dataset_summary,
             "snn_sleep_plasticity_autonomy_proposal": sleep_plasticity_autonomy_proposal,
             "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
                 scheduler_installation_autonomy_proposal
@@ -4065,7 +4040,6 @@ class StatusReadModel:
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
-                replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
                 runtime_scope=runtime_scope,
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
@@ -4086,7 +4060,6 @@ class StatusReadModel:
         """Build the terminus status snapshot. Caller MUST hold self._lock."""
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.live_summary_stats()
         trace_history_size = int(len(self._trace_history))
         runtime_scope = self._runtime_scope_report_locked(
@@ -4111,7 +4084,6 @@ class StatusReadModel:
             "multimodal": multimodal,
             "runtime_scope": runtime_scope,
             "memory_store": memory_store,
-            "replay_dataset_summary": replay_dataset_summary,
             "snn_sleep_plasticity_autonomy_proposal": sleep_plasticity_autonomy_proposal,
             "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
                 scheduler_installation_autonomy_proposal
@@ -4122,7 +4094,6 @@ class StatusReadModel:
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
-                replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
                 runtime_scope=runtime_scope,
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
@@ -4154,7 +4125,6 @@ class StatusReadModel:
             )
         )
         terminus_runtime = self._brain_runtime_snapshot_fn()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
 
         animation = self._animation_snapshot_fn() if self._animation_snapshot_fn is not None else {}
 
@@ -4203,7 +4173,6 @@ class StatusReadModel:
             "terminus_runtime": terminus_runtime,
             "runtime_scope": self._runtime_scope_report_locked(),
             "memory_store": memory_store,
-            "replay_dataset_summary": replay_dataset_summary,
         }
         self._cached_telemetry = snapshot
         self._cached_telemetry_rev = current_rev

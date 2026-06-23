@@ -7,11 +7,8 @@ from datetime import datetime, timedelta
 from threading import RLock
 from typing import Mapping
 import unittest
-from unittest.mock import patch
 
 from marulho.service.replay_runtime import (
-    DEFAULT_REPLAY_SAMPLE_HISTORY,
-    REPLAY_RESTORE_SOURCE_WINDOW_SURFACE,
     SNN_REPLAY_PRIORITY_CONTEXT_WINDOW_LIMIT,
     SNN_SLEEP_PLASTICITY_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
     SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT,
@@ -42,60 +39,14 @@ class _FakeReplayManager:
     def __init__(self) -> None:
         self._lock = RLock()
         self._runtime_state = _FakeRuntimeState()
-        self._replay_sample_history = deque(maxlen=256)
         self._trainer = type("_Trainer", (), {"token_count": 13})()
-        self._action_history = deque(maxlen=24)
-
-    @staticmethod
-    def _normalize_action_text(value: object) -> str:
-        return " ".join(str(value).split()).strip()
 
     @classmethod
     def _normalize_feedback_text(cls, value: object, *, max_chars: int = 2000) -> str:
-        text = cls._normalize_action_text(value)
+        text = " ".join(str(value).split()).strip()
         if len(text) > max_chars:
             return text[:max_chars].rstrip() + "…"
         return text
-
-    def _living_loop_snapshot_locked(self) -> dict[str, object]:
-        return {
-            "state_revision": self._runtime_state.state_revision,
-            "token_count": 13,
-            "runtime_episode_count": 0,
-            "action_count": 0,
-            "prediction_count": 0,
-            "runtime_episodes": [],
-            "actions": [],
-            "predictions": [],
-            "uncertain_domains": [],
-            "feedback_summary": {},
-            "benchmark_telemetry": {},
-            "memory_health": {"status": "available", "fill_ratio": 0.2},
-            "subcortex_sleep_pressure": {"fatigue": 0.2},
-            "policy_decision": {"action": "continue_current_policy"},
-            "world_model_lite": {"uncertainty": 0.0},
-        }
-
-    @staticmethod
-    def _replay_plan_summary(plan: dict[str, object] | None) -> dict[str, object]:
-        payload = dict(plan or {})
-        return {"endpoint": payload.get("endpoint", "/terminus/replay-plan"), "count": len(payload.get("candidates", []))}
-
-    @staticmethod
-    def _runtime_trace_export_safe_value(value: object) -> object:
-        return value
-
-    def _replay_sample_state_counts_locked(self) -> dict[str, int]:
-        return {
-            "token_count": 13,
-            "state_revision": self._runtime_state.state_revision,
-            "action_history_count": 0,
-            "feedback_count": 0,
-        }
-
-    @staticmethod
-    def _runtime_feedback_summary_locked() -> dict[str, int]:
-        return {"feedback_count": 0}
 
 
 class _IterationBlockedContexts:
@@ -117,15 +68,9 @@ class _CountingIterable:
 def _replay_controller(manager: _FakeReplayManager, **kwargs: object) -> ReplayController:
     return ReplayController(
         ReplayControllerDependencies(
-            action_history=lambda: manager._action_history,
-            living_loop_snapshot=manager._living_loop_snapshot_locked,
             lock=manager._lock,
-            normalize_action_text=manager._normalize_action_text,
             normalize_feedback_text=manager._normalize_feedback_text,
-            replay_plan_summary=manager._replay_plan_summary,
-            runtime_feedback_summary=manager._runtime_feedback_summary_locked,
             runtime_state=manager._runtime_state,
-            runtime_trace_export_safe_value=manager._runtime_trace_export_safe_value,
             trainer=lambda: manager._trainer,
         ),
         **kwargs,
@@ -339,112 +284,6 @@ class ReplayControllerTests(unittest.TestCase):
             operator_id=operator_id,
             confirmation=True,
         )
-
-    def test_replay_sample_history_is_controller_owned(self) -> None:
-        manager = _FakeReplayManager()
-        controller = _replay_controller(manager)
-        controller.history.appendleft(
-            {
-                "schema_version": 1,
-                "replay_sample_id": "replay-sample-1",
-                "mode": "sample",
-                "status": "recorded",
-                "selected_candidate_ids": ["candidate-1"],
-                "selected_candidates": [],
-                "safety_flags": {"audit_only": True, "operator_confirmed": True},
-            }
-        )
-
-        history = controller.replay_sample_history(limit=1)
-
-        self.assertEqual(history["count"], 1)
-        self.assertEqual(history["history"][0]["replay_sample_id"], "replay-sample-1")
-        self.assertEqual(controller.history[0]["replay_sample_id"], "replay-sample-1")
-
-    def test_history_setter_preserves_existing_deque_reference(self) -> None:
-        manager = _FakeReplayManager()
-        controller = _replay_controller(manager)
-
-        history = controller.history
-        controller.history = [
-            {
-                "schema_version": 1,
-                "replay_sample_id": "replay-sample-1",
-                "mode": "sample",
-                "status": "recorded",
-                "selected_candidate_ids": ["candidate-1"],
-                "selected_candidates": [],
-                "safety_flags": {"audit_only": True, "operator_confirmed": True},
-            }
-        ]
-
-        self.assertIs(controller.history, history)
-        self.assertEqual(history[0]["replay_sample_id"], "replay-sample-1")
-
-    def test_replay_state_restore_uses_bounded_source_window_before_normalization(self) -> None:
-        manager = _FakeReplayManager()
-        records = [
-            {
-                "schema_version": 1,
-                "replay_sample_id": f"replay-sample-{index:04d}",
-                "mode": "sample",
-                "status": "recorded",
-                "selected_candidate_ids": [f"candidate-{index:04d}"],
-                "selected_candidates": [],
-                "safety_flags": {"audit_only": True, "operator_confirmed": True},
-            }
-            for index in range(DEFAULT_REPLAY_SAMPLE_HISTORY + 17)
-        ]
-        source = _CountingIterable(records)
-
-        controller = _replay_controller(manager, replay_sample_history=source)
-
-        self.assertEqual(source.iterated_count, DEFAULT_REPLAY_SAMPLE_HISTORY)
-        self.assertEqual(len(controller.history), DEFAULT_REPLAY_SAMPLE_HISTORY)
-        self.assertEqual(controller.history[0]["replay_sample_id"], "replay-sample-0000")
-        self.assertEqual(
-            controller.history[-1]["replay_sample_id"],
-            f"replay-sample-{DEFAULT_REPLAY_SAMPLE_HISTORY - 1:04d}",
-        )
-        report = controller.replay_restore_source_window_report()
-        self.assertEqual(report["surface"], REPLAY_RESTORE_SOURCE_WINDOW_SURFACE)
-        self.assertFalse(report["full_retained_materialization"])
-        self.assertFalse(report["runs_live_tick"])
-        self.assertFalse(report["runs_every_token"])
-        self.assertFalse(report["gpu_used"])
-        self.assertFalse(report["language_reasoning"])
-        field = report["fields"]["replay_sample_history"]
-        self.assertEqual(field["source_window_inspected_count"], DEFAULT_REPLAY_SAMPLE_HISTORY)
-        self.assertEqual(field["normalized_count"], DEFAULT_REPLAY_SAMPLE_HISTORY)
-        self.assertFalse(field["source_record_count_known"])
-        self.assertFalse(field["normalizes_full_retained_state"])
-        self.assertTrue(field["indexes_only_restored_window"])
-
-    def test_replay_state_restore_reports_truncated_checkpoint_sequences(self) -> None:
-        manager = _FakeReplayManager()
-        controller = _replay_controller(manager)
-        records = [
-            {
-                "schema_version": 1,
-                "replay_sample_id": f"replay-sample-{index:04d}",
-                "mode": "sample",
-                "status": "recorded",
-                "selected_candidate_ids": [f"candidate-{index:04d}"],
-                "selected_candidates": [],
-                "safety_flags": {"audit_only": True, "operator_confirmed": True},
-            }
-            for index in range(DEFAULT_REPLAY_SAMPLE_HISTORY + 3)
-        ]
-
-        controller.history = records
-
-        report = controller.replay_restore_source_window_report()
-        field = report["fields"]["replay_sample_history"]
-        self.assertTrue(field["source_record_count_known"])
-        self.assertEqual(field["source_record_count"], DEFAULT_REPLAY_SAMPLE_HISTORY + 3)
-        self.assertTrue(field["source_window_truncated"])
-        self.assertEqual(field["source_truncated_count"], 3)
-        self.assertEqual(len(controller.history), DEFAULT_REPLAY_SAMPLE_HISTORY)
 
     def test_snn_transition_memory_replay_artifact_setter_preserves_existing_deque_reference_and_drops_raw_artifacts(self) -> None:
         manager = _FakeReplayManager()
@@ -2167,40 +2006,6 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertFalse(
             proposal["promotion_gate"]["required_evidence"]["candidate_above_policy_threshold"]
         )
-
-    def test_replay_sample_marks_dirty_without_revision(self) -> None:
-        manager = _FakeReplayManager()
-        controller = _replay_controller(manager)
-
-        plan_payload = {
-            "endpoint": "/terminus/replay-plan",
-            "candidates": [
-                {
-                    "candidate_id": "candidate-1",
-                    "target_type": "runtime_episode",
-                    "target_id": "episode-1",
-                    "priority_score": 8.0,
-                }
-            ],
-        }
-
-        class _FakePlan:
-            def to_payload(self) -> dict[str, object]:
-                return plan_payload
-
-        with patch("marulho.service.replay_runtime.build_replay_plan", return_value=_FakePlan()):
-            record = controller.replay_sample(
-                mode="sample",
-                candidate_id="candidate-1",
-                operator_id="operator-1",
-                confirmation=True,
-            )
-
-        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
-        self.assertEqual(record["selected_candidate_ids"], ["candidate-1"])
-        self.assertFalse(record["safety_flags"]["state_revision_mutated"])
-        self.assertEqual(record["before"]["state_revision"], record["after"]["state_revision"])
-        self.assertEqual(controller.history[0]["replay_sample_id"], record["replay_sample_id"])
 
     def test_regeneration_permit_is_controller_owned_and_revision_bound(self) -> None:
         manager = _FakeReplayManager()

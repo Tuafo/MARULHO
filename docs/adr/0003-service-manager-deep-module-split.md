@@ -48,7 +48,7 @@ The accepted implementation goes further than simple mixin extraction:
 | RuntimePersistence | PersistenceMixin | 233 | trace history and checkpoint save/restore orchestration |
 | RuntimeConfig | RuntimeConfigMixin | 513 | (stateless — normalization only) |
 | RuntimeSources | RuntimeSourcesMixin | 390 | source runtime dataclasses |
-| ReplayController | ReplayRuntimeMixin + ReplayDatasetPackager | ~950 | replay sample history, replay planning and operator-gated sampling |
+| ReplayController | ReplayRuntimeMixin | ~950 | SNN replay artifacts, regeneration permits, sleep-plasticity review tickets, scheduler tickets, transition-memory replay artifacts |
 
 ### Design constraints
 

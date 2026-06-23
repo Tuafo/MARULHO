@@ -130,7 +130,6 @@ class _BrainRuntimeFixtureBase:
         )
         self._runtime_state = _FakeRuntimeState()
         self._action_history: deque[dict[str, object]] = deque()
-        self._replay_sample_history: deque[dict[str, object]] = deque()
         self._replay_regeneration_permits: deque[dict[str, object]] = deque()
         self._snn_replay_evaluation_contexts: deque[dict[str, object]] = deque()
         self._snn_replay_artifact_recording_review_tickets: deque[dict[str, object]] = deque()
@@ -238,14 +237,9 @@ class _BrainRuntimeFixtureBase:
     def _delayed_consequence_summary_locked(self, limit: int = 4) -> dict[str, int]:
         return {"record_count": 0, "limit": int(limit)}
 
-    def _living_loop_snapshot_locked(
-        self,
-        *,
-        include_replay_dataset_summary: bool = True,
-    ) -> dict[str, object]:
+    def _living_loop_snapshot_locked(self) -> dict[str, object]:
         return {
             "subcortex_sleep_pressure": {"fatigue": 0.2},
-            "include_replay_dataset_summary": bool(include_replay_dataset_summary),
         }
 
     def snn_sleep_plasticity_review_scheduler_runtime(self) -> dict[str, bool]:
@@ -848,7 +842,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         manager = _SnapshotManager()
         module = _brain_runtime_from_fixture(manager)
 
-        snapshot = module._brain_runtime_snapshot_locked(include_replay_dataset_summary=False)
+        snapshot = module._brain_runtime_snapshot_locked()
 
         self.assertTrue(snapshot["configured"])
         self.assertFalse(snapshot["running"])
@@ -901,7 +895,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         manager = _ActiveExecutionSnapshotManager()
         module = _brain_runtime_from_fixture(manager)
 
-        snapshot = module._brain_runtime_snapshot_locked(include_replay_dataset_summary=False)
+        snapshot = module._brain_runtime_snapshot_locked()
 
         self.assertEqual(snapshot["execution"]["active_execution_requests"], 1)
         self.assertFalse(snapshot["execution"]["idle"])

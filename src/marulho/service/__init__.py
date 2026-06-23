@@ -5,14 +5,14 @@ Module structure:
 - runtime_facade.py: Operator-facing runtime interface over the deep modules
 - runtime_state.py: Shared dirty-state, revision, and brain event container
 - status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cognitive-signal snapshots
-- runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
+- runtime_evidence.py: Sanitized traces, feedback summaries, and evidence exports
 - feedback_applier.py: Operator feedback normalization and application
 - action_executor.py: Digital action execution, audit summaries, and action assist
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
-- replay_runtime.py: Advisory replay planning and operator-gated replay sampling
+- replay_runtime.py: SNN replay artifact, permit, and sleep-plasticity review helpers
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
 - operator_interaction.py: Query/feed/respond/acquire operator interaction flow helpers
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
@@ -24,7 +24,6 @@ Module structure:
 - source_focus.py: Text-source focus and semantic scoring with explicit dependencies
 - autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources
 - terminus_sensory.py: Real Hugging Face multimodal stream adapters

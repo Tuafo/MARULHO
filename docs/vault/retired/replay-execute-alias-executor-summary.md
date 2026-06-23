@@ -23,20 +23,20 @@ They made the audit-only replay sampler look like a second execution path even
 though it performed no replay computation, training, sleep, memory promotion,
 feedback posting, action execution, or external calls.
 
-The maintained path is now only:
+That single-sampler replacement is now historical. The whole service advisory
+replay lane is deleted, including:
 
 - `POST /terminus/replay-sample`
 - `GET /terminus/replay-sample/history`
 - `replay_sample_summary`
 
-Old execute-shaped records normalize to `sample`; production summaries expose
-only `dry_run` and `sample` modes. Runtime/export/benchmark evidence carries
-one bounded summary surface:
-`bounded_replay_sample_summary_source_window.v1`.
-Offline comparison tooling also ignores the old `replay_executor_summary` key
-and reads safety flags from replay dataset, bundle, Runtime Truth, or
-`replay_sample_summary` evidence only. The separate replay-adapter experiment
-stack is retired and removed, so it is no longer related code for this alias.
+Historical execute-shaped records normalized to `sample`, but production code
+no longer carries replay-sample history, replay-sample summaries, replay
+dataset previews/bundles, or service replay safety sidecars. Runtime trace
+export is trace-only. Bounded replay/consolidation review now belongs to
+trainer/SNN slow-window reports and ReplayController artifacts, permits, and
+tickets. The separate replay-adapter experiment stack is retired and removed,
+so it is no longer related code for this alias.
 
 ## Evidence
 

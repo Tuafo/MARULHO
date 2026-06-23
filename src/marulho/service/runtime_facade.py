@@ -5,7 +5,6 @@ from typing import Any, Mapping
 
 from marulho.service.operator_interaction import OperatorInteractionRuntime
 from marulho.service.reporting import ServiceReporter
-from marulho.service.replay_dataset_bundle import ReplayDatasetPackager
 from marulho.service.runtime_evidence import RuntimeEvidenceReporter
 from marulho.service.snn_language_plasticity_executor import (
     SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
@@ -2326,23 +2325,8 @@ class RuntimeFacade:
     def quick_start_terminus(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._runtime_control.quick_start_terminus(**kwargs)
 
-    def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
-        return self._root._replay_controller.replay_plan_status(limit=limit)
-
-    def replay_sample(self, **kwargs: Any) -> dict[str, Any]:
-        return self._root._replay_controller.replay_sample(**kwargs)
-
-    def replay_sample_history(self, *, limit: int = 20) -> dict[str, Any]:
-        return self._root._replay_controller.replay_sample_history(limit=limit)
-
     def export_runtime_trace_examples(self, **kwargs: Any) -> dict[str, Any]:
         return RuntimeEvidenceReporter.export_runtime_trace_examples(self._root, **kwargs)
-
-    def replay_dataset_preview(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceReporter.replay_dataset_preview(self._root, **kwargs)
-
-    def replay_dataset_bundle(self, **kwargs: Any) -> dict[str, Any]:
-        return ReplayDatasetPackager.replay_dataset_bundle(self._root, **kwargs)
 
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         return self._root._action_executor.action_history(limit=limit)

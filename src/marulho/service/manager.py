@@ -33,7 +33,6 @@ from marulho.training.query_runner import build_query_result, feed_text
 
 DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
 
-from marulho.service.replay_dataset_bundle import ReplayDatasetPackager
 from marulho.service.interaction_pipeline import InteractionPipeline
 from marulho.service.runtime_evidence import RuntimeEvidenceReporter
 from marulho.service.action_executor import ActionExecutor
@@ -71,11 +70,6 @@ from marulho.service.living_loop_records import (
     RuntimeEpisodeTrace,
 )
 from marulho.service.living_loop_policy import build_policy_actuator_status
-from marulho.service.living_loop_replay import (
-    REPLAY_SAMPLE_SAFETY_BOUNDARIES,
-    build_replay_plan,
-    replay_candidate_safety_flags,
-)
 from marulho.service.living_loop_self_model import OperationalSelfModel, build_runtime_benchmark_telemetry
 from marulho.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from marulho.service.terminus_sensory import SensoryEpisode
@@ -210,18 +204,11 @@ class MarulhoServiceManager:
         )
         self._replay_controller = ReplayController(
             ReplayControllerDependencies(
-                action_history=lambda: self._action_history,
-                living_loop_snapshot=lambda **kwargs: LivingStatusCore._living_loop_snapshot_locked(self, **kwargs),
                 lock=self._lock,
-                normalize_action_text=self._normalize_action_text,
                 normalize_feedback_text=self._normalize_feedback_text,
-                replay_plan_summary=lambda replay_plan: RuntimeEvidenceReporter._replay_plan_summary(self, replay_plan),
-                runtime_feedback_summary=lambda: RuntimeEvidenceReporter._runtime_feedback_summary_locked(self),
                 runtime_state=self._runtime_state,
-                runtime_trace_export_safe_value=lambda value: RuntimeEvidenceReporter._runtime_trace_export_safe_value(self, value),
                 trainer=lambda: self._trainer,
             ),
-            replay_sample_history=terminus_state.get("replay_sample_history") or [],
             regeneration_permits=terminus_state.get("replay_regeneration_permits") or [],
             snn_replay_evaluation_contexts=terminus_state.get("snn_replay_evaluation_contexts")
             or [],
@@ -490,7 +477,7 @@ class MarulhoServiceManager:
             ingestion_runtime_summary_locked=self._ingestion_runtime_summary_locked,
             multimodal_runtime_summary_locked=self._multimodal_runtime_summary_locked,
             sensory_runtime_summary_locked=self._sensory_runtime_summary_locked,
-            living_loop_snapshot_locked=self._living_loop_snapshot_locked,
+            living_loop_snapshot_locked=lambda: LivingStatusCore._living_loop_snapshot_locked(self),
             maybe_mark_ingestion_warm_locked=self._maybe_mark_ingestion_warm_locked,
             maybe_mark_sensory_warm_locked=self._maybe_mark_sensory_warm_locked,
             observe_runtime_concepts_locked=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concepts_locked(
@@ -627,14 +614,6 @@ class MarulhoServiceManager:
     @_trace_history.setter
     def _trace_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._runtime_persistence.trace_history = value
-
-    @property
-    def _replay_sample_history(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.history
-
-    @_replay_sample_history.setter
-    def _replay_sample_history(self, value: Sequence[Mapping[str, Any]]) -> None:
-        self._replay_controller.history = value
 
     @property
     def _replay_regeneration_permits(self) -> deque[dict[str, Any]]:
@@ -784,24 +763,6 @@ class MarulhoServiceManager:
         """Build Cognitive Signal state under lock (called by read model callback)."""
         return LivingStatusCore._cognitive_signal_state(self)
 
-    # --- ReplayDatasetPackager callbacks ---
-    # ReplayDatasetPackager._replay_dataset_bundle_hash uses cls._replay_dataset_bundle_canonical_json
-    # which requires the method to exist on the class itself, not just on instances.
-    @staticmethod
-    def _replay_dataset_bundle_canonical_json(value: Any) -> str:
-        return ReplayDatasetPackager._replay_dataset_bundle_canonical_json(value)
-
-    @classmethod
-    def _replay_dataset_bundle_hash(cls, value: Any) -> str:
-        return ReplayDatasetPackager._replay_dataset_bundle_hash(value)
-
-    @staticmethod
-    def _replay_dataset_bundle_timestamp(value: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_timestamp(value)
-
-    def _replay_dataset_safety_flags(self, *, before: Any, after: Any) -> dict[str, Any]:
-        return ReplayDatasetPackager._replay_dataset_safety_flags(self, before=before, after=after)
-
     def close(self) -> None:
         thread = self._request_brain_stop(reason="shutdown")
         self._join_brain_thread(thread, raise_on_timeout=False)
@@ -837,32 +798,11 @@ class MarulhoServiceManager:
     def _record_brain_event_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._record_brain_event_locked(*args, **kwargs)
 
-    def _living_loop_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._living_loop_snapshot_locked(*args, **kwargs)
-
-    def _replay_plan_summary(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._replay_plan_summary(*args, **kwargs)
-
     def _runtime_feedback_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._runtime_feedback_summary_locked(*args, **kwargs)
+        return RuntimeEvidenceReporter._runtime_feedback_summary_locked(self, *args, **kwargs)
 
     def _runtime_trace_export_safe_value(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._runtime_trace_export_safe_value(self, *args, **kwargs)
-
-    def _replay_sample_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._replay_sample_summary_locked(*args, **kwargs)
-
-    def _replay_sample_state_counts_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._replay_sample_state_counts_locked(*args, **kwargs)
-
-    def _sample_replay_candidates(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._sample_replay_candidates(*args, **kwargs)
-
-    def _replay_sample_candidate_payload(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._replay_sample_candidate_payload(*args, **kwargs)
-
-    def _normalize_replay_sample_record(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._normalize_replay_sample_record(*args, **kwargs)
 
     def _normalize_recent_query_gap(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._normalize_recent_query_gap(*args, **kwargs)
@@ -950,9 +890,6 @@ class MarulhoServiceManager:
 
     def _apply_action_assist_to_action(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._apply_action_assist_to_action(*args, **kwargs)
-
-    def _replay_dataset_summary_from_runtime(self, *args: Any, **kwargs: Any) -> Any:
-        return self._status_read_model._replay_dataset_summary_from_runtime(*args, **kwargs)
 
     def _runtime_source_configuration_evidence(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model._runtime_source_configuration_evidence(*args, **kwargs)
@@ -1513,24 +1450,6 @@ class MarulhoServiceManager:
     def _ingestion_prewarm_loop(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimePrewarmer._ingestion_prewarm_loop(self, *args, **kwargs)
 
-    def _replay_dataset_count_map(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_count_map(*args, **kwargs)
-
-    def _replay_dataset_latest_history_timestamp_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_latest_history_timestamp_locked(self, *args, **kwargs)
-
-    def _replay_dataset_summary_from_payload(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_summary_from_payload(self, *args, **kwargs)
-
-    def _replay_dataset_preview_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_preview_payload_locked(self, *args, **kwargs)
-
-    def _replay_dataset_preview_source_window_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_preview_source_window_locked(self, *args, **kwargs)
-
-    def _replay_dataset_preview_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_preview_summary_locked(self, *args, **kwargs)
-
     def _normalize_runtime_trace_export_filter(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._normalize_runtime_trace_export_filter(*args, **kwargs)
 
@@ -1543,21 +1462,6 @@ class MarulhoServiceManager:
     def _runtime_trace_export_example_locked(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._runtime_trace_export_example_locked(self, *args, **kwargs)
 
-    def _replay_dataset_candidates_by_target(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_candidates_by_target(*args, **kwargs)
-
-    def _replay_dataset_sample_links_by_target_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_sample_links_by_target_locked(self, *args, **kwargs)
-
-    def _replay_dataset_verification_label(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_verification_label(self, *args, **kwargs)
-
-    def _replay_dataset_output_or_none(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_output_or_none(self, *args, **kwargs)
-
-    def _replay_dataset_item_from_trace_example(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._replay_dataset_item_from_trace_example(self, *args, **kwargs)
-
     def _runtime_trace_export_policy_decision_summary(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._runtime_trace_export_policy_decision_summary(self, *args, **kwargs)
 
@@ -1569,30 +1473,6 @@ class MarulhoServiceManager:
 
     def _runtime_feedback_summary_from_targets(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._runtime_feedback_summary_from_targets(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_fraction(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_fraction(*args, **kwargs)
-
-    def _replay_dataset_bundle_terms(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_terms(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_item_fingerprint(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_item_fingerprint(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_exclusion_reasons(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_exclusion_reasons(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_filter_items(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_filter_items(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_split_items(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_split_items(self, *args, **kwargs)
-
-    def _replay_dataset_bundle_split_summary(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_split_summary(*args, **kwargs)
-
-    def _replay_dataset_bundle_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return ReplayDatasetPackager._replay_dataset_bundle_payload_locked(self, *args, **kwargs)
 
     def _autonomy_focus_plan_locked(self, *args: Any, **kwargs: Any) -> Any:
         return TerminusAutonomyCore._autonomy_focus_plan_locked(self, *args, **kwargs)

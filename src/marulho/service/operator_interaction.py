@@ -97,7 +97,7 @@ class OperatorInteractionRuntime:
                     f"Supported policies: {', '.join(PUBLIC_ACQUISITION_POLICIES)}"
                 )
             preset_args = get_autonomy_acquisition_preset(preset)
-            state_before = self._service_state_snapshot(include_replay_dataset_summary=False)
+            state_before = self._service_state_snapshot()
             focus_plan = self._autonomy_focus_plan_locked()
             shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
                 candidate_bank=list(preset_args.get("candidate_bank", [])),
@@ -149,7 +149,7 @@ class OperatorInteractionRuntime:
                 "state_before": state_before,
                 "acquisition_result": result,
                 "checkpoint_save": checkpoint_save,
-                "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
+                "state_after": self._service_state_snapshot(),
             }
             trace_path = self._persist_trace_locked(trace)
             return {

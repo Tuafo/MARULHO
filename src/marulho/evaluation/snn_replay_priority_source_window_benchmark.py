@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -38,7 +37,6 @@ class _ReplayHarness:
     def __init__(self) -> None:
         self.lock = RLock()
         self.runtime_state = _RuntimeState()
-        self.action_history: deque[dict[str, Any]] = deque(maxlen=8)
         self.trainer = type("_Trainer", (), {"token_count": 2048})()
 
     @staticmethod
@@ -48,39 +46,14 @@ class _ReplayHarness:
             return text[:max_chars].rstrip() + "..."
         return text
 
-    def living_loop_snapshot(self, **_: Any) -> dict[str, Any]:
-        return {
-            "state_revision": self.runtime_state.state_revision,
-            "token_count": self.trainer.token_count,
-            "runtime_episodes": [],
-            "actions": [],
-            "predictions": [],
-            "uncertain_domains": [],
-            "feedback_summary": {},
-        }
-
-    @staticmethod
-    def replay_plan_summary(plan: Any) -> dict[str, Any]:
-        payload = dict(plan or {})
-        return {
-            "endpoint": payload.get("endpoint", "/terminus/replay-plan"),
-            "count": len(payload.get("candidates", [])),
-        }
-
 
 def _controller() -> ReplayController:
     harness = _ReplayHarness()
     return ReplayController(
         ReplayControllerDependencies(
-            action_history=lambda: harness.action_history,
-            living_loop_snapshot=harness.living_loop_snapshot,
             lock=harness.lock,
-            normalize_action_text=harness.normalize_text,
             normalize_feedback_text=harness.normalize_text,
-            replay_plan_summary=harness.replay_plan_summary,
-            runtime_feedback_summary=lambda: {"feedback_count": 0},
             runtime_state=harness.runtime_state,
-            runtime_trace_export_safe_value=lambda value: value,
             trainer=lambda: harness.trainer,
         )
     )

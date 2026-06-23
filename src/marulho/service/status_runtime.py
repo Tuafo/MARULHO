@@ -14,7 +14,6 @@ from marulho.data.corpus_loader import huggingface_token_from_env
 from marulho.service.column_runtime_projection import build_column_runtime_evidence
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
-DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = 20
 
 
 class RuntimeStatusCore:
@@ -29,14 +28,6 @@ class RuntimeStatusCore:
             "reason": str(self._runtime_env.get("reason", "unknown")),
             "hf_token_present": bool(huggingface_token_from_env()),
         }
-
-    @staticmethod
-    def _replay_dataset_summary_from_runtime(runtime: Mapping[str, Any]) -> dict[str, Any] | None:
-        living_loop = runtime.get("living_loop") if isinstance(runtime, Mapping) else None
-        if not isinstance(living_loop, Mapping):
-            return None
-        summary = living_loop.get("replay_dataset_summary")
-        return deepcopy(dict(summary)) if isinstance(summary, Mapping) else None
 
     @staticmethod
     def _runtime_source_configuration_evidence(terminus_runtime: Mapping[str, Any]) -> dict[str, Any]:
@@ -95,7 +86,6 @@ class RuntimeStatusCore:
         *,
         terminus_runtime: Mapping[str, Any],
         memory_store: Mapping[str, Any],
-        replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
         runtime_scope: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -129,14 +119,6 @@ class RuntimeStatusCore:
         else:
             verdict = "alive"
             recommended_action = "continue_monitoring"
-
-        replay_role = "none"
-        replay_endpoint = None
-        replay_safety_flags: dict[str, Any] = {}
-        if isinstance(replay_dataset_summary, Mapping):
-            replay_endpoint = replay_dataset_summary.get("endpoint")
-            replay_safety_flags = dict(replay_dataset_summary.get("safety_flags") or {})
-            replay_role = str(replay_dataset_summary.get("training_role") or "preview_export_only")
 
         fill_fraction = float(memory_store.get("fill_fraction", 0.0) or 0.0)
         pressure = "high" if fill_fraction >= 0.85 else "medium" if fill_fraction >= 0.50 else "low"
@@ -306,11 +288,7 @@ class RuntimeStatusCore:
             "recommended_action": recommended_action,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
-            "replay_role": replay_role,
-            "safety_flags": {
-                "replay_dataset_preview_only": replay_role != "training",
-                "replay_safety": replay_safety_flags,
-            },
+            "safety_flags": {},
             "latency_ms": latency_ms,
             "evidence": {
                 "configured": configured,
@@ -322,7 +300,6 @@ class RuntimeStatusCore:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
-                "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "runtime_device": device_evidence,
                 "device": device_evidence["resolved_device"],
@@ -382,7 +359,6 @@ class RuntimeStatusCore:
         last_trace = self._trace_history[0] if self._trace_history else None
         terminus_runtime = self._brain_runtime_snapshot_locked()
         runtime_mutation = self._runtime_state.mutation_summary()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.live_summary_stats()
         runtime_scope = self._trainer.model.runtime_scope_report(
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
@@ -416,11 +392,9 @@ class RuntimeStatusCore:
             "memory_store": memory_store,
             "concept_store": self._concept_store.snapshot(),
             "terminus_runtime": terminus_runtime,
-            "replay_dataset_summary": replay_dataset_summary,
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
-                replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
                 runtime_scope=runtime_scope,
             ),
@@ -488,7 +462,6 @@ class RuntimeStatusCore:
             )
         )
         terminus_runtime = self._brain_runtime_snapshot_locked()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         snapshot = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "checkpoint_path": str(self._checkpoint_path),
@@ -528,7 +501,6 @@ class RuntimeStatusCore:
             ),
             "animation": self._animation_snapshot_locked(),
             "terminus_runtime": terminus_runtime,
-            "replay_dataset_summary": replay_dataset_summary,
         }
         self._cached_telemetry = snapshot
         self._cached_telemetry_rev = current_rev
@@ -839,7 +811,6 @@ class RuntimeStatusCore:
     def _terminus_status_snapshot_locked(self) -> dict[str, Any]:
         terminus_runtime = self._brain_runtime_snapshot_locked()
         runtime_mutation = self._runtime_state.mutation_summary()
-        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.live_summary_stats()
         runtime_scope = self._trainer.model.runtime_scope_report(
             token_count=int(getattr(self._trainer, "token_count", 0) or 0),
@@ -859,11 +830,9 @@ class RuntimeStatusCore:
             "token_count": int(self._trainer.token_count),
             "multimodal": self._multimodal_runtime_summary_locked(),
             "runtime_scope": runtime_scope,
-            "replay_dataset_summary": replay_dataset_summary,
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
-                replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
                 runtime_scope=runtime_scope,
             ),

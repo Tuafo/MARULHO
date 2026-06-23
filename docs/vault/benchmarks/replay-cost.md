@@ -31,7 +31,6 @@ related_code:
   - ../../../src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py
-  - ../../../src/marulho/evaluation/replay_restore_source_window_benchmark.py
   - ../../../src/marulho/service/replay_runtime.py
   - ../../../src/marulho/service/manager.py
   - ../../../src/marulho/service/persistence.py
@@ -176,6 +175,36 @@ related_benchmarks:
 # Replay Cost
 
 Replay selection, rehearsal, and artifact-review cost checks.
+
+## Service Replay Lane Retirement
+
+The service replay-plan/sample/dataset lane is now deleted rather than bounded
+again. Active code no longer exposes `/terminus/replay-plan`,
+`/terminus/replay-sample`, `/terminus/replay-sample/history`,
+`/terminus/replay-dataset/preview`, or `/terminus/replay-dataset/bundle`; the
+old candidates/history/execute aliases remain retired. Runtime trace export is
+trace-only, and service benchmarks time only maintained service endpoints plus
+the trace export slow surface. Replay/consolidation cost evidence for active
+paths now belongs to trainer/SNN slow-window benchmarks and ReplayController
+artifact/permit/ticket windows.
+
+The cost rule is unchanged: no live-tick full-memory scans, no every-token
+slow-memory admission, CPU archival metadata unless active tensor replay proves
+CUDA benefit, and no hidden language reasoning through replay text.
+
+Hot-path acceptance is still pending for this retirement slice. Two local-only
+`524288`-token runs in `..\..\MARULHO_reports\bounded_replay_window_20260623\`
+confirmed the retired service replay lane did not enter the measured loop
+(`poll_snapshots_during_measurement=false`, bounded `12/65536` route rows, no
+all-column state transition), but both are rejected for throughput evidence
+because `velocity_environment.v1` recorded contention and throughput fell to
+`3982.916` and `4559.668 tokens/sec`.
+
+A same-session clean-HEAD comparison is also rejected for promotion: baseline
+`c7a07c56` reached `5067.347 tokens/sec`, while the current worktree rerun
+under the same `524288`-token shape reached `4859.400 tokens/sec` with no
+observed contention. The cleanup removes a dead service replay lane, but the
+iteration is not accepted until the live-tick slowdown is explained or reversed.
 
 ## Commands
 
@@ -2622,7 +2651,9 @@ path maintains `snn_applied_replay_lineage_incremental_summary.v1` as mutation
 evidence: replay regeneration adds a row hash for each replay-regenerated
 synapse, and non-replay overwrites or pruning remove that row. Checkpoint
 summary and restore validation read only the maintained CPU counts/digests and
-report `full_provenance_scan=false` plus `source_record_scan_count=0`.
+report `full_provenance_scan=false` plus `source_record_scan_count=0`. Missing
+incremental summaries now report only unavailable summary state; they do not
+inspect provenance or retain a legacy-source compatibility field.
 
 Focused quality and latency report:
 

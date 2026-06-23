@@ -4,6 +4,33 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Service advisory replay retirement note, June 2026: complementary learning
+  systems, continual-learning replay, synaptic tagging/capture, sparse replay,
+  and modern Hopfield-style associative recall justify selected local replay
+  windows, not a second service-level text replay lane. MARULHO therefore
+  deletes the service replay-plan/sample/dataset route family and keeps bounded
+  replay review in trainer/SNN slow paths: regeneration permits, replay
+  artifacts, sleep-plasticity review tickets, scheduler tickets, transition
+  memory replay artifacts, and runtime trace export as trace-only evidence.
+  The retirement removes `living_loop_replay.py`, replay dataset packagers and
+  runners, replay source-window benchmark modules, schema/facade/API/status
+  fields, and persisted replay-sample history. The current invariant is no
+  full-memory scan in the live tick, no every-token slow-memory admission, CPU
+  archival metadata by default, CUDA only for active tensor computation, and no
+  hidden language reasoning through replay text. The current local hot-path
+  reports for this retirement slice are rejected, not accepted: both completed
+  `524288` tokens with bounded `12/65536` route rows and no measurement-window
+  status polling, but recorded contention and only `3982.916` then
+  `4559.668 tokens/sec`. A same-session clean-HEAD comparison is also
+  rejected: baseline `c7a07c56` reached `5067.347 tokens/sec`, while the
+  current worktree rerun reached `4859.400 tokens/sec` despite no observed
+  contention. A throwaway `fbb788de` worktree, which previously hit
+  `6120.090 tokens/sec` under the same benchmark shape, reached only
+  `4201.009 tokens/sec` on the current machine with CPU max `100%`, GPU max
+  `22%`, `tick_duration_ms.p95=42.690`, and
+  `train_compute=0.189376 ms/token`. This keeps the replay-lane retirement as
+  a code cleanup/research-boundary decision, not accepted live-tick protection
+  evidence.
 - Recent anchor-capture row note, June 2026: selected replay anchors may be
   chosen from a bounded recent window, but sparse replay and synaptic
   tagging/capture do not justify trainer code reading `slow_bucket_ids`
@@ -432,7 +459,7 @@ This file records research anchors for current architecture work. It is not a pr
 - SNN replay-artifact lineage note, June 2026: online/local SNN continual-learning work with replay buffers, eligibility traces, and memory budgets suggests durable replay records must identify the selected trace source before any later structural-plasticity permit. MARULHO therefore extends the same hash-only emission lineage into evaluated replay artifacts and replay-backed regeneration permits, while still requiring server-held context, review ticket, internal readout evidence, current revision, and bounded regeneration design verification before any mutation path.
 - SNN applied replay-lineage provenance note, June 2026: synapse-local eligibility traces, STDP-style local plasticity, and neuromorphic continual-learning surveys imply that once structural growth is applied, the new synapse still needs a compact trace of the replay artifact that justified it. MARULHO therefore copies only source metadata hash and compact emission/readout/prediction lineage into applied replay-regenerated synapse provenance and reports completeness through Runtime Truth and Synapse Provenance Audit, while leaving raw source metadata, operator identity, text, labels, permit issuance, checkpoint writes, and plasticity execution behind their separate gates.
 - SNN durable applied replay-lineage checkpoint note, June 2026: long-term memory consolidation requires the applied synapse trace to survive persistence, not only the mutation event, but checkpoint save must not become another archive-wide replay scan. MARULHO therefore maintains `snn_applied_replay_lineage_incremental_summary.v1` as CPU mutation-time evidence: replay regeneration adds one row hash per replay-regenerated synapse, non-replay overwrites/pruning remove that row, and `snn_applied_replay_lineage_checkpoint_summary` reads counts/digests with `source_record_scan_count=0` and `full_provenance_scan=false`.
-- SNN applied replay-lineage restore-validation note, June 2026: durable synaptic consolidation should be rechecked when a checkpoint becomes active again, but missing checkpoint lineage must block exact validation rather than trigger a provenance rebuild. MARULHO therefore compares saved checkpoint summary fields against the restored mutation-maintained summary and reports `snn_applied_replay_lineage_restore_validation`, exposing mismatches or missing incremental state without executing replay, applying plasticity, scanning `synapse_provenance_by_key`, issuing permits, or exposing raw source metadata.
+- SNN applied replay-lineage restore-validation note, June 2026: durable synaptic consolidation should be rechecked when a checkpoint becomes active again, but missing checkpoint lineage must block exact validation rather than trigger a provenance rebuild or legacy-source compatibility label. MARULHO therefore compares saved checkpoint summary fields against the restored mutation-maintained summary and reports `snn_applied_replay_lineage_restore_validation`, exposing mismatches or missing incremental state without executing replay, applying plasticity, scanning `synapse_provenance_by_key`, issuing permits, or exposing raw source metadata.
 - SNN applied replay-lineage restore-visibility note, June 2026: neuromorphic runtime assurance requires restore integrity signals to be visible before later audits, not buried in checkpoint metadata. MARULHO therefore exposes `snn_applied_replay_lineage_restore_validation` through Runtime Truth as read-only advisory evidence over saved/restored lineage count and material-hash agreement, while blocking checkpoint loading, replay, plasticity, permit issuance, checkpoint writes, facts/actions, and raw source metadata from status.
 - SNN restore-gated synapse audit readiness note, June 2026: runtime-assurance work for neuromorphic safety monitors suggests mismatch signals should constrain readiness gates, while continual SNN replay/plasticity work still needs live, non-restored learning paths. MARULHO therefore lets complete live applied synapse provenance reach audit review without restore metadata, but when restore validation is available, any restored lineage count or material-hash mismatch blocks `snn_readout_applied_synapse_provenance` from claiming readout synapse provenance audit readiness.
 - SNN restore-gated synapse audit execution note, June 2026: safety-monitor evidence should constrain both dashboards and the concrete operator audit surface. MARULHO therefore forwards restored applied replay-lineage validation from the runtime facade into `snn_language_readout_synapse_provenance_audit.v1`; the endpoint still returns inspectable non-mutating audit rows, but any restored lineage mismatch becomes required-evidence failure and prevents operator review readiness.

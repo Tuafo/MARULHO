@@ -23,7 +23,6 @@ from marulho.service.snn_language_readout_ledger import (
 )
 from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 
-DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 DEFAULT_CHECKPOINT_LOCK_TIMEOUT_SECONDS = 0.25
 CURRENT_CHECKPOINT_MANIFEST = "marulho_current_checkpoint.json"
@@ -58,7 +57,6 @@ _FORWARDED_STATE_NAMES = frozenset({
     "_geometric_curiosity",
     "_interaction_pipeline",
     "_metadata",
-    "_replay_sample_history",
     "_replay_regeneration_permits",
     "_snn_replay_evaluation_contexts",
     "_snn_replay_artifact_recording_review_tickets",
@@ -683,7 +681,6 @@ class RuntimePersistence:
         )
         self._brain_last_error = None
         self._action_history = list(terminus_state.get("action_history") or [])
-        self._replay_sample_history = terminus_state.get("replay_sample_history") or []
         self._replay_regeneration_permits = terminus_state.get("replay_regeneration_permits") or []
         self._snn_replay_evaluation_contexts = (
             terminus_state.get("snn_replay_evaluation_contexts") or []
@@ -800,7 +797,7 @@ class RuntimePersistence:
             "operator_identity_absent": True,
         }
 
-    def _service_state_snapshot(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
+    def _service_state_snapshot(self) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
         return {
             "checkpoint_path": str(self._checkpoint_path),
@@ -808,9 +805,7 @@ class RuntimePersistence:
             "token_count": int(self._trainer.token_count),
             "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
             "concept_count": int(self._concept_store.snapshot().get("concept_count", 0)),
-            "terminus_runtime": self._brain_runtime_snapshot_locked(
-                include_replay_dataset_summary=include_replay_dataset_summary,
-            ),
+            "terminus_runtime": self._brain_runtime_snapshot_locked(),
         }
 
     def _resolve_save_path(self, path: str | None) -> Path:

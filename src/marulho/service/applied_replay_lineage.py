@@ -71,7 +71,7 @@ def _row_complete(material: Mapping[str, Any]) -> bool:
     )
 
 
-def _empty_incremental_summary(*, legacy_source_without_summary: bool) -> dict[str, Any]:
+def _empty_incremental_summary() -> dict[str, Any]:
     return {
         "surface": APPLIED_REPLAY_LINEAGE_INCREMENTAL_SURFACE,
         "source": "snn_language_plasticity.synapse_provenance_mutation",
@@ -95,9 +95,6 @@ def _empty_incremental_summary(*, legacy_source_without_summary: bool) -> dict[s
         "complete_applied_replay_lineage_count": 0,
         "incomplete_applied_replay_lineage_count": 0,
         "lineage_material_hash": None,
-        "legacy_source_without_incremental_summary": bool(
-            legacy_source_without_summary
-        ),
         "raw_text_absent": True,
         "operator_identity_absent": True,
         "language_reasoning": False,
@@ -115,13 +112,7 @@ def ensure_applied_replay_lineage_summary_state(
         "surface"
     ) == APPLIED_REPLAY_LINEAGE_INCREMENTAL_SURFACE:
         return raw_summary
-    legacy_source_without_summary = bool(
-        isinstance(plasticity_state.get("synapse_provenance_by_key"), Mapping)
-        and len(plasticity_state.get("synapse_provenance_by_key") or {}) > 0
-    )
-    summary = _empty_incremental_summary(
-        legacy_source_without_summary=legacy_source_without_summary
-    )
+    summary = _empty_incremental_summary()
     plasticity_state["applied_replay_lineage_incremental_summary"] = summary
     return summary
 
@@ -292,11 +283,6 @@ def applied_replay_lineage_checkpoint_summary(
         "summary_unavailable_reason": (
             None if summary_available else "missing_incremental_lineage_summary"
         ),
-        "legacy_source_without_incremental_summary": bool(
-            raw.get("legacy_source_without_incremental_summary")
-        )
-        if summary_available
-        else False,
         "raw_text_absent": True,
         "operator_identity_absent": True,
         "language_reasoning": False,
@@ -304,4 +290,3 @@ def applied_replay_lineage_checkpoint_summary(
         "applies_plasticity": False,
         "issues_regeneration_permit": False,
     }
-

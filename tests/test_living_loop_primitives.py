@@ -20,7 +20,6 @@ from marulho.service.living_loop_records import (
     VerificationStatus,
 )
 from marulho.service.living_loop_policy import WorldModelLiteSummary, build_policy_actuator_status
-from marulho.service.living_loop_replay import build_replay_plan, replay_candidate_safety_flags
 from marulho.service.living_loop_self_model import (
     OperationalSelfModel,
     build_runtime_benchmark_telemetry,
@@ -338,22 +337,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             world_model_lite=world,
             action_loop={"actions_recorded": 2},
             memory={"size": 4, "capacity": 16, "fill_ratio": 0.25, "total_stored": 4, "total_evicted": 0},
-            replay_sample_summary={
-                "count": 2,
-                "history_count": 2,
-                "selected_count": 3,
-                "latest_selected_count": 1,
-                "mode_counts": {"sample": 2},
-                "status_counts": {"recorded": 2},
-                "latest_history_item": {
-                    "replay_sample_id": "replay-sample-1",
-                    "mode": "sample",
-                    "status": "recorded",
-                    "selected_count": 1,
-                    "safety_flags": {"audit_only": True, "external_calls_made": False},
-                },
-                "safety_flags": {"audit_only": True, "external_calls_made": False},
-            },
         )
 
         self.assertEqual(telemetry["endpoint_latency_ms"]["feed"]["count"], 1)
@@ -368,12 +351,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertAlmostEqual(telemetry["action_success"]["success_rate"], 0.5)
         self.assertAlmostEqual(telemetry["verification_success"]["success_rate"], 0.5)
         self.assertEqual(telemetry["policy_recommendations"]["counts"]["investigate_contradictions"], 1)
-        self.assertEqual(telemetry["replay_sample_summary"]["count"], 2)
-        self.assertEqual(telemetry["replay_sample_summary"]["mode_counts"]["sample"], 2)
-        self.assertEqual(telemetry["replay_sample_summary"]["status_counts"]["recorded"], 2)
-        self.assertEqual(telemetry["replay_sample_summary"]["latest_history_item"]["replay_sample_id"], "replay-sample-1")
-        self.assertTrue(telemetry["replay_sample_summary"]["safety_flags"]["audit_only"])
-        self.assertFalse(telemetry["replay_sample_summary"]["safety_flags"]["external_calls_made"])
+        self.assertNotIn("replay_sample_summary", telemetry)
 
     def test_operational_self_model_exposes_derived_self_model_surfaces(self) -> None:
         actions = tuple(
@@ -537,111 +515,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(policy["action"], "reduce_scope_or_wait")
         self.assertIn("high_latency", {reason["code"] for reason in policy["reasons"]})
 
-    def test_replay_plan_prioritizes_contradicted_feedback_and_is_advisory(self) -> None:
-        plan = build_replay_plan(
-            {
-                "state_revision": 7,
-                "token_count": 42,
-                "runtime_episode_count": 1,
-                "prediction_count": 1,
-                "action_count": 0,
-                "runtime_episodes": [
-                    {
-                        "episode_id": "episode-contradicted",
-                        "operation": "respond",
-                        "status": "succeeded",
-                        "created_at": "2026-01-01T00:00:00+00:00",
-                        "completed_at": "2026-01-01T00:00:01+00:00",
-                        "latency_ms": 1800.0,
-                        "prediction": {"proposed_answer": "Cats always fly.", "confidence": 0.2},
-                        "verification": {"status": "contradicted", "confidence": 0.8, "contradiction": True},
-                        "feedback": [
-                            {
-                                "feedback_id": "fb-1",
-                                "created_at": "2026-01-01T00:00:02+00:00",
-                                "target_type": "runtime_episode",
-                                "target_id": "episode-contradicted",
-                                "verdict": "contradicted",
-                                "applied_status": "contradicted",
-                                "confidence": 0.95,
-                                "summary": "Manual review found the answer was wrong.",
-                                "corrected_output": {"response_text": "Cats do not fly."},
-                            }
-                        ],
-                    }
-                ],
-                "feedback_summary": {
-                    "feedback_count": 1,
-                    "contradicted_count": 1,
-                    "recent_feedback": [
-                        {
-                            "feedback_id": "fb-1",
-                            "created_at": "2026-01-01T00:00:02+00:00",
-                            "target_type": "runtime_episode",
-                            "target_id": "episode-contradicted",
-                            "verdict": "contradicted",
-                            "applied_status": "contradicted",
-                            "confidence": 0.95,
-                            "summary": "Manual review found the answer was wrong.",
-                            "has_corrected_output": True,
-                        }
-                    ],
-                },
-                "world_model_lite": {"uncertainty": 0.4, "policy_score": {"cost": 0.1}},
-                "memory_health": {"status": "available", "fill_ratio": 0.25},
-                "benchmark_telemetry": {"endpoint_latency_ms": {"respond": {"avg_ms": 1800.0, "max_ms": 1800.0}}},
-                "policy_decision": {
-                    "action": "investigate_contradictions",
-                    "recommendation": "Investigate contradictions.",
-                    "risk": 0.75,
-                    "uncertainty": 0.4,
-                    "reasons": [{"code": "contradicted_feedback", "detail": "test"}],
-                    "advisory": True,
-                    "executable": False,
-                },
-            },
-            limit=5,
-            created_at="2026-01-01T00:00:03+00:00",
-        ).to_payload()
-
-        self.assertEqual(plan["schema_version"], 1)
-        self.assertTrue(plan["advisory"])
-        self.assertFalse(plan["executable"])
-        self.assertEqual(plan["endpoint"], "/terminus/replay-plan")
-        self.assertEqual(plan["priority_rules_version"], "deterministic-v1")
-        self.assertEqual(plan["snapshot_counts"]["runtime_episodes"], 1)
-        self.assertGreaterEqual(plan["count"], 1)
-        top = plan["candidates"][0]
-        self.assertEqual(top["target_type"], "runtime_episode")
-        self.assertEqual(top["target_id"], "episode-contradicted")
-        self.assertEqual(top["suggested_consolidation_action"], "review_contradiction")
-        self.assertEqual(top["suggested_endpoint"], "/terminus/runtime-feedback")
-        self.assertIn("contradicted_feedback", top["reason_codes"])
-        self.assertIn("corrected_output_available", top["reason_codes"])
-        self.assertIn("high_latency", top["reason_codes"])
-        self.assertGreater(top["priority_score"], 100.0)
-        self.assertEqual(top["feedback"]["contradicted_count"], 1)
-        self.assertTrue(top["suggested_input"]["operator_review_required"])
-
-    def test_replay_candidate_safety_flags_keep_contradictions_non_factual(self) -> None:
-        flags = replay_candidate_safety_flags(
-            {
-                "candidate_id": "replay-contradicted",
-                "reason_codes": ["contradicted_feedback"],
-                "suggested_consolidation_action": "review_contradiction",
-                "feedback": {"contradicted_count": 1},
-                "provenance": {"provenance": "synthetic_dream"},
-            }
-        )
-
-        self.assertTrue(flags["audit_only"])
-        self.assertTrue(flags["not_promoted"])
-        self.assertFalse(flags["promoted_to_verified_fact"])
-        self.assertTrue(flags["non_factual"])
-        self.assertTrue(flags["negative_lesson"])
-        self.assertTrue(flags["dreamed_or_synthetic"])
-        self.assertIn("no_training", flags["safety_boundaries"])
-
     def test_service_status_and_endpoint_include_derived_living_loop_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -684,10 +557,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(living_loop["policy_decision"]["action"], "continue_current_policy")
         self.assertTrue(living_loop["policy_decision"]["advisory"])
         self.assertFalse(living_loop["policy_decision"]["executable"])
-        self.assertEqual(living_loop["replay_plan"]["schema_version"], 1)
-        self.assertTrue(living_loop["replay_plan"]["advisory"])
-        self.assertFalse(living_loop["replay_plan"]["executable"])
-        self.assertEqual(living_loop["replay_plan"]["endpoint"], "/terminus/replay-plan")
+        self.assertNotIn("replay_plan", living_loop)
         self.assertEqual(endpoint_loop["world_model_lite"]["fulfilled_count"], 1)
         self.assertEqual(endpoint_loop["actions"][0]["verification"]["status"], "verified")
         required_living_loop_fields = {
@@ -702,7 +572,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "subcortex_sleep_pressure",
             "grounding_health",
             "benchmark_telemetry",
-            "replay_plan",
         }
         self.assertLessEqual(required_living_loop_fields, set(living_loop))
         self.assertLessEqual(required_living_loop_fields, set(endpoint_loop))
@@ -729,7 +598,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             endpoint_benchmark["policy_recommendations"]["latest"],
             endpoint_benchmark["policy_recommendations"]["counts"],
         )
-        self.assertEqual(endpoint_benchmark["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
+        self.assertNotIn("replay_plan_summary", endpoint_benchmark)
         self.assertEqual(set(endpoint_loop["provenance"]["distribution"].keys()), {
             "observed",
             "inferred",
@@ -826,8 +695,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertIn("not_training", trace_export["training_role"])
         self.assertEqual(trace_export["count"], 2)
         self.assertEqual(trace_export["policy_decision"]["action"], "investigate_contradictions")
-        self.assertEqual(trace_export["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
-        self.assertIn("contradicted_feedback", trace_export["replay_plan_summary"]["plan_reason_codes"])
+        self.assertNotIn("replay_plan_summary", trace_export)
         self.assertEqual(len(trace_export["examples"]), 2)
         exported_example = trace_export["examples"][0]
         self.assertEqual(exported_example["endpoint"], "/respond")
@@ -843,7 +711,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(exported_example["feedback"][0]["evidence"][0]["note"], "manual review")
         self.assertEqual(exported_example["policy_decision"]["action"], "investigate_contradictions")
         self.assertIn("contradicted_feedback", exported_example["policy_decision"]["reason_codes"])
-        self.assertEqual(exported_example["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
+        self.assertNotIn("replay_plan_summary", exported_example)
         self.assertIn("provenance", exported_example)
         self.assertIn("latency_ms", exported_example)
         self.assertIsNotNone(exported_example["state_revision"])
@@ -885,7 +753,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "contradicted_feedback_count",
             "unverified_feedback_count",
             "recent_feedback",
-            "replay_plan",
         ):
             self.assertIn(field, tutorial)
         for feedback_posture in (
@@ -937,75 +804,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "the next living-loop step",
         ):
             self.assertIn(policy_actuator_posture, tutorial)
-        for replay_posture in (
-            "GET /terminus/replay-plan",
-            "`priority_rules_version=deterministic-v1`",
-            "`priority_weights`",
-            "`plan_reason_codes`",
-            "`snapshot_counts`",
-            "`candidates`",
-            "`target_type` can be `runtime_episode`, `action`, `prediction`, `feedback`, `memory_health`, `uncertain_domain`, or `policy_decision`",
-            "`contradicted_feedback`",
-            "`corrected_output_available`",
-            "`memory_capacity_pressure`",
-            "`fatigue_sleep_pressure`",
-            "`review_contradiction`",
-            "`verify_pending_evidence`",
-            "`sleep_consolidation_advisory`",
-            "**does not start sleep, replay memories, train adapters, mutate runtime state, post feedback, or execute actions**",
-            "complementary learning systems",
-            "prioritized experience replay",
-            "P(i) proportional to (epsilon + score)^alpha",
-            "`benchmark_telemetry.replay_plan_summary`",
-            "sanitized top-level `replay_plan_summary`",
-            "each exported example also includes sanitized `replay_plan_summary`",
-            "records it in `endpoint_timings` / `endpoints_by_name.replay_plan`",
-            "`replay_plan_summary`",
-            "Dreamed/imagination memories must remain provenance-tagged",
-            "POST /terminus/replay-sample",
-            "GET /terminus/replay-sample/history",
-            "`mode` — `dry_run` or `sample`",
-            "`operator_id` — required non-empty operator identifier",
-            "`confirmation` — must be `true`",
-            "`alpha` — PER-style priority exponent",
-            "`seed` — optional deterministic seed",
-            "`replay_sample_id`",
-            "`selected_candidates`",
-            "`safety_checks`",
-            "`safety_flags`",
-            "`before` / `after`",
-            "`plan_summary`",
-            "`training_started=false`",
-            "`sleep_started=false`",
-            "`memory_verification_promoted=false`",
-            "`feedback_posted=false`",
-            "`digital_action_executed=false`",
-            "`external_calls_made=false`",
-            "`living_loop.replay_sample_summary`",
-            "`benchmark_telemetry.replay_sample_summary`",
-            "sanitized top-level `replay_sample_summary`",
-            "each exported example includes sanitized `replay_sample_summary`",
-            "`endpoints_by_name.replay_sample_history`",
-            "`replay_sample_summary`",
-            "operator-gated audit/sample only",
-            "Contradicted candidates are negative lessons",
-            "Dreamed, synthetic, simulated, contradicted, or failed candidates remain provenance-tagged",
-            "the current dashboard remains read-only for replay",
-            "does not post to `/terminus/replay-sample`",
-            "Remaining work before autonomous replay learning",
-            "GET /terminus/replay-dataset/preview",
-            "history remains on `GET /terminus/replay-sample/history`",
-            "GET /terminus/replay-plan",
-            "python -m marulho.service.replay_dataset_runner",
-            "`training_role=replay_dataset_preview_only_not_training_no_mutation`",
-            "`positive_count` and `negative_count`",
-            "`provenance_counts` and `example_type_counts`",
-            "`replay_dataset_summary`",
-            "Curated replay dataset card",
-            "preview/export artifacts only",
-            "They do not train adapters, rewrite or promote memories, post feedback, execute digital actions, call external tools, start sleep",
-        ):
-            self.assertIn(replay_posture, tutorial)
         for latency_posture in (
             "There is **no separate fast query API**",
             "semantic query-term matching uses bounded in-request caches",

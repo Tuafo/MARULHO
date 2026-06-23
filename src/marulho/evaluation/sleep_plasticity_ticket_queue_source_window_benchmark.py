@@ -5,7 +5,7 @@ import json
 import statistics
 import time
 import tracemalloc
-from collections import Counter, deque
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +38,6 @@ class _ReplayHarness:
     def __init__(self) -> None:
         self.lock = RLock()
         self.runtime_state = _RuntimeState()
-        self.action_history: deque[dict[str, Any]] = deque(maxlen=24)
         self.trainer = type("_Trainer", (), {"token_count": 13})()
 
     @staticmethod
@@ -52,48 +51,14 @@ class _ReplayHarness:
             return text[:max_chars].rstrip() + "..."
         return text
 
-    def living_loop_snapshot(self, **_: Any) -> dict[str, Any]:
-        return {
-            "state_revision": self.runtime_state.state_revision,
-            "token_count": 13,
-            "feedback_summary": {},
-            "benchmark_telemetry": {},
-            "memory_health": {"status": "available", "fill_ratio": 0.2},
-            "subcortex_sleep_pressure": {"fatigue": 0.2},
-            "policy_decision": {"action": "continue_current_policy"},
-            "world_model_lite": {"uncertainty": 0.0},
-        }
-
-    @staticmethod
-    def replay_plan_summary(plan: Mapping[str, Any] | None) -> dict[str, Any]:
-        payload = dict(plan or {})
-        return {
-            "endpoint": payload.get("endpoint", "/terminus/replay-plan"),
-            "count": len(payload.get("candidates", [])),
-        }
-
-    @staticmethod
-    def runtime_trace_export_safe_value(value: Any) -> Any:
-        return value
-
-    @staticmethod
-    def runtime_feedback_summary() -> dict[str, int]:
-        return {"feedback_count": 0}
-
 
 def _controller() -> ReplayController:
     harness = _ReplayHarness()
     return ReplayController(
         ReplayControllerDependencies(
-            action_history=lambda: harness.action_history,
-            living_loop_snapshot=harness.living_loop_snapshot,
             lock=harness.lock,
-            normalize_action_text=harness.normalize_action_text,
             normalize_feedback_text=harness.normalize_feedback_text,
-            replay_plan_summary=harness.replay_plan_summary,
-            runtime_feedback_summary=harness.runtime_feedback_summary,
             runtime_state=harness.runtime_state,
-            runtime_trace_export_safe_value=harness.runtime_trace_export_safe_value,
             trainer=lambda: harness.trainer,
         )
     )

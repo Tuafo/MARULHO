@@ -32,7 +32,8 @@ evidence. Replay-regenerated synapses add one row hash; non-replay overwrites
 and pruning clear the affected row. Checkpoint summary and restore validation
 read the maintained counts/digest with `source_record_scan_count=0` and
 `full_provenance_scan=false`. Missing incremental state blocks exact validation
-instead of rebuilding from provenance.
+instead of rebuilding from provenance, and the active report no longer emits a
+legacy-source compatibility field for that case.
 
 ## Evidence
 
@@ -55,4 +56,5 @@ Do not reintroduce this production scan. Full provenance comparisons belong only
 in benchmark-local diagnostics unless a future architecture replaces them with
 a bounded indexed validator that proves quality benefit, CPU archival placement,
 no hidden language reasoning, no live/every-token work, and repeated 6k-ish
-hot-path protection.
+hot-path protection. Do not reintroduce legacy-source compatibility fields as a
+substitute for exact incremental summary evidence.

@@ -118,8 +118,8 @@ def _build_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
-        calls["service_state_snapshot"].append(include_replay_dataset_summary)
+    def service_state_snapshot_fn() -> dict[str, Any]:
+        calls["service_state_snapshot"].append(True)
         return {
             "checkpoint_path": "/tmp/test.pt",
             "dirty_state": False,
@@ -349,8 +349,8 @@ def _build_feed_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
-        calls["service_state_snapshot"].append(include_replay_dataset_summary)
+    def service_state_snapshot_fn() -> dict[str, Any]:
+        calls["service_state_snapshot"].append(True)
         return {
             "checkpoint_path": "/tmp/test.pt",
             "dirty_state": bool(calls["runtime_state_mark_mutated"]),
@@ -581,8 +581,8 @@ def _build_respond_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
-        calls["service_state_snapshot"].append(include_replay_dataset_summary)
+    def service_state_snapshot_fn() -> dict[str, Any]:
+        calls["service_state_snapshot"].append(True)
         mutated = bool(calls["runtime_state_mark_mutated"])
         return {
             "checkpoint_path": "/tmp/test.pt",
@@ -652,7 +652,7 @@ class InteractionPipelineQueryTests(unittest.TestCase):
             recent_query_gaps = pipeline.recent_query_gaps()
             self.assertEqual(len(recent_query_gaps), 1)
             self.assertEqual(recent_query_gaps[0]["source"], "query")
-            self.assertFalse(calls["service_state_snapshot"][0])
+            self.assertTrue(calls["service_state_snapshot"])
 
             self.assertIn("concept_summary", result)
             self.assertIn("gap_plan", result)
@@ -727,7 +727,7 @@ class InteractionPipelineQueryTests(unittest.TestCase):
             self.assertEqual(stored_trace["error"]["message"], "boom")
             self.assertEqual(stored_trace["runtime_episode"]["status"], "failed")
             self.assertEqual(stored_trace["runtime_episode"]["failure"]["error_type"], "RuntimeError")
-            self.assertFalse(calls["service_state_snapshot"][0])
+            self.assertTrue(calls["service_state_snapshot"])
 
 
 class InteractionPipelineTraceSeamTests(unittest.TestCase):
@@ -813,7 +813,7 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertEqual(len(calls["apply_delayed"]), 0)
             self.assertEqual(calls["runtime_state_mark_mutated"], 1)
             self.assertEqual(calls["runtime_state_mutation_summary"], 1)
-            self.assertFalse(calls["service_state_snapshot"][0])
+            self.assertTrue(calls["service_state_snapshot"])
 
             self.assertEqual(result["feed_summary"]["tokens_processed"], 9)
             self.assertEqual(result["feed_summary"]["token_count"], 9)
@@ -892,7 +892,7 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertEqual(calls["runtime_state_mutation_summary"], 0)
             self.assertEqual(len(calls["persist_trace"]), 1)
             self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
-            self.assertFalse(calls["service_state_snapshot"][0])
+            self.assertTrue(calls["service_state_snapshot"])
 
             stored_trace = calls["persist_trace"][0]
             self.assertEqual(stored_trace["operation"], "feed")
@@ -995,7 +995,7 @@ class InteractionPipelineRespondTests(unittest.TestCase):
             self.assertEqual(len(calls["learn_from_turn"]), 1)
             self.assertEqual(len(calls["record_response_consequence_candidate"]), 1)
             self.assertEqual(pipeline.recent_query_gaps()[0]["source"], "respond")
-            self.assertFalse(calls["service_state_snapshot"][0])
+            self.assertTrue(calls["service_state_snapshot"])
             build_kwargs = calls["build_query_result"][0]
             self.assertEqual(build_kwargs["query_text"], "What do cats chase at night?")
             self.assertEqual(build_kwargs["context_text"], "shared context")

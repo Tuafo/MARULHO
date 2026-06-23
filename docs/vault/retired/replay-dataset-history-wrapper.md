@@ -18,17 +18,21 @@ the same replay-sample records already owned by
 `GET /terminus/replay-sample/history`, so it was a second public history path
 without new dataset selection criteria.
 
-Replacement:
+Superseded replacement:
 
-- replay history: `/terminus/replay-sample/history`
-- replay candidates: `/terminus/replay-plan`
-- dataset preview/package: `/terminus/replay-dataset/preview` and
-  `/terminus/replay-dataset/bundle`
+- The whole service advisory replay lane is now retired:
+  `/terminus/replay-sample/history`, `/terminus/replay-plan`,
+  `/terminus/replay-dataset/preview`, and `/terminus/replay-dataset/bundle`
+  are deleted too.
+- Replay/consolidation history that matters to cognition is checkpointed inside
+  trainer/SNN slow-window reports and ReplayController artifacts, permits, and
+  tickets.
+- `/terminus/runtime-traces/export` remains trace-only.
 
 The service benchmark no longer calls the wrapper and no longer writes
-`replay_dataset_history_summary`. The current report keeps slow-path endpoints
-to replay plan, replay-sample history, trace export, dataset preview, and
-dataset bundle only.
+`replay_dataset_history_summary`. Current service benchmarks also omit the
+former replay-plan, replay-sample history, dataset preview, and dataset bundle
+surfaces.
 
 Evidence:
 
@@ -41,4 +45,4 @@ Evidence:
   sequence failures.
 
 Revisit only if a dataset-specific history contract adds unique bounded
-selection evidence over replay-sample history.
+selection evidence over trainer/SNN replay state.

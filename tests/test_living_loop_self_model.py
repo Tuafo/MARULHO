@@ -353,57 +353,6 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
             1,
         )
 
-    def test_replay_sample_summary(self) -> None:
-        episodes = self._make_episodes()
-        actions = self._make_actions()
-        world = WorldModelLiteSummary.from_records(actions=actions)
-        telemetry = build_runtime_benchmark_telemetry(
-            runtime_episodes=episodes,
-            actions=actions,
-            world_model_lite=world,
-            replay_sample_summary={
-                "count": 2,
-                "history_count": 2,
-                "selected_count": 3,
-                "latest_selected_count": 1,
-                "mode_counts": {"sample": 2},
-                "status_counts": {"recorded": 2},
-                "latest_history_item": {
-                    "replay_sample_id": "replay-sample-1",
-                    "mode": "sample",
-                    "status": "recorded",
-                    "selected_count": 1,
-                    "safety_flags": {
-                        "audit_only": True,
-                        "external_calls_made": False,
-                    },
-                },
-                "safety_flags": {
-                    "audit_only": True,
-                    "external_calls_made": False,
-                },
-            },
-        )
-        self.assertEqual(telemetry["replay_sample_summary"]["count"], 2)
-        self.assertEqual(
-            telemetry["replay_sample_summary"]["mode_counts"]["sample"], 2
-        )
-        self.assertEqual(
-            telemetry["replay_sample_summary"]["status_counts"]["recorded"], 2
-        )
-        self.assertEqual(
-            telemetry["replay_sample_summary"]["latest_history_item"][
-                "replay_sample_id"
-            ],
-            "replay-sample-1",
-        )
-        self.assertTrue(
-            telemetry["replay_sample_summary"]["safety_flags"]["audit_only"]
-        )
-        self.assertFalse(
-            telemetry["replay_sample_summary"]["safety_flags"]["external_calls_made"]
-        )
-
     def test_empty_inputs_produce_valid_structure(self) -> None:
         telemetry = build_runtime_benchmark_telemetry()
         self.assertEqual(telemetry["schema_version"], 1)
@@ -412,6 +361,7 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
         self.assertEqual(telemetry["sample"]["action_count"], 0)
         self.assertEqual(telemetry["action_success"]["success_rate"], 0.0)
         self.assertIsNone(telemetry["tokens_per_second"]["value"])
+        self.assertNotIn("replay_sample_summary", telemetry)
 
 
 # ---------------------------------------------------------------------------

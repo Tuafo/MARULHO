@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
@@ -35,11 +34,7 @@ HOT_PATH_ENDPOINTS = frozenset({"feed", "query", "respond"})
 STATUS_ENDPOINTS = frozenset({"health", "status", "terminus", "living_loop", "policy_actuator"})
 SLOW_PATH_ENDPOINTS = frozenset(
     {
-        "replay_plan",
-        "replay_sample_history",
         "export",
-        "replay_dataset_preview",
-        "replay_dataset_bundle",
     }
 )
 HOT_PATH_P95_BUDGET_MS = 1000.0
@@ -582,7 +577,7 @@ def _endpoint_metabolism_summary(endpoint_timings: list[dict[str, Any]]) -> dict
         "status_endpoints": sorted(STATUS_ENDPOINTS),
         "slow_path_endpoints": sorted(SLOW_PATH_ENDPOINTS),
         "setup_note": "Configuration and manual tick are benchmark setup work, not always-on runtime hot-path work.",
-        "slow_path_note": "Replay, export, bundle, and dataset endpoints are explicit tooling/evaluation surfaces, not always-on runtime work.",
+        "slow_path_note": "Runtime trace export is an explicit tooling/evaluation surface, not always-on runtime work.",
     }
     return summary
 
@@ -684,89 +679,6 @@ def _summarize_runtime_device_evidence(body: Any) -> dict[str, Any] | None:
         "observed_cuda_execution": observed_cuda_execution,
         "cuda_fallback_reason": cuda_fallback_reason,
         "unit_tests_default_cpu": bool(cuda_runtime.get("unit_tests_default_cpu", False)),
-    }
-
-
-def _summarize_replay_sample_history(history_body: Any, fallback: Any = None) -> dict[str, Any] | None:
-    if isinstance(history_body, dict):
-        history = history_body.get("history")
-    else:
-        history = None
-    records = [dict(item) for item in history if isinstance(item, dict)] if isinstance(history, list) else []
-    if not records and isinstance(fallback, dict):
-        existing = fallback.get("replay_sample_summary")
-        if isinstance(existing, dict):
-            return dict(existing)
-    if not records and not isinstance(history_body, dict):
-        return None
-
-    mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0})
-    status_counts: Counter[str] = Counter()
-    selected_count = 0
-    for record in records:
-        mode = str(record.get("mode") or "sample")
-        if mode not in {"dry_run", "sample"}:
-            mode = "sample"
-        status = str(record.get("status") or "recorded")
-        mode_counts[mode] += 1
-        status_counts[status] += 1
-        selected_ids = record.get("selected_candidate_ids")
-        if isinstance(selected_ids, list):
-            selected_count += len(selected_ids)
-        elif isinstance(record.get("selected_candidates"), list):
-            selected_count += len(record["selected_candidates"])
-
-    latest = records[0] if records else {}
-    latest_selected_ids = latest.get("selected_candidate_ids") if isinstance(latest.get("selected_candidate_ids"), list) else []
-    latest_safety_flags = {
-        "audit_only": True,
-        "operator_confirmed": False,
-        "training_started": False,
-        "sleep_started": False,
-        "memory_verification_promoted": False,
-        "feedback_posted": False,
-        "digital_action_executed": False,
-        "external_calls_made": False,
-        "memory_mutated": False,
-        "state_revision_mutated": False,
-        "token_count_mutated": False,
-        "action_history_mutated": False,
-        "feedback_mutated": False,
-        "not_promoted": True,
-    }
-    if isinstance(latest.get("safety_flags"), dict):
-        latest_safety_flags.update(latest["safety_flags"])
-    latest_item = None
-    if latest:
-        latest_item = {
-            "schema_version": latest.get("schema_version", 1),
-            "replay_sample_id": latest.get("replay_sample_id"),
-            "created_at": latest.get("created_at"),
-            "mode": latest.get("mode"),
-            "status": latest.get("status"),
-            "endpoint": latest.get("endpoint", "/terminus/replay-sample"),
-            "target_type": latest.get("target_type"),
-            "target_id": latest.get("target_id"),
-            "selected_count": len(latest_selected_ids),
-            "selected_candidate_ids": latest_selected_ids[:20],
-            "safety_flags": dict(latest_safety_flags),
-        }
-    history_count = int((history_body or {}).get("count", len(records)) or 0) if isinstance(history_body, dict) else len(records)
-    return {
-        "schema_version": 1,
-        "endpoint": "/terminus/replay-sample",
-        "history_endpoint": "/terminus/replay-sample/history",
-        "count": history_count,
-        "history_count": history_count,
-        "selected_count": int(selected_count),
-        "latest_selected_count": int(len(latest_selected_ids)),
-        "mode_counts": dict(mode_counts),
-        "status_counts": dict(status_counts),
-        "latest_history_item": latest_item,
-        "safety_flags": dict(latest_safety_flags),
-        "audit_only": True,
-        "advisory": True,
-        "executable": False,
     }
 
 
@@ -957,33 +869,11 @@ def benchmark_service_app(
             },
             {"name": "living_loop", "method": "GET", "path": "/terminus/living-loop"},
             {"name": "policy_actuator", "method": "GET", "path": "/terminus/policy-actuator"},
-            {"name": "replay_plan", "method": "GET", "path": "/terminus/replay-plan", "params": {"limit": int(export_limit)}},
-            {"name": "replay_sample_history", "method": "GET", "path": "/terminus/replay-sample/history", "params": {"limit": int(export_limit)}},
             {
                 "name": "export",
                 "method": "GET",
                 "path": "/terminus/runtime-traces/export",
                 "params": {"limit": int(export_limit)},
-            },
-            {
-                "name": "replay_dataset_preview",
-                "method": "GET",
-                "path": "/terminus/replay-dataset/preview",
-                "params": {"limit": int(export_limit)},
-            },
-            {
-                "name": "replay_dataset_bundle",
-                "method": "POST",
-                "path": "/terminus/replay-dataset/bundle",
-                "json_body": {
-                    "operator_id": "benchmark-operator",
-                    "operator_note": "Benchmark package preview only.",
-                    "confirmation": True,
-                    "limit": int(export_limit),
-                    "holdout_fraction": 0.2,
-                    "eval_fraction": 0.2,
-                    "seed": 17,
-                },
             },
         )
         for request in requests:
@@ -1025,69 +915,8 @@ def benchmark_service_app(
                 "limit",
                 "count",
                 "endpoint",
-                "replay_sample_summary",
-                "replay_dataset_summary",
             )
             if key in export_body
-        }
-
-    replay_dataset_summary: dict[str, Any] | None = None
-    replay_dataset_body = response_bodies.get("replay_dataset_preview")
-    if isinstance(replay_dataset_body, dict):
-        replay_dataset_summary = {
-            key: replay_dataset_body.get(key)
-            for key in (
-                "export_kind",
-                "schema_version",
-                "training_role",
-                "created_at",
-                "latest_export_timestamp",
-                "latest_history_timestamp",
-                "endpoint",
-                "filter_endpoint",
-                "limit",
-                "max_limit",
-                "count",
-                "positive_count",
-                "negative_count",
-                "provenance_counts",
-                "example_type_counts",
-                "safety_flags",
-                "empty_reason",
-            )
-            if key in replay_dataset_body
-        }
-        replay_dataset_summary.setdefault(
-            "latest_export_timestamp",
-            replay_dataset_body.get("created_at"),
-        )
-
-    replay_dataset_bundle_summary: dict[str, Any] | None = None
-    replay_dataset_bundle_body = response_bodies.get("replay_dataset_bundle")
-    if isinstance(replay_dataset_bundle_body, dict):
-        replay_dataset_bundle_summary = {
-            key: replay_dataset_bundle_body.get(key)
-            for key in (
-                "export_kind",
-                "schema_version",
-                "training_role",
-                "bundle_id",
-                "bundle_version",
-                "source_count",
-                "count",
-                "excluded_count",
-                "positive_count",
-                "negative_count",
-                "preference_pair_count",
-                "sft_count",
-                "split_counts",
-                "source_window",
-                "operator_approval",
-                "training_gate",
-                "safety_flags",
-                "empty_reason",
-            )
-            if key in replay_dataset_bundle_body
         }
 
     policy_actuator_summary: dict[str, Any] | None = None
@@ -1124,54 +953,6 @@ def benchmark_service_app(
     feed_body = response_bodies.get("feed")
     if isinstance(feed_body, dict) and isinstance(feed_body.get("feed_summary"), dict):
         feed_summary = dict(feed_body["feed_summary"])
-
-    replay_plan_summary: dict[str, Any] | None = None
-    replay_body = response_bodies.get("replay_plan")
-    if isinstance(replay_body, dict):
-        replay_plan_summary = {
-            key: replay_body.get(key)
-            for key in (
-                "schema_version",
-                "generated_at",
-                "advisory",
-                "executable",
-                "endpoint",
-                "limit",
-                "count",
-                "priority_rules_version",
-                "plan_reason_codes",
-                "snapshot_counts",
-            )
-            if key in replay_body
-        }
-        candidates = replay_body.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            top = candidates[0]
-            if isinstance(top, dict):
-                replay_plan_summary["top_candidate"] = {
-                    key: top.get(key)
-                    for key in (
-                        "candidate_id",
-                        "rank",
-                        "target_type",
-                        "target_id",
-                        "operation",
-                        "priority_score",
-                        "reason_codes",
-                        "suggested_consolidation_action",
-                        "suggested_endpoint",
-                    )
-                    if key in top
-                }
-
-    replay_sample_summary: dict[str, Any] | None = None
-    replay_history_body = response_bodies.get("replay_sample_history")
-    replay_sample_summary = _summarize_replay_sample_history(
-        replay_history_body,
-        fallback=living_loop if isinstance(living_loop, dict) else export_body,
-    )
-    if replay_sample_summary is None and isinstance(export_body, dict):
-        replay_sample_summary = _summarize_replay_sample_history(None, fallback=export_body)
 
     configured_source_summary = None
     if configured_source_path is not None:
@@ -1310,11 +1091,7 @@ def benchmark_service_app(
         },
         "feedback_telemetry": feedback_telemetry,
         "policy_actuator_summary": policy_actuator_summary,
-        "replay_plan_summary": replay_plan_summary,
-        "replay_sample_summary": replay_sample_summary,
         "trace_export_summary": export_summary,
-        "replay_dataset_summary": replay_dataset_summary,
-        "replay_dataset_bundle_summary": replay_dataset_bundle_summary,
     }
     result["output_path"] = str(Path(output_path))
     _write_json(output_path, result)

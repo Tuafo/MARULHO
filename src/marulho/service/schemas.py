@@ -1830,7 +1830,6 @@ class StatusResponse(BaseModel):
     memory_store: dict[str, Any]
     concept_store: dict[str, Any]
     terminus_runtime: dict[str, Any]
-    replay_dataset_summary: dict[str, Any] | None = None
     snn_sleep_plasticity_autonomy_proposal: dict[str, Any] | None = None
     snn_sleep_plasticity_scheduler_installation_autonomy_proposal: dict[str, Any] | None = None
     snn_due_cycle_bounded_replay_selection_proposal: dict[str, Any] | None = None
@@ -1846,7 +1845,6 @@ class TerminusRuntimeResponse(BaseModel):
     multimodal: dict[str, Any] | None = None
     runtime_scope: dict[str, Any] | None = None
     memory_store: dict[str, Any] | None = None
-    replay_dataset_summary: dict[str, Any] | None = None
     snn_sleep_plasticity_autonomy_proposal: dict[str, Any] | None = None
     snn_sleep_plasticity_scheduler_installation_autonomy_proposal: dict[str, Any] | None = None
     snn_due_cycle_bounded_replay_selection_proposal: dict[str, Any] | None = None
@@ -1913,97 +1911,6 @@ class PolicyActuatorResponse(BaseModel):
     snn_due_cycle_bounded_replay_selection_proposal: dict[str, Any] | None = None
 
 
-class ReplayCandidateResponse(BaseModel):
-    candidate_id: str
-    rank: int
-    target_type: str
-    target_id: str
-    target_ids: list[str]
-    operation: str
-    created_at: str
-    completed_at: str
-    reason_codes: list[str]
-    priority_score: float
-    priority_components: dict[str, float]
-    suggested_consolidation_action: str
-    suggested_endpoint: str
-    suggested_input: dict[str, Any]
-    summary: str
-    provenance: dict[str, Any]
-    risk: float
-    uncertainty: float
-    latency: dict[str, Any]
-    memory_health: dict[str, Any]
-    feedback: dict[str, Any]
-    policy: dict[str, Any]
-
-
-class ReplayPlanResponse(BaseModel):
-    schema_version: int
-    generated_at: str
-    advisory: bool = True
-    executable: bool = False
-    endpoint: str
-    limit: int
-    count: int
-    state_revision: int
-    token_count: int
-    snapshot_counts: dict[str, int]
-    priority_rules_version: str
-    priority_weights: dict[str, float]
-    plan_reason_codes: list[str]
-    source_window: dict[str, Any] | None = None
-    candidates: list[ReplayCandidateResponse]
-
-
-class ReplaySampleRequest(BaseModel):
-    mode: Literal["dry_run", "sample"] = "sample"
-    candidate_id: str | None = Field(None, min_length=1, max_length=160)
-    target_type: str | None = Field(None, min_length=1, max_length=64)
-    target_id: str | None = Field(None, min_length=1, max_length=160)
-    operator_id: str = Field(..., min_length=1, max_length=160)
-    operator_note: str | None = Field(None, max_length=2000)
-    confirmation: bool = False
-    limit: int | None = Field(None, ge=1, le=20)
-    count: int | None = Field(None, ge=1, le=20)
-    alpha: float = Field(1.0, ge=0.0, le=4.0)
-    seed: int | None = None
-
-
-class ReplaySampleResponse(BaseModel):
-    schema_version: int
-    replay_sample_id: str
-    created_at: str
-    mode: Literal["dry_run", "sample"]
-    status: str
-    reason: str
-    endpoint: str
-    operator_id: str
-    operator_note: str
-    requested_candidate_id: str | None = None
-    target_type: str | None = None
-    target_id: str | None = None
-    requested_count: int
-    alpha: float
-    seed: int | None = None
-    candidate_ids: list[str]
-    selected_candidate_ids: list[str]
-    selected_candidates: list[dict[str, Any]]
-    safety_checks: dict[str, Any]
-    safety_flags: dict[str, Any]
-    before: dict[str, int]
-    after: dict[str, int]
-    plan_summary: dict[str, Any]
-
-
-class ReplaySampleHistoryResponse(BaseModel):
-    schema_version: int
-    endpoint: str
-    count: int
-    limit: int
-    history: list[ReplaySampleResponse]
-
-
 class ResponseBundle(BaseModel):
     trace_id: str
     trace_path: str
@@ -2030,94 +1937,9 @@ class RuntimeTraceExportResponse(BaseModel):
     endpoint: str | None = None
     count: int
     policy_decision: dict[str, Any] | None = None
-    replay_plan_summary: dict[str, Any] | None = None
-    replay_sample_summary: dict[str, Any] | None = None
-    replay_dataset_summary: dict[str, Any] | None = None
     source_window: dict[str, Any] | None = None
     examples: list[dict[str, Any]]
     excluded_fields: list[str]
-
-
-class ReplayDatasetPreviewResponse(BaseModel):
-    schema_version: int
-    export_kind: str
-    training_role: str
-    description: str
-    created_at: str
-    latest_export_timestamp: str | None = None
-    latest_history_timestamp: str | None = None
-    endpoint: str
-    limit: int
-    max_limit: int
-    filter_endpoint: str | None = None
-    count: int
-    positive_count: int
-    negative_count: int
-    provenance_counts: dict[str, int]
-    example_type_counts: dict[str, int]
-    policy_decision: dict[str, Any] | None = None
-    replay_plan_summary: dict[str, Any] | None = None
-    replay_sample_summary: dict[str, Any] | None = None
-    source_window: dict[str, Any] | None = None
-    safety_flags: dict[str, Any]
-    before: dict[str, int]
-    after: dict[str, int]
-    items: list[dict[str, Any]]
-    excluded_fields: list[str]
-    empty_reason: str | None = None
-
-
-class ReplayDatasetBundleRequest(BaseModel):
-    operator_id: str = Field(..., min_length=1, max_length=160)
-    operator_note: str | None = Field(None, max_length=2000)
-    confirmation: bool = False
-    limit: int = Field(20, ge=1, le=50)
-    endpoint: str | None = Field(None, min_length=1, max_length=32)
-    holdout_fraction: float = Field(0.2, ge=0.0, le=0.8)
-    eval_fraction: float = Field(0.2, ge=0.0, le=0.8)
-    seed: int | None = None
-    retention_days: int = Field(3650, ge=0)
-    decontamination_terms: list[str] | None = None
-
-
-class ReplayDatasetBundleResponse(BaseModel):
-    schema_version: int
-    export_kind: str
-    training_role: str
-    description: str
-    created_at: str
-    endpoint: str
-    source_endpoint: str
-    limit: int
-    max_limit: int
-    filter_endpoint: str | None = None
-    bundle_id: str
-    bundle_version: str
-    bundle_hash: str
-    source_preview_hash: str
-    operator_approval: dict[str, Any]
-    packaging_policy: dict[str, Any]
-    source_count: int
-    count: int
-    excluded_count: int
-    positive_count: int
-    negative_count: int
-    preference_pair_count: int
-    sft_count: int
-    negative_only_count: int
-    split_counts: dict[str, int]
-    split_summaries: dict[str, dict[str, Any]]
-    source_window: dict[str, Any] | None = None
-    source_preview_summary: dict[str, Any]
-    manifest: dict[str, Any]
-    training_gate: dict[str, Any]
-    splits: dict[str, list[dict[str, Any]]]
-    excluded_items: list[dict[str, Any]]
-    safety_flags: dict[str, Any]
-    before: dict[str, int]
-    after: dict[str, int]
-    excluded_fields: list[str]
-    empty_reason: str | None = None
 
 
 class QueryResponse(BaseModel):

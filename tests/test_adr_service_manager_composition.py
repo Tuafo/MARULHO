@@ -307,8 +307,6 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         runner_paths = (
             _SERVICE_SRC_ROOT / "api.py",
             _SERVICE_SRC_ROOT / "trace_export_runner.py",
-            _SERVICE_SRC_ROOT / "replay_dataset_runner.py",
-            _SERVICE_SRC_ROOT / "replay_dataset_bundle_runner.py",
         )
         violations: list[str] = []
         for path in runner_paths:
@@ -564,12 +562,17 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         self.assertFalse(old_path.exists(), "runtime_feedback.py mixin module must be removed")
         self.assertTrue(new_path.exists(), "feedback_applier.py must own runtime feedback behavior")
 
-    def test_replay_dataset_packager_is_not_mixin_framed(self) -> None:
-        """Replay dataset packaging is active helper behavior, not a mixin identity."""
-        packager_text = (_SERVICE_SRC_ROOT / "replay_dataset_bundle.py").read_text(encoding="utf-8")
-        self.assertIn("class ReplayDatasetPackager", packager_text)
-        self.assertNotIn("This mixin", packager_text)
-        self.assertNotIn("ReplayDatasetBundleMixin", packager_text)
+    def test_service_replay_dataset_packager_module_is_removed(self) -> None:
+        """Retired service replay dataset packaging must not remain as side code."""
+        for filename in (
+            "replay_dataset_bundle.py",
+            "replay_dataset_runner.py",
+            "replay_dataset_bundle_runner.py",
+        ):
+            self.assertFalse(
+                (_SERVICE_SRC_ROOT / filename).exists(),
+                f"{filename} must stay retired",
+            )
 
     def test_runtime_control_uses_active_logger_vocabulary(self) -> None:
         """Runtime control must not name active Terminus stop handling as retired runtime."""
@@ -827,9 +830,12 @@ class TestContextMdADR0003Alignment(unittest.TestCase):
         self.assertIn("dirty_state", self.context_text)
         self.assertIn("state_revision", self.context_text)
 
-    def test_context_mentions_dirty_without_revision_for_replay(self) -> None:
-        """CONTEXT.md must document the replay dirty-without-revision path."""
-        self.assertIn("dirty-without-revision", self.context_text)
+    def test_context_documents_service_replay_lane_retirement(self) -> None:
+        """CONTEXT.md must document that the service replay lane is retired."""
+        self.assertIn("Service Advisory Replay Lane Retirement", self.context_text)
+        self.assertIn("/terminus/replay-plan", self.context_text)
+        self.assertIn("Runtime trace export is trace-only", self.context_text)
+        self.assertNotIn("dirty-without-revision", self.context_text)
 
     def test_context_does_not_use_legacy_mixin_language(self) -> None:
         """CONTEXT.md Service Manager entry must not use legacy mixin language.

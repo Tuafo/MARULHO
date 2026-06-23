@@ -915,23 +915,16 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_feed_trace_state_snapshot_skips_replay_dataset_preview_for_latency(self) -> None:
+    def test_feed_trace_state_snapshot_omits_retired_replay_dataset_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_feed_light_state_snapshot")
             try:
-                with patch.object(
-                    manager,
-                    "_replay_dataset_preview_summary_locked",
-                    side_effect=AssertionError("feed traces must not build replay dataset previews"),
-                ) as preview:
-                    result = manager.runtime_facade.feed(text="Cats chase mice. Cats rest indoors.")
-
-                self.assertEqual(preview.call_count, 0)
+                result = manager.runtime_facade.feed(text="Cats chase mice. Cats rest indoors.")
                 self.assertEqual(result["runtime_episode"]["operation"], "feed")
 
                 status = manager.runtime_facade.living_loop_status()
-                self.assertIn("replay_dataset_summary", status["living_loop"])
+                self.assertNotIn("replay_dataset_summary", status["living_loop"])
             finally:
                 manager.close()
 
@@ -1189,19 +1182,12 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_save_restore_round_trips_replay_history_and_trace_files(self) -> None:
+    def test_save_restore_round_trips_snn_replay_artifacts_and_trace_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_replay_history_roundtrip")
             try:
                 manager.runtime_facade.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
-                replay_record = manager.runtime_facade.replay_sample(
-                    mode="sample",
-                    operator_id="operator-1",
-                    confirmation=True,
-                )
-                self.assertEqual(replay_record["status"], "recorded")
-                self.assertEqual(manager.runtime_facade.replay_sample_history(limit=10)["count"], 1)
                 self.assertGreaterEqual(len(manager.runtime_facade.recent_traces(limit=10)), 1)
                 replay_context = manager._replay_controller.record_snn_replay_evaluation_context(
                     mismatch_report={
@@ -1340,11 +1326,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertEqual(ticket_history[0]["review_ticket_id"], replay_ticket["review_ticket_id"])
                 restored = MarulhoServiceManager(saved["path"], trace_dir=root / "traces")
                 try:
-                    replay_history = restored.runtime_facade.replay_sample_history(limit=10)
                     traces = restored.runtime_facade.recent_traces(limit=10)
 
-                    self.assertEqual(replay_history["count"], 1)
-                    self.assertEqual(replay_history["history"][0]["replay_sample_id"], replay_record["replay_sample_id"])
                     self.assertEqual(
                         restored._replay_controller.snn_replay_evaluation_contexts[0][
                             "replay_evaluation_context_id"

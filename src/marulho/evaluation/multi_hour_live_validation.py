@@ -8,7 +8,6 @@ from typing import Any, Mapping, Sequence, TextIO
 
 from marulho.reporting.readme_reports import write_json_report_with_readme
 
-from .live_long_run_validation import SAFE_REPLAY_FLAGS
 from .artifact_io import load_json_object
 
 
@@ -127,7 +126,7 @@ def validate_multi_hour_live_run(
         "embedding_health_available": bool(_mapping(multi_hour_long_test_report.get("final_embedder")).get("available")),
         "embedding_health_not_degraded": _mapping(multi_hour_long_test_report.get("final_embedder")).get("degraded")
         is not True,
-        "replay_training_action_safety": all(replay_safety.get(flag) is not True for flag in SAFE_REPLAY_FLAGS),
+        "retired_replay_safety_sidecar_absent": not bool(replay_safety),
         "action_audit_passed": action_audit["passed"],
         "traces_or_snapshots_present": bool(multi_hour_long_test_report.get("snapshots"))
         or bool(live_validation_report.get("trace_evidence", {}).get("trace_count", 0))
@@ -172,7 +171,7 @@ def validate_multi_hour_live_run(
         "memory_pressure": dict(_mapping(multi_hour_long_test_report.get("memory_pressure_report")))
         or {"final_fill": multi_hour_long_test_report.get("final_memory_fill")},
         "embedding_health": dict(_mapping(multi_hour_long_test_report.get("final_embedder"))),
-        "replay_safety_status": dict(replay_safety),
+        "retired_replay_safety_status": dict(replay_safety),
         "action_audit_status": action_audit,
         "recommended_operator_action": runtime_truth.get("recommended_action", ""),
         "operator_visible_report": {

@@ -1,13 +1,13 @@
-"""Operational Self-Model and telemetry module for the Living Loop (Layer D).
+"""Operational Self-Model and telemetry module for the Living Loop (Layer C).
 
 This module contains OperationalSelfModel (build, from_payload, to_payload,
 all _surface_* methods), build_runtime_benchmark_telemetry, and all
 telemetry-specific private helpers.
 
-Dependency direction: Helpers → Records → Policy → Replay → Self-Model
+Dependency direction: Helpers -> Records -> Policy -> Self-Model
 
-This module imports from Replay, Policy, Records, and Helpers only;
-it never imports from any consumer module.
+This module imports from Policy, Records, and Helpers only; it never imports from
+higher layers or from any consumer module.
 """
 
 from __future__ import annotations
@@ -42,11 +42,6 @@ from marulho.service.living_loop_policy import (
     WorldModelLiteSummary,
     _coerce_feedback_telemetry,
 )
-from marulho.service.living_loop_replay import (
-    _coerce_replay_sample_summary,
-)
-
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -167,7 +162,6 @@ def build_runtime_benchmark_telemetry(
     runtime_memory: Mapping[str, Any] | None = None,
     runtime: Mapping[str, Any] | None = None,
     feedback_summary: Mapping[str, Any] | None = None,
-    replay_sample_summary: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Transparent benchmark telemetry from already-recorded runtime facts."""
@@ -278,8 +272,6 @@ def build_runtime_benchmark_telemetry(
     verification_evaluated = int(world.verification_count)
 
     feedback_telemetry = _coerce_feedback_telemetry(feedback_summary)
-    replay_summary = _coerce_replay_sample_summary(replay_sample_summary)
-
     return {
         "schema_version": 1,
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
@@ -306,7 +298,6 @@ def build_runtime_benchmark_telemetry(
             "success_rate": float(world.verification_success_rate),
         },
         "feedback": feedback_telemetry,
-        "replay_sample_summary": replay_summary,
         "policy_recommendations": {
             "total": int(sum(policy_counts.values())),
             "latest": recommendation,

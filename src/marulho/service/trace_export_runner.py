@@ -86,12 +86,6 @@ def export_runtime_trace_dataset(
     }
     if isinstance(dataset.get("policy_decision"), dict):
         metadata["policy_decision"] = dict(dataset["policy_decision"])
-    if isinstance(dataset.get("replay_plan_summary"), dict):
-        metadata["replay_plan_summary"] = dict(dataset["replay_plan_summary"])
-    if isinstance(dataset.get("replay_sample_summary"), dict):
-        metadata["replay_sample_summary"] = dict(dataset["replay_sample_summary"])
-    if isinstance(dataset.get("replay_dataset_summary"), dict):
-        metadata["replay_dataset_summary"] = dict(dataset["replay_dataset_summary"])
     if not metadata["contains_examples"]:
         metadata["empty_reason"] = _EMPTY_EXPORT_REASON
 

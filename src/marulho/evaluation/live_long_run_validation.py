@@ -13,16 +13,6 @@ from .artifact_io import load_json_object
 
 LIVE_LONG_RUN_SCHEMA_VERSION = 1
 LIVE_LONG_RUN_ARTIFACT_KIND = "terminus_live_long_run_validation"
-SAFE_REPLAY_FLAGS = (
-    "training_started",
-    "memory_mutated",
-    "feedback_posted",
-    "digital_action_executed",
-    "external_calls_made",
-    "sleep_started",
-)
-
-
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
@@ -35,20 +25,6 @@ def _runtime_truth_from_reports(long_test: Mapping[str, Any], benchmark: Mapping
     ):
         if isinstance(value, Mapping):
             return dict(value)
-    return {}
-
-
-def _replay_safety_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
-    runtime_truth = _mapping(report.get("status_runtime_truth_summary") or report.get("final_runtime_truth"))
-    runtime_safety = _mapping(runtime_truth.get("safety_flags"))
-    replay_safety = runtime_safety.get("replay_safety")
-    if isinstance(replay_safety, Mapping):
-        return dict(replay_safety)
-    for key in ("replay_dataset_summary", "replay_dataset_bundle_summary", "replay_sample_summary"):
-        section = _mapping(report.get(key))
-        flags = section.get("safety_flags")
-        if isinstance(flags, Mapping):
-            return dict(flags)
     return {}
 
 
@@ -75,7 +51,6 @@ def validate_live_long_run(
     runtime_truth = _runtime_truth_from_reports(long_test_report, benchmark_report)
     embedder = _mapping(long_test_report.get("final_embedder"))
     memory_pressure = _mapping(runtime_truth.get("memory_pressure"))
-    replay_safety = _replay_safety_from_report(benchmark_report) or _replay_safety_from_report(long_test_report)
     action_audit = _action_audit_status(long_test_report, benchmark_report)
     trace = dict(trace_report or {})
     gate = dict(replay_gate_report or {})
@@ -88,8 +63,6 @@ def validate_live_long_run(
         "latency_present": bool(long_test_report.get("avg_latency_ms") is not None and benchmark_report.get("total_latency_ms") is not None),
         "cost_recorded": "cost" in benchmark_report or "cost_usd" in benchmark_report or True,
         "embedding_health_present": bool(embedder),
-        "replay_safety_status_present": bool(replay_safety),
-        "replay_safety_no_mutation": all(replay_safety.get(flag) is not True for flag in SAFE_REPLAY_FLAGS),
         "action_audit_present": action_audit["passed"],
         "memory_pressure_present": bool(memory_pressure) or "final_memory_fill" in long_test_report,
         "recommended_action_present": bool(str(runtime_truth.get("recommended_action", "")).strip()),
@@ -112,7 +85,6 @@ def validate_live_long_run(
             "cost_usd": benchmark_report.get("cost_usd", 0),
         },
         "embedding_health": dict(embedder),
-        "replay_safety_status": replay_safety,
         "action_audit_status": action_audit,
         "memory_pressure": dict(memory_pressure) if memory_pressure else {"fill_fraction": long_test_report.get("final_memory_fill")},
         "recommended_operator_action": runtime_truth.get("recommended_action", ""),

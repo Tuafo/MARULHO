@@ -20,8 +20,7 @@ _DEPTH_LAYER_TERMS = {
     "living_loop_helpers": ["Foundation", "Layer 0"],
     "living_loop_records": ["Layer A"],
     "living_loop_policy": ["Layer B"],
-    "living_loop_replay": ["Layer C"],
-    "living_loop_self_model": ["Layer D"],
+    "living_loop_self_model": ["Layer C"],
 }
 
 
@@ -38,7 +37,7 @@ class TestADRExists(unittest.TestCase):
 
     def test_adr_documents_four_layers(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        for layer_label in ["Runtime Records", "Policy Scoring", "Replay Planning", "Operational Self-Model"]:
+        for layer_label in ["Runtime Records", "Policy Scoring", "Operational Self-Model"]:
             self.assertIn(layer_label, text, f"ADR missing layer: {layer_label}")
 
     def test_adr_documents_helpers_module(self):
@@ -52,7 +51,8 @@ class TestADRExists(unittest.TestCase):
         self.assertIn("Layer A", text)
         self.assertIn("Layer B", text)
         self.assertIn("Layer C", text)
-        self.assertIn("Layer D", text)
+        self.assertNotIn("Layer D", text)
+        self.assertNotIn("living_loop_replay.py` | Layer C", text)
 
     def test_adr_documents_dependency_direction(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
@@ -61,7 +61,6 @@ class TestADRExists(unittest.TestCase):
         self.assertIn("Helpers", text)
         self.assertIn("Records", text)
         self.assertIn("Policy", text)
-        self.assertIn("Replay", text)
         self.assertIn("Self-Model", text)
 
 
@@ -96,11 +95,12 @@ class TestADRDependencyConstraintAndImportStrategy(unittest.TestCase):
 class TestADRRationale(unittest.TestCase):
     """ADR must record the rationale for four modules, direct imports, and helpers module."""
 
-    def test_adr_explains_why_four_modules(self):
+    def test_adr_explains_why_current_modules(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        self.assertIn("Why five modules", text)
+        self.assertIn("Why four active modules plus helpers", text)
         self.assertIn("two-module", text)
         self.assertIn("three-module", text)
+        self.assertIn("service replay planning was retired", text)
 
     def test_adr_explains_why_direct_imports(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
@@ -140,9 +140,6 @@ class TestContextMdUpdated(unittest.TestCase):
     def test_context_mentions_policy_module(self):
         self.assertIn("living_loop_policy", self.context_text)
 
-    def test_context_mentions_replay_module(self):
-        self.assertIn("living_loop_replay", self.context_text)
-
     def test_context_mentions_self_model_module(self):
         self.assertIn("living_loop_self_model", self.context_text)
 
@@ -154,9 +151,6 @@ class TestContextMdUpdated(unittest.TestCase):
 
     def test_context_maps_policy_to_domain_vocab(self):
         self.assertIn("Policy Actuator", self.context_text)
-
-    def test_context_maps_replay_to_domain_vocab(self):
-        self.assertIn("Replay Pipeline planning stage", self.context_text)
 
     def test_context_maps_self_model_to_domain_vocab(self):
         self.assertIn("Runtime Truth", self.context_text)
@@ -233,35 +227,15 @@ class TestModuleDocstrings(unittest.TestCase):
             "Policy docstring must state it never imports from higher layers",
         )
 
-    def test_replay_docstring_mentions_layer(self):
-        doc = self._get_docstring("marulho.service.living_loop_replay")
-        self.assertTrue(
-            "Layer C" in doc,
-            "Replay docstring must identify its depth layer (Layer C)",
-        )
-
-    def test_replay_docstring_mentions_dependencies(self):
-        doc = self._get_docstring("marulho.service.living_loop_replay")
-        self.assertIn("Policy", doc)
-        self.assertIn("Records", doc)
-
-    def test_replay_docstring_states_no_upward_imports(self):
-        doc = self._get_docstring("marulho.service.living_loop_replay")
-        self.assertTrue(
-            "never imports from" in doc.lower(),
-            "Replay docstring must state it never imports from higher layers",
-        )
-
     def test_self_model_docstring_mentions_layer(self):
         doc = self._get_docstring("marulho.service.living_loop_self_model")
         self.assertTrue(
-            "Layer D" in doc,
-            "Self-Model docstring must identify its depth layer (Layer D)",
+            "Layer C" in doc,
+            "Self-Model docstring must identify its depth layer (Layer C)",
         )
 
     def test_self_model_docstring_mentions_dependencies(self):
         doc = self._get_docstring("marulho.service.living_loop_self_model")
-        self.assertIn("Replay", doc)
         self.assertIn("Policy", doc)
         self.assertIn("Records", doc)
 
@@ -278,7 +252,6 @@ class TestModuleDocstrings(unittest.TestCase):
             "marulho.service.living_loop_helpers",
             "marulho.service.living_loop_records",
             "marulho.service.living_loop_policy",
-            "marulho.service.living_loop_replay",
             "marulho.service.living_loop_self_model",
         ]
         for mod_name in module_fqns:

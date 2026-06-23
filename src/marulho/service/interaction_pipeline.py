@@ -753,7 +753,7 @@ class InteractionPipeline:
                     created_at=created_at,
                     trace_id=trace_id,
                 )
-                state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
+                state_after = self._service_state_snapshot_fn()
                 episode = self._finalize_trace(
                     operation="feed",
                     trace_id=trace_id,
@@ -786,7 +786,7 @@ class InteractionPipeline:
                     created_at=created_at,
                     request=request,
                     episode=episode,
-                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    state_after=self._service_state_snapshot_fn(),
                     error=exc,
                 )
                 raise
@@ -839,7 +839,7 @@ class InteractionPipeline:
                     created_at=created_at,
                     trace_id=trace_id,
                 )
-                state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
+                state_after = self._service_state_snapshot_fn()
                 episode = self._finalize_trace(
                     operation="query",
                     trace_id=trace_id,
@@ -870,7 +870,7 @@ class InteractionPipeline:
                     created_at=created_at,
                     request=request,
                     episode=episode,
-                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    state_after=self._service_state_snapshot_fn(),
                     error=exc,
                 )
                 raise
@@ -1071,7 +1071,7 @@ class InteractionPipeline:
                 max_evidence_items=max_evidence_items,
                 learn_mode=learn_mode,
             )
-            state_before = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
+            state_before = self._service_state_snapshot_fn()
             try:
                 query_result = self._enrich_query_result(
                     query_text=query_text,
@@ -1161,7 +1161,7 @@ class InteractionPipeline:
                     action_assist=action_assist,
                     outcome_score=response_outcome_score,
                 )
-                state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
+                state_after = self._service_state_snapshot_fn()
                 episode = self._build_runtime_episode(
                     operation="respond",
                     request=request,
@@ -1225,7 +1225,7 @@ class InteractionPipeline:
                     created_at=created_at,
                     request=request,
                     episode=episode,
-                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    state_after=self._service_state_snapshot_fn(),
                     state_before=state_before,
                     error=exc,
                 )

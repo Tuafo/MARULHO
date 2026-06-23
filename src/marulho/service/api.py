@@ -30,13 +30,6 @@ from .schemas import (
     PolicyActuatorResponse,
     QueryRequest,
     QueryResponse,
-    ReplayDatasetBundleRequest,
-    ReplayDatasetBundleResponse,
-    ReplayDatasetPreviewResponse,
-    ReplayPlanResponse,
-    ReplaySampleHistoryResponse,
-    ReplaySampleRequest,
-    ReplaySampleResponse,
     RespondRequest,
     ResponseBundle,
     RuntimeFeedbackRequest,
@@ -3402,38 +3395,6 @@ def create_app(
             checkpoint_path=request.checkpoint_path,
         )
 
-    @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
-    def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:
-        return ReplayPlanResponse(**runtime.replay_plan_status(limit=limit))
-
-    def _replay_sample_response(request: ReplaySampleRequest) -> ReplaySampleResponse:
-        try:
-            return ReplaySampleResponse(
-                **runtime.replay_sample(
-                    mode=request.mode,
-                    candidate_id=request.candidate_id,
-                    target_type=request.target_type,
-                    target_id=request.target_id,
-                    operator_id=request.operator_id,
-                    operator_note=request.operator_note,
-                    confirmation=request.confirmation,
-                    limit=request.limit,
-                    count=request.count,
-                    alpha=request.alpha,
-                    seed=request.seed,
-                )
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.post("/terminus/replay-sample", response_model=ReplaySampleResponse)
-    def terminus_replay_sample(request: ReplaySampleRequest) -> ReplaySampleResponse:
-        return _replay_sample_response(request)
-
-    @app.get("/terminus/replay-sample/history", response_model=ReplaySampleHistoryResponse)
-    def terminus_replay_sample_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
-        return ReplaySampleHistoryResponse(**runtime.replay_sample_history(limit=limit))
-
     @app.get("/terminus/runtime-traces/export", response_model=RuntimeTraceExportResponse)
     def terminus_runtime_trace_export(
         limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
@@ -3443,36 +3404,6 @@ def create_app(
         return RuntimeTraceExportResponse(
             **runtime.export_runtime_trace_examples(limit=limit, endpoint=endpoint or trace_type)
         )
-
-    @app.get("/terminus/replay-dataset/preview", response_model=ReplayDatasetPreviewResponse)
-    def terminus_replay_dataset_preview(
-        limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
-        endpoint: str | None = Query(None, min_length=1, max_length=32),
-        trace_type: str | None = Query(None, alias="type", min_length=1, max_length=32),
-    ) -> ReplayDatasetPreviewResponse:
-        return ReplayDatasetPreviewResponse(
-            **runtime.replay_dataset_preview(limit=limit, endpoint=endpoint or trace_type)
-        )
-
-    @app.post("/terminus/replay-dataset/bundle", response_model=ReplayDatasetBundleResponse)
-    def terminus_replay_dataset_bundle(request: ReplayDatasetBundleRequest) -> ReplayDatasetBundleResponse:
-        try:
-            return ReplayDatasetBundleResponse(
-                **runtime.replay_dataset_bundle(
-                    operator_id=request.operator_id,
-                    operator_note=request.operator_note,
-                    confirmation=request.confirmation,
-                    limit=request.limit,
-                    endpoint=request.endpoint,
-                    holdout_fraction=request.holdout_fraction,
-                    eval_fraction=request.eval_fraction,
-                    seed=request.seed,
-                    retention_days=request.retention_days,
-                    decontamination_terms=request.decontamination_terms,
-                )
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/configure", response_model=TerminusRuntimeResponse)
     def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:
