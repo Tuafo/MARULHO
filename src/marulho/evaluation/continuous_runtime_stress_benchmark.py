@@ -420,34 +420,86 @@ def _available_metric(
     return _float_or_none(payload.get(key))
 
 
+def _available_metric_values(
+    snapshots: Iterable[Mapping[str, Any] | None],
+    section: str,
+    key: str,
+) -> list[float]:
+    return [
+        value
+        for value in (
+            _available_metric(snapshot, section, key) for snapshot in snapshots
+        )
+        if value is not None
+    ]
+
+
 def _summarize_velocity_environment(
     before: Mapping[str, Any] | None,
     after: Mapping[str, Any] | None,
+    measurement_samples: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    cpu_values = [
-        value
-        for value in (
-            _available_metric(before, "cpu", "percent_processor_time"),
-            _available_metric(after, "cpu", "percent_processor_time"),
-        )
-        if value is not None
+    samples = [
+        dict(sample)
+        for sample in (measurement_samples or ())
+        if isinstance(sample, Mapping)
     ]
-    gpu_values = [
-        value
-        for value in (
-            _available_metric(before, "gpu", "gpu_utilization_percent"),
-            _available_metric(after, "gpu", "gpu_utilization_percent"),
-        )
-        if value is not None
-    ]
-    memory_values = [
-        value
-        for value in (
-            _available_metric(before, "gpu", "memory_utilization_percent"),
-            _available_metric(after, "gpu", "memory_utilization_percent"),
-        )
-        if value is not None
-    ]
+    all_snapshots: list[Mapping[str, Any] | None] = [before, *samples, after]
+    cpu_values = _available_metric_values(
+        all_snapshots,
+        "cpu",
+        "percent_processor_time",
+    )
+    gpu_values = _available_metric_values(
+        all_snapshots,
+        "gpu",
+        "gpu_utilization_percent",
+    )
+    memory_values = _available_metric_values(
+        all_snapshots,
+        "gpu",
+        "memory_utilization_percent",
+    )
+    sample_cpu_values = _available_metric_values(
+        samples,
+        "cpu",
+        "percent_processor_time",
+    )
+    sample_gpu_values = _available_metric_values(
+        samples,
+        "gpu",
+        "gpu_utilization_percent",
+    )
+    sample_memory_values = _available_metric_values(
+        samples,
+        "gpu",
+        "memory_utilization_percent",
+    )
+    sample_memory_used_values = _available_metric_values(
+        samples,
+        "gpu",
+        "memory_used_mib",
+    )
+    sample_graphics_clock_values = _available_metric_values(
+        samples,
+        "gpu",
+        "graphics_clock_mhz",
+    )
+    sample_memory_clock_values = _available_metric_values(
+        samples,
+        "gpu",
+        "memory_clock_mhz",
+    )
+    sample_power_values = _available_metric_values(
+        samples,
+        "gpu",
+        "power_draw_w",
+    )
+    sample_temperature_values = _available_metric_values(
+        samples,
+        "gpu",
+        "temperature_c",
+    )
     cpu_threshold = 90.0
     gpu_threshold = 20.0
     cpu_busy = any(value >= cpu_threshold for value in cpu_values)
@@ -483,6 +535,34 @@ def _summarize_velocity_environment(
         },
         "before": dict(before or {}),
         "after": dict(after or {}),
+        "measurement": {
+            "sample_count": len(samples),
+            "samples": samples,
+            "max_cpu_percent": max(sample_cpu_values)
+            if sample_cpu_values
+            else None,
+            "max_gpu_utilization_percent": max(sample_gpu_values)
+            if sample_gpu_values
+            else None,
+            "max_gpu_memory_utilization_percent": max(sample_memory_values)
+            if sample_memory_values
+            else None,
+            "max_gpu_memory_used_mib": max(sample_memory_used_values)
+            if sample_memory_used_values
+            else None,
+            "max_graphics_clock_mhz": max(sample_graphics_clock_values)
+            if sample_graphics_clock_values
+            else None,
+            "max_memory_clock_mhz": max(sample_memory_clock_values)
+            if sample_memory_clock_values
+            else None,
+            "max_power_draw_w": max(sample_power_values)
+            if sample_power_values
+            else None,
+            "max_temperature_c": max(sample_temperature_values)
+            if sample_temperature_values
+            else None,
+        },
     }
 
 
@@ -496,6 +576,7 @@ def run_continuous_runtime_stress(
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
+    environment_sample_interval_seconds: float = 10.0,
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
@@ -513,6 +594,8 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
+    if float(environment_sample_interval_seconds) < 0.0:
+        raise ValueError("environment_sample_interval_seconds must be non-negative")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_root = output_path.parent / output_path.stem
     run_root.mkdir(parents=True, exist_ok=True)
@@ -605,6 +688,9 @@ def run_continuous_runtime_stress(
                 "source_concept_observation_tick_interval": int(
                     source_concept_observation_tick_interval
                 ),
+                "environment_sample_interval_seconds": float(
+                    environment_sample_interval_seconds
+                ),
                 "config_overrides": dict(config_overrides),
                 "trainer_config": {
                     "slow_memory_archive_interval_tokens": int(
@@ -653,6 +739,12 @@ def run_continuous_runtime_stress(
         started = time.perf_counter()
         deadline = started + max(0.1, float(timeout_seconds))
         current_token = start_token
+        measurement_environment_samples: list[dict[str, Any]] = []
+        next_environment_sample_at = (
+            started + max(0.001, float(environment_sample_interval_seconds))
+            if float(environment_sample_interval_seconds) > 0.0
+            else None
+        )
         expected_tick_count = max(
             1,
             (int(target_tokens) + int(tick_tokens) - 1) // int(tick_tokens),
@@ -665,6 +757,19 @@ def run_continuous_runtime_stress(
         poll_snapshots = expected_tick_count > event_history_limit
         poll_snapshot_count = 0
         while time.perf_counter() < deadline:
+            now = time.perf_counter()
+            if (
+                next_environment_sample_at is not None
+                and now >= next_environment_sample_at
+            ):
+                sample = _collect_velocity_environment_snapshot()
+                sample["measurement_elapsed_seconds"] = float(now - started)
+                measurement_environment_samples.append(sample)
+                while next_environment_sample_at <= now:
+                    next_environment_sample_at += max(
+                        0.001,
+                        float(environment_sample_interval_seconds),
+                    )
             with manager._lock:
                 current_token = int(manager._trainer.token_count)
                 if poll_snapshots:
@@ -709,6 +814,7 @@ def run_continuous_runtime_stress(
         velocity_environment = _summarize_velocity_environment(
             velocity_environment_before,
             velocity_environment_after,
+            measurement_environment_samples,
         )
         report = {
             "surface": "continuous_runtime_stress.v1",
@@ -769,6 +875,9 @@ def run_continuous_runtime_stress(
             },
             "timeout_seconds": float(timeout_seconds),
             "sample_interval_seconds": float(sample_interval_seconds),
+            "environment_sample_interval_seconds": float(
+                environment_sample_interval_seconds
+            ),
             "observer": {
                 "expected_tick_count": int(expected_tick_count),
                 "runtime_event_history_limit": int(event_history_limit),
@@ -821,6 +930,15 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--sample-interval-seconds", type=float, default=0.02)
     parser.add_argument(
+        "--environment-sample-interval-seconds",
+        type=float,
+        default=10.0,
+        help=(
+            "Slow-path device/CPU sampling cadence during the measured window. "
+            "Use 0 to disable measurement samples."
+        ),
+    )
+    parser.add_argument(
         "--host-truth-sync-interval-tokens",
         type=int,
         default=None,
@@ -859,6 +977,7 @@ def main() -> int:
         source_concept_observation_tick_interval=args.source_concept_observation_tick_interval,
         timeout_seconds=args.timeout_seconds,
         sample_interval_seconds=args.sample_interval_seconds,
+        environment_sample_interval_seconds=args.environment_sample_interval_seconds,
         profile_trainer_stages=args.profile_trainer_stages,
         host_truth_sync_interval_tokens=args.host_truth_sync_interval_tokens,
         native_burst_replay=False if args.disable_native_burst_replay else None,

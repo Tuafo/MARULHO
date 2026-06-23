@@ -173,6 +173,43 @@ def test_velocity_environment_summary_reports_clean_or_unknown_comparability() -
     assert unknown["contention"]["verdict"] == "unknown"
 
 
+def test_velocity_environment_summary_includes_measurement_samples() -> None:
+    report = _summarize_velocity_environment(
+        {
+            "cpu": {"available": True, "percent_processor_time": 18.0},
+            "gpu": {"available": True, "gpu_utilization_percent": 3.0},
+        },
+        {
+            "cpu": {"available": True, "percent_processor_time": 31.0},
+            "gpu": {"available": True, "gpu_utilization_percent": 6.0},
+        },
+        [
+            {
+                "measurement_elapsed_seconds": 10.0,
+                "cpu": {"available": True, "percent_processor_time": 44.0},
+                "gpu": {
+                    "available": True,
+                    "gpu_utilization_percent": 85.0,
+                    "memory_utilization_percent": 19.0,
+                    "memory_used_mib": 2048,
+                    "graphics_clock_mhz": 1815,
+                    "memory_clock_mhz": 7501,
+                    "power_draw_w": 122.5,
+                    "temperature_c": 61.0,
+                },
+            }
+        ],
+    )
+
+    assert report["contention"]["verdict"] == "contention_observed"
+    assert report["contention"]["max_gpu_utilization_percent"] == 85.0
+    assert report["measurement"]["sample_count"] == 1
+    assert report["measurement"]["max_cpu_percent"] == 44.0
+    assert report["measurement"]["max_gpu_memory_used_mib"] == 2048
+    assert report["measurement"]["max_graphics_clock_mhz"] == 1815
+    assert report["measurement"]["max_power_draw_w"] == 122.5
+
+
 def test_stress_runner_rejects_invalid_concept_tick_interval(tmp_path) -> None:
     try:
         run_continuous_runtime_stress(
@@ -244,12 +281,15 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
             "--profile-trainer-stages",
             "--host-truth-sync-interval-tokens",
             "32",
+            "--environment-sample-interval-seconds",
+            "12.5",
         ],
     )
 
     assert main() == 0
     assert captured["profile_trainer_stages"] is True
     assert captured["host_truth_sync_interval_tokens"] == 32
+    assert captured["environment_sample_interval_seconds"] == 12.5
 
 
 def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
@@ -263,3 +303,16 @@ def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
         assert "host_truth_sync_interval_tokens" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected invalid host truth interval rejection")
+
+
+def test_stress_runner_rejects_negative_environment_sample_interval(tmp_path) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            environment_sample_interval_seconds=-1.0,
+        )
+    except ValueError as exc:
+        assert "environment_sample_interval_seconds" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected invalid environment sample interval rejection")

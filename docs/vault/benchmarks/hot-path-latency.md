@@ -3747,6 +3747,17 @@ contention `not_observed`. The parent/current comparison rules out the cleanup
 commit as the cause of the full 6k-band drop; the remaining signal is a
 train-compute throughput regression or machine-state shift that needs a fresh
 runtime-focused diagnosis before promoting more recall work.
+The follow-up device-sampled current-HEAD run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-current-device-sampled-diagnostic.json`
+returned to the lower maintained band at `5920.087 tokens/sec`, with
+`0.135342 ms/token` train compute, `22.224 ms` p95 latency, and `270.624 s`
+prewarm. It also closed the before/after visibility gap: the new bounded
+measurement sampler recorded `8` during-run samples with CPU max `88%`, GPU max
+`60%`, VRAM max `2018 MiB`, graphics clock max `1957 MHz`, memory clock max
+`7301 MHz`, power max `49.650 W`, and temperature max `58 C`. Treat this as
+same-band live-tick protection evidence, not a clean speed ceiling, because the
+during-run sampler observed contention that the older before/after snapshots
+could miss.
 
 ### Bucket Candidate Source Window, 2026-06-18
 
