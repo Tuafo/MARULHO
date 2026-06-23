@@ -13,7 +13,7 @@ import statistics
 import sys
 import time
 import tracemalloc
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import torch
 
@@ -111,130 +111,6 @@ def _seed_events(
     return readouts, reviews
 
 
-def _legacy_full_retained_policy(
-    review_events: Sequence[Mapping[str, Any]],
-    readout_events: Sequence[Mapping[str, Any]],
-    *,
-    limit: int,
-) -> dict[str, Any]:
-    """Diagnostic-only copy of the retired all-retained match policy shape."""
-
-    retained_reviews = [
-        deepcopy(dict(item)) for item in review_events if isinstance(item, Mapping)
-    ]
-    retained_readouts = [
-        deepcopy(dict(item)) for item in readout_events if isinstance(item, Mapping)
-    ]
-    readout_by_binding: dict[
-        tuple[str, str, str, tuple[str, ...]],
-        dict[str, Any],
-    ] = {}
-    for event in retained_readouts:
-        labels = tuple(str(value) for value in list(event.get("labels") or []))
-        key = (
-            str(event.get("prediction_hash") or ""),
-            str(event.get("transition_memory_evaluation_hash") or ""),
-            str(event.get("persistent_transition_weights_hash") or ""),
-            labels,
-        )
-        if all(key[:3]) and labels:
-            readout_by_binding.setdefault(key, dict(event))
-
-    candidates: list[dict[str, Any]] = []
-    unmatched_reviews: list[dict[str, Any]] = []
-    for index, review in enumerate(retained_reviews):
-        labels = tuple(str(value) for value in list(review.get("labels") or []))
-        key = (
-            str(review.get("prediction_hash") or ""),
-            str(review.get("transition_memory_evaluation_hash") or ""),
-            str(review.get("persistent_transition_weights_hash") or ""),
-            labels,
-        )
-        readout = readout_by_binding.get(key)
-        if readout is None:
-            unmatched_reviews.append(
-                {
-                    "history_index": index,
-                    "emission_review_hash": review.get("emission_review_hash"),
-                    "reason": "missing_matching_internal_readout_evidence",
-                }
-            )
-            continue
-        label_grounding = [
-            bool(value) for value in list(readout.get("label_grounding") or [])
-        ]
-        grounded = bool(label_grounding) and all(label_grounding)
-        candidate_material = {
-            "emission_review_hash": review.get("emission_review_hash"),
-            "emission_hash": review.get("emission_hash"),
-            "readout_evidence_hash": readout.get("readout_evidence_hash"),
-            "prediction_hash": review.get("prediction_hash"),
-            "transition_memory_evaluation_hash": review.get(
-                "transition_memory_evaluation_hash"
-            ),
-            "persistent_transition_weights_hash": review.get(
-                "persistent_transition_weights_hash"
-            ),
-            "labels": list(labels),
-            "grounded": grounded,
-        }
-        candidates.append(
-            {
-                "rank": len(candidates) + 1,
-                "emission_review_hash": review.get("emission_review_hash"),
-                "emission_hash": review.get("emission_hash"),
-                "readout_evidence_hash": readout.get("readout_evidence_hash"),
-                "prediction_hash": review.get("prediction_hash"),
-                "transition_memory_evaluation_hash": review.get(
-                    "transition_memory_evaluation_hash"
-                ),
-                "persistent_transition_weights_hash": review.get(
-                    "persistent_transition_weights_hash"
-                ),
-                "label_hash": _sha256_json(list(labels)),
-                "all_labels_grounded": grounded,
-                "candidate_hash": _sha256_json(candidate_material),
-                "eligible_for_replay_evaluation_policy_review": grounded,
-            }
-        )
-    selected = candidates[: max(0, int(limit))]
-    readout_by_hash = {
-        str(event.get("readout_evidence_hash") or ""): dict(event)
-        for event in retained_readouts
-        if str(event.get("readout_evidence_hash") or "")
-    }
-    seeds: list[dict[str, Any]] = []
-    for candidate in selected:
-        readout_hash = str(candidate.get("readout_evidence_hash") or "")
-        readout = readout_by_hash.get(readout_hash, {})
-        ledger_match = bool(readout) and all(
-            str(candidate.get(key) or "") == str(readout.get(key) or "")
-            for key in (
-                "prediction_hash",
-                "transition_memory_evaluation_hash",
-                "persistent_transition_weights_hash",
-            )
-        )
-        seeds.append(
-            {
-                "readout_evidence_hash": readout_hash,
-                "prediction_hash": candidate.get("prediction_hash"),
-                "internal_readout_ledger_match": ledger_match,
-            }
-        )
-    return {
-        "surface": "diagnostic_legacy_snn_emission_review_full_retained_policy_and_design.v1",
-        "candidate_count_before_limit": int(len(candidates)),
-        "unmatched_emission_review_count": int(len(unmatched_reviews)),
-        "candidate_count": int(len(selected)),
-        "selected_seed_count": int(len(seeds)),
-        "candidates": selected,
-        "selected_replay_context_seeds": seeds,
-        "retained_review_event_count": int(len(retained_reviews)),
-        "retained_readout_event_count": int(len(retained_readouts)),
-    }
-
-
 def _process_rss_mb() -> float | None:
     try:
         import psutil  # type: ignore
@@ -320,14 +196,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=int(args.runs),
         fn=_bounded_path,
     )
-    legacy, legacy_samples = _timed_runs(
-        runs=int(args.runs),
-        fn=lambda: _legacy_full_retained_policy(
-            ledger_state["emission_review_events"],
-            ledger_state["events"],
-            limit=int(args.limit),
-        ),
-    )
     rss_after = _process_rss_mb()
     tracemalloc.start()
     _ = _bounded_path()
@@ -343,36 +211,25 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         for item in list(policy.get("candidates") or [])
         if isinstance(item, Mapping)
     ]
-    legacy_candidates = [
-        dict(item)
-        for item in list(legacy.get("candidates") or [])
-        if isinstance(item, Mapping)
-    ]
     bounded_top_hash = (
         bounded_candidates[0].get("emission_review_hash")
         if bounded_candidates
         else None
     )
-    legacy_top_hash = (
-        legacy_candidates[0].get("emission_review_hash")
-        if legacy_candidates
-        else None
-    )
+    expected_top_hash = reviews[0]["emission_review_hash"] if reviews else None
     selected_prediction_hashes = [
         str(item.get("prediction_hash") or "") for item in bounded_candidates
     ]
     bounded_mean = float(statistics.mean(bounded_samples))
-    legacy_mean = float(statistics.mean(legacy_samples))
     quality = {
-        "bounded_top_matches_legacy_top": bounded_top_hash == legacy_top_hash,
+        "bounded_top_matches_expected_seed": bounded_top_hash == expected_top_hash,
+        "expected_top_emission_review_hash": expected_top_hash,
+        "bounded_top_emission_review_hash": bounded_top_hash,
         "selected_candidate_count": int(len(bounded_candidates)),
         "recent_high_signal_selected": "prediction-0" in selected_prediction_hashes,
         "old_retained_outside_window_absent": f"prediction-{len(readouts) - 1}"
         not in selected_prediction_hashes,
         "bounded_selected_prediction_hashes": selected_prediction_hashes,
-        "legacy_selected_prediction_hashes": [
-            str(item.get("prediction_hash") or "") for item in legacy_candidates
-        ],
     }
     policy_required = (
         policy.get("promotion_gate", {}).get("required_evidence", {})
@@ -419,7 +276,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         == int(
             policy_source_window.get("emission_review_event_window_count", 0) or 0
         ),
-        "top_quality_matches_legacy": bool(quality["bounded_top_matches_legacy_top"]),
+        "top_quality_matches_expected_seed": bool(
+            quality["bounded_top_matches_expected_seed"]
+        ),
         "recent_high_signal_selected": bool(quality["recent_high_signal_selected"]),
         "old_retained_outside_window_absent": bool(
             quality["old_retained_outside_window_absent"]
@@ -469,31 +328,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "bounded_mean_ms": round(bounded_mean, 6),
             "bounded_median_ms": round(float(statistics.median(bounded_samples)), 6),
             "bounded_p95_ms": round(float(sorted(bounded_samples)[-1]), 6),
-            "legacy_mean_ms": round(legacy_mean, 6),
-            "legacy_median_ms": round(float(statistics.median(legacy_samples)), 6),
-            "legacy_p95_ms": round(float(sorted(legacy_samples)[-1]), 6),
-            "bounded_speedup_vs_legacy": round(
-                legacy_mean / max(bounded_mean, 1e-12),
-                6,
-            ),
             "bounded_samples_ms": [round(float(value), 6) for value in bounded_samples],
-            "legacy_samples_ms": [round(float(value), 6) for value in legacy_samples],
         },
         "policy_source_window": policy_source_window,
         "design_source_window": design_source_window,
         "selection_budget": dict(policy_source_window.get("selection_budget") or {}),
-        "retired_path_comparison": {
-            "old_policy": "match_all_retained_emission_reviews_and_readouts_then_verify_all_readouts_in_design",
-            "old_review_event_count": int(
-                legacy.get("retained_review_event_count", 0) or 0
-            ),
-            "old_readout_event_count": int(
-                legacy.get("retained_readout_event_count", 0) or 0
-            ),
-            "old_matched_event_count": int(
-                legacy.get("retained_review_event_count", 0) or 0
-            )
-            + int(legacy.get("retained_readout_event_count", 0) or 0),
+        "source_budget": {
+            "retained_review_event_count": int(len(reviews)),
+            "retained_readout_event_count": int(len(readouts)),
             "bounded_review_event_count": int(
                 policy_source_window.get("emission_review_event_window_count", 0) or 0
             ),
@@ -507,11 +349,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 policy_source_window.get("internal_readout_event_window_count", 0)
                 or 0
             ),
-            "match_work_reduction": round(
-                (
-                    float(legacy.get("retained_review_event_count", 0) or 0)
-                    + float(legacy.get("retained_readout_event_count", 0) or 0)
-                )
+            "removed_full_retained_match_event_count": int(len(reviews) + len(readouts)),
+            "source_work_reduction_estimate": round(
+                float(len(reviews) + len(readouts))
                 / max(
                     1,
                     int(
@@ -530,6 +370,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                 ),
                 6,
+            ),
+        },
+        "retired_full_retained_emission_review_policy_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": (
+                "full_retained_emission_reviews_and_readouts_match_policy"
             ),
         },
         "resource_behavior": {

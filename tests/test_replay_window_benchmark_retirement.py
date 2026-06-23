@@ -6,11 +6,17 @@ from pathlib import Path
 from marulho.evaluation.snn_readout_replay_priority_source_window_benchmark import (
     run_benchmark as run_readout_replay_priority_benchmark,
 )
+from marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark import (
+    run_benchmark as run_emission_review_replay_policy_benchmark,
+)
 from marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark import (
     run_benchmark as run_rollout_rehearsal_benchmark,
 )
 from marulho.evaluation.source_bank_memory_match_benchmark import (
     run_benchmark as run_source_bank_memory_match_benchmark,
+)
+from marulho.evaluation.status_replay_path_source_window_benchmark import (
+    run_benchmark as run_status_replay_path_benchmark,
 )
 
 
@@ -21,7 +27,9 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
     benchmark_paths = [
         ROOT / "src/marulho/evaluation/source_bank_memory_match_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/status_replay_path_source_window_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -31,6 +39,16 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "diagnostic_legacy_snn_readout_full_retained_priority",
         "_legacy_full_retained_policy",
         "diagnostic_legacy_snn_rollout_full_retained_policy",
+        "diagnostic_legacy_snn_emission_review_full_retained_policy_and_design",
+        "_legacy_emission_projection",
+        "_legacy_rollout_projection",
+        "_legacy_emission_review_history",
+        "latest_emission_matches_legacy",
+        "latest_history_matches_legacy",
+        "latest_rollout_matches_legacy",
+        "legacy_emission",
+        "legacy_rollout",
+        "legacy_history",
         "legacy_samples",
         "legacy_mean",
         "bounded_speedup_vs_legacy",
@@ -97,6 +115,34 @@ def test_readout_replay_priority_benchmark_reports_maintained_only_path() -> Non
     assert report["source_window"]["language_reasoning"] is False
 
 
+def test_emission_review_replay_policy_benchmark_reports_maintained_only_path() -> None:
+    report = run_emission_review_replay_policy_benchmark(
+        argparse.Namespace(retention_count=64, limit=8, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["pass_checks"]["top_quality_matches_expected_seed"] is True
+    assert report["pass_checks"]["recent_high_signal_selected"] is True
+    assert report["retired_full_retained_emission_review_policy_absence"][
+        "implementation_present"
+    ] is False
+    assert report["retired_full_retained_emission_review_policy_absence"][
+        "diagnostic_callable"
+    ] is False
+    assert "legacy_selected_prediction_hashes" not in report["quality"]
+    assert "legacy_mean_ms" not in report["latency"]
+    assert "bounded_speedup_vs_legacy" not in report["latency"]
+    assert "retired_path_comparison" not in report
+    assert report["policy_source_window"]["runs_live_tick"] is False
+    assert report["policy_source_window"]["global_candidate_scan"] is False
+    assert report["policy_source_window"]["global_score_scan"] is False
+    assert report["policy_source_window"]["language_reasoning"] is False
+    assert report["design_source_window"]["runs_live_tick"] is False
+    assert report["design_source_window"]["global_candidate_scan"] is False
+    assert report["design_source_window"]["global_score_scan"] is False
+    assert report["design_source_window"]["language_reasoning"] is False
+
+
 def test_rollout_rehearsal_benchmark_reports_maintained_only_path() -> None:
     report = run_rollout_rehearsal_benchmark(
         argparse.Namespace(retention_count=64, limit=8, runs=2, output=None)
@@ -119,3 +165,37 @@ def test_rollout_rehearsal_benchmark_reports_maintained_only_path() -> None:
     assert report["source_window"]["global_candidate_scan"] is False
     assert report["source_window"]["global_score_scan"] is False
     assert report["source_window"]["language_reasoning"] is False
+
+
+def test_status_replay_path_benchmark_reports_maintained_only_path() -> None:
+    report = run_status_replay_path_benchmark(
+        argparse.Namespace(retention_count=64, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["pass_checks"]["latest_emission_matches_expected_seed"] is True
+    assert report["pass_checks"]["latest_history_matches_expected_seed"] is True
+    assert report["pass_checks"]["latest_rollout_matches_expected_seed"] is True
+    assert report["retired_full_retained_status_projection_absence"][
+        "implementation_present"
+    ] is False
+    assert report["retired_full_retained_status_projection_absence"][
+        "diagnostic_callable"
+    ] is False
+    assert "legacy_emission_seed_count" not in report["quality"]
+    assert "legacy_history_unique_count" not in report["quality"]
+    assert "legacy_rollout_unique_count" not in report["quality"]
+    assert "legacy_combined_mean_ms" not in report["latency"]
+    assert "bounded_speedup_vs_legacy" not in report["latency"]
+    assert "retired_path_comparison" not in report
+    assert report["emission_source_window"]["runs_live_tick"] is False
+    assert report["emission_source_window"]["global_candidate_scan"] is False
+    assert report["emission_source_window"]["global_score_scan"] is False
+    assert report["emission_source_window"]["language_reasoning"] is False
+    assert report["emission_review_history_source_window"]["runs_live_tick"] is False
+    assert (
+        report["emission_review_history_source_window"]["global_candidate_scan"]
+        is False
+    )
+    assert report["rollout_source_window"]["runs_live_tick"] is False
+    assert report["rollout_source_window"]["global_candidate_scan"] is False

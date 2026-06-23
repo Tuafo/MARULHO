@@ -450,6 +450,19 @@ observed contention, and zero graph/native/sequence failures. A same-code
 no-profile rerun reached `6392.672 tokens/sec`; an earlier profiled run is
 rejected as contended external-load evidence.
 
+The 2026-06-23 maintained-only cleanup removes the benchmark-local executable
+full-retained emission-review policy/design comparator. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-emission-review-replay-policy-legacy-baseline-removed.json`
+passed by selecting the seeded newest review from a `16/2048` reviewed-emission
+CPU window and a `16/2048` internal-readout CPU window, returning `8` hash-only
+candidates, and reporting
+`retired_full_retained_emission_review_policy_absence.implementation_present=false`
+and `diagnostic_callable=false`. Mean maintained-only latency was
+`1.427000 ms`, p95 was `2.192300 ms`, traced Python peak allocation was
+`0.045339 MiB`, the source-work estimate remained `128x`, CUDA was available on
+the RTX 3060 but unused for archival metadata, and GPU archive allocation stayed
+`0.0 MiB`.
+
 The emission replay-context review bridge now keeps that same bounded rule
 between operator-reviewed replay design and Replay Controller context
 recording. `snn_language_readout_emission_replay_context_review(...)` windows
@@ -566,6 +579,19 @@ with bounded `12/65536` route rows, `65526` cached transition rows, and zero
 graph/native/sequence failures, but had observed GPU-side contention. This
 closes the status/export scan shape without promoting status projection into
 replay execution.
+
+The 2026-06-23 maintained-only cleanup also removes the benchmark-local
+full-retained status projection comparators. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\status-replay-path-legacy-baseline-removed.json`
+passed by checking only the maintained source windows, matching seeded latest
+emission, history, and rollout hashes, and reporting
+`retired_full_retained_status_projection_absence.implementation_present=false`
+and `diagnostic_callable=false`. It checked `80` bounded source rows instead of
+the removed full-retained `10240`-row projection estimate (`128x` less source
+work), with combined maintained latency `1.032916 ms`, emission design
+`2.412100 ms`, history `0.247476 ms`, rollout `0.439172 ms`, traced Python peak
+allocation `0.086983 MiB`, CPU archival/score placement, and `0.0 MiB`
+CUDA allocation/reservation.
 
 The synthetic selector report at
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

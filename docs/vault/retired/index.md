@@ -25,6 +25,7 @@ related_benchmarks: []
 - [Dense Label Calibration Update Broad Ledger Normalization](dense-label-calibration-update-broad-ledger-normalization.md)
 - [Direct Route Vote Fusion](direct-route-vote-fusion.md)
 - [Emission Review History Broad Normalization](emission-review-history-broad-normalization.md)
+- [Emission Status Benchmark Full Retained Baselines](emission-status-benchmark-full-retained-baselines.md)
 - [Fixed Cadence Slow Memory Admission](fixed-cadence-slow-memory-admission.md)
 - [Functional Full State Transition](functional-full-state-transition.md)
 - [Implicit Replay Entry Raw Text Payload Default](implicit-replay-entry-raw-text-payload-default.md)

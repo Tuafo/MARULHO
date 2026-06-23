@@ -93,6 +93,17 @@ measurement-window polling, and zero graph/native sequence failures. Treat this
 as protection for deleting service replay surfaces, not as promotion of a new
 recall/replay mechanism.
 
+The 2026-06-23 emission/status replay benchmark cleanup extends the same
+boundary to evidence harnesses: the full-retained emission-review policy/design
+comparator and the full-retained status replay projection comparators are gone
+from executable benchmark code. Maintained-only reports now assert seeded
+quality, explicit retired-path absence, CPU source-window placement, no global
+candidate/score scan, no raw replay text, no hidden language reasoning, no live
+tick, no every-token cadence, and no CUDA archival allocation. The paired long
+gate processed `524288` tokens at `6518.530 tokens/sec` with bounded
+`12/65536` route rows, `65526` cached transition rows, flat RTX 3060 memory,
+no observed contention, and zero graph/native sequence failures.
+
 HF replay recall now re-caps inherited query-collection bucket scopes before
 local recall. `_bounded_replay_recall_evaluation(...)` trusts inherited
 `candidate_bucket_ids` only from `bounded_replay_query_anchor_bucket_source_window.v1`

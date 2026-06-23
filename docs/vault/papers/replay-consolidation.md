@@ -218,6 +218,16 @@ capture windows; sparse replay argues for bounded candidate sets; modern
 Hopfield-style attention-like recall is treated here as a local associative
 memory operator, not as a transformer-like mind.
 
+The 2026-06-23 maintained-only cleanup applies that paper boundary to the
+benchmark layer itself. The repo no longer carries executable full-retained
+emission-review or status replay comparators as side baselines; the active
+benchmarks assert bounded source-window quality against seeded expectations and
+report retired-path absence. The evidence lives in external local reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` and the long
+`524288`-token gate stayed protected at `6518.530 tokens/sec` with no observed
+contention, no in-window environment sampling, bounded `12/65536` route rows,
+and zero graph/native sequence failures.
+
 ## Claim
 
 Replay and consolidation are slow-path mechanisms. MARULHO should select a

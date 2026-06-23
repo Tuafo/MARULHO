@@ -1,8 +1,8 @@
 """Benchmark bounded Runtime Truth replay-path status projections.
 
-This keeps the production read model on bounded CPU source windows while the
-benchmark-local diagnostic functions preserve the old retained-scan shape for
-latency and work comparison only.
+This keeps the production read model on bounded CPU source windows and asserts
+seeded source-window quality directly. Retired retained-scan projections stay
+absent from the executable benchmark harness.
 """
 
 from __future__ import annotations
@@ -27,20 +27,6 @@ from marulho.service.status_read_model import (
 )
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
-
-
-def _sha256_json(payload: Mapping[str, Any] | list[Any]) -> str:
-    import hashlib
-
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
 
 
 def _build_read_model(ledger_state: Mapping[str, Any]) -> StatusReadModel:
@@ -141,119 +127,6 @@ def _seed_ledger_state(retention_count: int) -> dict[str, Any]:
     }
 
 
-def _legacy_emission_projection(state: Mapping[str, Any]) -> dict[str, Any]:
-    readout_events = [
-        dict(item) for item in list(state.get("events") or []) if isinstance(item, Mapping)
-    ]
-    review_events = [
-        dict(item)
-        for item in list(state.get("emission_review_events") or [])
-        if isinstance(item, Mapping)
-    ]
-    readout_by_binding: dict[
-        tuple[str, str, str, tuple[str, ...]],
-        dict[str, Any],
-    ] = {}
-    for event in readout_events:
-        labels = tuple(str(value) for value in list(event.get("labels") or []))
-        key = (
-            str(event.get("prediction_hash") or ""),
-            str(event.get("transition_memory_evaluation_hash") or ""),
-            str(event.get("persistent_transition_weights_hash") or ""),
-            labels,
-        )
-        if all(key[:3]) and labels:
-            readout_by_binding.setdefault(key, event)
-    matched = []
-    for review in review_events:
-        labels = tuple(str(value) for value in list(review.get("labels") or []))
-        key = (
-            str(review.get("prediction_hash") or ""),
-            str(review.get("transition_memory_evaluation_hash") or ""),
-            str(review.get("persistent_transition_weights_hash") or ""),
-            labels,
-        )
-        readout = readout_by_binding.get(key)
-        if readout is None:
-            continue
-        grounding = [bool(value) for value in list(readout.get("label_grounding") or [])]
-        matched.append(
-            {
-                "prediction_hash": review.get("prediction_hash"),
-                "readout_evidence_hash": readout.get("readout_evidence_hash"),
-                "grounded": bool(grounding) and all(grounding),
-                "label_hash": _sha256_json(list(labels)),
-            }
-        )
-    return {
-        "policy_candidate_count": len(matched),
-        "design_seed_candidate_count": sum(1 for item in matched if item["grounded"]),
-        "latest_prediction_hash": matched[0].get("prediction_hash") if matched else None,
-        "checked_record_count": len(readout_events) + len(review_events),
-    }
-
-
-def _legacy_rollout_projection(state: Mapping[str, Any]) -> dict[str, Any]:
-    events = [
-        dict(item) for item in list(state.get("events") or []) if isinstance(item, Mapping)
-    ]
-    rollout_events = [
-        dict(item) for item in list(state.get("rollout_events") or []) if isinstance(item, Mapping)
-    ]
-    transition_hashes = {
-        str(item.get("persistent_transition_weights_hash") or "")
-        for item in rollout_events
-        if str(item.get("persistent_transition_weights_hash") or "")
-    }
-    rollout_hashes = {
-        str(item.get("rollout_hash") or "")
-        for item in rollout_events
-        if str(item.get("rollout_hash") or "")
-    }
-    latest = rollout_events[0] if rollout_events else {}
-    return {
-        "event_count": len(events),
-        "rollout_event_count": len(rollout_events),
-        "unique_rollout_count": len(rollout_hashes),
-        "unique_transition_memory_count": len(transition_hashes),
-        "latest_rollout_hash": latest.get("rollout_hash"),
-        "checked_record_count": len(events) + len(rollout_events),
-    }
-
-
-def _legacy_emission_review_history(state: Mapping[str, Any]) -> dict[str, Any]:
-    events = [
-        dict(item)
-        for item in list(state.get("emission_review_events") or [])
-        if isinstance(item, Mapping)
-    ]
-    emission_hashes = {
-        str(item.get("emission_hash") or "")
-        for item in events
-        if str(item.get("emission_hash") or "")
-    }
-    trajectory_hashes = {
-        str(item.get("trajectory_hash") or "")
-        for item in events
-        if str(item.get("trajectory_hash") or "")
-    }
-    transition_hashes = {
-        str(item.get("persistent_transition_weights_hash") or "")
-        for item in events
-        if str(item.get("persistent_transition_weights_hash") or "")
-    }
-    latest = events[0] if events else {}
-    return {
-        "emission_review_event_count": len(events),
-        "unique_emission_count": len(emission_hashes),
-        "unique_trajectory_count": len(trajectory_hashes),
-        "unique_transition_memory_count": len(transition_hashes),
-        "latest_emission_review_hash": latest.get("emission_review_hash"),
-        "latest_emission_hash": latest.get("emission_hash"),
-        "checked_record_count": len(events),
-    }
-
-
 def _measure(fn, runs: int) -> tuple[list[float], Any]:
     samples: list[float] = []
     last: Any = None
@@ -298,23 +171,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         model._snn_readout_emission_review_history,  # noqa: SLF001
         runs,
     )
-    legacy_emission_samples, legacy_emission = _measure(
-        lambda: _legacy_emission_projection(state),
-        runs,
-    )
-    legacy_rollout_samples, legacy_rollout = _measure(
-        lambda: _legacy_rollout_projection(state),
-        runs,
-    )
-    legacy_history_samples, legacy_history = _measure(
-        lambda: _legacy_emission_review_history(state),
-        runs,
-    )
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     bounded_emission_window = dict(bounded_emission.get("source_window") or {})
     bounded_rollout_window = dict(bounded_rollout.get("source_window") or {})
     bounded_history_window = dict(bounded_history.get("source_window") or {})
+    expected_emission = (state.get("emission_review_events") or [{}])[0]
+    expected_rollout = (state.get("rollout_events") or [{}])[0]
     pass_checks = {
         "emission_surface_present": bounded_emission_window.get("surface")
         == "bounded_snn_status_emission_replay_design_path_source_window.v1",
@@ -361,14 +224,18 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         and bounded_emission_window.get("gpu_used") is False
         and bounded_rollout_window.get("gpu_used") is False,
         "history_cpu_only": bounded_history_window.get("gpu_used") is False,
-        "latest_emission_matches_legacy": bounded_emission.get("latest_prediction_hash")
-        == legacy_emission.get("latest_prediction_hash"),
-        "latest_history_matches_legacy": bounded_history.get(
+        "latest_emission_matches_expected_seed": bounded_emission.get(
+            "latest_prediction_hash"
+        )
+        == expected_emission.get("prediction_hash"),
+        "latest_history_matches_expected_seed": bounded_history.get(
             "latest_emission_review_hash"
         )
-        == legacy_history.get("latest_emission_review_hash"),
-        "latest_rollout_matches_legacy": bounded_rollout.get("latest_rollout_hash")
-        == legacy_rollout.get("latest_rollout_hash"),
+        == expected_emission.get("emission_review_hash"),
+        "latest_rollout_matches_expected_seed": bounded_rollout.get(
+            "latest_rollout_hash"
+        )
+        == expected_rollout.get("rollout_hash"),
     }
     bounded_checked = int(
         bounded_emission_window.get("emission_review_event_window_count", 0) or 0
@@ -381,16 +248,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     ) + int(
         bounded_history_window.get("emission_review_event_window_count", 0) or 0
     )
-    legacy_checked = int(legacy_emission["checked_record_count"]) + int(
-        legacy_rollout["checked_record_count"]
-    ) + int(
-        legacy_history["checked_record_count"]
-    )
     bounded_mean = statistics.fmean(
         bounded_emission_samples + bounded_rollout_samples + bounded_history_samples
     )
-    legacy_mean = statistics.fmean(
-        legacy_emission_samples + legacy_rollout_samples + legacy_history_samples
+    removed_retained_checked = int(
+        len(state.get("events") or []) * 2
+        + len(state.get("emission_review_events") or []) * 2
+        + len(state.get("rollout_events") or [])
     )
     return {
         "surface": "bounded_snn_status_replay_path_source_window_benchmark.v1",
@@ -404,38 +268,49 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "pass": all(pass_checks.values()),
         "pass_checks": pass_checks,
         "quality": {
-            "latest_emission_matches_legacy": pass_checks["latest_emission_matches_legacy"],
-            "latest_history_matches_legacy": pass_checks[
-                "latest_history_matches_legacy"
+            "latest_emission_matches_expected_seed": pass_checks[
+                "latest_emission_matches_expected_seed"
             ],
-            "latest_rollout_matches_legacy": pass_checks["latest_rollout_matches_legacy"],
+            "latest_history_matches_expected_seed": pass_checks[
+                "latest_history_matches_expected_seed"
+            ],
+            "latest_rollout_matches_expected_seed": pass_checks[
+                "latest_rollout_matches_expected_seed"
+            ],
+            "expected_latest_prediction_hash": expected_emission.get(
+                "prediction_hash"
+            ),
+            "expected_latest_emission_review_hash": expected_emission.get(
+                "emission_review_hash"
+            ),
+            "expected_latest_rollout_hash": expected_rollout.get("rollout_hash"),
             "bounded_emission_seed_count": bounded_emission.get("design_seed_candidate_count"),
-            "legacy_emission_seed_count": legacy_emission.get("design_seed_candidate_count"),
             "bounded_history_unique_count": bounded_history.get("unique_emission_count"),
-            "legacy_history_unique_count": legacy_history.get("unique_emission_count"),
             "history_unique_scope": bounded_history.get("unique_count_scope"),
             "bounded_rollout_unique_count": bounded_rollout.get("unique_rollout_count"),
-            "legacy_rollout_unique_count": legacy_rollout.get("unique_rollout_count"),
             "unique_rollout_scope": bounded_rollout.get("unique_count_scope"),
         },
         "latency": {
             "bounded_emission": _summary(bounded_emission_samples),
             "bounded_rollout": _summary(bounded_rollout_samples),
             "bounded_history": _summary(bounded_history_samples),
-            "legacy_emission": _summary(legacy_emission_samples),
-            "legacy_rollout": _summary(legacy_rollout_samples),
-            "legacy_history": _summary(legacy_history_samples),
             "bounded_combined_mean_ms": round(bounded_mean, 6),
-            "legacy_combined_mean_ms": round(legacy_mean, 6),
-            "bounded_speedup_vs_legacy": round(legacy_mean / max(bounded_mean, 1e-9), 6),
         },
-        "retired_path_comparison": {
-            "old_policy": (
+        "source_budget": {
+            "bounded_checked_record_count": bounded_checked,
+            "removed_full_retained_checked_record_count": removed_retained_checked,
+            "source_work_reduction_estimate": round(
+                removed_retained_checked / max(1, bounded_checked),
+                6,
+            ),
+        },
+        "retired_full_retained_status_projection_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": (
                 "status_read_model_materialized_all_retained_readout_review_and_rollout_rows"
             ),
-            "bounded_checked_record_count": bounded_checked,
-            "old_checked_record_count": legacy_checked,
-            "record_work_reduction": round(legacy_checked / max(1, bounded_checked), 6),
         },
         "emission_source_window": bounded_emission_window,
         "emission_review_history_source_window": bounded_history_window,
