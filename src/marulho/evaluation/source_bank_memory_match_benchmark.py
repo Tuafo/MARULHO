@@ -12,8 +12,10 @@ from typing import Any
 import torch
 
 from marulho.reporting.io import write_json_file
-from marulho.semantics.frontier import bank_memory_matches_with_report
-from marulho.training.query_runner import memory_matches_with_report
+from marulho.semantics.frontier import (
+    SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT,
+    bank_memory_matches_with_report,
+)
 
 
 @dataclass
@@ -162,56 +164,6 @@ class _SyntheticTrainer:
         return pattern
 
 
-def _diagnostic_legacy_bank_memory_matches_no_cache(
-    trainer: _SyntheticTrainer,
-    bank: _SyntheticBank,
-    *,
-    probe_samples: int,
-    memories_per_probe: int,
-    max_matches: int,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    aggregated: dict[int, dict[str, Any]] = {}
-    probe_indices = list(range(min(max(0, int(probe_samples)), len(bank.probe_patterns))))
-    raw_text_payload_count = 0
-    cache_hits = 0
-    candidate_count = 0
-    for probe_idx in probe_indices:
-        pattern = bank.probe_patterns[probe_idx]
-        routing_key = trainer.routing_key_for_pattern(pattern)
-        matches, report = memory_matches_with_report(
-            trainer,
-            pattern,
-            routing_key,
-            top_k=memories_per_probe,
-            top_chars=1,
-        )
-        raw_text_payload_count += int(report.get("raw_text_payload_count", 0) or 0)
-        cache_hits += int(report.get("raw_text_payload_cache_hits", 0) or 0)
-        candidate_count += int(report.get("candidate_index_count", 0) or 0)
-        for match in matches:
-            memory_index = int(match.get("memory_index", -1))
-            if memory_index < 0:
-                continue
-            existing = aggregated.get(memory_index)
-            if existing is None or float(match.get("similarity", 0.0)) > float(existing.get("similarity", 0.0)):
-                aggregated[memory_index] = dict(match)
-    ranked = sorted(
-        aggregated.values(),
-        key=lambda item: (
-            float(item.get("similarity", 0.0)),
-            float(item.get("capture_strength", 0.0)),
-            float(item.get("importance", 0.0)),
-        ),
-        reverse=True,
-    )[: max(1, int(max_matches))]
-    return ranked, {
-        "raw_text_payload_count": int(raw_text_payload_count),
-        "raw_text_payload_cache_hits": int(cache_hits),
-        "candidate_index_count": int(candidate_count),
-        "match_indices": [int(item["memory_index"]) for item in ranked],
-    }
-
-
 def _measure(fn, iterations: int) -> tuple[list[float], list[Any]]:
     latencies: list[float] = []
     results: list[Any] = []
@@ -239,16 +191,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         train_raw_windows=["source bank probe"],
     )
 
-    def legacy_call() -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        trainer.model.memory_store.query_match_row_calls = []
-        return _diagnostic_legacy_bank_memory_matches_no_cache(
-            trainer,
-            bank,
-            probe_samples=args.probe_samples,
-            memories_per_probe=args.memories_per_probe,
-            max_matches=args.max_matches,
-        )
-
     def bounded_call() -> tuple[list[dict[str, Any]], dict[str, Any]]:
         trainer.model.memory_store.query_match_row_calls = []
         return bank_memory_matches_with_report(
@@ -263,21 +205,26 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     cuda_allocated_before = torch.cuda.memory_allocated() if cuda_available else 0
     cuda_reserved_before = torch.cuda.memory_reserved() if cuda_available else 0
     tracemalloc.start()
-    legacy_latencies, legacy_results = _measure(legacy_call, args.iterations)
     bounded_latencies, bounded_results = _measure(bounded_call, args.iterations)
     _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     cuda_allocated_after = torch.cuda.memory_allocated() if cuda_available else 0
     cuda_reserved_after = torch.cuda.memory_reserved() if cuda_available else 0
-    legacy_matches, legacy_report = legacy_results[-1]
     bounded_matches, bounded_report = bounded_results[-1]
-    legacy_indices = [int(match["memory_index"]) for match in legacy_matches]
     bounded_indices = [int(match["memory_index"]) for match in bounded_matches]
-    legacy_mean = statistics.fmean(legacy_latencies)
     bounded_mean = statistics.fmean(bounded_latencies)
-    speedup = legacy_mean / max(1e-9, bounded_mean)
+    expected_indices = list(
+        range(
+            min(
+                int(args.memories_per_probe),
+                int(args.max_matches),
+                int(args.capacity),
+                SOURCE_BANK_MEMORY_CANDIDATE_WINDOW_LIMIT,
+            )
+        )
+    )
     passed = (
-        legacy_indices == bounded_indices
+        bounded_indices == expected_indices
         and int(bounded_report.get("raw_text_payload_count", 0)) <= len(set(bounded_indices))
         and bool(bounded_report.get("source_bank_row_reader_owned_by_store"))
         and bool(bounded_report.get("direct_slow_memory_array_reads_retired"))
@@ -298,21 +245,23 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "iterations": int(args.iterations),
         "payload_repeats": int(args.payload_repeats),
         "quality": {
-            "selected_indices_match": bool(legacy_indices == bounded_indices),
-            "legacy_selected_indices": legacy_indices,
+            "selected_indices_match_expected": bool(bounded_indices == expected_indices),
+            "expected_selected_indices": expected_indices,
             "bounded_selected_indices": bounded_indices,
-            "min": 1.0 if legacy_indices == bounded_indices else 0.0,
+            "min": 1.0 if bounded_indices == expected_indices else 0.0,
         },
         "latency_ms": {
-            "legacy_mean": float(legacy_mean),
             "bounded_mean": float(bounded_mean),
-            "speedup": float(speedup),
-            "legacy_min": float(min(legacy_latencies)),
             "bounded_min": float(min(bounded_latencies)),
         },
-        "legacy_report": legacy_report,
         "bounded_report": bounded_report,
         "selection_budget": bounded_report.get("selection_budget", {}),
+        "retired_per_probe_query_match_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "per_probe_query_memory_match_aggregation",
+        },
         "device": {
             "archival_storage_device": bounded_report.get("archival_storage_device"),
             "score_device": bounded_report.get("score_device"),
@@ -350,15 +299,12 @@ def main() -> None:
     write_json_file(args.output, report)
     print(f"passed={report['passed']}")
     print(
-        "latency_ms legacy_mean={legacy:.6f} bounded_mean={bounded:.6f} speedup={speedup:.6f}".format(
-            legacy=report["latency_ms"]["legacy_mean"],
+        "latency_ms bounded_mean={bounded:.6f}".format(
             bounded=report["latency_ms"]["bounded_mean"],
-            speedup=report["latency_ms"]["speedup"],
         )
     )
     print(
-        "payload legacy={legacy} bounded={bounded} cache_hits={hits}".format(
-            legacy=report["legacy_report"]["raw_text_payload_count"],
+        "payload bounded={bounded} cache_hits={hits}".format(
             bounded=report["bounded_report"]["raw_text_payload_count"],
             hits=report["bounded_report"]["raw_text_payload_cache_hits"],
         )

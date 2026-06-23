@@ -348,7 +348,6 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "unique_candidate_index_count": 10,
                 "merged_probe_candidate_window": True,
                 "per_probe_query_match_call_count": 0,
-                "retired_per_probe_query_match_call_count": 2,
                 "match_indices": [9, 8],
                 "raw_text_payload_count": 2,
                 "raw_text_payload_cache_hits": 0,

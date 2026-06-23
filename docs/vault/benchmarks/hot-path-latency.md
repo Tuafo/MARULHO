@@ -3130,6 +3130,66 @@ utilization max `22%`, and GPU memory stayed flat at `1763 MiB`. This is
 same-band live-tick protection evidence under mild contention, not a clean
 speed ceiling, and it does not make source-bank recall every-token work.
 
+### Replay Benchmark Baseline Removal, 2026-06-23
+
+The cleanup slice removed executable benchmark-local legacy baselines for
+source-bank per-probe query recall, SNN readout replay-priority full-retained
+scoring, and SNN rollout rehearsal full-retained scoring. Focused reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` passed:
+
+- `source-bank-legacy-baseline-removed.json`: expected selected indices,
+  `192` bounded candidates, `1536` local similarities, `4` returned text
+  payloads, `134.160628 ms` bounded mean latency, CPU archival/score placement,
+  no CUDA archival allocation, and the retired active report field absent.
+- `snn-readout-replay-priority-legacy-baseline-removed.json`: seeded recent
+  high-signal readout selected from a `32/2048` CPU source window, `8`
+  candidates returned, `0.911452 ms` mean latency, and the retired
+  full-retained priority callable absent.
+- `snn-rollout-rehearsal-legacy-baseline-removed.json`: seeded recent
+  high-signal rollout selected from a `16/2048` CPU source window, `8`
+  candidates returned, `3.282180 ms` mean latency, and the retired
+  full-retained rollout callable absent.
+
+The clean hot-path gate passed after moving in-window CPU/GPU polling out of
+the default measurement path. The accepted 524288-token run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-default-nosample.json`
+processed `524288` tokens at `6098.818 tokens/sec`, with
+`train_compute=0.132657 ms/token`, `prepare_training=0.006864 ms/token`,
+`finalize_total=0.006710 ms/token`, `tick_duration_ms.p95=20.961`, bounded
+`12/65536` route rows, `10` output candidates, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, CUDA active on RTX 3060, and zero
+graph/native burst/native sequence failures. The velocity surface used
+before/after device snapshots only (`measurement.sample_count=0`) and reported
+no observed contention: CPU max `29%`, GPU max `16%`, GPU memory
+`2069->2068 MiB`.
+
+The rejected diagnostic sampled runs remain useful as evidence that benchmark
+instrumentation can perturb the gate if it runs inside the measured window. The
+first sampled 524288-token run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-sampled.json`
+finished at `4473.345 tokens/sec`, with `train_compute=0.171647 ms/token`,
+`tick_duration_ms.p95=45.319900`, CPU samples up to `100%`, GPU utilization up
+to `61%`, and RTX 3060 memory around `2000 MiB`. The second sampled rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-sampled-rerun.json`
+improved live-tick stage timing but still missed the wall-clock gate at
+`5721.656 tokens/sec`; tick-only timing implied `6457.383 tokens/sec`,
+`train_compute=0.138314 ms/token`, `prepare_training=0.007249 ms/token`,
+`finalize_total=0.006975 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, and zero graph/native/sequence failures. The no-extra
+sampler rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-nonsampled-rerun.json`
+still used the then-default in-window sampler and missed the wall-clock gate at
+`5742.199 tokens/sec`, with tick-only timing
+at `6421.080 tokens/sec`, `train_compute=0.138997 ms/token`, bounded `12/65536`
+route rows, `65526` cached transition rows, and zero graph/native/sequence
+failures.
+
+`continuous_runtime_stress_benchmark` now defaults
+`environment_sample_interval_seconds=0.0`; explicit nonzero sampling remains
+available for diagnostic device traces, but accepted hot-path gates keep
+in-window environment polling disabled and rely on before/after device evidence
+unless a run is explicitly marked diagnostic.
+
 ### Bounded ConceptStore Signature Lookup, 2026-06-18
 
 The ConceptStore signature lookup slice retires an old archive-shaped helper

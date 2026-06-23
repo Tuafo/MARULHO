@@ -13,7 +13,7 @@ import statistics
 import sys
 import time
 import tracemalloc
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import torch
 
@@ -74,80 +74,6 @@ def _seed_events(*, retention_count: int) -> list[dict[str, Any]]:
             _readout_event(source_index, label=label, weights_hash=weights_hash)
         )
     return events
-
-
-def _legacy_full_retained_priority(
-    events: Sequence[Mapping[str, Any]],
-    *,
-    limit: int,
-) -> dict[str, Any]:
-    """Diagnostic-only copy of the retired all-retained scoring shape."""
-
-    retained_events = [deepcopy(dict(item)) for item in events if isinstance(item, Mapping)]
-    label_counts: dict[str, int] = {}
-    transition_counts: dict[str, int] = {}
-    for event in retained_events:
-        label_key = "|".join(str(value) for value in list(event.get("labels") or []))
-        transition_key = str(event.get("persistent_transition_weights_hash") or "")
-        if label_key:
-            label_counts[label_key] = label_counts.get(label_key, 0) + 1
-        if transition_key:
-            transition_counts[transition_key] = transition_counts.get(transition_key, 0) + 1
-    candidates: list[dict[str, Any]] = []
-    total = max(1, len(retained_events))
-    for index, event in enumerate(retained_events):
-        labels = [str(value) for value in list(event.get("labels") or [])]
-        label_key = "|".join(labels)
-        transition_key = str(event.get("persistent_transition_weights_hash") or "")
-        recency = (
-            1.0 - min(1.0, index / max(1, total - 1)) if total > 1 else 1.0
-        )
-        repetition = (
-            min(1.0, label_counts.get(label_key, 0) / 3.0)
-            if label_key
-            else 0.0
-        )
-        transition_reuse = (
-            min(1.0, transition_counts.get(transition_key, 0) / 3.0)
-            if transition_key
-            else 0.0
-        )
-        provenance = (
-            1.0
-            if event.get("prediction_hash")
-            and event.get("transition_memory_evaluation_hash")
-            else 0.0
-        )
-        score = 100.0 * (
-            0.45 * provenance
-            + 0.25 * repetition
-            + 0.20 * recency
-            + 0.10 * transition_reuse
-        )
-        candidates.append(
-            {
-                "readout_evidence_hash": event.get("readout_evidence_hash"),
-                "labels": labels,
-                "priority_score": float(score),
-            }
-        )
-    candidates.sort(
-        key=lambda item: (
-            -float(item["priority_score"]),
-            -len(list(item.get("labels") or [])),
-            str(item.get("readout_evidence_hash") or ""),
-        )
-    )
-    selected = [
-        {**candidate, "rank": rank}
-        for rank, candidate in enumerate(candidates[: max(0, int(limit))], start=1)
-    ]
-    return {
-        "surface": "diagnostic_legacy_snn_readout_full_retained_priority.v1",
-        "candidate_count_before_rank": int(len(candidates)),
-        "candidate_count": int(len(selected)),
-        "candidates": selected,
-    }
 
 
 def _process_rss_mb() -> float | None:
@@ -217,13 +143,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         runs=int(args.runs),
         fn=lambda: ledger.replay_priority(limit=int(args.limit)),
     )
-    legacy, legacy_samples = _timed_runs(
-        runs=int(args.runs),
-        fn=lambda: _legacy_full_retained_priority(
-            ledger_state["events"],
-            limit=int(args.limit),
-        ),
-    )
     rss_after = _process_rss_mb()
     tracemalloc.start()
     _ = ledger.replay_priority(limit=int(args.limit))
@@ -236,19 +155,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         for item in list(bounded.get("candidates") or [])
         if isinstance(item, Mapping)
     ]
-    legacy_candidates = [
-        dict(item)
-        for item in list(legacy.get("candidates") or [])
-        if isinstance(item, Mapping)
-    ]
     bounded_top_hash = (
         bounded_candidates[0].get("readout_evidence_hash")
         if bounded_candidates
-        else None
-    )
-    legacy_top_hash = (
-        legacy_candidates[0].get("readout_evidence_hash")
-        if legacy_candidates
         else None
     )
     bounded_top_labels = (
@@ -257,9 +166,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         else []
     )
     bounded_mean = float(statistics.mean(bounded_samples))
-    legacy_mean = float(statistics.mean(legacy_samples))
     quality = {
-        "bounded_top_matches_legacy_top": bounded_top_hash == legacy_top_hash,
+        "bounded_top_hash_present": bool(bounded_top_hash),
         "bounded_top_labels": bounded_top_labels,
         "recent_high_signal_selected": "recent-high-signal-readout"
         in bounded_top_labels,
@@ -267,10 +175,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "bounded_selected_hashes": [
             str(item.get("readout_evidence_hash") or "")
             for item in bounded_candidates
-        ],
-        "legacy_selected_hashes": [
-            str(item.get("readout_evidence_hash") or "")
-            for item in legacy_candidates
         ],
     }
     pass_checks = {
@@ -290,7 +194,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             source_window.get("candidate_count_before_rank", 0) or 0
         )
         == int(source_window.get("source_event_window_count", 0) or 0),
-        "top_quality_matches_legacy": bool(quality["bounded_top_matches_legacy_top"]),
+        "top_hash_present": bool(quality["bounded_top_hash_present"]),
         "recent_high_signal_selected": bool(quality["recent_high_signal_selected"]),
         "no_global_scan": source_window.get("global_candidate_scan") is False
         and source_window.get("global_score_scan") is False,
@@ -319,30 +223,17 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "bounded_mean_ms": round(bounded_mean, 6),
             "bounded_median_ms": round(float(statistics.median(bounded_samples)), 6),
             "bounded_p95_ms": round(float(sorted(bounded_samples)[-1]), 6),
-            "legacy_mean_ms": round(legacy_mean, 6),
-            "legacy_median_ms": round(float(statistics.median(legacy_samples)), 6),
-            "legacy_p95_ms": round(float(sorted(legacy_samples)[-1]), 6),
-            "bounded_speedup_vs_legacy": round(
-                legacy_mean / max(bounded_mean, 1e-12),
-                6,
-            ),
             "bounded_samples_ms": [round(float(value), 6) for value in bounded_samples],
-            "legacy_samples_ms": [round(float(value), 6) for value in legacy_samples],
         },
         "source_window": source_window,
         "selection_budget": dict(source_window.get("selection_budget") or {}),
-        "retired_path_comparison": {
+        "retired_full_retained_priority_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
             "old_policy": "score_all_retained_readout_events_before_limit",
-            "old_scored_event_count": int(
-                legacy.get("candidate_count_before_rank", 0) or 0
-            ),
-            "bounded_scored_event_count": int(
-                source_window.get("candidate_count_before_rank", 0) or 0
-            ),
-            "score_work_reduction": round(
-                float(legacy.get("candidate_count_before_rank", 0) or 0)
-                / max(1, int(source_window.get("candidate_count_before_rank", 0) or 0)),
-                6,
+            "bounded_scored_event_count": int(source_window.get("candidate_count_before_rank", 0) or 0),
+            "retained_event_count_reported_separately": int(
+                source_window.get("source_event_retention_count", 0) or 0
             ),
         },
         "resource_behavior": {

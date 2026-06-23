@@ -360,6 +360,21 @@ bounded `12/65536` route rows, `65526` cached transition rows, no observed
 CPU contention, mild GPU contention (`21%` against a `20%` threshold), and flat
 GPU memory at `1763 MiB`.
 
+The 2026-06-23 maintained-only cleanup removes the benchmark-local executable
+per-probe diagnostic baseline and keeps the quality gate on seeded expected
+selection plus source-window budgets. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\source-bank-legacy-baseline-removed.json`
+passed with `192` bounded candidates, `1536` local similarities, `4` returned
+text payloads, `134.160628 ms` bounded mean latency, CPU archival/score
+placement, no CUDA archival allocation, and the retired active report field
+absent.
+The clean 524288-token protection gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-default-nosample.json`
+passed at `6098.818 tokens/sec`, with `train_compute=0.132657 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, CUDA active on
+RTX 3060, GPU memory `2069->2068 MiB`, no observed contention, and zero
+graph/native/sequence failures.
+
 Awake-ripple replay tagging is treated as selected synaptic tagging/capture
 metadata, not as a global recent-memory operator. `ripple_tag_awake(...)` now
 requires awake bucket scope for production tagging, caps candidates through the
@@ -572,6 +587,13 @@ observed contention, and zero graph/native/sequence failures. This treats
 attention-like readout recall as a bounded local replay-priority operator, not
 as a transformer-style text reasoning pass.
 
+The 2026-06-23 maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-readout-replay-priority-legacy-baseline-removed.json`
+removes the executable benchmark-local full-retained scorer from this evidence
+path. It selected the seeded recent high-signal readout from a `32/2048` CPU
+source window, returned `8` candidates, recorded the retired callable absent,
+averaged `0.911452 ms`, and used no CUDA archival allocation.
+
 Emission-review replay policy now follows the same selected-source rule before
 reviewed emissions can become replay-context seeds. The previous
 `snn_language_readout_emission_replay_evaluation_policy.v1` capped returned
@@ -660,6 +682,13 @@ allocation. The paired `524288`-token hot-path check stayed in band at
 route rows, `65526` cached transition rows, GPU memory `1867->1865 MiB`, and
 zero graph/native/sequence failures; GPU contention reached `22%`, so the
 evidence supports protected throughput, not a contention-free environment.
+
+The 2026-06-23 maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-rollout-rehearsal-legacy-baseline-removed.json`
+removes the executable benchmark-local full-retained rollout scorer from this
+evidence path. It selected the seeded recent high-signal rollout from a
+`16/2048` CPU source window, returned `8` candidates, recorded the retired
+callable absent, averaged `3.282180 ms`, and used no CUDA archival allocation.
 
 Status projection now obeys that same replay boundary. `StatusReadModel` no
 longer scans all retained readout, emission-review, and rollout ledgers when it

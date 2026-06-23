@@ -292,6 +292,36 @@ def test_main_forwards_trainer_stage_profile_and_host_truth_override(
     assert captured["environment_sample_interval_seconds"] == 12.5
 
 
+def test_main_defaults_environment_sampling_outside_measured_window(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _run(checkpoint, **kwargs):
+        captured["checkpoint"] = checkpoint
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        "marulho.evaluation.continuous_runtime_stress_benchmark."
+        "run_continuous_runtime_stress",
+        _run,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "continuous-runtime-stress",
+            "--checkpoint",
+            str(tmp_path / "runtime.pt"),
+            "--output",
+            str(tmp_path / "report.json"),
+        ],
+    )
+
+    assert main() == 0
+    assert captured["environment_sample_interval_seconds"] == 0.0
+
+
 def test_stress_runner_rejects_invalid_host_truth_interval(tmp_path) -> None:
     try:
         run_continuous_runtime_stress(

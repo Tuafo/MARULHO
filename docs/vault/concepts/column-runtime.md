@@ -533,6 +533,21 @@ against a `20%` threshold). This is source-acquisition protection evidence, not
 a clean speed ceiling, and not a live scheduler, topology, or mutation
 authority.
 
+The 2026-06-23 maintained-only cleanup removes the executable benchmark-local
+per-probe diagnostic path and keeps only the merged-window implementation. The
+external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\source-bank-legacy-baseline-removed.json`
+passed with expected selected indices, `192` scored candidates, `1536` local
+similarities, `4` returned text payloads, `134.160628 ms` bounded mean latency,
+CPU archival/score placement, no CUDA archival allocation, and
+`retired_per_probe_query_match_absence.active_report_field_present=false`.
+The matching clean 524288-token hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-default-nosample.json`
+stayed in the maintained band at `6098.818 tokens/sec`, with
+`train_compute=0.132657 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, CUDA active on RTX 3060, GPU memory `2069->2068 MiB`,
+no observed contention, and zero graph/native/sequence failures.
+
 ConceptStore signature lookup also stays bounded to already-selected evidence.
 `ConceptStore.observe(...)` now reports
 `bounded_concept_memory_signature_lookup.v1`, caps each evidence source at `8`
@@ -1231,6 +1246,14 @@ ms/token`, bounded `12/65536` route rows, `65526` cached transition rows, GPU
 memory `1852->1858 MiB`, no observed contention, and zero graph/native/sequence
 failures.
 
+The 2026-06-23 maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-readout-replay-priority-legacy-baseline-removed.json`
+keeps this as one source-window path rather than an active comparison against a
+retained scorer. It selected the seeded recent high-signal readout from a
+`32/2048` CPU source window, returned `8` candidates, reported the retired
+full-retained priority callable absent, averaged `0.911452 ms`, and used no
+CUDA archival allocation.
+
 Emission-review replay policy now keeps reviewed display text out of replay
 selection and applies the same bounded source rule before replay-context design.
 `snn_language_readout_emission_replay_evaluation_policy.v1` and its design
@@ -1300,6 +1323,13 @@ retained events, reducing mean priority latency from `309.922768 ms` to
 `1867->1865 MiB`, and zero graph/native/sequence failures; the environment did
 observe `22%` max GPU utilization, so this is throughput-protection evidence
 rather than contention-free evidence.
+
+The 2026-06-23 maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-rollout-rehearsal-legacy-baseline-removed.json`
+keeps rollout promotion on the single bounded source-window path. It selected
+the seeded recent high-signal rollout from a `16/2048` CPU source window,
+returned `8` candidates, reported the retired full-retained rollout callable
+absent, averaged `3.282180 ms`, and used no CUDA archival allocation.
 
 Replay-path status projection now follows the same bounded ownership rule. The
 service read model does not select replay or consolidation work, but it also

@@ -576,7 +576,7 @@ def run_continuous_runtime_stress(
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
-    environment_sample_interval_seconds: float = 10.0,
+    environment_sample_interval_seconds: float = 0.0,
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
     native_burst_replay: bool | None = None,
@@ -932,7 +932,7 @@ def main() -> int:
     parser.add_argument(
         "--environment-sample-interval-seconds",
         type=float,
-        default=10.0,
+        default=0.0,
         help=(
             "Slow-path device/CPU sampling cadence during the measured window. "
             "Use 0 to disable measurement samples."

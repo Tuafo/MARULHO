@@ -38,7 +38,8 @@ collects one CPU bucket-indexed candidate window capped at `192`, vector-scores
 the sampled probes against that local associative window, and loads raw text
 only for returned matches. The report surface remains
 `bounded_source_bank_memory_match.v1`, with `merged_probe_candidate_window=true`
-and `per_probe_query_match_call_count=0`.
+and `per_probe_query_match_call_count=0`; the active report no longer projects
+the retired per-probe call-count field.
 
 ## Evidence
 
@@ -56,9 +57,28 @@ bounded `12/65536` route rows, `65526` cached transition rows, mild GPU
 contention observed (`21%` against a `20%` threshold), flat `1763 MiB` GPU
 memory, and zero graph/native/sequence failures.
 
+The 2026-06-23 cleanup removed the benchmark-local executable per-probe
+diagnostic baseline from
+`src/marulho/evaluation/source_bank_memory_match_benchmark.py` instead of
+leaving it disabled. The external maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\source-bank-legacy-baseline-removed.json`
+passed with expected selected indices, `192` scored candidates, `1536` local
+similarities, `4` returned text payloads, CPU archival/score placement, no CUDA
+archival allocation, and
+`retired_per_probe_query_match_absence.active_report_field_present=false`.
+
+The paired clean long-run gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-default-nosample.json`
+processed `524288` tokens at `6098.818 tokens/sec`, with bounded `12/65536`
+route rows, `65526` cached transition rows, CUDA active on RTX 3060, GPU memory
+`2069->2068 MiB`, no observed contention, and zero graph/native/sequence
+failures.
+
 ## Revisit Only If
 
 A replacement must keep one bank-level bounded report, one explicit candidate
 window, CPU-resident archival metadata unless active replay computation benefits
-from CUDA, quality parity or better, and long-run evidence that no archive-wide
-or every-token work enters the live tick.
+from CUDA, a measured quality target, and long-run evidence that no
+archive-wide or every-token work enters the live tick. A per-probe baseline may
+only return as a deliberately isolated external diagnostic, not as repo-local
+side implementation code.

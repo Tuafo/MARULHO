@@ -611,7 +611,6 @@ def bank_memory_matches_with_report(
         "replay_priority_score_count": int(len(replay_scores)),
         "merged_probe_candidate_window": True,
         "per_probe_query_match_call_count": 0,
-        "retired_per_probe_query_match_call_count": int(len(probe_indices)),
         "candidate_window_limit": int(candidate_limit),
         "match_indices": [int(item["memory_index"]) for item in returned],
         "result_count": int(len(ranked_rows)),

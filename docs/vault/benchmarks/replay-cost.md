@@ -417,6 +417,17 @@ hot-path check stayed in band at `6284.379 tokens/sec`, with bounded `12/65536`
 route rows, `65526` cached transition rows, GPU memory `1852->1858 MiB`, no
 observed contention, and zero graph/native/sequence failures.
 
+The 2026-06-23 maintained-only cleanup removed the benchmark-local
+full-retained scorer. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-readout-replay-priority-legacy-baseline-removed.json`
+passed by selecting the seeded recent high-signal readout from a `32/2048`
+CPU source window, scoring only that window, returning `8` candidates, and
+reporting
+`retired_full_retained_priority_absence.implementation_present=false` and
+`diagnostic_callable=false`. Mean bounded latency was `0.911452 ms`, p95 was
+`1.502900 ms`, traced Python peak allocation was `0.065411 MiB`, CUDA was
+available on RTX 3060 but unused, and GPU archive allocation stayed `0.0 MiB`.
+
 SNN emission-review replay policy is now bounded before reviewed emissions can
 become replay-context seeds. `snn_language_readout_emission_replay_evaluation_policy.v1`
 and its design verifier read `16` recent reviewed emissions plus `16` recent
@@ -522,6 +533,17 @@ bounded `12/65536` route rows, `65526` cached transition rows, GPU memory
 `1867->1865 MiB`, and zero graph/native/sequence failures. The velocity sampler
 observed GPU contention at `22%`, so this is throughput-protection evidence,
 not contention-free hardware evidence.
+
+The 2026-06-23 maintained-only cleanup also removed the benchmark-local
+full-retained rollout scorer. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\snn-rollout-rehearsal-legacy-baseline-removed.json`
+passed by selecting the seeded recent high-signal rollout from a `16/2048`
+CPU source window, scoring only that window, returning `8` candidates, and
+reporting
+`retired_full_retained_rollout_policy_absence.implementation_present=false` and
+`diagnostic_callable=false`. Mean bounded latency was `3.282180 ms`, p95 was
+`5.692700 ms`, traced Python peak allocation was `0.066639 MiB`, CUDA was
+available on RTX 3060 but unused, and GPU archive allocation stayed `0.0 MiB`.
 
 Runtime Truth replay-path projection is bounded before it summarizes those
 slow/control-plane replay surfaces. `StatusReadModel` now emits
@@ -1013,8 +1035,8 @@ unions routing-index bucket ids, asks the memory store for one CPU
 bucket-indexed candidate window capped at `192`, vector-scores sampled probes
 against that local window, and loads raw text only for returned matches. It
 records `bounded_source_bank_memory_match.v1` with `merged_probe_candidate_window=true`,
-`per_probe_query_match_call_count=0`, `retired_per_probe_query_match_call_count`,
-candidate/window budgets, CPU archival/score placement, no global scans,
+`per_probe_query_match_call_count=0`, candidate/window budgets, CPU
+archival/score placement, no global scans,
 `runs_live_tick=false`, `runs_every_token=false`, and
 `language_reasoning=false`. The benchmark
 `reports/bounded_replay_window_20260622/source-bank-merged-probe-window.json`
@@ -1033,6 +1055,29 @@ stayed in the same 6k-ish band at `6129.933 tokens/sec`, with
 `12/65536` route rows, `65526` cached transition rows, mild GPU contention
 observed (`21%` against a `20%` threshold), flat `1763 MiB` GPU memory, and
 zero graph/native/sequence failures.
+
+The 2026-06-23 maintained-only cleanup removed the benchmark-local executable
+per-probe diagnostic baseline instead of hiding it behind a disabled branch.
+The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\source-bank-legacy-baseline-removed.json`
+passed with expected selected indices, `192` bounded candidates, `1536` local
+similarities, `4` returned text payloads, `134.160628 ms` bounded mean latency,
+`2.801865 MiB` traced Python peak allocation, `0.0 MiB` CUDA allocation and
+reservation deltas, and
+`retired_per_probe_query_match_absence.active_report_field_present=false`.
+Focused tests now source-scan the benchmark and frontier files so the removed
+callable, old report key, and legacy latency/speedup fields cannot silently
+return.
+
+The paired clean 524288-token hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-legacy-benchmark-baselines-removed-default-nosample.json`
+passed at `6098.818 tokens/sec`, with `train_compute=0.132657 ms/token`,
+`prepare_training=0.006864 ms/token`, `finalize_total=0.006710 ms/token`,
+bounded `12/65536` route rows, `65526` cached transition rows, CUDA active on
+RTX 3060, GPU memory `2069->2068 MiB`, no observed contention, and zero
+graph/native/sequence failures. The stress benchmark now keeps in-window
+environment polling opt-in so device diagnostics do not perturb accepted
+hot-path gates.
 
 The ConceptStore signature lookup follow-up removes the remaining
 archive-materializing access shape from semantic observation. Concept evidence
