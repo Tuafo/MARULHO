@@ -93,6 +93,17 @@ measurement-window polling, and zero graph/native sequence failures. Treat this
 as protection for deleting service replay surfaces, not as promotion of a new
 recall/replay mechanism.
 
+HF replay recall now re-caps inherited query-collection bucket scopes before
+local recall. `_bounded_replay_recall_evaluation(...)` trusts inherited
+`candidate_bucket_ids` only from `bounded_replay_query_anchor_bucket_source_window.v1`
+and caps them to the canonical `16` anchor buckets before invoking the store
+recall operator; noncanonical reports rebuild the bounded source window from
+current anchors. The 2026-06-23 benchmark capped `4096` inherited buckets to
+`16`, preserved exact input recall, used CPU archival/active recall placement,
+and allocated no CUDA. The same-checkpoint `524288`-token hot-path run reached
+`6162.974 tokens/sec` with bounded `12/65536` route rows and zero graph/native
+failures. This is slow-window recall hygiene, not a live-tick memory scan.
+
 Column Runtime is the MARULHO control-plane direction where many small predictive columns can exist, but only a bounded subset should wake on a tick.
 
 The registry, scheduler, voting, growth, and pruning model remains bounded and evidence-driven. `core.column_runtime` reads existing predictive-column and competitive-column tensors, then reports:
@@ -1355,9 +1366,13 @@ preserve those fields for restored trainers. `_collect_anchor_replay_queries(...
 then emits `bounded_replay_query_anchor_bucket_source_window.v1`, takes at most
 `16` reverse-recency anchor buckets, and passes only that bucket window into
 `collect_replay_query_indices(...)` and the follow-up HF recall evaluator. The
-surface is slow-path replay/query work: it reports CPU archival placement, no
-live tick, no every-token work, no global score/candidate scan, no raw replay
-text, no hidden language reasoning, and `anchor_source_full_scan=false`. The
+recall evaluator also re-caps inherited query-collection reports from checkpoint
+or caller state to that same `16`-bucket limit before calling
+`DualMemoryStore.recall_replay_window(...)`, so restored report metadata cannot
+widen recall. The surface is slow-path replay/query work: it reports CPU
+archival placement, no live tick, no every-token work, no global score/candidate
+scan, no raw replay text, no hidden language reasoning, and
+`anchor_source_full_scan=false`. The
 8192-anchor benchmark
 `reports/bounded_replay_window_20260618/replay-query-anchor-source-window-bounded.json`
 reduced source-selection latency from `16.414 ms` to `0.346 ms`, selected
@@ -1367,6 +1382,12 @@ sustained band at `6376.873 tokens/sec` with bounded `12/65536` route rows,
 `65526` cached transition rows, flat `1787 MiB` GPU memory, and zero runtime
 failures; the environment sampler did mark borderline GPU contention, so the
 claim is live-tick protection rather than a clean speed ceiling.
+The 2026-06-23 inherited-cap report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-inherited-bucket-cap.json`
+cut `4096` inherited buckets to `16`, truncated `4080`, kept exact input recall,
+and used `0.0 MiB` CUDA. Its same-checkpoint `524288`-token gate reached
+`6162.974 tokens/sec`, `train_compute=0.130390 ms/token`, and p95
+`20.644 ms`, with bounded route scoring and zero graph/native failures.
 
 Trainer sleep replay now uses that same shared anchor-source boundary before
 calling `DualMemoryStore.select_replay_window(...)`. The old trainer source

@@ -50,6 +50,24 @@ This file records research anchors for current architecture work. It is not a pr
   `21.992 ms`, `train_compute=0.135626 ms/token`, bounded `12/65536` route
   rows, zero graph/native/sequence failures, no observed contention, CUDA on
   the RTX 3060, and RTX memory `1997->1998 MiB`.
+- Inherited replay-query cap note, June 2026: selected replay remains bounded
+  even when a caller or restored checkpoint supplies an old query-collection
+  report. `_bounded_replay_recall_evaluation(...)` now accepts inherited
+  `candidate_bucket_ids` only from the canonical
+  `bounded_replay_query_anchor_bucket_source_window.v1` report and re-caps them
+  to the `16`-bucket anchor-window budget before local associative recall. The
+  external benchmark
+  `..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-inherited-bucket-cap.json`
+  cut an oversized `4096`-bucket report to `16`, truncated `4080` inherited
+  buckets, kept exact input recall (`mean_input_pattern_distance=0.0`), used
+  CPU archival/active recall placement, and allocated `0.0 MiB` CUDA. The
+  same-checkpoint `524288`-token run
+  `..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-inherited-query-cap-pinned-main-rerun.json`
+  reached `6162.974 tokens/sec`, `train_compute=0.130390 ms/token`, p95
+  `20.644 ms`, bounded `12/65536` route rows, no all-column transition, no
+  measurement polling, and zero graph/native sequence failures. This keeps
+  modern-Hopfield-style recall local to the selected anchor window and avoids
+  treating inherited report metadata as trusted global memory scope.
 - Semantic frontier store-owned row note, June 2026: modern Hopfield-style
   recall may score a local window, but complementary learning systems,
   continual replay, synaptic tagging/capture, and sparse replay do not justify

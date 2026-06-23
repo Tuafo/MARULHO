@@ -2999,6 +2999,27 @@ utilization max `11%`, and GPU memory stayed flat at `1848 MiB` before and
 after measurement. This keeps replay query collection off the live tick and in
 the same sustained throughput band.
 
+The inherited query-collection cap follow-up on 2026-06-23 keeps caller or
+checkpoint reports from widening HF recall after bounded collection. The quality
+benchmark `..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-inherited-bucket-cap.json`
+capped an oversized inherited `4096`-bucket report to `16` buckets, truncated
+`4080`, preserved exact input recall (`mean_input_pattern_distance=0.0`), kept
+bounded recent-anchor hit rate `1.0`, and used CPU archival/active recall
+placement with `cuda_memory_delta_mib=0.0`.
+
+The same-checkpoint long gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-inherited-query-cap-pinned-main-rerun.json`
+processed `524288` tokens at `6162.974 tokens/sec`, with
+`train_compute=0.130390 ms/token`, `prepare_training=0.006546 ms/token`,
+`finalize_total=0.006625 ms/token`, and `tick_duration_ms.p95=20.644`. Runtime
+Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, no
+all-column transition, no measurement-window polling, and zero graph/native
+sequence failures. The environment sampler marked GPU-side contention because
+the before-run GPU sample was `22%`; treat the run as live-tick protection and
+same-band evidence, not a claim that Task Manager GPU utilization must remain at
+`95%`.
+
 ### Bounded Query-Memory Match, 2026-06-17
 
 The query-memory match slice retires the explicit query readout's full

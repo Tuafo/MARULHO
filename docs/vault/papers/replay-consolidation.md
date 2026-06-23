@@ -269,6 +269,17 @@ patterns by default, reports available versus collected query indices, and
 records `score_count=0`, no global scans, CPU archival placement, and
 `runs_live_tick=false`.
 
+Inherited HF replay-query reports are bounded again before recall. When
+`_bounded_replay_recall_evaluation(...)` receives a caller-supplied query
+collection report, it accepts `candidate_bucket_ids` only if the report carries
+the canonical `bounded_replay_query_anchor_bucket_source_window.v1` source
+window. It then de-duplicates and caps the inherited buckets to
+`REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT=16` before calling
+`DualMemoryStore.recall_replay_window(...)`; noncanonical reports rebuild the
+bounded source window from current anchors. This keeps checkpoint/restored
+report metadata from widening modern-Hopfield-style local recall into an
+archive-scale scope.
+
 Explicit query/readout recall follows the same literature boundary. Modern
 Hopfield-style matching is useful only as a bounded local associative operator,
 so `query_runner.memory_matches_with_report(...)` records
@@ -1188,6 +1199,14 @@ buckets, selected the newest anchor query indices with hit rate `1.0` versus
 `mean_input_pattern_distance=0.0`. The benchmark pinned the trainer to CPU for
 replay-query evidence and reported `0.0 MiB` CUDA allocation.
 
+The inherited-scope follow-up
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-inherited-bucket-cap.json`
+passed with an oversized `4096`-bucket inherited report capped to `16` buckets,
+`4080` inherited buckets truncated, exact input recall
+(`mean_input_pattern_distance=0.0`), bounded recent-anchor hit rate `1.0`, CPU
+archival/active recall placement, no live tick, no every-token work, no global
+candidate scan, no hidden language reasoning, and `0.0 MiB` CUDA allocation.
+
 The long hot-path protection run
 `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json`
 processed `524288` tokens at `6376.873 tokens/sec`, with
@@ -1200,6 +1219,17 @@ native sequence failures were all `0`. GPU memory stayed flat at `1787 MiB`.
 The velocity sampler observed borderline GPU contention at `20%`, so this is
 accepted as hot-path protection and same-band throughput evidence, not a clean
 hardware ceiling.
+
+The same-checkpoint current rerun for the inherited cap
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-inherited-query-cap-pinned-main-rerun.json`
+processed `524288` tokens at `6162.974 tokens/sec`,
+`train_compute=0.130390 ms/token`, `prepare_training=0.006546 ms/token`,
+`finalize_total=0.006625 ms/token`, and `tick_duration_ms.p95=20.644`. Runtime
+Truth again stayed bounded at `route_input_rows_scored=12/65536`, no all-column
+transition, no measurement-window polling, and zero graph/native sequence
+failures. The sampler still marked GPU-side contention because the before-run
+GPU sample was `22%`; use this as live-tick protection and same-band evidence,
+not a claim that visible GPU utilization must reach a fixed percentage.
 
 Sleep replay now consumes the same shared anchor-source operator before
 calling `DualMemoryStore.select_replay_window(...)`. The previous trainer path

@@ -1347,6 +1347,19 @@ benchmark pinned the trainer to CPU for replay-query evidence and reported
 `archival_storage_device=cpu`, `active_replay_compute_device=cpu`, and
 `cuda_memory_delta_mib=0.0`.
 
+The inherited query-collection cap follow-up prevents restored or caller-supplied
+reports from widening that source window after collection:
+
+`python -m marulho.evaluation.replay_query_anchor_source_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-inherited-bucket-cap.json --anchor-count 4096 --column-latent-dim 32 --max-queries 16 --max-candidates 32 --iterations 64 --seed 29`
+
+It passed with an oversized inherited `4096`-bucket report capped to `16`
+buckets before HF recall, truncating `4080` inherited buckets. Bounded recent
+anchor hit rate stayed `1.0`, exact input recall stayed
+`mean_input_pattern_distance=0.0`, inherited-cap latency was `39.107 ms`, the
+fresh bounded collection averaged `0.892 ms`, and the bounded source remained
+`4.587x` faster than the all-anchor comparison. Device placement stayed CPU for
+archival and active replay-query work with `cuda_memory_delta_mib=0.0`.
+
 The 65536-column protection run was:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260617\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260618\hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json --target-tokens 524288 --tick-tokens 128 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --profile-trainer-stages`
@@ -1361,6 +1374,21 @@ native sequence failures were all `0`. GPU memory stayed flat at `1787 MiB`.
 The velocity sampler observed borderline GPU contention at `20%`, so this is
 accepted as hot-path protection and same-band throughput evidence, not a clean
 contention-free ceiling.
+
+The same-checkpoint inherited-cap protection rerun was:
+
+`$env:PYTHONPATH='C:\Users\thiag\Documents\GitHub\MARULHO\src'; python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint C:\Users\thiag\Documents\GitHub\MARULHO\reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-inherited-query-cap-pinned-main-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.5 --host-truth-sync-interval-tokens 32`
+
+It processed `524288` tokens at `6162.974 tokens/sec`, with
+`train_compute=0.130390 ms/token`, `prepare_training=0.006546 ms/token`,
+`finalize_total=0.006625 ms/token`, and `tick_duration_ms.p95=20.644`. Runtime
+Truth stayed bounded at `route_input_rows_scored=12/65536`,
+`route_output_candidate_count=10`, `state_transition_cached_count=65526`, and
+`state_transition_runs_all_columns=false`; graph, selection, native burst, and
+native sequence failures were all `0`. The velocity sampler again marked
+GPU-side contention from a `22%` before-run GPU sample, so visible GPU
+utilization is not the acceptance metric; the sustained token/stage evidence
+shows the live tick stayed protected.
 
 Trainer sleep replay now uses the same anchor-source window before calling
 `DualMemoryStore.select_replay_window(...)`. The retired helper sorted every

@@ -151,6 +151,32 @@ def run_benchmark(
         scope="benchmark_hf_anchor_replay_after_bounded_source_window",
         query_collection_report=bounded_report,
     )
+    oversized_bucket_ids = list(range(int(anchor_count) - 1, -1, -1))
+    oversized_source_window = dict(bounded_report.get("source_window") or {})
+    oversized_source_window.update(
+        {
+            "anchor_bucket_window_limit": int(anchor_count),
+            "anchor_bucket_window_count": int(anchor_count),
+            "anchor_bucket_ids": oversized_bucket_ids,
+        }
+    )
+    oversized_query_collection = dict(bounded_report)
+    oversized_query_collection.update(
+        {
+            "candidate_bucket_ids": oversized_bucket_ids,
+            "candidate_bucket_count": int(anchor_count),
+            "source_window": oversized_source_window,
+        }
+    )
+    inherited_started = time.perf_counter()
+    inherited_cap_recall_report = _bounded_replay_recall_evaluation(
+        trainer,
+        bounded_queries,
+        max_candidates=max_candidates,
+        scope="benchmark_hf_anchor_replay_after_inherited_cap",
+        query_collection_report=oversized_query_collection,
+    )
+    inherited_cap_latency_ms = float((time.perf_counter() - inherited_started) * 1000.0)
     cuda_after = torch.cuda.memory_allocated() if cuda_available else 0
 
     expected_recent_queries = list(
@@ -176,8 +202,16 @@ def run_benchmark(
         "surface": "bounded_replay_query_anchor_source_window_benchmark.v1",
         "status": "passed"
         if bool(recall_report.get("gate", {}).get("pass"))
+        and bool(inherited_cap_recall_report.get("gate", {}).get("pass"))
         and bounded_recent_hit_rate >= 1.0
         and not bool(bounded_report.get("anchor_source_full_scan"))
+        and int(
+            inherited_cap_recall_report.get("source_window", {}).get(
+                "anchor_bucket_window_count", 0
+            )
+            or 0
+        )
+        <= REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT
         else "failed",
         "parameters": {
             "anchor_count": int(anchor_count),
@@ -228,6 +262,60 @@ def run_benchmark(
             ),
         },
         "recall_report": recall_report,
+        "inherited_query_collection_cap": {
+            "surface": "bounded_replay_query_inherited_bucket_scope_cap.v1",
+            "status": "passed"
+            if bool(inherited_cap_recall_report.get("gate", {}).get("pass"))
+            and int(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "anchor_bucket_window_count", 0
+                )
+                or 0
+            )
+            <= REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT
+            else "failed",
+            "oversized_candidate_bucket_count": int(len(oversized_bucket_ids)),
+            "bounded_candidate_bucket_count": int(
+                inherited_cap_recall_report.get("candidate_bucket_count", 0) or 0
+            ),
+            "anchor_bucket_window_limit": int(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "anchor_bucket_window_limit", 0
+                )
+                or 0
+            ),
+            "inherited_bucket_truncated_count": int(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "inherited_query_collection_bucket_truncated_count", 0
+                )
+                or 0
+            ),
+            "inherited_bucket_ids_capped": bool(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "inherited_query_collection_bucket_ids_capped"
+                )
+            ),
+            "anchor_source_full_scan": bool(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "anchor_source_full_scan"
+                )
+            ),
+            "global_candidate_scan": bool(
+                inherited_cap_recall_report.get("source_window", {}).get(
+                    "global_candidate_scan"
+                )
+            ),
+            "latency_ms": inherited_cap_latency_ms,
+            "mean_input_pattern_distance": float(
+                inherited_cap_recall_report.get(
+                    "mean_input_pattern_distance", float("inf")
+                )
+            ),
+            "recall_gate_pass": bool(
+                inherited_cap_recall_report.get("gate", {}).get("pass")
+            ),
+            "report": inherited_cap_recall_report,
+        },
         "device_placement": {
             "archival_storage_device": "cpu",
             "active_replay_compute_device": "cpu",

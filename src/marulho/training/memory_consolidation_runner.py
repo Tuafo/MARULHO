@@ -107,24 +107,95 @@ def _replay_query_candidate_bucket_ids(
 ) -> tuple[list[int], dict[str, Any]]:
     if isinstance(query_collection_report, Mapping):
         raw_bucket_ids = query_collection_report.get("candidate_bucket_ids")
-        if raw_bucket_ids is not None:
+        source_window = query_collection_report.get("source_window")
+        if not isinstance(source_window, Mapping):
+            source_window = query_collection_report.get(
+                "anchor_bucket_source_window"
+            )
+        canonical_source_window = (
+            isinstance(source_window, Mapping)
+            and source_window.get("surface")
+            == "bounded_replay_query_anchor_bucket_source_window.v1"
+            and not bool(source_window.get("anchor_source_full_scan", True))
+        )
+        if raw_bucket_ids is not None and canonical_source_window:
             bucket_ids: list[int] = []
             seen: set[int] = set()
+            invalid_count = 0
+            duplicate_count = 0
+            unique_count = 0
+            limit = REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT
             for raw_bucket_id in raw_bucket_ids:
                 try:
                     bucket_id = int(raw_bucket_id)
                 except (TypeError, ValueError, OverflowError):
+                    invalid_count += 1
                     continue
-                if bucket_id < 0 or bucket_id in seen:
+                if bucket_id < 0:
+                    invalid_count += 1
+                    continue
+                if bucket_id in seen:
+                    duplicate_count += 1
                     continue
                 seen.add(bucket_id)
-                bucket_ids.append(bucket_id)
-            source_window = query_collection_report.get("source_window")
-            if not isinstance(source_window, Mapping):
-                source_window = query_collection_report.get(
-                    "anchor_bucket_source_window"
-                )
-            return bucket_ids, dict(source_window or {})
+                unique_count += 1
+                if len(bucket_ids) < limit:
+                    bucket_ids.append(bucket_id)
+            truncated_count = max(0, unique_count - len(bucket_ids))
+            source = dict(source_window)
+            selection_budget = dict(source.get("selection_budget") or {})
+            selection_budget.update(
+                {
+                    "anchor_bucket_window_entries": int(len(bucket_ids)),
+                    "anchor_bucket_window_limit": int(limit),
+                    "inherited_query_collection_bucket_entries": int(unique_count),
+                }
+            )
+            memory_budget = dict(source.get("memory_budget") or {})
+            memory_budget.update(
+                {
+                    "anchor_bucket_window_entries": int(len(bucket_ids)),
+                    "anchor_bucket_window_limit": int(limit),
+                    "archival_metadata_residency": "cpu",
+                    "gpu_resident_archival_metadata": False,
+                }
+            )
+            source.update(
+                {
+                    "anchor_bucket_ids": list(bucket_ids),
+                    "anchor_bucket_window_limit": int(limit),
+                    "anchor_bucket_window_count": int(len(bucket_ids)),
+                    "anchor_source_full_scan": False,
+                    "global_candidate_scan": False,
+                    "global_score_scan": False,
+                    "runs_live_tick": False,
+                    "runs_every_token": False,
+                    "raw_text_payload_loaded": False,
+                    "language_reasoning": False,
+                    "mutates_runtime_state": False,
+                    "applies_plasticity": False,
+                    "archival_storage_device": "cpu",
+                    "source_window_selection_device": "cpu",
+                    "active_replay_compute_device": "cpu",
+                    "gpu_resident_archival_metadata": False,
+                    "inherited_query_collection_bucket_count": int(unique_count),
+                    "inherited_query_collection_bucket_invalid_count": int(
+                        invalid_count
+                    ),
+                    "inherited_query_collection_bucket_duplicate_count": int(
+                        duplicate_count
+                    ),
+                    "inherited_query_collection_bucket_truncated_count": int(
+                        truncated_count
+                    ),
+                    "inherited_query_collection_bucket_ids_capped": bool(
+                        truncated_count > 0
+                    ),
+                    "selection_budget": selection_budget,
+                    "memory_budget": memory_budget,
+                }
+            )
+            return bucket_ids, source
     return replay_query_anchor_bucket_source_window(trainer)
 
 

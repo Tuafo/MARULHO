@@ -1583,6 +1583,148 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(query_collection["global_candidate_scan"])
         self.assertFalse(query_collection["runs_live_tick"])
 
+    def test_hf_recall_caps_inherited_query_collection_bucket_scope(self) -> None:
+        set_seed(29)
+        cfg = MarulhoConfig(
+            n_columns=32,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=64,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 100
+
+        patterns: dict[int, torch.Tensor] = {}
+        for bucket in range(24):
+            pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+            pattern[bucket % cfg.input_dim] = 1.0
+            patterns[bucket] = pattern
+            routing_key = trainer.model.routing_key_from_pattern(pattern)
+            assembly = trainer.model.competitive.assembly_from_input(
+                pattern.to(trainer.model.device)
+            ).detach().cpu()
+            trainer.model.memory_store.update(
+                assembly,
+                importance=1.0,
+                token_count=bucket + 1,
+                bucket_id=bucket,
+                input_pattern=pattern,
+                routing_key=routing_key.detach().cpu(),
+                capture_tag=1.0,
+            )
+            trainer.column_anchors[bucket] = {
+                "prototype": trainer.model.competitive.prototypes[bucket]
+                .detach()
+                .clone(),
+                "input_weights": trainer.model.competitive.input_weights[bucket]
+                .detach()
+                .clone(),
+                "strength": 2.0,
+                "captured_at_token": bucket + 1,
+                "captured_source_index": bucket,
+                "capture_sequence": bucket,
+            }
+
+        inherited_bucket_ids = list(range(23, -1, -1))
+        inherited_report = {
+            "surface": "bounded_replay_query_collection.v1",
+            "candidate_bucket_ids": inherited_bucket_ids,
+            "source_window": {
+                "surface": "bounded_replay_query_anchor_bucket_source_window.v1",
+                "status": "selected",
+                "scope": "hf_task_a_anchor_query_collection",
+                "window_policy": REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_POLICY,
+                "selection_criteria": [
+                    "column_anchor_reverse_recency_order",
+                    "bounded_anchor_bucket_count",
+                    "bucket_indexed_replay_query_collection",
+                ],
+                "anchor_bucket_source_total_count": 24,
+                "anchor_bucket_window_limit": 24,
+                "anchor_bucket_window_count": 24,
+                "anchor_bucket_ids": inherited_bucket_ids,
+                "anchor_source_full_scan": False,
+                "global_candidate_scan": False,
+                "global_score_scan": False,
+                "runs_live_tick": False,
+                "runs_every_token": False,
+                "raw_text_payload_loaded": False,
+                "language_reasoning": False,
+                "mutates_runtime_state": False,
+                "applies_plasticity": False,
+                "archival_storage_device": "cpu",
+                "source_window_selection_device": "cpu",
+                "active_replay_compute_device": "cpu",
+                "gpu_resident_archival_metadata": False,
+            },
+        }
+
+        report = _bounded_replay_recall_evaluation(
+            trainer,
+            [(23, patterns[23])],
+            max_candidates=4,
+            scope="hf_task_a_anchor_recall_inherited_cap",
+            query_collection_report=inherited_report,
+        )
+
+        expected_anchor_buckets = list(range(23, 7, -1))
+        source_window = report["source_window"]
+        selection_report = report["reports"][0]["selection_report"]
+
+        self.assertEqual(report["candidate_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(source_window["anchor_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(
+            source_window["anchor_bucket_window_limit"],
+            REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
+        )
+        self.assertEqual(source_window["anchor_bucket_window_count"], 16)
+        self.assertEqual(source_window["inherited_query_collection_bucket_count"], 24)
+        self.assertEqual(
+            source_window["inherited_query_collection_bucket_truncated_count"],
+            8,
+        )
+        self.assertTrue(source_window["inherited_query_collection_bucket_ids_capped"])
+        self.assertFalse(source_window["anchor_source_full_scan"])
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["runs_live_tick"])
+        self.assertEqual(selection_report["candidate_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(selection_report["candidate_source_bucket_count"], 16)
+        self.assertFalse(selection_report["global_candidate_scan"])
+        self.assertTrue(report["gate"]["anchor_bucket_source_window_bounded"])
+        self.assertTrue(report["gate"]["pass"])
+        self.assertEqual(report["score_device"], "cpu")
+        self.assertEqual(report["archival_storage_device"], "cpu")
+
+        noncanonical_report = dict(inherited_report)
+        noncanonical_report["candidate_bucket_ids"] = list(range(24))
+        noncanonical_report["source_window"] = {
+            **dict(inherited_report["source_window"]),
+            "surface": "legacy_unbounded_query_collection.v1",
+        }
+        rebuilt_report = _bounded_replay_recall_evaluation(
+            trainer,
+            [(23, patterns[23])],
+            max_candidates=4,
+            scope="hf_task_a_anchor_recall_noncanonical_rebuild",
+            query_collection_report=noncanonical_report,
+        )
+
+        self.assertEqual(rebuilt_report["candidate_bucket_ids"], expected_anchor_buckets)
+        self.assertEqual(
+            rebuilt_report["source_window"]["surface"],
+            "bounded_replay_query_anchor_bucket_source_window.v1",
+        )
+        self.assertNotIn(
+            "inherited_query_collection_bucket_count",
+            rebuilt_report["source_window"],
+        )
+        self.assertTrue(
+            rebuilt_report["gate"]["anchor_bucket_source_window_bounded"]
+        )
+
     def test_sleep_replay_caps_anchor_bucket_source_window_before_selection(self) -> None:
         set_seed(10)
         cfg = MarulhoConfig(
