@@ -2637,7 +2637,7 @@ class DualMemoryStore:
         self,
         bucket_ids: Sequence[int] | torch.Tensor | None,
         *,
-        max_candidates: int | None = None,
+        max_candidates: int,
     ) -> _BucketCandidateWindow:
         normalized = self._normalise_awake_bucket_ids(bucket_ids)
         if normalized is None:
@@ -2661,7 +2661,7 @@ class DualMemoryStore:
                 for bucket_id in normalized
             )
         )
-        limit = None if max_candidates is None else max(0, int(max_candidates))
+        limit = max(0, int(max_candidates))
         if limit == 0:
             return _BucketCandidateWindow(
                 normalized_bucket_ids=normalized,
@@ -2685,10 +2685,8 @@ class DualMemoryStore:
         bounded: list[int] = []
         seen: set[int] = set()
         source_entry_read_count = 0
-        source_entry_read_budget = (
-            available_count
-            if limit is None
-            else int(max(0, limit) * max(1, len(per_bucket_entries)))
+        source_entry_read_budget = int(
+            max(0, limit) * max(1, len(per_bucket_entries))
         )
         source_entry_read_budget_exhausted = False
         while True:
@@ -2711,7 +2709,7 @@ class DualMemoryStore:
                 cursors[bucket_pos] = cursor
                 if source_entry_read_budget_exhausted:
                     break
-                if limit is not None and len(bounded) >= limit:
+                if len(bounded) >= limit:
                     return _BucketCandidateWindow(
                         normalized_bucket_ids=normalized,
                         candidate_indices=bounded,
@@ -2737,8 +2735,8 @@ class DualMemoryStore:
             source_entry_read_budget_exhausted=source_entry_read_budget_exhausted,
             source_materialized_entry_count=0,
             source_materialization_count=0,
-            source_full_bucket_scan=bool(limit is None),
-            candidate_window_limit=int(len(bounded) if limit is None else limit),
+            source_full_bucket_scan=False,
+            candidate_window_limit=int(limit),
         )
 
     @staticmethod

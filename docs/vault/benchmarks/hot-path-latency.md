@@ -3838,6 +3838,32 @@ entries within a `32`-entry source-read budget, materialized `0`, set
 `candidate_source_full_bucket_scan=false`, kept archival/source placement on
 CPU, and allocated `0.0 MiB` CUDA memory.
 
+The 2026-06-23 explicit-budget cleanup removed the helper's leftover
+`max_candidates=None` full-bucket branch:
+
+`python -m marulho.evaluation.bucket_candidate_source_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-candidate-source-window-explicit-budget.json --archive-size 65536 --candidate-limit 32 --iterations 64`
+
+It again passed newest-candidate parity on a `65536`-entry hot bucket. The
+legacy materialized source path averaged `0.518753 ms`; the maintained explicit
+budget path averaged `0.035120 ms` (`14.770743x`). The bounded report read `32`
+source entries, scored `32` replay-selection candidates, materialized `0`, set
+`candidate_source_full_bucket_scan=false`, kept archival/source placement on
+CPU, and allocated `0.0 MiB` CUDA memory.
+
+The paired hot-path gate:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-candidate-explicit-budget-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+It processed `524288` tokens in `86.696226 s` at `6047.414 tokens/sec`,
+`tick_duration_ms.p95=21.647`, `train_compute=0.133284 ms/token`,
+`prepare_training=0.006719 ms/token`, and
+`finalize_total=0.006713 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`247.758 s`; no contention was observed; CPU max was `30%`; GPU max was `18%`;
+and RTX memory stayed flat at `1787->1788 MiB`.
+
 Replay quality benchmark:
 
 `python -m marulho.evaluation.bounded_replay_window_benchmark --output reports\bounded_replay_window_20260618\synthetic-bucket-source-window.json`

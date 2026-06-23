@@ -1402,9 +1402,11 @@ retained-history scan.
 Bucket-indexed memory windows now bound the source construction inside the
 shared store helper as well as the returned candidate count. The previous
 helper could return only `32` candidates while still materializing an entire
-hot bucket through `list(reversed(...))`. `_candidate_indices_for_bucket_ids(...)`
-now uses tail-indexed round-robin cursors and every bucket-scoped caller can
-report `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`,
+hot bucket through `list(reversed(...))`, and its leftover optional
+`max_candidates=None` branch could still budget every available bucket entry.
+`_candidate_indices_for_bucket_ids(...)` now requires an explicit source budget,
+uses tail-indexed round-robin cursors, and every bucket-scoped caller can report
+`candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`,
 source-read count, materialization count, CPU source placement, and no
 full-bucket scan. `reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
 used a `65536`-entry hot bucket, preserved newest-candidate parity, read `32`
@@ -1413,6 +1415,17 @@ allocated `0.0 MiB` CUDA, and reduced mean source latency from `0.416944 ms`
 to `0.060931 ms` (`6.843x`). The maintained
 contract is that replay/query/frontier/ripple windows are bounded before any
 modern-Hopfield-style local recall or replay scoring runs.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-candidate-source-window-explicit-budget.json`
+refreshes the same evidence after deleting the optional full-bucket branch:
+`32/65536` source entries read, `32` scored, `0` materialized,
+`candidate_source_full_bucket_scan=false`, CPU archival placement, `0.0 MiB`
+CUDA allocation, and `14.770743x` source-latency improvement.
+The paired `524288`-token gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-candidate-explicit-budget-default-nosample.json`
+held the live tick in band at `6047.414 tokens/sec`, p95 `21.647 ms`,
+`train_compute=0.133284 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, no observed contention, RTX 3060 memory
+`1787->1788 MiB`, and zero graph/native sequence failures.
 
 HF replay query collection now bounds retained column-anchor source selection
 before the store collector runs. `capture_recent_memory_anchors(...)` records

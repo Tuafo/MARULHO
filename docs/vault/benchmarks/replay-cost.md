@@ -1531,7 +1531,7 @@ protection evidence rather than a speed ceiling.
 
 The bucket candidate source-window follow-up closes a lower-level source-cost
 gap in the shared store helper. The maintained collector now uses
-tail-indexed round-robin cursors and reports
+an explicit source budget, tail-indexed round-robin cursors, and reports
 `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`.
 `reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
 kept newest-candidate parity on a `65536`-entry hot bucket, read `32` source
@@ -1543,8 +1543,28 @@ kept the positive-pressure consolidation and recall gates passing with
 `mean_input_pattern_distance=5.96046447753906e-08`, while the `524288`-token
 protection run stayed in band at `6290.744 tokens/sec`, with bounded
 `12/65536` route rows, flat `1788 MiB` RTX 3060 memory, and no observed
-contention. This keeps source construction selected and CPU-resident before
-any bounded replay/query/frontier/ripple operator runs.
+contention.
+
+The 2026-06-23 cleanup removed the helper's leftover unbounded
+`max_candidates=None` branch. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-candidate-source-window-explicit-budget.json`
+passed newest-candidate parity on a `65536`-entry hot bucket, read exactly `32`
+source entries, scored `32` replay candidates, materialized `0`, kept
+`candidate_source_full_bucket_scan=false`, used CPU archival/source placement
+with `cuda_memory_delta_mib=0.0`, and reduced mean source latency from
+`0.518753 ms` to `0.035120 ms` (`14.770743x`).
+This keeps source construction selected and CPU-resident before any bounded
+replay/query/frontier/ripple operator runs.
+
+The paired hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-candidate-explicit-budget-default-nosample.json`
+processed `524288` tokens in `86.696226 s` at `6047.414 tokens/sec`, p95
+`21.647 ms`, `train_compute=0.133284 ms/token`,
+`prepare_training=0.006719 ms/token`, `finalize_total=0.006713 ms/token`,
+bounded `12/65536` route rows, cached `65526` transition rows, zero
+graph/native sequence failures, no observed contention, CPU max `30%`, GPU max
+`18%`, RTX 3060 memory `1787->1788 MiB`, and a `247758.003 ms` prewarm outside
+the measured token window.
 
 The SNN readout-ledger normalization/store follow-up retires the remaining broad
 full-materialize-then-cap shapes inside `SNNLanguageReadoutEvidenceLedger`.

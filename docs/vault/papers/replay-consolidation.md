@@ -1212,9 +1212,10 @@ The shared bucket candidate source now has the same bounded-source contract as
 the replay/query callers that consume it. The previous helper returned a capped
 candidate list, but built `list(reversed(...))` for each selected bucket first,
 so one hot bucket could still create source work proportional to bucket size.
-`DualMemoryStore._candidate_indices_for_bucket_ids(...)` now walks bucket tails
-with per-bucket cursors, round-robins until the requested window is full, and
-reports `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`
+`DualMemoryStore._candidate_indices_for_bucket_ids(...)` now requires an
+explicit source budget, walks bucket tails with per-bucket cursors, round-robins
+until the requested window is full, and reports
+`candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`
 plus source-read/materialization counts. The diagnostic benchmark
 `reports/bounded_replay_window_20260618/bucket-candidate-source-window-bounded.json`
 used a `65536`-entry hot bucket, preserved newest-candidate parity, read `32`
@@ -1223,7 +1224,19 @@ CPU archival/source placement with `0.0 MiB` CUDA allocation, and reduced mean
 source latency from `0.416944 ms` to `0.060931 ms` (`6.843x`). This is not a
 transformer-style memory scan; it is the
 local source-window setup required before bounded associative recall, query
-readout, frontier planning, or awake ripple tagging.
+readout, frontier planning, or awake ripple tagging. The 2026-06-23 refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-candidate-source-window-explicit-budget.json`
+removes the leftover optional full-bucket branch and still passes with `32`
+source reads from a `65536` hot bucket, `32` scored replay candidates, `0`
+materialized entries, `candidate_source_full_bucket_scan=false`, CPU archival
+placement, `0.0 MiB` CUDA allocation, and `14.770743x` mean source-latency
+improvement.
+The paired long-run gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-candidate-explicit-budget-default-nosample.json`
+reached `6047.414 tokens/sec`, p95 `21.647 ms`,
+`train_compute=0.133284 ms/token`, bounded `12/65536` route rows, no observed
+contention, RTX 3060 memory `1787->1788 MiB`, and zero graph/native sequence
+failures.
 
 HF replay query collection now applies the same bounded-source rule to retained
 column anchors. The old runner capped returned query indices but still passed

@@ -242,8 +242,10 @@ GPU memory, and no observed contention.
 
 The hot-bucket source construction below that capped scorer is now bounded too.
 `_candidate_indices_for_bucket_ids(...)` used to build `list(reversed(...))`
-for every selected bucket before returning the capped candidate list. It now
-uses tail-indexed cursors and reports
+for every selected bucket before returning the capped candidate list. Its
+leftover optional budget branch could also read every available bucket entry
+when called with no `max_candidates`. It now requires an explicit source budget,
+uses tail-indexed cursors, and reports
 `candidate_source_window_policy=tail_indexed_bucket_round_robin_no_full_bucket_materialization`,
 `candidate_source_entry_read_count`, materialization counts, CPU source device,
 and no full-bucket scan/materialization. The diagnostic benchmark
@@ -254,6 +256,16 @@ indices within a `32`-entry source-read budget, materialized `0`, used
 `0.060931 ms` (`6.843x`). This source window feeds
 replay selection, replay-query collection, query readout, frontier planning,
 and awake ripple tagging.
+The refreshed external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-candidate-source-window-explicit-budget.json`
+kept the same newest-candidate parity with an explicit `32` source budget,
+`32` source reads, `32` replay-selection scores, `0` materialized entries,
+`candidate_source_full_bucket_scan=false`, CPU archival placement, `0.0 MiB`
+CUDA allocation, and `14.770743x` mean source-latency improvement.
+The paired `524288`-token hot-path gate reached `6047.414 tokens/sec` with p95
+`21.647 ms`, `train_compute=0.133284 ms/token`, bounded `12/65536` route rows,
+no observed contention, RTX 3060 memory `1787->1788 MiB`, and zero graph/native
+sequence failures.
 
 The replay query-collection follow-up applies the same cap before HF recall
 queries are loaded. `DualMemoryStore.collect_replay_query_indices(...)` emits

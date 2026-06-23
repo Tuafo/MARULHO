@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from array import array
+import inspect
 import math
 from typing import Any
 import unittest
@@ -681,6 +682,31 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(bucket_indices.getitem_count, 5)
         self.assertEqual(bucket_indices.iteration_attempts, 0)
         self.assertEqual(bucket_indices.reversed_attempts, 0)
+
+    def test_bucket_candidate_window_requires_explicit_source_budget(self) -> None:
+        parameter = inspect.signature(
+            DualMemoryStore._candidate_indices_for_bucket_ids
+        ).parameters["max_candidates"]
+
+        self.assertIs(parameter.default, inspect.Parameter.empty)
+
+        store = DualMemoryStore(capacity=8)
+        store.slow_buffer = [
+            torch.tensor([float(index), 1.0], dtype=torch.float32)
+            for index in range(8)
+        ]
+        store.slow_bucket_ids = [3 for _ in range(8)]
+        store._bucket_entry_indices[3] = list(range(8))
+
+        report = store.collect_query_memory_match_indices(
+            candidate_bucket_ids=[3],
+            max_candidates=3,
+        )
+
+        self.assertEqual(report["candidate_source_entry_read_budget"], 3)
+        self.assertEqual(report["candidate_source_entry_read_count"], 3)
+        self.assertFalse(report["candidate_source_full_bucket_scan"])
+        self.assertEqual(report["candidate_window_limit"], 3)
 
     def test_awake_ripple_unscoped_requires_awake_bucket_scope(self) -> None:
         store = DualMemoryStore(capacity=16)
