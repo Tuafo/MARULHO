@@ -2324,8 +2324,10 @@ inside a selected local memory or replay window; CLS, continual replay,
 synaptic tagging/capture, and sparse replay support salient bounded evidence,
 not routine archive-wide integrity checks in operator status. MARULHO therefore
 routes capacity pressure, dense readout tensor integrity, applied-synapse
-provenance, and rollout/server binding through one bounded transition-memory
-helper. Each status projection reads at most `32` sparse-transition rows and
+provenance, and rollout/server binding through one bounded newest-first
+transition-memory helper. The status-local insertion-order helper is removed,
+so status and plasticity runtime-state projections share one source-window
+rule. Each status projection reads at most `32` sparse-transition rows and
 `32` provenance rows on CPU and blocks exact readiness when truncated.
 
 The report
@@ -2344,6 +2346,22 @@ accepted `524288`-token rerun processed `6371.238 tokens/sec` with
 cached transition rows, and zero graph/native sequence failures; velocity
 still reported borderline GPU contention (`23%`), so the run is throughput
 protection rather than a clean speed ceiling.
+
+The 2026-06-23 refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\status-transition-memory-source-window-recent-helper.json`
+proves the shared helper is recency-correct: `32` stale invalid rows inserted
+first lose to `32` valid recent rows inserted last, with
+`invalid_synapse_key_count=0` and `32 + 32` selected source rows. The maintained
+path still reads `256` rows versus `10240` retired broad rows (`40x` less
+source work), reduces mean latency from `87.635592 ms` to `12.310596 ms`
+(`7.118712x`), keeps CPU archival placement with bounded Python peak
+`0.047835 MiB` mean, and uses `0.0 MiB` CUDA allocation/reservation. The paired
+external `524288`-token protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-status-transition-recent-helper-default-nosample.json`
+stayed in the maintained 6k-ish band at `6054.480 tokens/sec`, p95
+`21.719 ms`, `train_compute=0.133249 ms/token`, bounded `12/65536` route rows,
+`65526` cached rows, no observed contention (`cpu max=45%`, `gpu max=10%`),
+RTX 3060 memory `1817->1816 MiB`, and zero graph/native sequence failures.
 
 ## Links
 

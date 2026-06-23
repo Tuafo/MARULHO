@@ -35,6 +35,7 @@ from marulho.service.snn_language_plasticity_executor import (
 from marulho.service.status_read_model import (
     SNN_STATUS_APPLIED_SYNAPSE_PROVENANCE_SOURCE_WINDOW_LIMIT,
     SNN_STATUS_REPLAY_PATH_SOURCE_WINDOW_LIMIT,
+    SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT,
     StatusReadModel,
 )
 from marulho.service.status_runtime import RuntimeStatusCore
@@ -5458,6 +5459,47 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         )
         self.assertFalse(evidence["source_window_complete"])
         self.assertFalse(evidence["eligible_for_readout_synapse_audit_review"])
+
+    def test_runtime_truth_transition_memory_source_window_prefers_recent_rows(
+        self,
+    ) -> None:
+        old_limit = SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT
+        stale_keys = [f"999:{index}" for index in range(old_limit)]
+        recent_keys = [f"{index}:{(index + 1) % 64}" for index in range(old_limit)]
+        weights = {key: 0.1 for key in stale_keys}
+        weights.update({key: 0.2 for key in recent_keys})
+        provenance = {key: {"source": "unit"} for key in weights}
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 64,
+                "sparse_edge_budget": 256,
+                "outgoing_fanout_budget": 16,
+                "dynamic_capacity_enabled": False,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": provenance,
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_language_capacity_pressure"
+        ]
+        source_window = evidence["source_window"]
+
+        self.assertEqual(evidence["source_sparse_transition_weight_count"], old_limit)
+        self.assertEqual(evidence["source_synapse_provenance_count"], old_limit)
+        self.assertEqual(evidence["invalid_synapse_key_count"], 0)
+        self.assertFalse(evidence["source_window_complete"])
+        self.assertEqual(
+            source_window["truncated_source_counts"]["sparse_transition_weights"],
+            old_limit,
+        )
+        self.assertFalse(source_window["global_candidate_scan"])
+        self.assertFalse(source_window["global_score_scan"])
 
     def test_runtime_truth_language_capacity_pressure_reports_fixed_neuron_pressure_without_resize(
         self,

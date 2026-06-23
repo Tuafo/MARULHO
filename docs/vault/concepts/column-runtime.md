@@ -1914,7 +1914,9 @@ Transition-memory status projections now share that same source-window rule
 instead of each projection materializing all retained sparse-transition and
 provenance rows. Capacity pressure, dense readout tensor integrity, applied
 synapse provenance, and rollout/server binding all read through a single
-bounded helper: at most `32` sparse-transition weights and `32`
+newest-first bounded helper shared with plasticity runtime-state source-window
+ordering; the old status-local insertion-order helper is removed. The helper
+reads at most `32` sparse-transition weights and `32`
 `synapse_provenance_by_key` rows per projection, CPU archival/lookup placement,
 no replay, no mutation/plasticity, no hidden language reasoning, and no live
 tick or every-token cadence. When the window is truncated, exact resize,
@@ -1936,6 +1938,19 @@ with `train_compute=0.128035 ms/token`, bounded `12/65536` route rows,
 `65526` cached transition rows, and zero graph/native sequence failures.
 Velocity still reported borderline GPU contention (`23%`), so this is
 same-band throughput protection rather than a clean speed ceiling.
+
+The 2026-06-23 refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260623\status-transition-memory-source-window-recent-helper.json`
+adds the recency quality gate: `32` stale invalid rows inserted first lose to
+`32` valid recent rows inserted last, `invalid_synapse_key_count=0`, and the
+selected status windows remain `32 + 32` CPU rows. The maintained helper still
+reads `256` total rows versus `10240` retired broad rows, reduces mean latency
+from `87.635592 ms` to `12.310596 ms`, uses `0.0 MiB` CUDA allocation, and the
+paired current-tree `524288`-token run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-status-transition-recent-helper-default-nosample.json`
+stayed in band at `6054.480 tokens/sec` with p95 `21.719 ms`, bounded
+`12/65536` route rows, no observed contention, RTX memory `1817->1816 MiB`,
+and zero graph/native sequence failures.
 
 ## Links
 

@@ -78,6 +78,7 @@ from marulho.semantics import (
 from marulho.service.column_runtime_projection import build_column_runtime_evidence
 from marulho.service.runtime_state import RuntimeState
 from marulho.service.transition_memory_source_window import (
+    bounded_transition_memory_mapping_items,
     retained_transition_memory_counts,
 )
 
@@ -148,26 +149,6 @@ def _bounded_status_mapping_source_window(
     return events, int(retained_count)
 
 
-def _bounded_status_mapping_item_source_window(
-    source: Any,
-    *,
-    limit: int,
-) -> tuple[list[tuple[str, Any]], int]:
-    if not isinstance(source, Mapping):
-        return [], 0
-    try:
-        retained_count = int(len(source))
-    except TypeError:
-        retained_count = 0
-    source_limit = max(0, int(limit))
-    items: list[tuple[str, Any]] = []
-    for key, value in islice(source.items(), source_limit):
-        items.append((str(key), deepcopy(value)))
-    if retained_count == 0:
-        retained_count = len(items)
-    return items, int(retained_count)
-
-
 def _bounded_status_transition_memory_source_window(
     state: Mapping[str, Any],
     *,
@@ -187,18 +168,16 @@ def _bounded_status_transition_memory_source_window(
         else {}
     )
     source_limit = max(0, int(limit))
-    sparse_weight_items, _ = (
-        _bounded_status_mapping_item_source_window(
-            sparse_weights,
-            limit=source_limit,
-        )
-    )
-    provenance_items, _ = (
-        _bounded_status_mapping_item_source_window(
-            provenance,
-            limit=source_limit,
-        )
-    )
+    sparse_weight_items = bounded_transition_memory_mapping_items(
+        sparse_weights,
+        limit=source_limit,
+        prefer_recent=True,
+    )[0]
+    provenance_items = bounded_transition_memory_mapping_items(
+        provenance,
+        limit=source_limit,
+        prefer_recent=True,
+    )[0]
     retained_sparse_weight_count, retained_provenance_count = (
         retained_transition_memory_counts(state, sparse_weights, provenance)
     )

@@ -329,6 +329,50 @@ def _cuda_snapshot() -> dict[str, Any]:
     }
 
 
+def _recent_window_quality_check() -> dict[str, Any]:
+    limit = int(SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT)
+    stale_keys = [f"999:{index}" for index in range(limit)]
+    recent_keys = [f"{index}:{(index + 1) % 64}" for index in range(limit)]
+    weights: dict[str, float] = {key: 0.1 for key in stale_keys}
+    weights.update({key: 0.2 for key in recent_keys})
+    provenance = {key: {"source": "benchmark"} for key in weights}
+    state: dict[str, Any] = {
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 64,
+            "sparse_edge_budget": 256,
+            "outgoing_fanout_budget": 16,
+            "dynamic_capacity_enabled": False,
+        },
+        "sparse_transition_weights": weights,
+        "synapse_provenance_by_key": provenance,
+    }
+    model = _build_read_model(lambda: state)
+    capacity = _bounded_projection(model)["capacity"]
+    source_window = capacity["source_window"]
+    passed = bool(
+        int(capacity.get("invalid_synapse_key_count", -1)) == 0
+        and int(capacity.get("source_sparse_transition_weight_count", 0)) == limit
+        and int(capacity.get("source_synapse_provenance_count", 0)) == limit
+        and source_window.get("global_candidate_scan") is False
+        and source_window.get("global_score_scan") is False
+    )
+    return {
+        "recent_window_prefers_newest_inserted_rows": passed,
+        "stale_invalid_rows_inserted_first": int(len(stale_keys)),
+        "recent_valid_rows_inserted_last": int(len(recent_keys)),
+        "invalid_synapse_key_count": int(
+            capacity.get("invalid_synapse_key_count", -1)
+        ),
+        "source_sparse_transition_weight_count": int(
+            capacity.get("source_sparse_transition_weight_count", 0)
+        ),
+        "source_synapse_provenance_count": int(
+            capacity.get("source_synapse_provenance_count", 0)
+        ),
+    }
+
+
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     entry_count = max(SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT, args.entry_count)
     runs = max(1, int(args.runs))
@@ -368,7 +412,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     retired_rows = int(retired["row_reads"]["total_last"])
     bounded_mean = float(bounded["latency_ms"]["mean"])
     retired_mean = float(retired["latency_ms"]["mean"])
+    recent_window_quality = _recent_window_quality_check()
     quality_checks = {
+        "recent_window_prefers_newest_inserted_rows": bool(
+            recent_window_quality["recent_window_prefers_newest_inserted_rows"]
+        ),
         "source_policy_present": all(
             window.get("policy") in {
                 SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_POLICY,
@@ -425,12 +473,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "pass": all(quality_checks.values()),
         "quality_checks": quality_checks,
         "quality": {
+            "recent_window_prefers_newest_inserted_rows": quality_checks[
+                "recent_window_prefers_newest_inserted_rows"
+            ],
             "truncated_status_blocks_exact_reviews": quality_checks[
                 "truncated_status_blocks_exact_reviews"
             ],
             "retained_counts_preserved": quality_checks["retained_counts_preserved"],
             "quality_gate_passed": all(quality_checks.values()),
         },
+        "recent_window_quality": recent_window_quality,
         "latency": {
             "bounded": bounded["latency_ms"],
             "retired_broad_scan": retired["latency_ms"],
