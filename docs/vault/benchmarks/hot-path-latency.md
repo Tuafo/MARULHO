@@ -3733,6 +3733,20 @@ reported `5574.603 tokens/sec`, `0.143308 ms/token` train compute, and
 cleanup changed docs, tests, and evaluation benchmarks only, these reports are a
 throughput-diagnosis signal, not proof of a live runtime regression from the
 retired benchmark-path cleanup.
+A same-parameter current-HEAD rerun after the cleanup commit
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-current-after-retired-cleanup-longrun.json`
+remained below the maintained band at `5743.620 tokens/sec`, with
+`0.139435 ms/token` train compute, `22.633 ms` p95 latency, `283.533 s`
+prewarm, CUDA selected, CPU max `30%`, GPU max `18%`, and contention
+`not_observed`. A detached parent-commit (`7b70719`) same-environment run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-7b70719-same-env-longrun.json`
+also did not recover the earlier accepted `6162.974` result: it reached
+`5864.015 tokens/sec` with `0.136801 ms/token` train compute, `22.359 ms` p95,
+`275.750 s` prewarm, CUDA selected, CPU max `38%`, GPU max `14%`, and
+contention `not_observed`. The parent/current comparison rules out the cleanup
+commit as the cause of the full 6k-band drop; the remaining signal is a
+train-compute throughput regression or machine-state shift that needs a fresh
+runtime-focused diagnosis before promoting more recall work.
 
 ### Bucket Candidate Source Window, 2026-06-18
 
