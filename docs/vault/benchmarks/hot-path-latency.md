@@ -5624,18 +5624,27 @@ benchmark reported CPU archival/source/score placement, CUDA available but
 unused with `0.0 MiB` allocated/reserved, and Python traced peak allocation
 `0.072 MiB`.
 
+The 2026-06-23 maintained-only cleanup removed the benchmark-local full-retained
+ticket verifier. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-plasticity-ticket-queue-legacy-baseline-removed.json`
+passed deterministic seeded newest-ticket quality without a diagnostic scan,
+kept both queues to `16/64` CPU source windows, averaged `2.836412 ms` for
+sleep-review tickets and `273.395856 ms` for scheduler-design tickets, reported
+`retired_full_retained_ticket_queue_absence.implementation_present=false`, used
+`0.067 MiB` traced Python peak, and allocated `0.0 MiB` CUDA archival memory.
+
 The paired protection run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json`
-processed `524288` tokens in `87.414632 s` at `5997.714 tokens/sec`,
-`tick_duration_ms.p95=21.621`, `train_compute=0.135466 ms/token`,
-`prepare_training=0.006990 ms/token`, and
-`finalize_total=0.006604 ms/token`. Runtime Truth kept route scoring bounded
-at `12/65536` input rows and `10` output candidates, cached `65526`
-transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
-on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm
-took `324.004 s`; CPU max was `32%`; GPU max touched the configured `20%`
-contention threshold; and RTX memory stayed flat at `1779->1780 MiB`. Treat
-this as same-band live-tick protection evidence, not a new speed ceiling.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-sleep-ticket-legacy-baseline-removed-default-nosample.json`
+processed `524288` tokens in `86.796512 s` at `6040.427 tokens/sec`,
+`tick_duration_ms.p95=21.752`, `train_compute=0.133547 ms/token`,
+`prepare_training=0.006586 ms/token`, and
+`finalize_total=0.006690 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero graph/native sequence failures. Prewarm took
+`240.302 s`; no contention was observed; CPU max was `39%`; GPU max was `14%`;
+and RTX memory stayed essentially flat at `1791->1795 MiB`. Treat this as
+same-band live-tick protection evidence, not a new speed ceiling.
 
 ## Selected Replay Consolidation Cache Recovery
 

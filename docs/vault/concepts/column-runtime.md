@@ -182,7 +182,21 @@ The benchmark
 verified latest-ticket parity against diagnostic full-retained queues while
 reducing source work `4x`; the paired `524288`-token run stayed same-band at
 `5997.714 tokens/sec` with bounded `12/65536` route rows and zero graph/native
-sequence failures.
+sequence failures. The 2026-06-23 maintained-only cleanup then deleted the
+benchmark-local full-retained ticket verifiers rather than keeping them as side
+implementations. The external report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-plasticity-ticket-queue-legacy-baseline-removed.json`
+still passed deterministic seeded newest-ticket quality on `16/64` CPU source
+windows, averaged `2.836412 ms` for sleep-review tickets and `273.395856 ms`
+for scheduler-design tickets, reported
+`retired_full_retained_ticket_queue_absence.implementation_present=false`, used
+`0.067 MiB` traced Python peak, and allocated `0.0 MiB` CUDA archival memory.
+The paired `524288`-token gate
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-sleep-ticket-legacy-baseline-removed-default-nosample.json`
+stayed live-tick protected at `6040.427 tokens/sec`, p95 `21.752 ms`,
+`train_compute=0.133547 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, no observed contention, RTX 3060 memory
+`1791->1795 MiB`, and zero graph/native sequence failures.
 
 Live memory summary projection now follows the same boundary. Trainer telemetry, BrainRuntime summaries, living-loop status, and status Runtime Truth call `DualMemoryStore.live_summary_stats()` instead of full `summary_stats()`. The live projection reports `bounded_memory_summary_projection.v1`, `summary_full_memory_scan=false`, `summary_scan_entry_count=0`, and `summary_projection_read_only=true`, while still exposing fill/counter aliases and last replay reports. It does not advance STC decay or build tensors over all retained entries; full summary remains an explicit offline consolidation/quality path. `reports/bounded_replay_window_20260620/live-memory-summary-projection.json` measured `0.149500 ms` mean bounded projection latency versus `658.789240 ms` for the retired 65536-entry full summary scan, and the paired `524288`-token run stayed in band at `6024.783 tokens/sec`, bounded route scoring at `12/65536`, cached `65526` transition rows, flat RTX 3060 memory `1959->1958 MiB`, and zero graph/native sequence failures. This keeps service/status as Runtime Truth projection, not memory maintenance or replay selection.
 

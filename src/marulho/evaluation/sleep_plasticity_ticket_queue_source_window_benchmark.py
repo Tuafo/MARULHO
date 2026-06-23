@@ -5,7 +5,6 @@ import json
 import statistics
 import time
 import tracemalloc
-from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,104 +128,6 @@ def _duplicate_records(
     return records
 
 
-def _diagnostic_sleep_ticket_queue(controller: ReplayController) -> dict[str, Any]:
-    tickets: list[dict[str, Any]] = []
-    action_counts: Counter[str] = Counter()
-    verified_count = 0
-    stale_count = 0
-    tampered_count = 0
-    current_revision = int(controller._runtime_state.state_revision)  # noqa: SLF001
-    for source_rank, raw_ticket in enumerate(controller.snn_sleep_plasticity_review_tickets):
-        if not isinstance(raw_ticket, Mapping):
-            continue
-        ticket = dict(raw_ticket)
-        verified_ticket = controller.verified_snn_sleep_plasticity_review_ticket(
-            str(ticket.get("review_ticket_id") or "")
-        )
-        verified = verified_ticket is not None
-        revision_current = int(ticket.get("recorded_state_revision", -1)) == current_revision
-        if verified:
-            verified_count += 1
-            action_counts[str(ticket.get("recommended_action") or "unknown")] += 1
-        elif not revision_current:
-            stale_count += 1
-        else:
-            tampered_count += 1
-        tickets.append(
-            {
-                "review_ticket_id": ticket.get("review_ticket_id"),
-                "suggested_endpoint": ticket.get("suggested_endpoint"),
-                "recommended_action": ticket.get("recommended_action"),
-                "verified": verified,
-                "revision_current": revision_current,
-                "source_rank": int(source_rank),
-            }
-        )
-    latest_verified = next((deepcopy(item) for item in tickets if item["verified"]), None)
-    return {
-        "surface": "diagnostic_full_retained_sleep_plasticity_review_ticket_queue.v1",
-        "records_scanned": int(len(tickets)),
-        "verified_count": int(verified_count),
-        "stale_count": int(stale_count),
-        "tampered_count": int(tampered_count),
-        "pending_action_counts": dict(action_counts),
-        "latest_verified_ticket": latest_verified,
-    }
-
-
-def _diagnostic_scheduler_design_ticket_queue(
-    controller: ReplayController,
-) -> dict[str, Any]:
-    tickets: list[dict[str, Any]] = []
-    verified_count = 0
-    stale_count = 0
-    tampered_count = 0
-    current_revision = int(controller._runtime_state.state_revision)  # noqa: SLF001
-    for source_rank, raw_ticket in enumerate(
-        controller.snn_sleep_plasticity_scheduler_design_review_tickets
-    ):
-        if not isinstance(raw_ticket, Mapping):
-            continue
-        ticket = dict(raw_ticket)
-        try:
-            verified_ticket = controller.verified_snn_sleep_plasticity_scheduler_design_review_ticket(
-                str(ticket.get("scheduler_design_review_ticket_id") or "")
-            )
-        except (TypeError, ValueError):
-            verified_ticket = None
-        verified = verified_ticket is not None
-        revision_current = int(ticket.get("recorded_state_revision", -1)) == current_revision
-        if verified:
-            verified_count += 1
-        elif not revision_current:
-            stale_count += 1
-        else:
-            tampered_count += 1
-        tickets.append(
-            {
-                "scheduler_design_review_ticket_id": ticket.get(
-                    "scheduler_design_review_ticket_id"
-                ),
-                "scheduler_design_hash": ticket.get("scheduler_design_hash"),
-                "verified": verified,
-                "revision_current": revision_current,
-                "source_rank": int(source_rank),
-            }
-        )
-    latest_verified = next((deepcopy(item) for item in tickets if item["verified"]), None)
-    return {
-        "surface": (
-            "diagnostic_full_retained_sleep_plasticity_scheduler_design_"
-            "review_ticket_queue.v1"
-        ),
-        "records_scanned": int(len(tickets)),
-        "verified_count": int(verified_count),
-        "stale_count": int(stale_count),
-        "tampered_count": int(tampered_count),
-        "latest_verified_ticket": latest_verified,
-    }
-
-
 def _cuda_report() -> dict[str, Any]:
     try:
         import torch
@@ -302,14 +203,6 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
         lambda: controller.snn_sleep_plasticity_scheduler_design_review_ticket_queue(limit=64),
         runs=runs,
     )
-    sleep_diagnostic_latencies, sleep_diagnostic = _measure(
-        lambda: _diagnostic_sleep_ticket_queue(controller),
-        runs=runs,
-    )
-    design_diagnostic_latencies, design_diagnostic = _measure(
-        lambda: _diagnostic_scheduler_design_ticket_queue(controller),
-        runs=runs,
-    )
     current_mib, peak_mib = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
@@ -320,29 +213,20 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
         if isinstance(sleep_bounded.get("latest_verified_ticket"), Mapping)
         else {}
     )
-    sleep_latest_diagnostic = (
-        sleep_diagnostic.get("latest_verified_ticket")
-        if isinstance(sleep_diagnostic.get("latest_verified_ticket"), Mapping)
-        else {}
-    )
     design_latest_bounded = (
         design_bounded.get("latest_verified_ticket")
         if isinstance(design_bounded.get("latest_verified_ticket"), Mapping)
         else {}
     )
-    design_latest_diagnostic = (
-        design_diagnostic.get("latest_verified_ticket")
-        if isinstance(design_diagnostic.get("latest_verified_ticket"), Mapping)
-        else {}
-    )
-    quality = {
-        "sleep_latest_verified_matches_diagnostic": (
-            sleep_latest_bounded.get("review_ticket_id")
-            == sleep_latest_diagnostic.get("review_ticket_id")
+    expected_sleep_ticket_id = "sleep-ticket-0000"
+    expected_design_ticket_id = "design-ticket-0000"
+    quality_checks = {
+        "sleep_latest_verified_matches_expected_seed": (
+            sleep_latest_bounded.get("review_ticket_id") == expected_sleep_ticket_id
         ),
-        "design_latest_verified_matches_diagnostic": (
+        "design_latest_verified_matches_expected_seed": (
             design_latest_bounded.get("scheduler_design_review_ticket_id")
-            == design_latest_diagnostic.get("scheduler_design_review_ticket_id")
+            == expected_design_ticket_id
         ),
         "sleep_window_bounded": (
             int(sleep_window.get("source_window_count", -1))
@@ -353,12 +237,10 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
             <= SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKET_QUEUE_SOURCE_WINDOW_LIMIT
         ),
         "sleep_work_reduced": (
-            int(sleep_diagnostic.get("records_scanned", 0))
-            > int(sleep_window.get("source_window_count", 0))
+            int(retained_count) > int(sleep_window.get("source_window_count", 0))
         ),
         "design_work_reduced": (
-            int(design_diagnostic.get("records_scanned", 0))
-            > int(design_window.get("source_window_count", 0))
+            int(retained_count) > int(design_window.get("source_window_count", 0))
         ),
         "no_global_scan": (
             sleep_window.get("global_candidate_scan") is False
@@ -387,7 +269,12 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
             and design_bounded.get("mutates_runtime_state") is False
         ),
     }
-    quality["pass"] = all(bool(value) for value in quality.values())
+    quality = {
+        **quality_checks,
+        "expected_sleep_ticket_id": expected_sleep_ticket_id,
+        "expected_scheduler_design_ticket_id": expected_design_ticket_id,
+        "pass": all(bool(value) for value in quality_checks.values()),
+    }
     sleep_source_count = max(1, int(sleep_window.get("source_window_count", 0)))
     design_source_count = max(1, int(design_window.get("source_window_count", 0)))
     return {
@@ -437,23 +324,17 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
         },
         "latency_ms": {
             "bounded_sleep_review_ticket_queue": _latency_stats(sleep_bounded_latencies),
-            "diagnostic_full_sleep_review_ticket_queue": _latency_stats(
-                sleep_diagnostic_latencies
-            ),
             "bounded_scheduler_design_review_ticket_queue": _latency_stats(
                 design_bounded_latencies
-            ),
-            "diagnostic_full_scheduler_design_review_ticket_queue": _latency_stats(
-                design_diagnostic_latencies
             ),
         },
         "work_reduction": {
             "sleep_review_ticket_records": round(
-                float(int(sleep_diagnostic.get("records_scanned", 0))) / sleep_source_count,
+                float(int(retained_count)) / sleep_source_count,
                 6,
             ),
             "scheduler_design_review_ticket_records": round(
-                float(int(design_diagnostic.get("records_scanned", 0))) / design_source_count,
+                float(int(retained_count)) / design_source_count,
                 6,
             ),
         },
@@ -461,9 +342,14 @@ def run_benchmark(*, retained_count: int, runs: int) -> dict[str, Any]:
             "sleep_review_ticket_queue": sleep_bounded,
             "scheduler_design_review_ticket_queue": design_bounded,
         },
-        "diagnostic": {
-            "sleep_review_ticket_queue": sleep_diagnostic,
-            "scheduler_design_review_ticket_queue": design_diagnostic,
+        "retired_full_retained_ticket_queue_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": (
+                "full_retained_sleep_plasticity_review_and_scheduler_design_ticket_"
+                "queue_verification"
+            ),
         },
         "resource_behavior": {
             "python_tracemalloc_current_mib": round(float(current_mib) / (1024.0 * 1024.0), 3),

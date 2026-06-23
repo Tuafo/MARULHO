@@ -319,7 +319,19 @@ matched diagnostic latest-verified quality while reading `16/64` retained
 records on each queue (`4x` less source work), with no global candidate/score
 scan, no raw replay text, no hidden language reasoning, no live tick, no
 every-token cadence, no scheduler install, no mutation/plasticity, CUDA unused,
-and `0.072 MiB` traced Python peak allocation.
+and `0.072 MiB` traced Python peak allocation. The maintained-only cleanup
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-plasticity-ticket-queue-legacy-baseline-removed.json`
+removes the executable full-retained benchmark verifier too: deterministic
+seeded newest-ticket quality still passes on `16/64` CPU source windows, the
+sleep queue averages `2.836412 ms`, the scheduler-design queue averages
+`273.395856 ms`, the report carries
+`retired_full_retained_ticket_queue_absence.implementation_present=false`, and
+CUDA archival allocation remains `0.0 MiB`. The paired
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-sleep-ticket-legacy-baseline-removed-default-nosample.json`
+run kept the live tick protected at `6040.427 tokens/sec`, p95 `21.752 ms`,
+`train_compute=0.133547 ms/token`, bounded `12/65536` route rows, no observed
+contention, RTX 3060 memory `1791->1795 MiB`, and zero graph/native sequence
+failures.
 
 ConceptStore signature lookup is now treated as an evidence-window lookup, not
 as general archive traversal. CLS and continual-replay work argue for separating

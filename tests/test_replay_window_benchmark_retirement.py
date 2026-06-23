@@ -9,6 +9,9 @@ from marulho.evaluation.snn_readout_replay_priority_source_window_benchmark impo
 from marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark import (
     run_benchmark as run_emission_review_replay_policy_benchmark,
 )
+from marulho.evaluation.sleep_plasticity_ticket_queue_source_window_benchmark import (
+    run_benchmark as run_sleep_plasticity_ticket_queue_benchmark,
+)
 from marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark import (
     run_benchmark as run_rollout_rehearsal_benchmark,
 )
@@ -30,6 +33,7 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/status_replay_path_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -49,6 +53,12 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "legacy_emission",
         "legacy_rollout",
         "legacy_history",
+        "_diagnostic_sleep_ticket_queue",
+        "_diagnostic_scheduler_design_ticket_queue",
+        "diagnostic_full_retained_sleep_plasticity_review_ticket_queue",
+        "diagnostic_full_retained_sleep_plasticity_scheduler_design",
+        "sleep_latest_verified_matches_diagnostic",
+        "design_latest_verified_matches_diagnostic",
         "legacy_samples",
         "legacy_mean",
         "bounded_speedup_vs_legacy",
@@ -199,3 +209,33 @@ def test_status_replay_path_benchmark_reports_maintained_only_path() -> None:
     )
     assert report["rollout_source_window"]["runs_live_tick"] is False
     assert report["rollout_source_window"]["global_candidate_scan"] is False
+
+
+def test_sleep_plasticity_ticket_queue_benchmark_reports_maintained_only_path() -> None:
+    report = run_sleep_plasticity_ticket_queue_benchmark(retained_count=64, runs=2)
+
+    assert report["pass"] is True
+    assert report["quality"]["sleep_latest_verified_matches_expected_seed"] is True
+    assert report["quality"]["design_latest_verified_matches_expected_seed"] is True
+    assert report["retired_full_retained_ticket_queue_absence"][
+        "implementation_present"
+    ] is False
+    assert report["retired_full_retained_ticket_queue_absence"][
+        "diagnostic_callable"
+    ] is False
+    assert "diagnostic" not in report
+    assert "diagnostic_full_sleep_review_ticket_queue" not in report["latency_ms"]
+    assert (
+        "diagnostic_full_scheduler_design_review_ticket_queue"
+        not in report["latency_ms"]
+    )
+    sleep_window = report["source_window"]["sleep_review_ticket_queue"]
+    design_window = report["source_window"]["scheduler_design_review_ticket_queue"]
+    assert sleep_window["runs_live_tick"] is False
+    assert sleep_window["runs_every_token"] is False
+    assert sleep_window["global_candidate_scan"] is False
+    assert sleep_window["global_score_scan"] is False
+    assert design_window["runs_live_tick"] is False
+    assert design_window["runs_every_token"] is False
+    assert design_window["global_candidate_scan"] is False
+    assert design_window["global_score_scan"] is False

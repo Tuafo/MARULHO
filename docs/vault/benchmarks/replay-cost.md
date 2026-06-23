@@ -2677,14 +2677,26 @@ text, no hidden language reasoning, no live tick, no every-token cadence, no
 scheduler install, no mutation/plasticity, CUDA available but unused, and
 `0.072 MiB` traced Python peak.
 
+Maintained-only cleanup:
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-plasticity-ticket-queue-legacy-baseline-removed.json`
+removes the benchmark-local full-retained ticket verifier. The report still
+passes deterministic seeded newest-ticket checks, keeps both queues to `16/64`
+CPU source windows (`4x` less source work), averages `2.836412 ms` for
+sleep-review tickets and `273.395856 ms` for scheduler-design tickets, reports
+`retired_full_retained_ticket_queue_absence.implementation_present=false`,
+uses `0.067 MiB` traced Python peak, and keeps CUDA available but unused with
+`0.0 MiB` allocated/reserved. Future full-retained controls for this surface
+belong outside the maintained benchmark code.
+
 Hot-path protection:
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-sleep-plasticity-ticket-queue-source-window.json`
-processed `524288` tokens in `87.414632 s` at `5997.714 tokens/sec`, p95
-`21.621 ms`, `train_compute=0.135466 ms/token`,
-`prepare_training=0.006990 ms/token`, `finalize_total=0.006604 ms/token`,
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-sleep-ticket-legacy-baseline-removed-default-nosample.json`
+processed `524288` tokens in `86.796512 s` at `6040.427 tokens/sec`, p95
+`21.752 ms`, `train_compute=0.133547 ms/token`,
+`prepare_training=0.006586 ms/token`, `finalize_total=0.006690 ms/token`,
 bounded `12/65536` route rows, `65526` cached transition rows, zero
-graph/native sequence failures, CPU max `32%`, GPU max `20%`, and RTX 3060
-memory `1779->1780 MiB`.
+graph/native sequence failures, no observed contention, CPU max `39%`, GPU max
+`14%`, RTX 3060 memory `1791->1795 MiB`, and a `240302.172 ms` prewarm outside
+the measured token window.
 
 ## Selected Replay Consolidation Cache Recovery
 
