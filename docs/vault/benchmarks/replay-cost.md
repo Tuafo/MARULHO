@@ -2564,38 +2564,46 @@ revive that rebuild as a recovery fallback. The active path is
 prototype IDs, the routing index refreshes only existing cache rows through a
 CPU ID-to-row map, and the report states direct update count, row lookup mode,
 missing-ID count, dirty-cache state, skipped-update count, and deferred recovery
-status. Full rebuild is retained only for checkpoint restore, bootstrap,
-explicit offline repair, or benchmark-local diagnostics, not as the normal
-selected-replay path.
+status. Full rebuild is retained only for checkpoint restore, bootstrap, or
+explicit offline repair, not as the normal selected-replay path or as an
+executable benchmark-local baseline.
 
 Focused quality and latency benchmark:
 
-`python -m marulho.evaluation.sleep_replay_routing_index_refresh_benchmark --entries 65536 --dim 64 --update-count 16 --missing-update-count 1 --runs 10 --device auto --output reports\bounded_replay_window_20260620\sleep-replay-routing-index-deferred-recovery.json`
+`python -m marulho.evaluation.sleep_replay_routing_index_refresh_benchmark --entries 65536 --dim 64 --update-count 16 --missing-update-count 1 --runs 25 --device auto --output ..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-rerun.json`
 
-Result: `pass=true`; the bounded path updated `16/65536` selected rows, deferred
-`1` missing row without inserting it, used `row_lookup_mode=host_id_row_map`,
-avoided a rebuild, left the cache clean, and returned exact top-1 IDs for the
-updated vectors. Mean latency fell from `118.414640 ms` for the benchmark-local
-retired `add()+rebuild()` path to `4.171690 ms` for selected-row refresh. The
-sharded companion report passed at `13.348040 ms` versus `140.566380 ms`.
-Archival storage and row-lookup metadata stayed CPU-resident; the active
-routing tensor cache stayed on the selected routing device.
+Result: `pass=true`; the maintained benchmark now reports only the bounded
+path and records `retired_full_rebuild_absence.implementation_present=false`.
+The bounded path updated `16/65536` selected rows, deferred `1` missing row
+without inserting it, used `row_lookup_mode=host_id_row_map`, avoided a rebuild,
+left the cache clean, and returned exact top-1 IDs for the updated vectors.
+Mean selected-row refresh latency was `9.892320 ms` across `25` runs
+(`median=5.693200 ms`, `min=5.221700 ms`, cold max `108.835500 ms`). The sharded
+companion report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-sharded.json`
+also passed with `16` direct shard and merged updates, `1` deferred missing row,
+no rebuild, and `19.582580 ms` mean latency (`median=15.422900 ms`). Archival
+storage and row-lookup metadata stayed CPU-resident; the active routing tensor
+cache stayed on CUDA with `24.625 MiB` allocated and `34.0 MiB` reserved after
+the single-index run, and `41.125 MiB` allocated and `50.0 MiB` reserved after
+the sharded run. Python trace-memory peak stayed small: `0.036086 MiB`
+single-index and `0.084523 MiB` sharded.
 
 Hot-path protection:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-routing-index-legacy-baseline-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 
-Result: `success=true`, `524288` tokens in `88.211824 s`,
-`5943.512 tokens/sec`, `tick_duration_ms.p95=22.097`,
-`train_compute=0.136627 ms/token`, `prepare_training=0.007218 ms/token`, and
-`finalize_total=0.006603 ms/token`. Prewarm took `325.352 s`. Runtime Truth
+Result: `success=true`, `524288` tokens in `85.979706 s`,
+`6097.811 tokens/sec`, `tick_duration_ms.p95=21.193`,
+`train_compute=0.132696 ms/token`, `prepare_training=0.006469 ms/token`, and
+`finalize_total=0.006599 ms/token`. Prewarm took `293.351 s`. Runtime Truth
 kept route scoring at `12/65536` input rows and `10` output candidates, cached
 `65526` transition rows, kept `state_transition_runs_all_columns=false`, and
-recorded zero graph/native sequence failures. CPU max was `28%`; GPU max was
-`19%`, velocity marked contention not observed, RTX 3060 memory stayed flat at
-`1878 MiB`, and throughput remained in the maintained 6k-ish band. A first
-same-slice run at `5688.783 tokens/sec` is rejected as primary evidence because
-velocity observed CPU contention at `99%`.
+recorded zero graph/native sequence failures. Velocity marked contention not
+observed with CPU max `32%`, GPU max `15%`, and RTX 3060 memory
+`1825->1824 MiB`; throughput remained in the maintained 6k-ish band. The older
+accepted `reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
+remains historical promotion evidence at `5943.512 tokens/sec`.
 
 ## Bucket Consolidation Cache Lookup
 

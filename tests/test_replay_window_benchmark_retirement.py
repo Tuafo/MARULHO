@@ -18,6 +18,9 @@ from marulho.evaluation.snn_rollout_rehearsal_source_window_benchmark import (
 from marulho.evaluation.source_bank_memory_match_benchmark import (
     run_benchmark as run_source_bank_memory_match_benchmark,
 )
+from marulho.evaluation.sleep_replay_routing_index_refresh_benchmark import (
+    run_benchmark as run_sleep_replay_routing_index_refresh_benchmark,
+)
 from marulho.evaluation.status_replay_path_source_window_benchmark import (
     run_benchmark as run_status_replay_path_benchmark,
 )
@@ -39,6 +42,7 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/sleep_plasticity_ticket_queue_source_window_benchmark.py",
         ROOT
         / "src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py",
+        ROOT / "src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -73,6 +77,13 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "bounded_speedup_vs_legacy",
         "retired_per_probe_query_match_call_count",
         "retired_path_comparison",
+        "def _full()",
+        "\"retired_full_rebuild\":",
+        "last_full_rebuild",
+        "full_top1_matches",
+        "full_path_rebuilt",
+        "latency_reduction_mean_ms",
+        "full_mean_ms",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -274,3 +285,37 @@ def test_applied_replay_lineage_benchmark_reports_maintained_only_path() -> None
     assert report["active_evidence"]["full_provenance_scan"] is False
     assert report["active_evidence"]["source_record_scan_count"] == 0
     assert report["active_evidence"]["language_reasoning"] is False
+
+
+def test_sleep_replay_routing_index_refresh_benchmark_reports_maintained_only_path() -> None:
+    report = run_sleep_replay_routing_index_refresh_benchmark(
+        entries=256,
+        dim=16,
+        update_count=8,
+        missing_update_count=1,
+        runs=2,
+        shards=1,
+        seed=20260621,
+        device_name="cpu",
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["bounded_top1_matches"] is True
+    assert report["quality"]["bounded_no_full_rebuild"] is True
+    assert report["quality"]["bounded_deferred_missing_recovery"] is True
+    assert report["retired_full_rebuild_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "selected_sleep_replay_full_routing_index_rebuild",
+    }
+    assert "retired_full_rebuild" not in report["latency"]
+    assert "last_full_rebuild" not in report
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+    assert (
+        report["resource_behavior"]["cuda_memory_allocated_after_mib"]
+        == report["device_placement"]["cuda_memory_allocated_after_mib"]
+    )
+    assert report["runtime_truth"]["routing_index_full_rebuild"] is False
+    assert report["runtime_truth"]["runs_live_tick"] is False
+    assert report["runtime_truth"]["runs_every_token"] is False

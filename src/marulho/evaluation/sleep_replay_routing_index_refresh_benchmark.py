@@ -4,6 +4,7 @@ import argparse
 import json
 import statistics
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -107,13 +108,6 @@ def run_benchmark(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(device_name)
-    full_index = _index(
-        entries=entries,
-        dim=dim,
-        shards=shards,
-        device=device,
-        seed=seed,
-    )
     bounded_index = _index(
         entries=entries,
         dim=dim,
@@ -133,27 +127,6 @@ def run_benchmark(
     )
     update_ids = np.concatenate([existing_update_ids, missing_update_ids])
     total_update_count = int(len(update_ids))
-
-    def _full() -> dict[str, Any]:
-        update_vectors = _update_vectors(
-            update_count=total_update_count,
-            dim=dim,
-            device=device,
-            seed=seed + 10_000,
-        )
-        rebuild_count_before = int(full_index.stats()["rebuild_count"])
-        full_index.add(update_vectors, update_ids)
-        full_index.rebuild()
-        return {
-            "rebuild_count_delta": int(
-                int(full_index.stats()["rebuild_count"]) - rebuild_count_before
-            ),
-            "cache_dirty_after": bool(full_index.stats().get("torch_cache_dirty", False))
-            if shards <= 1
-            else bool(full_index.stats().get("merged_torch_cache_dirty", False)),
-            "top1_matches": _top1_matches(full_index, update_vectors, update_ids),
-            "missing_update_count": int(missing_update_count),
-        }
 
     def _bounded() -> dict[str, Any]:
         update_vectors = _update_vectors(
@@ -179,15 +152,14 @@ def run_benchmark(
             "missing_ids_absent": bool(bounded_size == int(entries)),
         }
 
-    full_elapsed, full_rows = _measure(_full, runs=runs)
+    tracemalloc.start()
     bounded_elapsed, bounded_rows = _measure(_bounded, runs=runs)
-    full_stats = _latency(full_elapsed)
+    traced_current, traced_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
     bounded_stats = _latency(bounded_elapsed)
     bounded_last = bounded_rows[-1] if bounded_rows else {}
-    full_last = full_rows[-1] if full_rows else {}
     quality = {
         "bounded_top1_matches": bool(bounded_last.get("top1_matches")),
-        "full_top1_matches": bool(full_last.get("top1_matches")),
         "bounded_no_full_rebuild": bool(
             int(bounded_last.get("rebuild_count_delta", -1)) == 0
             and not bool(bounded_last.get("cache_dirty_after", True))
@@ -206,24 +178,22 @@ def run_benchmark(
         "bounded_row_map_lookup": bool(
             bounded_last.get("row_lookup_mode") == "host_id_row_map"
         ),
-        "full_path_rebuilt": bool(int(full_last.get("rebuild_count_delta", 0)) > 0),
-        "latency_reduction_mean_ms": float(
-            max(0.0, full_stats["mean_ms"] - bounded_stats["mean_ms"])
-        ),
     }
     quality["pass"] = bool(
         quality["bounded_top1_matches"]
-        and quality["full_top1_matches"]
         and quality["bounded_no_full_rebuild"]
         and quality["bounded_deferred_missing_recovery"]
         and quality["bounded_missing_ids_absent"]
         and quality["bounded_row_map_lookup"]
-        and quality["full_path_rebuilt"]
-        and bounded_stats["mean_ms"] < full_stats["mean_ms"]
     )
     cuda_available = bool(torch.cuda.is_available())
     cuda_allocated = (
         float(torch.cuda.memory_allocated(device) / (1024 * 1024))
+        if device.type == "cuda"
+        else 0.0
+    )
+    cuda_reserved = (
+        float(torch.cuda.memory_reserved(device) / (1024 * 1024))
         if device.type == "cuda"
         else 0.0
     )
@@ -258,6 +228,18 @@ def run_benchmark(
             "cuda_available": cuda_available,
             "cuda_memory_allocated_after_mib": cuda_allocated,
         },
+        "resource_behavior": {
+            "python_tracemalloc_current_mib": round(
+                float(traced_current) / (1024.0 * 1024.0),
+                6,
+            ),
+            "python_tracemalloc_peak_mib": round(
+                float(traced_peak) / (1024.0 * 1024.0),
+                6,
+            ),
+            "cuda_memory_allocated_after_mib": cuda_allocated,
+            "cuda_memory_reserved_after_mib": cuda_reserved,
+        },
         "runtime_truth": {
             "runs_live_tick": False,
             "runs_every_token": False,
@@ -273,11 +255,15 @@ def run_benchmark(
             "name": "full routing-index rebuild after selected sleep replay",
             "replacement": "routing_index_existing_row_refresh.v1",
         },
+        "retired_full_rebuild_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "selected_sleep_replay_full_routing_index_rebuild",
+        },
         "latency": {
-            "retired_full_rebuild": full_stats,
             "bounded_existing_row_refresh": bounded_stats,
         },
-        "last_full_rebuild": full_last,
         "last_bounded_refresh": bounded_last,
         "quality": quality,
         "pass": bool(quality["pass"]),
@@ -315,14 +301,13 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} entries={entries} update_count={updates} "
-        "missing_update_count={missing_updates} full_mean_ms={full_ms:.6f} "
-        "bounded_mean_ms={bounded_ms:.6f} bounded_rebuild_delta={bounded_rebuild} "
+        "missing_update_count={missing_updates} bounded_mean_ms={bounded_ms:.6f} "
+        "bounded_rebuild_delta={bounded_rebuild} "
         "deferred={deferred}".format(
             pass_gate=report["pass"],
             entries=report["entries"],
             updates=report["update_count"],
             missing_updates=report["missing_update_count"],
-            full_ms=report["latency"]["retired_full_rebuild"]["mean_ms"],
             bounded_ms=report["latency"]["bounded_existing_row_refresh"]["mean_ms"],
             bounded_rebuild=report["last_bounded_refresh"].get(
                 "rebuild_count_delta"

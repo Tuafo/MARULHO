@@ -5567,32 +5567,39 @@ trainer refreshes those existing tensor-cache rows through
 `add()+rebuild()` after selected sleep replay is retired, including missing-ID
 or dirty-cache recovery inside selected replay. Those cases now report deferred
 recovery without inserting rows or rebuilding. Full rebuild remains only for
-checkpoint restore, bootstrap, explicit offline repair, or benchmark-local
-diagnostics.
+checkpoint restore, bootstrap, or explicit offline repair; the benchmark-local
+retired rebuild diagnostic has also been removed from the active benchmark.
 
-The deferred-recovery refresh report
-`reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json`
-passed with exact top-1 recall for `16` updated rows in a `65536`-row index, `1`
-missing row deferred and kept absent, no bounded-path rebuild,
-`row_lookup_mode=host_id_row_map`, and mean latency `4.171690 ms` versus
-`118.414640 ms` for the retired rebuild baseline. The sharded report passed at
-`13.348040 ms` versus `140.566380 ms`, with `16` direct shard and merged
-updates.
+The maintained-only refresh report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-rerun.json`
+passed with exact top-1 recall for `16` updated rows in a `65536`-row index,
+`1` missing row deferred and kept absent, no bounded-path rebuild,
+`row_lookup_mode=host_id_row_map`, and
+`retired_full_rebuild_absence.implementation_present=false`. The bounded path
+ran at `9.892320 ms` mean latency across `25` runs (`median=5.693200 ms`,
+`min=5.221700 ms`, cold max `108.835500 ms`). The sharded report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-sharded.json`
+passed at `19.582580 ms` mean latency with `16` direct shard and merged updates.
+Both reports kept archival storage and row-lookup metadata on CPU while active
+routing tensors stayed on CUDA; Python trace-memory peak was `0.036086 MiB`
+single-index and `0.084523 MiB` sharded.
 
-The accepted deferred-recovery protection rerun
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
-processed `524288` tokens at `5943.512 tokens/sec`,
-`tick_duration_ms.p95=22.097`, `train_compute=0.136627 ms/token`,
-`prepare_training=0.007218 ms/token`, and `finalize_total=0.006603 ms/token`.
+The current protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-routing-index-legacy-baseline-removed-default-nosample.json`
+processed `524288` tokens at `6097.811 tokens/sec`,
+`tick_duration_ms.p95=21.193`, `train_compute=0.132696 ms/token`,
+`prepare_training=0.006469 ms/token`, and `finalize_total=0.006599 ms/token`.
 Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
 output candidates, cached `65526` transition rows, kept
 `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
-recorded zero graph/native sequence failures. Prewarm took `325.352 s`; CPU max
-was `28%`; GPU max was `19%`; velocity reported contention not observed; and
-RTX 3060 memory stayed flat at `1878 MiB`, so this is same-band live-tick
-protection evidence, not a new throughput ceiling. A first same-slice run at
-`5688.783 tokens/sec` is rejected as primary evidence because velocity observed
-CPU contention at `99%`.
+recorded zero graph/native sequence failures. Prewarm took `293.351 s`;
+velocity reported contention not observed with CPU max `32%`, GPU max `15%`,
+and RTX 3060 memory `1825->1824 MiB`, so this is same-band live-tick protection
+evidence, not a new throughput ceiling. The earlier accepted
+`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
+remains historical promotion evidence at `5943.512 tokens/sec`; a first
+same-slice run at `5688.783 tokens/sec` is rejected as primary evidence because
+velocity observed CPU contention at `99%`.
 
 ## Bucket Consolidation Cache Lookup
 

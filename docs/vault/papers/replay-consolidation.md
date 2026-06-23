@@ -472,18 +472,24 @@ nonempty replay-updated prototype IDs, existing routing IDs, and a ready cache.
 Missing IDs, missing row-update APIs, or dirty caches become deferred recovery
 evidence and do not call `add()+rebuild()` inside selected replay. The refreshed
 benchmark
-`reports/bounded_replay_window_20260620/sleep-replay-routing-index-deferred-recovery.json`
-updated `16/65536` rows, deferred `1` missing row without inserting it,
-preserved exact top-1 recall for updated rows, used CPU row-lookup metadata,
-and measured `4.171690 ms` mean latency versus `118.414640 ms` for the
-benchmark-local retired full rebuild path. The sharded variant passed at
-`13.348040 ms` versus `140.566380 ms`, with `16` direct shard and merged updates.
-The accepted `524288`-token hot-path rerun
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-routing-index-deferred-recovery-rerun.json`
-stayed in band at `5943.512 tokens/sec`, `tick_duration_ms.p95=22.097`,
-`train_compute=0.136627 ms/token`, bounded `12/65536` route rows, cached
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-rerun.json`
+now carries only the maintained path and records
+`retired_full_rebuild_absence.implementation_present=false`. It updated
+`16/65536` rows, deferred `1` missing row without inserting it, preserved exact
+top-1 recall for updated rows, used CPU row-lookup metadata, and measured
+`9.892320 ms` mean bounded latency across `25` runs (`median=5.693200 ms`). The
+sharded variant
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-routing-index-legacy-baseline-removed-sharded.json`
+passed at `19.582580 ms` mean latency with `16` direct shard and merged updates.
+Python trace-memory peak stayed below `0.085 MiB`; CUDA allocation/reservation
+ended at `24.625/34.0 MiB` for single-index and `41.125/50.0 MiB` for sharded.
+The current `524288`-token hot-path run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-routing-index-legacy-baseline-removed-default-nosample.json`
+stayed in band at `6097.811 tokens/sec`, `tick_duration_ms.p95=21.193`,
+`train_compute=0.132696 ms/token`, bounded `12/65536` route rows, cached
 `65526` transition rows, zero graph/native sequence failures, no observed
-contention, CPU max `28%`, GPU max `19%`, and flat RTX 3060 memory at `1878 MiB`.
+contention, CPU max `32%`, GPU max `15%`, and RTX 3060 memory
+`1825->1824 MiB`.
 
 Bucket-level consolidation pressure now uses the same bounded accounting.
 `DualMemoryStore.bucket_consolidation_level(...)` no longer recomputes a single
