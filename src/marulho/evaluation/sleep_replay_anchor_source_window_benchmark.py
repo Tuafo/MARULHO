@@ -105,20 +105,6 @@ def _hit_rate(values: list[int], expected: set[int]) -> float:
     return float(hits / len(values))
 
 
-def _time_legacy_source(
-    trainer: MarulhoTrainer,
-    *,
-    iterations: int,
-) -> tuple[list[int], dict[str, float]]:
-    source_ids: list[int] = []
-    latencies: list[float] = []
-    for _iteration in range(max(1, int(iterations))):
-        started = time.perf_counter()
-        source_ids = sorted(int(bucket_id) for bucket_id in trainer.column_anchors)
-        latencies.append((time.perf_counter() - started) * 1000.0)
-    return source_ids, _latency_summary(latencies)
-
-
 def _time_bounded_source(
     trainer: MarulhoTrainer,
     *,
@@ -210,21 +196,9 @@ def run_benchmark(
         strength=2.0,
         iterations=iterations,
     )
-    legacy_ids, legacy_source_latency = _time_legacy_source(
-        trainer,
-        iterations=iterations,
-    )
     bounded_ids, bounded_source_report, bounded_source_latency = _time_bounded_source(
         trainer,
         iterations=iterations,
-    )
-    legacy_selection_report, legacy_selection_latency = _time_sleep_selection(
-        trainer,
-        bucket_ids=legacy_ids,
-        replay_steps=replay_steps,
-        candidate_pool=candidate_pool,
-        iterations=iterations,
-        scope="legacy_all_anchor_sleep_replay_source_baseline",
     )
     bounded_selection_report, bounded_selection_latency = _time_sleep_selection(
         trainer,
@@ -245,22 +219,10 @@ def run_benchmark(
     )
     expected_recent_set = set(expected_recent_buckets)
     bounded_selected_buckets = _selected_bucket_ids(trainer, bounded_selection_report)
-    legacy_selected_buckets = _selected_bucket_ids(trainer, legacy_selection_report)
     bounded_source_hit_rate = _hit_rate(bounded_ids, expected_recent_set)
-    legacy_first_window_hit_rate = _hit_rate(
-        legacy_ids[:SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT],
-        expected_recent_set,
-    )
     bounded_selected_hit_rate = _hit_rate(
         bounded_selected_buckets,
         expected_recent_set,
-    )
-    legacy_source_mean = float(legacy_source_latency["mean_ms"])
-    bounded_source_mean = float(bounded_source_latency["mean_ms"])
-    source_speedup = (
-        float(legacy_source_mean / bounded_source_mean)
-        if bounded_source_mean > 0.0
-        else float("inf")
     )
     bounded_pass = bool(
         bounded_ids == expected_recent_buckets
@@ -299,15 +261,17 @@ def run_benchmark(
             "seed": int(seed),
             "anchor_bucket_window_limit": SLEEP_REPLAY_ANCHOR_BUCKET_WINDOW_LIMIT,
         },
-        "retired_all_anchor_source": {
-            "source_policy": "sorted_all_column_anchors",
-            "anchor_bucket_count": int(len(legacy_ids)),
-            "first_window_hit_rate": legacy_first_window_hit_rate,
-            "anchor_source_full_scan": True,
-            "latency": legacy_source_latency,
-            "selection_latency": legacy_selection_latency,
-            "selection_report": legacy_selection_report,
-            "selected_bucket_ids": legacy_selected_buckets,
+        "retired_all_anchor_source_absence": {
+            "implementation_present": False,
+            "all_anchor_source_called": False,
+            "production_callable": False,
+            "historical_comparison_report": (
+                "reports/bounded_replay_window_20260622/"
+                "sleep-replay-anchor-source-window-bounded.json"
+            ),
+            "revisit_condition": (
+                "new diagnostic-only benchmark with explicit source-size accounting"
+            ),
         },
         "bounded_sleep_anchor_source": {
             "source_window": bounded_source_report,
@@ -321,7 +285,6 @@ def run_benchmark(
             "source_latency": bounded_source_latency,
             "selection_latency": bounded_selection_latency,
             "selection_report": bounded_selection_report,
-            "source_speedup_vs_retired_mean": source_speedup,
         },
         "bounded_recent_anchor_capture": {
             "capture_report": capture_report,

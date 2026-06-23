@@ -1335,7 +1335,7 @@ was:
 
 `python -m marulho.evaluation.replay_query_anchor_source_window_benchmark --output reports\bounded_replay_window_20260618\replay-query-anchor-source-window-bounded.json --anchor-count 8192 --column-latent-dim 32 --max-queries 16 --max-candidates 32 --iterations 64`
 
-It compared the retired all-anchor source pass against
+The historical report compared the retired all-anchor source pass against
 `bounded_replay_query_anchor_bucket_source_window.v1`. The old source pass
 handed `8192` anchor buckets to `collect_replay_query_indices(...)` and
 averaged `16.414 ms`; the bounded path handed `16` reverse-recency buckets,
@@ -1359,6 +1359,15 @@ anchor hit rate stayed `1.0`, exact input recall stayed
 fresh bounded collection averaged `0.892 ms`, and the bounded source remained
 `4.587x` faster than the all-anchor comparison. Device placement stayed CPU for
 archival and active replay-query work with `cuda_memory_delta_mib=0.0`.
+
+After that comparison evidence was accepted, the benchmark-local all-anchor
+implementation was removed. The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-anchor-maintained-only.json`
+passed with `retired_all_anchor_source_absence.implementation_present=false`,
+bounded recent-anchor hit rate `1.0`, exact recall
+`mean_input_pattern_distance=0.0`, inherited cap `4096->16` with `4080`
+truncated buckets, bounded collection mean `1.451 ms`, and `0.0 MiB` CUDA
+allocation delta.
 
 The 65536-column protection run was:
 
@@ -1398,7 +1407,7 @@ benchmark was:
 
 `python -m marulho.evaluation.sleep_replay_anchor_source_window_benchmark --output reports\bounded_replay_window_20260622\sleep-replay-anchor-source-window-bounded.json --anchor-count 8192 --column-latent-dim 32 --replay-steps 16 --candidate-pool 32 --iterations 64 --seed 23`
 
-It compared `sorted_all_column_anchors` against
+The historical report compared `sorted_all_column_anchors` against
 `bounded_sleep_replay_anchor_bucket_source_window.v1`. The old source pass
 averaged `0.892263 ms`; the bounded path read `16/8192` reverse-recency anchor
 buckets, averaged `0.037825 ms`, and improved source latency by `23.589x`.
@@ -1406,6 +1415,14 @@ Full sleep-window selection improved from `7.797869 ms` to `0.104864 ms`.
 Newest-anchor source hit rate and selected replay-bucket hit rate were both
 `1.0`; CUDA was available but unused for archival/source work with
 `cuda_memory_delta_mib=0.0`.
+
+The all-anchor benchmark-local implementation is now removed. The maintained-only
+report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-anchor-maintained-only.json`
+passed with `retired_all_anchor_source_absence.implementation_present=false`,
+bounded source hit rate `1.0`, selected replay-bucket hit rate `1.0`, `16`
+selected replay rows, source mean `0.039967 ms`, selection mean `0.101736 ms`,
+anchor-capture mean `27.212372 ms`, and `0.0 MiB` CUDA allocation delta.
 
 The matching protection run was:
 

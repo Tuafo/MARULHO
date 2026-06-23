@@ -46,6 +46,7 @@ related_benchmarks: []
 - [Replay Dataset Candidates Preview](replay-dataset-candidates-preview.md)
 - [Replay Dataset History Wrapper](replay-dataset-history-wrapper.md)
 - [Replay Execute Alias Executor Summary](replay-execute-alias-executor-summary.md)
+- [Replay Query All Anchor Source Pass](replay-query-all-anchor-source-pass.md)
 - [Replay Restore Full Materialized Normalization](replay-restore-full-materialized-normalization.md)
 - [Runtime Trace Export Replay Summary Full History](runtime-trace-export-replay-summary-full-history.md)
 - [Selected Replay Bucket Consolidation Cache Rebuild](selected-replay-bucket-consolidation-cache-rebuild.md)

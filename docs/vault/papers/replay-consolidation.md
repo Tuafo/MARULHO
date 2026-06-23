@@ -1206,6 +1206,11 @@ passed with an oversized `4096`-bucket inherited report capped to `16` buckets,
 (`mean_input_pattern_distance=0.0`), bounded recent-anchor hit rate `1.0`, CPU
 archival/active recall placement, no live tick, no every-token work, no global
 candidate scan, no hidden language reasoning, and `0.0 MiB` CUDA allocation.
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-anchor-maintained-only.json`
+keeps the all-anchor benchmark implementation absent while preserving the same
+bounded hit rate, exact recall, inherited cap, CPU placement, and `0.0 MiB`
+CUDA allocation.
 
 The long hot-path protection run
 `reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-replay-query-anchor-source-window.json`
@@ -1253,6 +1258,11 @@ positive replay entries from those newest anchors with hit rate `1.0`. Full
 selection latency moved from `7.797869 ms` with the retired all-anchor source to
 `0.104864 ms` with the bounded source. CUDA was available but unused for
 archival/source selection, with `0.0 MiB` allocation delta.
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-anchor-maintained-only.json`
+keeps the all-anchor benchmark implementation absent while preserving bounded
+source and selected-bucket hit rates at `1.0`, `16` selected replay rows, source
+mean `0.039967 ms`, selection mean `0.101736 ms`, and `0.0 MiB` CUDA allocation.
 
 The paired `524288`-token protection run
 `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-sleep-replay-anchor-source-window.json`

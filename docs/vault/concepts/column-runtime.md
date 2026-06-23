@@ -1388,6 +1388,12 @@ cut `4096` inherited buckets to `16`, truncated `4080`, kept exact input recall,
 and used `0.0 MiB` CUDA. Its same-checkpoint `524288`-token gate reached
 `6162.974 tokens/sec`, `train_compute=0.130390 ms/token`, and p95
 `20.644 ms`, with bounded route scoring and zero graph/native failures.
+After that proof, the benchmark-local all-anchor query implementation was
+deleted. The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-anchor-maintained-only.json`
+passes with `retired_all_anchor_source_absence.implementation_present=false`,
+bounded recent-anchor hit rate `1.0`, exact recall, inherited cap `4096->16`,
+and `0.0 MiB` CUDA allocation.
 
 Trainer sleep replay now uses that same shared anchor-source boundary before
 calling `DualMemoryStore.select_replay_window(...)`. The old trainer source
@@ -1414,6 +1420,11 @@ bounded `12/65536` route rows, `65526` cached transition rows, zero
 graph/native sequence failures, and RTX 3060 memory `1615->1614 MiB`. GPU
 utilization touched the `20%` contention threshold, so this is protection
 evidence and all-anchor source retirement, not a speed promotion.
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-anchor-maintained-only.json`
+keeps the all-anchor benchmark implementation absent, bounded source and
+selected-bucket hit rates at `1.0`, `16` selected replay rows, source mean
+`0.039967 ms`, selection mean `0.101736 ms`, and `0.0 MiB` CUDA allocation.
 
 The shared anchor helper now also fails closed for non-reversible anchor
 sources. The previous fallback materialized `list(anchors)` to recover a tail

@@ -54,10 +54,20 @@ processed `524288` tokens at `6135.629 tokens/sec`, kept route scoring bounded
 at `12/65536`, cached `65526` transition rows, kept RTX 3060 memory
 `1615->1614 MiB`, and recorded zero graph/native sequence failures.
 
+After the comparison evidence was accepted, the benchmark-local all-anchor
+source implementation was also removed. The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-anchor-maintained-only.json`
+passed with `retired_all_anchor_source_absence.implementation_present=false`,
+bounded source and selected-bucket hit rates at `1.0`, `16` selected replay
+rows, source mean `0.039967 ms`, selection mean `0.101736 ms`, and `0.0 MiB`
+CUDA allocation.
+
 ## Revisit Condition
 
 Do not reintroduce all-anchor sleep source construction as production code.
-Full-anchor comparisons belong only in benchmark-local diagnostics unless a
-future indexed replay source proves better quality, keeps archival metadata
-CPU-resident, reports no hidden language reasoning or live/every-token work,
-and preserves the 6k-ish long-run hot-path band.
+Reintroduce full-anchor comparisons only as a new diagnostic-only benchmark
+module with explicit source-size accounting and no production import path, and
+only if a future indexed replay source needs a fresh baseline. The maintained
+runtime must keep archival metadata CPU-resident, report no hidden language
+reasoning or live/every-token work, and preserve the 6k-ish long-run hot-path
+band.

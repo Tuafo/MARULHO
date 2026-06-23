@@ -3715,6 +3715,24 @@ before/around measurement, while CPU stayed at `15%` max and GPU memory
 utilization at `16%`; because throughput and stage timings stayed in the
 maintained band, this is accepted as hot-path protection evidence but not as a
 clean contention-free throughput ceiling.
+The 2026-06-23 maintained-only benchmark
+`..\..\MARULHO_reports\bounded_replay_window_20260623\replay-query-anchor-maintained-only.json`
+removes the all-anchor benchmark-local implementation while keeping exact recall,
+bounded inherited scope `4096->16`, CPU archival/active placement, and `0.0 MiB`
+CUDA allocation. The benchmark cleanup does not touch live-tick runtime code;
+the same-checkpoint inherited-cap protection run remains the current long-run
+hot-path evidence for this slice at `6162.974 tokens/sec`.
+Two same-checkpoint `524288`-token checks after benchmark-code cleanup are
+rejected as acceptance evidence:
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-anchor-benchmark-code-retired.json`
+reported `5730.669 tokens/sec`, `0.139874 ms/token` train compute, and
+`22.992 ms` p95 latency; the rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-anchor-benchmark-code-retired-rerun.json`
+reported `5574.603 tokens/sec`, `0.143308 ms/token` train compute, and
+`24.499 ms` p95 latency with CPU already high before the run. Because this
+cleanup changed docs, tests, and evaluation benchmarks only, these reports are a
+throughput-diagnosis signal, not proof of a live runtime regression from the
+retired benchmark-path cleanup.
 
 ### Bucket Candidate Source Window, 2026-06-18
 
@@ -5622,6 +5640,16 @@ rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
 utilization max `22%`, and RTX memory `1615->1614 MiB`. Because GPU utilization
 touched the configured contention threshold, treat this as same-band live-tick
 protection and retired all-anchor source evidence, not a speed ceiling.
+The 2026-06-23 maintained-only benchmark
+`..\..\MARULHO_reports\bounded_replay_window_20260623\sleep-replay-anchor-maintained-only.json`
+removes the all-anchor benchmark-local implementation while preserving bounded
+source and selected replay hit rates of `1.0`, `16` selected rows, CPU
+archival/source placement, and `0.0 MiB` CUDA allocation. No hot-path runtime
+code changed in that cleanup; the existing `524288`-token run remains the
+long-run protection evidence for sleep-replay anchor-source runtime behavior.
+The post-cleanup long-run checks listed above are intentionally not promoted as
+sleep-replay protection evidence because they fell below the maintained 6k-ish
+band while no live runtime file changed.
 
 ## Replay Adapter Stack Retirement Protection
 

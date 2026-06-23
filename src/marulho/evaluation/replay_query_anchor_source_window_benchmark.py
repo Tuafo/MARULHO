@@ -77,27 +77,6 @@ def _build_trainer(*, anchor_count: int, column_latent_dim: int) -> MarulhoTrain
     return trainer
 
 
-def _time_legacy_collection(
-    trainer: MarulhoTrainer,
-    *,
-    max_queries: int,
-    iterations: int,
-) -> tuple[dict[str, Any], dict[str, float]]:
-    all_anchor_buckets = list(range(len(trainer.column_anchors)))
-    latencies: list[float] = []
-    report: dict[str, Any] = {}
-    store = trainer.model.memory_store
-    for _iteration in range(max(1, int(iterations))):
-        started = time.perf_counter()
-        report = store.collect_replay_query_indices(
-            candidate_bucket_ids=all_anchor_buckets,
-            max_queries=max_queries,
-            scope="legacy_all_anchor_query_collection_baseline",
-        )
-        latencies.append((time.perf_counter() - started) * 1000.0)
-    return report, _latency_summary(latencies)
-
-
 def _time_bounded_collection(
     trainer: MarulhoTrainer,
     *,
@@ -134,11 +113,6 @@ def run_benchmark(
         column_latent_dim=column_latent_dim,
     )
 
-    legacy_report, legacy_latency = _time_legacy_collection(
-        trainer,
-        max_queries=max_queries,
-        iterations=iterations,
-    )
     bounded_queries, bounded_report, bounded_latency = _time_bounded_collection(
         trainer,
         max_queries=max_queries,
@@ -186,17 +160,11 @@ def run_benchmark(
             -1,
         )
     )
-    legacy_query_indices = [int(index) for index in legacy_report.get("query_indices", [])]
     bounded_query_indices = [int(index) for index in bounded_report.get("query_indices", [])]
     expected_set = set(expected_recent_queries)
-    legacy_recent_hits = len(expected_set.intersection(legacy_query_indices))
     bounded_recent_hits = len(expected_set.intersection(bounded_query_indices))
     denominator = max(1, min(int(max_queries), len(expected_recent_queries)))
-    legacy_recent_hit_rate = float(legacy_recent_hits / denominator)
     bounded_recent_hit_rate = float(bounded_recent_hits / denominator)
-    legacy_mean = float(legacy_latency["mean_ms"])
-    bounded_mean = float(bounded_latency["mean_ms"])
-    speedup = float(legacy_mean / bounded_mean) if bounded_mean > 0.0 else float("inf")
 
     return {
         "surface": "bounded_replay_query_anchor_source_window_benchmark.v1",
@@ -222,17 +190,17 @@ def run_benchmark(
             "seed": int(seed),
             "anchor_bucket_window_limit": REPLAY_QUERY_ANCHOR_BUCKET_WINDOW_LIMIT,
         },
-        "legacy_all_anchor_source": {
-            "anchor_bucket_count": int(anchor_count),
-            "candidate_bucket_count": int(legacy_report.get("candidate_bucket_count", 0) or 0),
-            "candidate_index_available_count": int(
-                legacy_report.get("candidate_index_available_count", 0) or 0
+        "retired_all_anchor_source_absence": {
+            "implementation_present": False,
+            "all_anchor_collection_called": False,
+            "production_callable": False,
+            "historical_comparison_report": (
+                "reports/bounded_replay_window_20260618/"
+                "replay-query-anchor-source-window-bounded.json"
             ),
-            "candidate_index_count": int(legacy_report.get("candidate_index_count", 0) or 0),
-            "query_indices": legacy_query_indices,
-            "recent_anchor_query_hit_rate": legacy_recent_hit_rate,
-            "anchor_source_full_scan": True,
-            "latency": legacy_latency,
+            "revisit_condition": (
+                "new diagnostic-only benchmark with explicit source-size accounting"
+            ),
         },
         "bounded_anchor_source": {
             "source_window": dict(bounded_report.get("source_window") or {}),
@@ -245,12 +213,10 @@ def run_benchmark(
             "recent_anchor_query_hit_rate": bounded_recent_hit_rate,
             "anchor_source_full_scan": bool(bounded_report.get("anchor_source_full_scan")),
             "latency": bounded_latency,
-            "speedup_vs_legacy_mean": speedup,
         },
         "quality": {
             "metric": "recent_anchor_query_hit_rate_and_exact_input_recall",
             "expected_recent_query_indices": expected_recent_queries,
-            "legacy_recent_anchor_query_hit_rate": legacy_recent_hit_rate,
             "bounded_recent_anchor_query_hit_rate": bounded_recent_hit_rate,
             "bounded_mean_input_pattern_distance": float(
                 recall_report.get("mean_input_pattern_distance", float("inf"))
