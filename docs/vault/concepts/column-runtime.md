@@ -81,11 +81,17 @@ source windows, CPU archival placement, no hidden replay-text reasoning, and
 hot-path protection evidence.
 
 The 2026-06-23 service replay-lane retirement has code/tests/docs evidence for
-removing side paths, but not accepted live-tick evidence. Same-session hot-path
-runs fell below band, and a current-machine rerun of old known-good `fbb788de`
-also fell to `4201.009 tokens/sec` with CPU/GPU contention. Do not treat the
-retirement as a throughput promotion until a fresh clean run returns to the
-6k-ish band.
+removing side paths plus accepted live-tick absence evidence. Earlier local
+reports are rejected as noisy/unpinned controls, including `3982.916`,
+`4559.668`, `5067.347`, and `4859.400 tokens/sec`. The diagnostic found a
+worktree import mistake: without pinned `PYTHONPATH`, the old-control worktree
+still imported the editable main checkout. Corrected pinned-import `524288`
+token evidence measured current HEAD at `5865.705 tokens/sec` versus old
+known-good `fbb788de` at `5880.863 tokens/sec` (`-0.26%`), with no observed
+contention, bounded `12/65536` route rows, no all-column transition, no
+measurement-window polling, and zero graph/native sequence failures. Treat this
+as protection for deleting service replay surfaces, not as promotion of a new
+recall/replay mechanism.
 
 Column Runtime is the MARULHO control-plane direction where many small predictive columns can exist, but only a bounded subset should wake on a tick.
 

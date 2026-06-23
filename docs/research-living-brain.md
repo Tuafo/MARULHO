@@ -17,20 +17,21 @@ This file records research anchors for current architecture work. It is not a pr
   fields, and persisted replay-sample history. The current invariant is no
   full-memory scan in the live tick, no every-token slow-memory admission, CPU
   archival metadata by default, CUDA only for active tensor computation, and no
-  hidden language reasoning through replay text. The current local hot-path
-  reports for this retirement slice are rejected, not accepted: both completed
-  `524288` tokens with bounded `12/65536` route rows and no measurement-window
-  status polling, but recorded contention and only `3982.916` then
-  `4559.668 tokens/sec`. A same-session clean-HEAD comparison is also
-  rejected: baseline `c7a07c56` reached `5067.347 tokens/sec`, while the
-  current worktree rerun reached `4859.400 tokens/sec` despite no observed
-  contention. A throwaway `fbb788de` worktree, which previously hit
-  `6120.090 tokens/sec` under the same benchmark shape, reached only
-  `4201.009 tokens/sec` on the current machine with CPU max `100%`, GPU max
-  `22%`, `tick_duration_ms.p95=42.690`, and
-  `train_compute=0.189376 ms/token`. This keeps the replay-lane retirement as
-  a code cleanup/research-boundary decision, not accepted live-tick protection
-  evidence.
+  hidden language reasoning through replay text. Initial local hot-path reports
+  for this retirement slice are retained as rejected/noisy evidence: they
+  completed `524288` tokens with bounded `12/65536` route rows and no
+  measurement-window status polling, but recorded contention and only
+  `3982.916` then `4559.668 tokens/sec`; an unpinned same-session A/B measured
+  `5067.347` versus `4859.400 tokens/sec`. The diagnosis was import
+  contamination from the editable main checkout: worktree comparisons must pin
+  `PYTHONPATH` and verify `marulho.__file__`. Corrected pinned-import evidence
+  returned to the maintained band: full `524288`-token current HEAD reached
+  `5865.705 tokens/sec` versus pinned old known-good `fbb788de` at
+  `5880.863 tokens/sec` (`-0.26%`), both with no observed contention, bounded
+  `12/65536` route rows, no all-column transition, no measurement-window status
+  polling, RTX 3060 CUDA placement, and zero graph/native sequence failures.
+  This makes the replay-lane retirement an accepted absence/protection result,
+  not a new recall/replay promotion.
 - Recent anchor-capture row note, June 2026: selected replay anchors may be
   chosen from a bounded recent window, but sparse replay and synaptic
   tagging/capture do not justify trainer code reading `slow_bucket_ids`

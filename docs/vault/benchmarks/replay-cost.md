@@ -192,19 +192,25 @@ The cost rule is unchanged: no live-tick full-memory scans, no every-token
 slow-memory admission, CPU archival metadata unless active tensor replay proves
 CUDA benefit, and no hidden language reasoning through replay text.
 
-Hot-path acceptance is still pending for this retirement slice. Two local-only
-`524288`-token runs in `..\..\MARULHO_reports\bounded_replay_window_20260623\`
-confirmed the retired service replay lane did not enter the measured loop
+Hot-path acceptance is an absence/protection claim for this retirement slice.
+Two local-only `524288`-token runs in
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` confirmed the retired
+service replay lane did not enter the measured loop
 (`poll_snapshots_during_measurement=false`, bounded `12/65536` route rows, no
-all-column state transition), but both are rejected for throughput evidence
-because `velocity_environment.v1` recorded contention and throughput fell to
-`3982.916` and `4559.668 tokens/sec`.
+all-column state transition), but they are retained only as rejected noisy
+evidence because `velocity_environment.v1` recorded contention and throughput
+fell to `3982.916` and `4559.668 tokens/sec`. The same-session clean/current
+A/B at `5067.347` versus `4859.400 tokens/sec` is also rejected because the
+later diagnosis found worktree import contamination unless `PYTHONPATH` is
+pinned and `marulho.__file__` is verified.
 
-A same-session clean-HEAD comparison is also rejected for promotion: baseline
-`c7a07c56` reached `5067.347 tokens/sec`, while the current worktree rerun
-under the same `524288`-token shape reached `4859.400 tokens/sec` with no
-observed contention. The cleanup removes a dead service replay lane, but the
-iteration is not accepted until the live-tick slowdown is explained or reversed.
+Corrected pinned-import `524288`-token evidence accepts the cleanup as
+hot-path protected: current HEAD reached `5865.705 tokens/sec`, and pinned old
+known-good `fbb788de` reached `5880.863 tokens/sec` (`-0.26%`). Both arms
+recorded no contention, bounded `12/65536` route rows, no all-column transition,
+no measurement-window status polling, RTX 3060 CUDA placement, and zero
+graph/native sequence failures. This does not add a replay path; it proves the
+deleted service replay lane stays out of the live tick.
 
 ## Commands
 

@@ -190,22 +190,26 @@ replay artifacts. Runtime trace export is trace-only. Deleted service routes,
 schemas, persisted replay-sample history, replay dataset packagers/runners, and
 living-loop replay planning are not compatibility surfaces.
 
-This retirement is not yet a hot-path promotion claim. The current local
-`524288`-token reports under
-`..\..\MARULHO_reports\bounded_replay_window_20260623\` are rejected because
-contention was observed and throughput stayed below the maintained band
-(`3982.916` and `4559.668 tokens/sec`), even though the reports preserved the
-bounded route shape and did not poll status snapshots during measurement.
-The later same-session A/B is also rejected: clean HEAD `c7a07c56` reached
-`5067.347 tokens/sec`, while the current worktree rerun reached
-`4859.400 tokens/sec` with no observed contention. The research boundary and
-deleted service path remain directionally correct, but this code slice cannot
-claim long-run live-tick protection yet. A current-machine control reran the
-old known-good `fbb788de` worktree and reached only `4201.009 tokens/sec`
-with CPU max `100%`, GPU max `22%`, `tick_duration_ms.p95=42.690`, and
-`train_compute=0.189376 ms/token`, despite the same bounded `12/65536` route
-rows and zero graph/native sequence failures. Treat current 2026-06-23 hot-path
-numbers as rejected run-condition evidence until a clean 6k-ish rerun returns.
+This retirement is a hot-path absence/protection claim, not a new replay
+promotion claim. The first local `524288`-token reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260623\` are retained as
+rejected/noisy evidence because contention was observed and throughput stayed at
+`3982.916` and `4559.668 tokens/sec`, even though the reports preserved bounded
+route shape and did not poll status snapshots during measurement. The later
+same-session A/B that measured clean HEAD `c7a07c56` at `5067.347 tokens/sec`
+and current worktree at `4859.400 tokens/sec` is also rejected as an unpinned
+control. The diagnostic found the Python environment imported the editable main
+checkout from the throwaway worktree unless `PYTHONPATH` was pinned; future
+worktree comparisons must verify `marulho.__file__`.
+
+The corrected pinned-import evidence returns the retirement slice to the
+maintained live-tick band. The full `524288`-token current HEAD run reached
+`5865.705 tokens/sec`, `tick_duration_ms.p95=22.378`, and
+`train_compute=0.136846 ms/token`; pinned old known-good `fbb788de` reached
+`5880.863 tokens/sec`, `tick_duration_ms.p95=23.166`, and
+`train_compute=0.137990 ms/token`. Both arms recorded no contention, bounded
+`12/65536` route rows, no all-column transition, no measurement-window status
+polling, RTX 3060 CUDA placement, and zero graph/native sequence failures.
 
 This follows the paper trail: CLS and hippocampal replay argue for separated
 fast/slow learning windows; continual replay argues for selected rehearsal, not
