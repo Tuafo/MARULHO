@@ -51,15 +51,6 @@ def _patterns(config: MarulhoConfig, *, tokens: int, seed: int) -> list[torch.Te
     ]
 
 
-def _retired_fixed_cadence_archive_tokens(tokens: int, archive_interval_tokens: int) -> list[int]:
-    interval = max(1, int(archive_interval_tokens))
-    archive_tokens = {1}
-    archive_tokens.update(
-        token for token in range(interval, int(tokens) + 1, interval)
-    )
-    return sorted(token for token in archive_tokens if 1 <= token <= int(tokens))
-
-
 def _run_once(
     *,
     tokens: int,
@@ -165,14 +156,13 @@ def run_benchmark(
     cuda_reserved_after = int(torch.cuda.memory_reserved()) if cuda_available else 0
     bounded = _case_stats(bounded_rows)
     bounded_last = dict(bounded.get("last_run") or {})
-    retired_archive_tokens = _retired_fixed_cadence_archive_tokens(
-        tokens,
-        archive_interval_tokens,
-    )
-    retired_archive_count = len(retired_archive_tokens)
+    interval = max(1, int(archive_interval_tokens))
+    projected_fixed_cadence_writes = int(tokens) // interval
+    if interval != 1:
+        projected_fixed_cadence_writes += 1
     bounded_archives = max(1.0, float(bounded["archive_count_mean"]))
-    work_reduction = float(retired_archive_count) / bounded_archives
-    expected_deferred_count = max(0, retired_archive_count - 1)
+    write_reduction = float(projected_fixed_cadence_writes) / bounded_archives
+    expected_deferred_count = max(0, int(projected_fixed_cadence_writes) - 1)
     quality = {
         "first_token_retained": bool(
             bounded_last.get("stored_entry_timestamps") == [1]
@@ -198,7 +188,8 @@ def run_benchmark(
             )
             is False
         ),
-        "work_reduction": float(work_reduction),
+        "fixed_cadence_projection_removed": True,
+        "projected_write_reduction": float(write_reduction),
         "bounded_elapsed_mean_ms": float(bounded["elapsed_mean_ms"]),
     }
     quality["pass"] = bool(
@@ -206,8 +197,14 @@ def run_benchmark(
         and quality["fixed_cadence_archives_removed"]
         and quality["strong_capture_unchanged_for_non_strong_case"]
         and quality["cadence_execution_gate_closed"]
-        and work_reduction >= 2.0
+        and quality["fixed_cadence_projection_removed"]
+        and write_reduction >= 2.0
     )
+    removed_fixed_cadence_absence = {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "fixed_cadence_slow_memory_admission_projection",
+    }
     return {
         "artifact_kind": "slow_memory_fixed_cadence_retirement_benchmark",
         "surface": "slow_memory_fixed_cadence_admission_retired.v1",
@@ -223,6 +220,10 @@ def run_benchmark(
             "archival_entries": int(max(64, int(tokens) + 8)),
             "fixed_cadence_archive_writes": 0,
             "first_token_archive_writes": 1,
+            "projected_fixed_cadence_writes_removed": int(
+                max(0, int(projected_fixed_cadence_writes) - 1)
+            ),
+            "projected_archive_write_reduction": float(write_reduction),
             "archival_storage_device": "cpu",
         },
         "device_placement": {
@@ -248,12 +249,7 @@ def run_benchmark(
             "hidden_language_reasoning": False,
         },
         "bounded": bounded,
-        "retired_fixed_cadence_projection": {
-            "archive_tokens": retired_archive_tokens,
-            "archive_count": int(retired_archive_count),
-            "archive_interval_tokens": int(archive_interval_tokens),
-            "executable_path_retired": True,
-        },
+        "retired_fixed_cadence_admission_absence": removed_fixed_cadence_absence,
         "quality": quality,
         "pass": bool(quality["pass"]),
     }
@@ -284,12 +280,14 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} bounded_archives={bounded:.0f} "
-        "retired_archives={retired:.0f} work_reduction={work:.6f} "
+        "removed_fixed_cadence_writes={removed:.0f} write_reduction={work:.6f} "
         "bounded_elapsed_mean_ms={elapsed:.6f}".format(
             pass_gate=report["pass"],
             bounded=report["bounded"]["archive_count_mean"],
-            retired=report["retired_fixed_cadence_projection"]["archive_count"],
-            work=report["quality"]["work_reduction"],
+            removed=report["memory_budget"][
+                "projected_fixed_cadence_writes_removed"
+            ],
+            work=report["quality"]["projected_write_reduction"],
             elapsed=report["quality"]["bounded_elapsed_mean_ms"],
         )
     )

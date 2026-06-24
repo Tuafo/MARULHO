@@ -1816,6 +1816,16 @@ at `6100.415 tokens/sec` with `train_compute=0.133405 ms/token`, bounded
 observed GPU contention keeps it as hot-path protection evidence rather than a
 clean speed ceiling.
 
+The maintained-only refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260624\strong-capture-admission-projection-removed.json`
+removes the every-strong projection object from the benchmark report. It keeps
+the same selected strong-capture path, records
+`retired_every_strong_admission_absence.implementation_present=false`, archives
+`17` bounded CPU records with `16` selected strong archives, skips `239`
+refractory writes, projects `239` removed every-strong writes in the memory
+budget, averages `1335.328410 ms`, and keeps CUDA allocation/reservation at
+`0.0 MiB`.
+
 Fixed-cadence slow-memory admission is now retired as an executable
 per-token fallback. The maintained path archives only the first retained token
 and selected strong captures; ordinary `slow_memory_archive_interval_tokens`
@@ -1838,6 +1848,21 @@ stayed in the maintained band at `6043.321 tokens/sec`,
 cached rows, `2048` deferred cadence hits, zero graph/native sequence failures,
 and flat RTX 3060 memory at `1958 MiB`. Borderline GPU contention makes this
 protection evidence, not a new speed ceiling.
+
+The current maintained-only fixed-cadence report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
+removes the fixed-cadence projection object from the benchmark report, records
+`retired_fixed_cadence_admission_absence.implementation_present=false`, keeps
+`1` first-token archive, removes `16` projected fixed-cadence writes, defers
+`16` cadence hits, averages `1326.868180 ms`, and keeps CUDA
+allocation/reservation at `0.0 MiB`. The paired current-tree protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-slow-memory-admission-projections-removed-default-nosample.json`
+processed `524288` tokens at `5957.637 tokens/sec`, p95 `21.679 ms`,
+`train_compute=0.135551 ms/token`, `prepare_training=0.006811 ms/token`,
+`finalize_total=0.006772 ms/token`, bounded `12/65536` route rows, `65526`
+cached rows, `2048` deferred cadence hits, native sequence-loop and burst-replay
+failure counts `0`, no observed before/after contention (`cpu max=22%`,
+`gpu max=12%`), and RTX 3060 memory `2047->2046 MiB`.
 
 Source tick sleep replay is also deferred out of the live service fallback.
 BrainRuntime still owns source selection and tick orchestration, but it no

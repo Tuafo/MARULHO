@@ -4508,6 +4508,38 @@ runtime failures, and flat `2390 MiB` GPU memory, but a `12435 ms` max tick
 outlier and observed GPU contention make it variance evidence rather than a
 promotion run.
 
+Maintained-only admission-projection cleanup:
+
+`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
+
+`python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\strong-capture-admission-projection-removed.json`
+
+Both reports pass without emitting the old projection objects. Fixed cadence
+records `retired_fixed_cadence_admission_absence.implementation_present=false`,
+keeps `1` first-token archive, removes `16` projected cadence writes, defers
+`16` cadence hits, averages `1326.868180 ms`, and uses `0.0 MiB` CUDA memory.
+Strong capture records
+`retired_every_strong_admission_absence.implementation_present=false`, archives
+`17` bounded CPU records with `16` selected strong archives, skips `239`
+refractory writes, projects `239` removed every-strong writes, averages
+`1335.328410 ms`, and uses `0.0 MiB` CUDA memory.
+
+Current protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-slow-memory-admission-projections-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `88.002675 s`,
+`5957.637 tokens/sec`, `tick_duration_ms.p95=21.679`,
+`train_compute=0.135551 ms/token`, `prepare_training=0.006811 ms/token`, and
+`finalize_total=0.006772 ms/token`. Prewarm took `247.576 s` and is outside
+measured throughput. Runtime Truth stayed bounded at `12/65536` route rows,
+`10` output candidates, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, `2048` deferred cadence hits, and
+native sequence-loop/burst-replay failure counts `0`. Environment sampling was
+disabled during the loop, so contention evidence is before/after: verdict
+`not_observed`, `cpu max=22%`, `gpu max=12%`, RTX 3060 memory
+`2047->2046 MiB`.
+
 ## SNN Readout Replay Target Windows
 
 `SNNLanguageReadoutEvidenceLedger.replay_dry_run(...)`,

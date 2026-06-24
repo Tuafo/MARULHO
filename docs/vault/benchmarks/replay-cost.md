@@ -2185,6 +2185,36 @@ and flat RTX 3060 memory at `1958 MiB`. The sampler observed borderline GPU
 contention at the configured threshold, so this is same-band hot-path
 protection evidence rather than a clean speed-ceiling claim.
 
+Maintained-only projection cleanup:
+
+`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
+
+The current fixed-cadence report no longer emits
+`retired_fixed_cadence_projection`. It records
+`retired_fixed_cadence_admission_absence.implementation_present=false`, keeps
+`1` first-token archive, removes `16` projected fixed-cadence writes, defers
+`16` cadence hits, preserves CPU archival placement, averages
+`1326.868180 ms`, and uses `0.0 MiB` CUDA allocation/reservation.
+
+`python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\strong-capture-admission-projection-removed.json`
+
+The current strong-capture report no longer emits
+`retired_every_strong_projection`. It records
+`retired_every_strong_admission_absence.implementation_present=false`, archives
+`17` bounded CPU records with `16` selected strong archives, skips `239`
+refractory writes, projects `239` removed every-strong writes in the memory
+budget, averages `1335.328410 ms`, and uses `0.0 MiB` CUDA
+allocation/reservation.
+
+The current `524288`-token protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-slow-memory-admission-projections-removed-default-nosample.json`
+stayed same-band at `5957.637 tokens/sec`, p95 `21.679 ms`,
+`train_compute=0.135551 ms/token`, `prepare_training=0.006811 ms/token`,
+`finalize_total=0.006772 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, `2048` deferred cadence hits, native sequence-loop and
+burst-replay failure counts `0`, no observed before/after contention (`cpu
+max=22%`, `gpu max=12%`), and RTX 3060 memory `2047->2046 MiB`.
+
 The source tick sleep replay deferral follow-up removes the remaining service
 fallback route into automatic sleep replay. Background source ticks may still
 fall back to per-token `train_step` for metrics or unsupported burst execution,

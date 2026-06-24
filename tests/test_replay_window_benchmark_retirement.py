@@ -78,6 +78,12 @@ from marulho.evaluation.runtime_concept_memory_lookup_benchmark import (
 from marulho.evaluation.query_episode_readout_benchmark import (
     run_benchmark as run_query_episode_readout_benchmark,
 )
+from marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark import (
+    run_benchmark as run_slow_memory_fixed_cadence_benchmark,
+)
+from marulho.evaluation.strong_capture_admission_cadence_benchmark import (
+    run_benchmark as run_strong_capture_admission_cadence_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,6 +120,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/query_memory_payload_benchmark.py",
         ROOT / "src/marulho/evaluation/runtime_concept_memory_lookup_benchmark.py",
         ROOT / "src/marulho/evaluation/query_episode_readout_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -204,6 +214,11 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "_diagnostic_full_applied_synapse_audit",
         "diagnostic_full_applied_synapse_scan",
         "diagnostic_full_applied_synapse_provenance_audit_scan",
+        "_retired_fixed_cadence_archive_tokens",
+        "retired_fixed_cadence_projection",
+        "_retired_every_strong_projection",
+        "retired_every_strong_projection",
+        "retired_every_strong_projection_matches_forced_candidates",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -316,6 +331,58 @@ def test_synapse_provenance_audit_benchmark_reports_maintained_only_path() -> No
     assert budget["language_reasoning"] is False
     assert report["source_window"]["source_payload_truncated"] is True
     assert report["source_window"]["gpu_resident_archival_metadata"] is False
+
+
+def test_slow_memory_fixed_cadence_benchmark_reports_maintained_only_path() -> None:
+    report = run_slow_memory_fixed_cadence_benchmark(
+        tokens=32,
+        archive_interval_tokens=8,
+        runs=1,
+        seed=20260624,
+        device="cpu",
+    )
+
+    assert report["pass"] is True
+    assert "retired_fixed_cadence_projection" not in report
+    assert report["retired_fixed_cadence_admission_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "fixed_cadence_slow_memory_admission_projection",
+    }
+    assert report["quality"]["fixed_cadence_projection_removed"] is True
+    assert report["memory_budget"]["fixed_cadence_archive_writes"] == 0
+    assert report["memory_budget"]["first_token_archive_writes"] == 1
+    assert report["memory_budget"]["projected_fixed_cadence_writes_removed"] == 4
+    assert report["memory_budget"]["archival_storage_device"] == "cpu"
+    assert report["runtime_truth"]["runs_every_token"] is False
+    assert report["runtime_truth"]["slow_memory_admission_every_token"] is False
+    assert report["runtime_truth"]["hidden_language_reasoning"] is False
+
+
+def test_strong_capture_admission_benchmark_reports_maintained_only_path() -> None:
+    report = run_strong_capture_admission_cadence_benchmark(
+        tokens=32,
+        min_interval_tokens=8,
+        runs=1,
+        seed=20260624,
+        device="cpu",
+    )
+
+    assert report["pass"] is True
+    assert "retired_every_strong_projection" not in report
+    assert report["retired_every_strong_admission_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "every_strong_slow_memory_admission_projection",
+    }
+    assert report["quality"]["every_strong_projection_removed"] is True
+    assert report["memory_budget"]["max_archive_writes_per_strong_interval"] == 1
+    assert report["memory_budget"]["strong_capture_min_interval_tokens"] == 8
+    assert report["memory_budget"]["projected_every_strong_archive_writes_removed"] > 0
+    assert report["memory_budget"]["archival_storage_device"] == "cpu"
+    assert report["runtime_truth"]["runs_every_token"] is False
+    assert report["runtime_truth"]["slow_memory_admission_every_token"] is False
+    assert report["runtime_truth"]["hidden_language_reasoning"] is False
 
 
 def test_source_bank_memory_match_benchmark_reports_maintained_only_path() -> None:

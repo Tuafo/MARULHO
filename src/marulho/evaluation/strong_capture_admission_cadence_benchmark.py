@@ -136,24 +136,6 @@ def _run_once(
     }
 
 
-def _retired_every_strong_projection(
-    *,
-    tokens: int,
-    rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    archive_count = int(tokens)
-    strong_capture_archive_count = max(0, int(tokens) - 1)
-    return {
-        "archive_count_mean": float(archive_count),
-        "strong_capture_archive_count_mean": float(strong_capture_archive_count),
-        "strong_capture_refractory_skip_count_mean": 0.0,
-        "projected_from_forced_strong_candidates": True,
-        "executable_path_retired": True,
-        "latency_mean_ms": None,
-        "runs": int(len(rows)),
-    }
-
-
 def _case_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     elapsed = [float(row["elapsed_ms"]) for row in rows]
     archives = [int(row["archive_count"]) for row in rows]
@@ -207,10 +189,10 @@ def run_benchmark(
         cuda_after = int(torch.cuda.memory_allocated())
         cuda_reserved_after = int(torch.cuda.memory_reserved())
     bounded = _case_stats(bounded_rows)
-    legacy = _retired_every_strong_projection(tokens=tokens, rows=bounded_rows)
     bounded_last = bounded.get("last_run", {})
     bounded_archives = max(1.0, float(bounded["archive_count_mean"]))
-    work_reduction = float(legacy["archive_count_mean"]) / bounded_archives
+    projected_every_strong_writes = int(tokens)
+    write_reduction = float(projected_every_strong_writes) / bounded_archives
     quality = {
         "coverage_gate_passed": bool(
             bounded_last.get("coverage", {}).get("coverage_gate_passed", False)
@@ -219,20 +201,22 @@ def run_benchmark(
             int(bounded_last.get("archive_count", 0)) < int(tokens)
             and int(bounded_last.get("strong_capture_refractory_skip_count", 0)) > 0
         ),
-        "retired_every_strong_projection_matches_forced_candidates": bool(
-            int(legacy.get("archive_count_mean", 0)) == int(tokens)
-            and bool(legacy.get("executable_path_retired", False))
-        ),
-        "work_reduction": float(work_reduction),
+        "every_strong_projection_removed": True,
+        "projected_write_reduction": float(write_reduction),
         "bounded_elapsed_mean_ms": float(bounded["elapsed_mean_ms"]),
         "legacy_latency_not_measured_because_path_retired": True,
     }
     quality["pass"] = bool(
         quality["coverage_gate_passed"]
         and quality["bounded_no_every_token_admission"]
-        and quality["retired_every_strong_projection_matches_forced_candidates"]
-        and work_reduction >= 2.0
+        and quality["every_strong_projection_removed"]
+        and write_reduction >= 2.0
     )
+    removed_every_strong_absence = {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "every_strong_slow_memory_admission_projection",
+    }
     return {
         "artifact_kind": "bounded_strong_capture_admission_cadence_benchmark",
         "surface": "bounded_strong_capture_admission_cadence.v1",
@@ -247,6 +231,10 @@ def run_benchmark(
         "memory_budget": {
             "max_archive_writes_per_strong_interval": 1,
             "strong_capture_min_interval_tokens": int(min_interval_tokens),
+            "projected_every_strong_archive_writes_removed": int(
+                max(0.0, float(projected_every_strong_writes) - bounded_archives)
+            ),
+            "projected_archive_write_reduction": float(write_reduction),
             "archival_storage_device": "cpu",
         },
         "device_placement": {
@@ -272,7 +260,7 @@ def run_benchmark(
             "cadence_surface": "slow_memory_strong_capture_min_interval_tokens",
         },
         "bounded": bounded,
-        "retired_every_strong_projection": legacy,
+        "retired_every_strong_admission_absence": removed_every_strong_absence,
         "quality": quality,
         "pass": bool(quality["pass"]),
     }
@@ -299,12 +287,15 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(
-        "pass={pass_gate} bounded_archives={bounded:.0f} legacy_archives={legacy:.0f} "
-        "work_reduction={work:.6f} bounded_elapsed_mean_ms={elapsed:.6f}".format(
+        "pass={pass_gate} bounded_archives={bounded:.0f} "
+        "removed_every_strong_writes={removed:.0f} write_reduction={work:.6f} "
+        "bounded_elapsed_mean_ms={elapsed:.6f}".format(
             pass_gate=report["pass"],
             bounded=report["bounded"]["archive_count_mean"],
-            legacy=report["retired_every_strong_projection"]["archive_count_mean"],
-            work=report["quality"]["work_reduction"],
+            removed=report["memory_budget"][
+                "projected_every_strong_archive_writes_removed"
+            ],
+            work=report["quality"]["projected_write_reduction"],
             elapsed=report["quality"]["bounded_elapsed_mean_ms"],
         )
     )
