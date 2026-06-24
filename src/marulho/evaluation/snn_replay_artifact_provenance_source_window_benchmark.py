@@ -414,16 +414,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "p95_ms": round(float(sorted(timings_ms)[-1]), 6),
         "samples_ms": [round(float(value), 6) for value in timings_ms],
     }
-    retired_scan_comparisons = {
-        "old_policy": "linear_scan_retained_context_ticket_artifact_permit_deques_by_id",
-        "old_worst_case_retained_record_checks": int(retention_count * 4),
-        "bounded_index_lookup_count": int(full_source_window.get("index_lookup_count", 0) or 0),
-        "lookup_work_reduction": round(
-            float(retention_count * 4)
-            / max(1, int(full_source_window.get("index_lookup_count", 0) or 0)),
-            6,
-        ),
-    }
     pass_checks = {
         "old_permit_verified_every_run": all(results) and traced_verified,
         "old_records_remain_retained_tail": (
@@ -550,8 +540,28 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "raw_artifact_retirement": raw_artifact_retirement,
         },
         "latency": latency,
-        "retired_path_comparison": {
-            **retired_scan_comparisons,
+        "memory_budget": {
+            "selection_criteria": (
+                "context, review-ticket, replay-artifact, and permit id indexes"
+            ),
+            "retention_count_per_artifact_family": int(retention_count),
+            "source_record_limit": int(
+                full_source_window.get("source_record_limit", 0) or 0
+            ),
+            "source_record_count": int(
+                full_source_window.get("source_record_count", 0) or 0
+            ),
+            "index_lookup_count": int(
+                full_source_window.get("index_lookup_count", 0) or 0
+            ),
+            "index_hit_count": int(full_source_window.get("index_hit_count", 0) or 0),
+            "archival_storage_device": "cpu",
+            "active_computation_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
             "raw_caller_window_artifact_recording": raw_artifact_retirement,
         },
         "resource_behavior": {

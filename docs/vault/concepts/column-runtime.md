@@ -1317,6 +1317,15 @@ retained scorer. It selected the seeded recent high-signal readout from a
 full-retained priority callable absent, averaged `0.911452 ms`, and used no
 CUDA archival allocation.
 
+The 2026-06-24 replay-priority benchmark cleanup removes the remaining
+`retired_path_comparison` report surface from
+`snn_replay_priority_source_window_benchmark.py`. The maintained report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-replay-priority-comparison-surface-removed.json`
+still selects the old readout-targeted context from a bounded `17/64` CPU
+context source, averages `1.581416 ms`, peaks at `0.050346 MiB` traced Python
+memory, uses no CUDA archival allocation, and keeps no live-tick, every-token,
+global-scan, or hidden-language-reasoning work.
+
 Emission-review replay policy now keeps reviewed display text out of replay
 selection and applies the same bounded source rule before replay-context design.
 `snn_language_readout_emission_replay_evaluation_policy.v1` and its design
@@ -1436,6 +1445,13 @@ cached transition rows, no observed contention, and zero graph/native/sequence
 failures after one slower same-code run was rejected. This keeps replay-backed
 structural consent a bounded slow/control-plane path rather than a
 retained-history scan.
+
+The 2026-06-24 provenance cleanup also removes the benchmark's
+`retired_path_comparison` report surface. The maintained report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-replay-artifact-provenance-comparison-surface-removed.json`
+verifies the retained permit through `4/4` controller ID-index lookups,
+continues to drop raw caller-window artifacts, averages `0.398844 ms`, peaks at
+`0.017773 MiB` traced Python memory, and uses `0.0 MiB` CUDA archive allocation.
 
 Bucket-indexed memory windows now bound the source construction inside the
 shared store helper as well as the returned candidate count. The previous
@@ -1989,6 +2005,23 @@ paired current-tree `524288`-token run
 stayed in band at `6054.480 tokens/sec` with p95 `21.719 ms`, bounded
 `12/65536` route rows, no observed contention, RTX memory `1817->1816 MiB`,
 and zero graph/native sequence failures.
+
+The 2026-06-24 cleanup deletes the executable broad status projection comparator
+from `status_transition_memory_source_window_benchmark.py` and removes the
+remaining `retired_path_comparison` report field. The maintained report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\status-transition-memory-comparison-surface-removed.json`
+passes by reading `256` bounded CPU rows across the four projections, keeping
+the stale-first/recent-last quality gate true, blocking exact reviews when
+truncated, averaging `11.302696 ms`, peaking at `0.066196 MiB` traced Python
+memory, and using `0.0 MiB` CUDA allocation.
+
+The paired current-tree hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-retired-comparison-surfaces-removed-default-nosample.json`
+processed `524288` tokens at `6259.398 tokens/sec`, p95 `20.244 ms`,
+`train_compute=0.129477 ms/token`, route scoring `12/65536`, cached `65526`
+transition rows, `state_transition_runs_all_columns=false`, no observed
+contention, flat RTX 3060 memory at `1983 MiB`, and zero graph/native sequence
+failures.
 
 ## Links
 

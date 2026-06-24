@@ -766,6 +766,24 @@ failures after one same-code run at `5849.047 tokens/sec` was rejected as below
 the maintained band. This is not live replay; it keeps structural-write consent
 tied to bounded replay evidence without a retained-history scan.
 
+The 2026-06-24 maintained-only cleanup applies the same rule to benchmark
+surfaces. `snn_replay_priority_source_window_benchmark.py` and
+`snn_replay_artifact_provenance_source_window_benchmark.py` no longer emit
+`retired_path_comparison`, and
+`status_transition_memory_source_window_benchmark.py` no longer executes the
+broad transition-memory projection comparator. The current reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260624\` pass with bounded
+replay-priority selection (`17/64` verified contexts, `1.581416 ms` mean),
+indexed artifact provenance (`4/4` ID lookups, `0.398844 ms` mean), and bounded
+status transition-memory projection (`256` CPU source rows, `11.302696 ms`
+mean). CUDA archive allocation remains `0.0 MiB`, and all reports keep
+no-live-tick, no-every-token, no-global-scan, and no-hidden-language-reasoning
+flags. The paired `524288`-token hot-path gate stays in band at
+`6259.398 tokens/sec` with bounded `12/65536` route rows and zero graph/native
+sequence failures. Benchmark code therefore carries the maintained source-window
+operators only; historical broad scans remain documentation, not executable
+side implementations.
+
 The target-aware replay-strength slice keeps replay under the same guard but
 lets the slow window test a bounded schedule from one snapshot before commit.
 `reconstruction_guarded_replay_consolidation.v1` now records the

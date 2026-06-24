@@ -6,6 +6,15 @@ from pathlib import Path
 from marulho.evaluation.snn_readout_replay_priority_source_window_benchmark import (
     run_benchmark as run_readout_replay_priority_benchmark,
 )
+from marulho.evaluation.snn_replay_priority_source_window_benchmark import (
+    run_benchmark as run_snn_replay_priority_benchmark,
+)
+from marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark import (
+    run_benchmark as run_snn_replay_artifact_provenance_benchmark,
+)
+from marulho.evaluation.status_transition_memory_source_window_benchmark import (
+    run_benchmark as run_status_transition_memory_benchmark,
+)
 from marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark import (
     run_benchmark as run_emission_review_replay_policy_benchmark,
 )
@@ -75,6 +84,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
     benchmark_paths = [
         ROOT / "src/marulho/evaluation/source_bank_memory_match_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_readout_replay_priority_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/snn_replay_priority_source_window_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/status_transition_memory_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/status_replay_path_source_window_benchmark.py",
@@ -178,11 +191,93 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "bounded_speedup_vs_broad_normalized",
         "bounded_speedup_vs_legacy",
         "\"broad_normalized\"",
+        "def _retired_broad_projection",
+        "retired_broad_scan",
+        "bounded_speedup_vs_retired",
+        "retired_rows_read_total",
+        "retired_python_peak_mib",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
         for fragment in forbidden_fragments:
             assert fragment not in source
+
+
+def test_snn_replay_priority_benchmark_reports_maintained_only_path() -> None:
+    report = run_snn_replay_priority_benchmark(
+        argparse.Namespace(retention_count=64, limit=4, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["old_readout_target_selected"] is True
+    assert "retired_path_comparison" not in report
+    memory_budget = report["memory_budget"]
+    assert memory_budget["retained_context_count"] == 64
+    assert 0 < memory_budget["bounded_verified_context_count"] < 64
+    assert memory_budget["archival_storage_device"] == "cpu"
+    assert memory_budget["runs_live_tick"] is False
+    assert memory_budget["runs_every_token"] is False
+    assert memory_budget["global_candidate_scan"] is False
+    assert memory_budget["global_score_scan"] is False
+    assert memory_budget["language_reasoning"] is False
+
+
+def test_snn_replay_artifact_provenance_benchmark_reports_maintained_only_path() -> None:
+    report = run_snn_replay_artifact_provenance_benchmark(
+        argparse.Namespace(retention_count=64, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["old_permit_verified"] is True
+    assert "retired_path_comparison" not in report
+    memory_budget = report["memory_budget"]
+    assert memory_budget["retention_count_per_artifact_family"] == 64
+    assert memory_budget["source_record_count"] == 4
+    assert memory_budget["index_lookup_count"] == 4
+    assert memory_budget["index_hit_count"] == 4
+    assert memory_budget["archival_storage_device"] == "cpu"
+    assert memory_budget["runs_live_tick"] is False
+    assert memory_budget["runs_every_token"] is False
+    assert memory_budget["global_candidate_scan"] is False
+    assert memory_budget["global_score_scan"] is False
+    assert memory_budget["language_reasoning"] is False
+    assert (
+        memory_budget["raw_caller_window_artifact_recording"][
+            "public_raw_recorder_callable"
+        ]
+        is False
+    )
+
+
+def test_status_transition_memory_benchmark_reports_maintained_only_path() -> None:
+    report = run_status_transition_memory_benchmark(
+        argparse.Namespace(entry_count=128, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["quality_gate_passed"] is True
+    assert "retired_path_comparison" not in report
+    assert "retired_broad_scan" not in report["latency"]
+    assert "bounded_speedup_vs_retired" not in report["latency"]
+    assert "retired_rows_read_total" not in report["work"]
+    assert "retired_row_reads" not in report["work"]
+    assert report["removed_broad_projection_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": (
+            "status_read_model_materialized_transition_memory_maps_per_projection"
+        ),
+    }
+    work = report["work"]
+    assert work["retained_sparse_transition_weight_count"] == 128
+    assert work["retained_synapse_provenance_count"] == 128
+    assert work["bounded_rows_read_total"] > 0
+    assert work["archival_storage_device"] == "cpu"
+    assert work["runs_live_tick"] is False
+    assert work["runs_every_token"] is False
+    assert work["global_candidate_scan"] is False
+    assert work["global_score_scan"] is False
+    assert work["language_reasoning"] is False
 
 
 def test_source_bank_memory_match_benchmark_reports_maintained_only_path() -> None:

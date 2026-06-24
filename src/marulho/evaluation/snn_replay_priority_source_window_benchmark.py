@@ -232,14 +232,25 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "latency": latency,
         "source_window": source_window,
         "selection_budget": dict(source_window.get("selection_budget") or {}),
-        "retired_path_comparison": {
-            "old_policy": "verify_all_retained_replay_contexts_before_limit",
-            "old_verified_context_count": retained,
-            "bounded_verified_context_count": bounded_verified,
-            "verification_work_reduction": round(
-                retained / max(1, bounded_verified),
-                6,
+        "memory_budget": {
+            "selection_criteria": (
+                "recent replay-evaluation contexts plus explicit readout-target ids"
             ),
+            "retained_context_count": retained,
+            "bounded_verified_context_count": bounded_verified,
+            "recent_context_window_limit": int(
+                source_window.get("recent_context_window_limit", 0) or 0
+            ),
+            "readout_target_context_count": int(
+                source_window.get("readout_target_context_count", 0) or 0
+            ),
+            "archival_storage_device": "cpu",
+            "active_computation_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
         },
         "resource_behavior": {
             "process_rss_before_mib": None if rss_before is None else round(rss_before, 3),

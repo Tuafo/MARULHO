@@ -1,16 +1,10 @@
-"""Benchmark bounded transition-memory status source windows.
-
-The retired comparison in this file is diagnostic only. Production status
-projection must use bounded CPU source windows and must block exact readiness
-claims when those windows are truncated.
-"""
+"""Benchmark bounded transition-memory status source windows."""
 
 from __future__ import annotations
 
 import argparse
 from collections import deque
 from collections.abc import Mapping as CollectionsMapping
-import hashlib
 import json
 from pathlib import Path
 import statistics
@@ -169,82 +163,6 @@ def _bounded_projection(model: StatusReadModel) -> dict[str, Any]:
     }
 
 
-def _mapping_items(source: Any) -> list[tuple[str, Any]]:
-    if not isinstance(source, Mapping):
-        return []
-    return [(str(key), value) for key, value in source.items()]
-
-
-def _retired_broad_projection(state: Mapping[str, Any]) -> dict[str, Any]:
-    capacity_sparse_items = _mapping_items(state.get("sparse_transition_weights"))
-    capacity_provenance_items = _mapping_items(state.get("synapse_provenance_by_key"))
-    dense_sparse_items = _mapping_items(state.get("sparse_transition_weights"))
-    applied_provenance_items = _mapping_items(state.get("synapse_provenance_by_key"))
-    binding_sparse_items = _mapping_items(state.get("sparse_transition_weights"))
-    sparse_keys = {key for key, _value in capacity_sparse_items}
-    provenance_keys = {key for key, _value in capacity_provenance_items}
-
-    active_neurons: set[int] = set()
-    outgoing: dict[int, int] = {}
-    invalid = 0
-    for key, _value in capacity_sparse_items:
-        try:
-            source, target = (int(part) for part in key.split(":", maxsplit=1))
-        except (TypeError, ValueError):
-            invalid += 1
-            continue
-        active_neurons.update((source, target))
-        outgoing[source] = int(outgoing.get(source, 0)) + 1
-    tensor = state.get("dense_readout_weights")
-    tensor_available = isinstance(tensor, torch.Tensor)
-    nonzero_count = int(torch.count_nonzero(tensor).item()) if tensor_available else 0
-    transition_hash = (
-        hashlib.sha256(
-            json.dumps(
-                dict(binding_sparse_items),
-                ensure_ascii=True,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
-        if binding_sparse_items
-        else None
-    )
-    applied_rows = [
-        dict(value)
-        for _key, value in applied_provenance_items
-        if isinstance(value, Mapping)
-    ]
-    return {
-        "capacity": {
-            "sparse_transition_weight_count": len(capacity_sparse_items),
-            "synapse_provenance_count": len(capacity_provenance_items),
-            "active_language_neuron_count": len(active_neurons),
-            "max_outgoing_fanout": max(outgoing.values(), default=0),
-            "invalid_synapse_key_count": invalid,
-            "orphan_weight_count": len(sparse_keys - provenance_keys),
-            "dangling_provenance_count": len(provenance_keys - sparse_keys),
-            "eligible_for_capacity_expansion_design_review": True,
-        },
-        "dense": {
-            "ready": bool(
-                tensor_available and nonzero_count == len(dense_sparse_items)
-            ),
-            "nonzero_count": nonzero_count,
-            "sparse_transition_weight_count": len(dense_sparse_items),
-        },
-        "applied": {
-            "synapse_provenance_count": len(applied_rows),
-            "eligible_for_readout_synapse_audit_review": True,
-        },
-        "binding": {
-            "server_transition_memory_hash": transition_hash,
-            "eligible_for_bounded_snn_readout_rollout_review": bool(transition_hash),
-        },
-    }
-
-
 def _measure(
     factory: Callable[[], dict[str, Any]],
     fn: Callable[[dict[str, Any]], dict[str, Any]],
@@ -394,11 +312,6 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         lambda _state: _bounded_projection(model),
         runs=runs,
     )
-    retired = _measure(
-        lambda: _seed_language_state(entry_count),
-        _retired_broad_projection,
-        runs=runs,
-    )
     cuda_after = _cuda_snapshot()
 
     last = bounded["last_evidence"]
@@ -409,9 +322,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         last["binding"]["source_window"],
     ]
     bounded_rows = int(bounded["row_reads"]["total_last"])
-    retired_rows = int(retired["row_reads"]["total_last"])
     bounded_mean = float(bounded["latency_ms"]["mean"])
-    retired_mean = float(retired["latency_ms"]["mean"])
     recent_window_quality = _recent_window_quality_check()
     quality_checks = {
         "recent_window_prefers_newest_inserted_rows": bool(
@@ -485,20 +396,22 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "recent_window_quality": recent_window_quality,
         "latency": {
             "bounded": bounded["latency_ms"],
-            "retired_broad_scan": retired["latency_ms"],
             "bounded_mean_ms": bounded_mean,
-            "retired_broad_scan_mean_ms": retired_mean,
-            "bounded_speedup_vs_retired": round(
-                retired_mean / max(bounded_mean, 1e-9),
-                6,
-            ),
         },
         "work": {
+            "selection_criteria": "bounded status transition-memory source windows",
+            "retained_sparse_transition_weight_count": int(entry_count),
+            "retained_synapse_provenance_count": int(entry_count),
             "bounded_rows_read_total": bounded_rows,
-            "retired_rows_read_total": retired_rows,
-            "row_reduction": round(retired_rows / max(1, bounded_rows), 6),
             "bounded_row_reads": bounded["row_reads"],
-            "retired_row_reads": retired["row_reads"],
+            "source_window_limit": int(SNN_STATUS_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT),
+            "archival_storage_device": "cpu",
+            "active_computation_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
         },
         "source_windows": {
             "capacity": last["capacity"]["source_window"],
@@ -512,14 +425,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "applied_promotion_status": last["applied"]["promotion_status"],
             "binding_promotion_status": last["binding"]["promotion_status"],
         },
-        "retired_path_comparison": {
-            "old_policy": "status_read_model_materialized_transition_memory_maps_per_projection",
-            "production_callable": False,
-            "benchmark_local_only": True,
+        "removed_broad_projection_absence": {
+            "implementation_present": False,
+            "active_report_field_present": False,
+            "removed_policy": (
+                "status_read_model_materialized_transition_memory_maps_per_projection"
+            ),
         },
         "resource_behavior": {
             "bounded_python_peak_mib": bounded["python_peak_mib"],
-            "retired_python_peak_mib": retired["python_peak_mib"],
             "cuda_before": cuda_before,
             "cuda_after": cuda_after,
             "cuda_allocated_delta_mib": round(

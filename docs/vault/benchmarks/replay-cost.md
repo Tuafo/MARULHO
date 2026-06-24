@@ -3188,12 +3188,12 @@ Result: `pass=true`; the maintained-only benchmark removed executable
 full-materialized normalization/store comparators and broad-normalized
 per-boundary comparators. Seeded newest-first reconstruction passed with
 `2944` bounded rows out of `47104` known source rows, `44160`
-full-materialized rows removed, mean bounded normalization `370.034532 ms`,
-store `363.536084 ms`, known-hash lookup `15.750868 ms`, event-map lookup
-`14.613768 ms`, dense-label evaluation `17.247176 ms`, and record append
-`36.442308 ms`. The report records both comparator families absent, keeps
+full-materialized rows removed, mean bounded normalization `358.292508 ms`,
+store `353.401668 ms`, known-hash lookup `14.990604 ms`, event-map lookup
+`14.675568 ms`, dense-label evaluation `17.872196 ms`, and record append
+`36.175760 ms`. The report records both comparator families absent, keeps
 archival/normalization/store/lookup/evaluation placement on CPU, uses
-`226.780760 MiB` traced Python peak, and allocates/reserves `0.0 MiB` CUDA
+`226.780783 MiB` traced Python peak, and allocates/reserves `0.0 MiB` CUDA
 memory on the RTX 3060.
 
 Hot-path protection:
@@ -3210,6 +3210,38 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native/sequence failures. Velocity
 reported no observed contention, CPU max `44%`, GPU max `13%`, GPU memory
 utilization max `18%`, and RTX memory flat at `1993 MiB`.
+
+Retired comparison surface cleanup:
+
+`python -m marulho.evaluation.snn_replay_priority_source_window_benchmark --retention-count 2048 --limit 4 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\snn-replay-priority-comparison-surface-removed.json`
+
+`python -m marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark --retention-count 2048 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\snn-replay-artifact-provenance-comparison-surface-removed.json`
+
+`python -m marulho.evaluation.status_transition_memory_source_window_benchmark --entry-count 2048 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\status-transition-memory-comparison-surface-removed.json`
+
+Result: all three reports pass without `retired_path_comparison`. The
+replay-priority benchmark selects the old readout-targeted context from a
+bounded `17/64` CPU context source at `1.581416 ms` mean and `0.050346 MiB`
+Python peak. The replay-artifact provenance benchmark verifies the retained
+permit through `4/4` ID-index lookups at `0.398844 ms` mean and `0.017773 MiB`
+Python peak. The status transition-memory benchmark no longer executes a broad
+projection comparator; it reads `256` bounded CPU rows across four status
+projections, blocks exact reviews when truncated, averages `11.302696 ms`, and
+peaks at `0.066196 MiB`. CUDA archive allocation stays `0.0 MiB` for all three.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-retired-comparison-surfaces-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `83.760131 s` at
+`6259.398 tokens/sec`, p95 tick `20.244 ms`,
+`train_compute=0.129477 ms/token`, `prepare_training=0.006081 ms/token`, and
+`finalize_total=0.006441 ms/token`. Prewarm took `239.384 s`. Runtime Truth
+kept route scoring bounded at `12/65536` input rows and `10` output candidates,
+cached `65526` transition rows, kept `state_transition_runs_all_columns=false`,
+selected CUDA on the RTX 3060, and recorded zero graph/native/sequence
+failures. Velocity reported no observed contention (`CPU max=25%`,
+`GPU max=10%`), and RTX memory stayed flat at `1983 MiB`.
 
 ## Recent Anchor-Capture Store-Owned Row Access
 

@@ -16,6 +16,8 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-status-transition-memory-source-window-rerun.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260624/status-transition-memory-comparison-surface-removed.json
+  - ../../../../MARULHO_reports/bounded_replay_window_20260624/hotpath-active-pressure-65536-524288-i32-retired-comparison-surfaces-removed-default-nosample.json
 ---
 
 # Status Transition Memory Broad Projection
@@ -23,6 +25,7 @@ related_benchmarks:
 ## Status
 
 Retired from production code on 2026-06-20.
+Removed from repo-local benchmark code on 2026-06-24.
 
 ## Why
 
@@ -81,10 +84,27 @@ memory utilization max `19%`), so this is accepted as same-band throughput
 protection, not as a clean speed ceiling. RTX 3060 memory stayed flat at
 `1986 MiB`.
 
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\status-transition-memory-comparison-surface-removed.json`
+removes the executable broad benchmark comparator. It passes by reading `256`
+bounded CPU rows across the four projections, keeps the stale-first/recent-last
+quality gate true, blocks exact reviews when truncated, averages
+`11.302696 ms`, peaks at `0.066196 MiB` traced Python memory, and uses
+`0.0 MiB` CUDA allocation.
+
+The paired current-tree hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-retired-comparison-surfaces-removed-default-nosample.json`
+processed `524288` tokens at `6259.398 tokens/sec`, p95 `20.244 ms`,
+`train_compute=0.129477 ms/token`, route scoring `12/65536`, cached `65526`
+transition rows, `state_transition_runs_all_columns=false`, no observed
+contention, flat RTX 3060 memory at `1983 MiB`, and zero graph/native sequence
+failures.
+
 ## Revisit Only If
 
 A future status surface proves it needs exact transition-memory integrity inside
 an explicit slow audit/replay window, not routine status projection, and
 long-run evidence shows the selected window preserves the maintained 6k-ish
 throughput band without GPU-resident archival metadata, hidden replay-text
-reasoning, or any live-tick/full-memory scan.
+reasoning, or any live-tick/full-memory scan. Do not restore the repo-local
+benchmark comparator; external diagnostics must carry source-size accounting.

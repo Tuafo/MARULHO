@@ -5483,6 +5483,21 @@ recorded zero graph/native sequence failures. Velocity reported no observed
 contention (`cpu max=45%`, `gpu max=10%`); RTX 3060 memory stayed
 `1817->1816 MiB`.
 
+Maintained-only comparison-surface cleanup:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-retired-comparison-surfaces-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `83.760131 s` at
+`6259.398 tokens/sec`, `tick_duration_ms.p95=20.244`,
+`train_compute=0.129477 ms/token`, `prepare_training=0.006081 ms/token`, and
+`finalize_total=0.006441 ms/token`. Prewarm took `239.384 s` and is outside
+the measured token window. Runtime Truth kept route scoring at `12/65536` input
+rows and `10` output candidates, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention (`cpu max=25%`, `gpu max=10%`); RTX 3060 memory stayed flat at
+`1983 MiB`.
+
 ## Plasticity Runtime-State Source Window
 
 The SNN language plasticity runtime-state endpoint now exposes retained
