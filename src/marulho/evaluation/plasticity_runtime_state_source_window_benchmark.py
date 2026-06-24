@@ -1,9 +1,4 @@
-"""Benchmark bounded SNN language plasticity runtime-state snapshots.
-
-The retired comparison in this file is diagnostic only. Production runtime
-state must expose bounded CPU source windows and retained counts instead of
-copying full transition-memory maps.
-"""
+"""Benchmark bounded SNN language plasticity runtime-state snapshots."""
 
 from __future__ import annotations
 
@@ -34,10 +29,14 @@ class CountedMapping(CollectionsMapping):
         self.items_iterated = 0
 
     def __getitem__(self, key: str) -> Any:
+        self.items_iterated += 1
         return self._payload[key]
 
     def __iter__(self):
         return iter(self._payload)
+
+    def __reversed__(self):
+        return reversed(self._payload)
 
     def __len__(self) -> int:
         return len(self._payload)
@@ -83,7 +82,7 @@ def _seed_language_state(entry_count: int) -> dict[str, Any]:
         },
         "sparse_transition_weights": CountedMapping(sparse_weights),
         "synapse_provenance_by_key": CountedMapping(provenance),
-        "thought_newborn_neuron_critical_period_learning": {
+        "readout_newborn_neuron_critical_period_learning": {
             "learning_cycle_count": 1,
             "by_synapse": CountedMapping(critical_period),
         },
@@ -92,7 +91,7 @@ def _seed_language_state(entry_count: int) -> dict[str, Any]:
 
 
 def _source_reads(state: Mapping[str, Any]) -> int:
-    critical = state.get("thought_newborn_neuron_critical_period_learning")
+    critical = state.get("readout_newborn_neuron_critical_period_learning")
     critical_mapping = (
         critical.get("by_synapse")
         if isinstance(critical, Mapping)
@@ -126,40 +125,6 @@ def _active_snapshot(state: Mapping[str, Any]) -> dict[str, Any]:
         verify_checkpoint=lambda path: True,
     )
     snapshot = executor.snapshot()
-    return {
-        "snapshot": snapshot,
-        "source_reads": _source_reads(state),
-    }
-
-
-def _mapping_items(source: Any) -> list[tuple[str, Any]]:
-    if not isinstance(source, Mapping):
-        return []
-    return [(str(key), value) for key, value in source.items()]
-
-
-def _retired_full_snapshot(state: Mapping[str, Any]) -> dict[str, Any]:
-    critical = state.get("thought_newborn_neuron_critical_period_learning")
-    critical_by_synapse = (
-        critical.get("by_synapse")
-        if isinstance(critical, Mapping)
-        else {}
-    )
-    snapshot = {
-        "surface": "retired_full_snn_language_plasticity_runtime_state_snapshot.v1",
-        "sparse_transition_weights": dict(
-            _mapping_items(state.get("sparse_transition_weights"))
-        ),
-        "synapse_provenance_by_key": dict(
-            _mapping_items(state.get("synapse_provenance_by_key"))
-        ),
-        "newborn_neuron_critical_period_state_by_synapse": dict(
-            _mapping_items(critical_by_synapse)
-        ),
-        "pruned_synapse_provenance_by_key": dict(
-            _mapping_items(state.get("pruned_synapse_provenance_by_key"))
-        ),
-    }
     return {
         "snapshot": snapshot,
         "source_reads": _source_reads(state),
@@ -235,11 +200,21 @@ def _measure(
 def run_benchmark(*, entry_count: int, runs: int) -> dict[str, Any]:
     factory = lambda: _seed_language_state(entry_count)
     active = _measure(factory, _active_snapshot, runs=runs)
-    retired = _measure(factory, _retired_full_snapshot, runs=runs)
     active_snapshot = active["last_result"]["snapshot"]
-    retired_snapshot = retired["last_result"]["snapshot"]
     source_window = active_snapshot["transition_memory_source_window"]
     source_limit = SNN_LANGUAGE_PLASTICITY_RUNTIME_TRANSITION_MEMORY_SOURCE_WINDOW_LIMIT
+    selected_count = min(max(0, int(entry_count)), int(source_limit))
+    expected_recent_keys = [
+        _entry_key(index)
+        for index in range(
+            int(entry_count) - 1,
+            int(entry_count) - selected_count - 1,
+            -1,
+        )
+    ]
+    sparse_keys = list(active_snapshot["sparse_transition_weights"])
+    provenance_keys = list(active_snapshot["synapse_provenance_by_key"])
+    expected_truncated = int(entry_count) > int(source_limit)
     quality_checks = {
         "retained_sparse_count_preserved": (
             active_snapshot["sparse_transition_weight_count"] == entry_count
@@ -254,12 +229,18 @@ def run_benchmark(*, entry_count: int, runs: int) -> dict[str, Any]:
             len(active_snapshot["synapse_provenance_by_key"]) <= source_limit
         ),
         "source_window_reports_truncation": (
-            source_window["source_payload_truncated"] is True
-            and source_window["source_window_complete"] is False
+            source_window["source_payload_truncated"] is expected_truncated
+            and source_window["source_window_complete"] is not expected_truncated
         ),
-        "retired_full_snapshot_materialized_all_rows": (
-            len(retired_snapshot["sparse_transition_weights"]) == entry_count
-            and len(retired_snapshot["synapse_provenance_by_key"]) == entry_count
+        "recent_sparse_source_window_selected": sparse_keys == expected_recent_keys,
+        "recent_provenance_source_window_selected": (
+            provenance_keys == expected_recent_keys
+        ),
+        "source_window_counts_match_payload": (
+            source_window["source_sparse_transition_weight_rows"] == len(sparse_keys)
+            and source_window["source_synapse_provenance_rows"]
+            == len(provenance_keys)
+            and source_window["source_window_count"] == selected_count
         ),
         "cpu_archival_metadata": (
             source_window["archival_storage_device"] == "cpu"
@@ -287,27 +268,39 @@ def run_benchmark(*, entry_count: int, runs: int) -> dict[str, Any]:
             for key, value in active.items()
             if key not in {"records", "last_result"}
         },
-        "retired_diagnostic": {
-            key: value
-            for key, value in retired.items()
-            if key not in {"records", "last_result"}
-        },
-        "source_read_reduction": {
-            "active_mean": active["source_reads_mean"],
-            "retired_mean": retired["source_reads_mean"],
-            "factor": (
-                float(retired["source_reads_mean"]) / float(active["source_reads_mean"])
-                if float(active["source_reads_mean"]) > 0.0
-                else None
+        "memory_budget": {
+            "retained_sparse_transition_weight_rows": int(entry_count),
+            "retained_synapse_provenance_rows": int(entry_count),
+            "bounded_sparse_transition_weight_rows": len(sparse_keys),
+            "bounded_synapse_provenance_rows": len(provenance_keys),
+            "bounded_source_rows_total": len(sparse_keys) + len(provenance_keys),
+            "source_window_limit_per_mapping": int(source_limit),
+            "projected_full_snapshot_rows_removed": max(
+                0,
+                int(entry_count) * 4
+                - (
+                    len(sparse_keys)
+                    + len(provenance_keys)
+                    + len(
+                        active_snapshot[
+                            "newborn_neuron_critical_period_state_by_synapse"
+                        ]
+                    )
+                    + len(active_snapshot["pruned_synapse_provenance_by_key"])
+                ),
             ),
+            "archival_storage_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
         },
-        "latency_reduction": {
-            "active_mean_ms": active["latency_ms_mean"],
-            "retired_mean_ms": retired["latency_ms_mean"],
-            "factor": (
-                float(retired["latency_ms_mean"]) / float(active["latency_ms_mean"])
-                if float(active["latency_ms_mean"]) > 0.0
-                else None
+        "retired_full_snapshot_absence": {
+            "implementation_present": False,
+            "active_report_field_present": False,
+            "removed_policy": (
+                "snn_language_plasticity_runtime_full_transition_memory_snapshot"
             ),
         },
         "device_behavior": {

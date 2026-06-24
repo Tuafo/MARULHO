@@ -5598,6 +5598,33 @@ CPU archival/source/lookup placement, no global scan, no replay, no raw text,
 no hidden language reasoning, no live tick, no every-token cadence, no
 mutation/plasticity, and no GPU-resident archival metadata.
 
+Maintained-only comparator-removal refresh:
+
+`python -m marulho.evaluation.plasticity_runtime_state_source_window_benchmark --entry-count 65536 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\plasticity-runtime-state-full-snapshot-comparator-removed.json`
+
+Result: `pass=true`; the benchmark no longer executes a full runtime-state
+snapshot comparator. It verifies recent sparse/provenance source-window
+selection directly, reads `256` bounded CPU source rows for `65536` retained
+transition rows, projects `261888` full-snapshot rows removed, averages
+`9.137240 ms` with p95 `13.097 ms`, traces `0.109653 MiB` Python peak, and
+keeps CUDA archive allocation/reservation at `0`. Runtime Truth stays
+CPU-archival, non-live, non-every-token, non-mutating, non-replay, no raw text,
+no hidden language reasoning, and no GPU-resident archival metadata.
+
+Current maintained-only long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-full-snapshot-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`; `524288` tokens in `85.614824 s`,
+`6123.799 tokens/sec`, p95 tick `20.956 ms`,
+`train_compute=0.131898 ms/token`, `prepare_training=0.006535 ms/token`, and
+`finalize_total=0.006678 ms/token`. Prewarm took `247.843 s`. Runtime Truth
+kept route scoring at `12/65536` input rows and `10` output candidates, cached
+`65526` transition rows, kept `state_transition_runs_all_columns=false`, and
+recorded native sequence-loop and burst-replay failure counts of `0`. Velocity
+reported no observed contention (`cpu max=19%`, `gpu max=10%`, GPU memory
+utilization max `11%`), and RTX 3060 memory stayed `2190->2190 MiB`.
+
 Long protection runs:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260621\hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`

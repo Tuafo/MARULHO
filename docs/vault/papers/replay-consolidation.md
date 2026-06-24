@@ -2618,8 +2618,8 @@ returns at most `64` sparse-transition rows and `64` synapse-provenance rows,
 keeps retained counts in the source-window metadata, and marks exact integrity
 incomplete when truncated. Status and readout-ledger consumers read those
 retained counts instead of treating bounded maps as complete. The old full
-runtime-state deep copy is retired from production and remains only as a
-benchmark-local diagnostic in
+runtime-state deep copy is retired from production and the executable
+benchmark-local comparator is now removed from
 `plasticity_runtime_state_source_window_benchmark.py`.
 
 The focused benchmark
@@ -2628,10 +2628,28 @@ passed over `65536` sparse weights and `65536` provenance rows. The active path
 read `256` source records versus `262144` in the retired diagnostic (`1024x`
 less source work), averaged `7.770271 ms` versus `752.314014 ms`
 (`96.819528x`), used `0.110454 MiB` traced Python peak versus `12.287186 MiB`,
-and kept CUDA allocation/reservation deltas at `0`. Runtime Truth reports CPU
+and kept CUDA allocation/reservation deltas at `0`. The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\plasticity-runtime-state-full-snapshot-comparator-removed.json`
+now validates the same maintained path without executing the retired
+comparator: it verifies recent sparse/provenance source-window selection
+directly, reads `256` bounded CPU source rows for `65536` retained transition
+rows, projects `261888` removed full-snapshot rows, averages `9.137240 ms`
+with p95 `13.097 ms`, traces `0.109653 MiB` Python peak, and keeps CUDA
+archive allocation/reservation at `0`. Runtime Truth reports CPU
 archival/source/lookup placement, no global scan, no replay, no raw text, no
 hidden language reasoning, no live tick, no every-token cadence, no
-mutation/plasticity, and no GPU-resident archival metadata.
+mutation/plasticity, no GPU-resident archival metadata, and no repo-local
+executable side comparator.
+
+The current paired hot-path gate
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-full-snapshot-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6123.799 tokens/sec`, p95 `20.956 ms`,
+`train_compute=0.131898 ms/token`, `prepare_training=0.006535 ms/token`,
+`finalize_total=0.006678 ms/token`, and prewarm `247.843 s`. Runtime Truth kept
+route scoring at `12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, observed no contention (`cpu max=19%`,
+`gpu max=10%`), held RTX 3060 memory flat at `2190 MiB`, and recorded zero
+native sequence-loop or burst-replay failures.
 
 The paired `524288`-token protection runs succeeded with no observed
 contention, bounded `12/65536` route scoring, `65526` cached transition rows,

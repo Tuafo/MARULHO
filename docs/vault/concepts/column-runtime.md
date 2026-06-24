@@ -319,12 +319,25 @@ global scan, replay, mutation/plasticity, raw text, hidden language reasoning,
 live tick, every-token work, or GPU-resident archival metadata. The focused
 `65536`-row benchmark
 `reports/bounded_replay_window_20260621/plasticity-runtime-state-source-window.json`
-read `256` active source rows instead of `262144` in the benchmark-local
-retired full snapshot (`1024x` less source work), reduced mean latency from
-`752.314014 ms` to `7.770271 ms` (`96.819528x`), used `0.110454 MiB` traced
-Python peak versus `12.287186 MiB`, and kept CUDA allocation/reservation deltas
-at `0`. The paired `524288`-token protection runs succeeded without contention
-or graph/native sequence failures and kept route scoring bounded at `12/65536`,
+first justified the boundary by reading `256` active source rows instead of
+`262144` in the benchmark-local retired full snapshot (`1024x` less source
+work), reducing mean latency from `752.314014 ms` to `7.770271 ms`
+(`96.819528x`), using `0.110454 MiB` traced Python peak versus `12.287186 MiB`,
+and keeping CUDA allocation/reservation deltas at `0`. The current
+maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\plasticity-runtime-state-full-snapshot-comparator-removed.json`
+removes the executable comparator, verifies recent sparse/provenance
+source-window selection directly, reads `256` bounded CPU source rows for
+`65536` retained transition rows, projects `261888` full-snapshot rows removed,
+averages `9.137240 ms` with p95 `13.097 ms`, and keeps CUDA archive
+allocation/reservation at `0`. The paired current long gate
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-full-snapshot-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6123.799 tokens/sec`, p95 `20.956 ms`,
+`train_compute=0.131898 ms/token`, bounded route scoring at `12/65536`,
+`65526` cached transition rows, no observed contention, flat RTX 3060 memory
+`2190 MiB`, and zero native sequence-loop or burst-replay failures. Earlier
+paired `524288`-token protection runs succeeded without contention or
+graph/native sequence failures and kept route scoring bounded at `12/65536`,
 but measured `5642.888` and `5736.332 tokens/sec`, below stronger recent
 6k-ish runs. A same-shape audit then compared `fbb788de` at
 `6120.090 tokens/sec` with current HEAD at `6112.120 tokens/sec`, both with

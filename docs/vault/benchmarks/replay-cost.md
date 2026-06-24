@@ -2627,6 +2627,41 @@ recorded zero graph/native sequence failures. Velocity reported no observed
 contention (`cpu max=45%`, `gpu max=10%`); RTX 3060 memory stayed
 `1817->1816 MiB`.
 
+## Plasticity Runtime-State Source Window Comparator Removal
+
+The runtime-state endpoint keeps one source-window path for retained SNN
+language transition memory. `SNNLanguagePlasticityApplicationExecutor.snapshot()`
+reads bounded CPU source windows for `sparse_transition_weights`,
+`synapse_provenance_by_key`, critical-period rows, and pruned provenance rows;
+it reports retained counts and truncation instead of exporting complete maps.
+The benchmark-local full runtime-state snapshot comparator is now removed.
+
+Focused maintained-only benchmark:
+
+`python -m marulho.evaluation.plasticity_runtime_state_source_window_benchmark --entry-count 65536 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\plasticity-runtime-state-full-snapshot-comparator-removed.json`
+
+Result: `pass=true`; recent sparse/provenance selection is verified directly,
+the active path reads `256` bounded CPU source rows for `65536` retained
+transition rows, and the report projects `261888` removed full-snapshot rows.
+It averages `9.137240 ms` with p95 `13.097 ms`, traces `0.109653 MiB` Python
+peak, and uses `0` CUDA archive allocation/reservation on the RTX 3060.
+Runtime Truth reports no global candidate/score scan, no replay, no mutation or
+plasticity, no raw text payload, no hidden language reasoning, no live tick, no
+every-token cadence, CPU archival/source/lookup placement, and no
+GPU-resident archival metadata.
+
+Long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-plasticity-runtime-state-full-snapshot-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`; `524288` tokens at `6123.799 tokens/sec`, p95
+`20.956 ms`, `train_compute=0.131898 ms/token`,
+`prepare_training=0.006535 ms/token`, and `finalize_total=0.006678 ms/token`.
+Prewarm took `247.843 s`; route scoring stayed at `12/65536`, cached
+transition rows stayed `65526`, all-column transition remained disabled,
+contention was not observed, RTX 3060 memory stayed `2190->2190 MiB`, and
+native sequence-loop/burst-replay failure counts stayed `0`.
+
 ## Sleep Replay Routing-Index Refresh
 
 Selected deep/repair replay no longer performs a full routing-index rebuild

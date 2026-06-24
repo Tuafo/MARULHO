@@ -29,10 +29,14 @@ def _mapping_items(
     prefer_recent: bool,
 ) -> Any:
     if prefer_recent:
-        try:
-            return ((key, source[key]) for key in reversed(source))
-        except TypeError:
-            pass
+        reverse_keys_factory = getattr(source, "__reversed__", None)
+        if callable(reverse_keys_factory):
+            try:
+                reverse_keys = reverse_keys_factory()
+            except TypeError:
+                pass
+            else:
+                return ((key, source[key]) for key in reverse_keys)
     return source.items()
 
 

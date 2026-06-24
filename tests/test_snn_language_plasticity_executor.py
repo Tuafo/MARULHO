@@ -26,10 +26,14 @@ class _CountingMapping(CollectionsMapping):
         self.items_yield_count = 0
 
     def __getitem__(self, key: str) -> Any:
+        self.items_yield_count += 1
         return self._payload[key]
 
     def __iter__(self):
         return iter(self._payload)
+
+    def __reversed__(self):
+        return reversed(self._payload)
 
     def __len__(self) -> int:
         return len(self._payload)
@@ -473,6 +477,12 @@ def test_snapshot_bounds_transition_memory_source_window_without_full_mapping_sc
     assert provenance.items_yield_count == source_limit
     assert len(snapshot["sparse_transition_weights"]) == source_limit
     assert len(snapshot["synapse_provenance_by_key"]) == source_limit
+    expected_recent_keys = [
+        f"{index}:{index + 1}"
+        for index in range(entry_count - 1, entry_count - source_limit - 1, -1)
+    ]
+    assert list(snapshot["sparse_transition_weights"]) == expected_recent_keys
+    assert list(snapshot["synapse_provenance_by_key"]) == expected_recent_keys
     assert snapshot["sparse_transition_weight_count"] == entry_count
     assert snapshot["synapse_provenance_count"] == entry_count
     assert snapshot["source_sparse_transition_weight_count"] == source_limit
