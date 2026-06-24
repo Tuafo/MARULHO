@@ -14,14 +14,16 @@ related_papers:
   - ../papers/replay-consolidation.md
 related_benchmarks:
   - reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window.json
-  - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json
+  - ../../MARULHO_reports/bounded_replay_window_20260624/snn-readout-ledger-snapshot-comparator-removed.json
+  - ../../MARULHO_reports/bounded_replay_window_20260624/hotpath-active-pressure-65536-524288-i32-readout-ledger-snapshot-comparator-removed-default-nosample.json
 ---
 
 # Readout Ledger Broad Snapshot Normalization
 
 ## Status
 
-Retired from production code on 2026-06-20.
+Retired from production code on 2026-06-20 and removed from benchmark code on
+2026-06-24.
 
 ## Why
 
@@ -53,24 +55,35 @@ quality and retained-count parity, and reduced mean latency from `393.040600 ms`
 to `67.334088 ms` (`5.837171x`). Python traced peak allocation was
 `0.575356 MiB`; CUDA allocation/reservation stayed `0.0 MiB`.
 
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json`
-processed `524288` tokens at `6443.960 tokens/sec`, with
-`train_compute=0.127084 ms/token`, `prepare_training=0.006251 ms/token`,
-`finalize_total=0.005922 ms/token`, bounded `12/65536` route rows, `10` output
-candidates, `65526` cached transition rows, no observed contention, flat RTX
-3060 memory at `1899 MiB`, and zero graph/native sequence failures.
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-snapshot-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6069.794524 tokens/sec`, with
+`train_compute=0.132884 ms/token`, `prepare_training=0.006725 ms/token`,
+`finalize_total=0.006776 ms/token`, bounded `12/65536` route rows, `10` output
+candidates, `65526` cached transition rows, zero graph/native sequence
+failures, boundary `contention_observed` (`cpu max=64%`, `gpu max=20%`), and
+flat RTX 3060 memory at `2191 MiB`.
 
 The follow-up
 `reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json`
 confirms the snapshot benchmark no longer calls production `_normalized_state()`.
-The benchmark-local all-family comparison still preserved quality while the
-active snapshot read `260` rows instead of `2944`, reducing mean latency from
-`409.182080 ms` to `71.702280 ms` with `0.0 MiB` CUDA allocation/reservation.
+That historical benchmark-local all-family comparison preserved quality while
+the active snapshot read `260` rows instead of `2944`, reducing mean latency
+from `409.182080 ms` to `71.702280 ms` with `0.0 MiB` CUDA
+allocation/reservation.
+
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-snapshot-comparator-removed.json`
+deletes the executable all-family snapshot comparator. It passes by verifying
+returned-field-only source reads directly, reading `260` bounded CPU rows for
+`13` snapshot fields, projecting `2684` all-family rows removed from `23`
+retained ledger fields, averaging `77.561856 ms`, tracing `0.581556 MiB`
+Python peak, and keeping CUDA allocation/reservation at `0.0 MiB`.
 
 ## Revisit Only If
 
 A future snapshot/status surface proves a stronger measured grounding or review
 target that cannot be satisfied inside the bounded snapshot source window, and
 repeated long-run hot-path evidence shows the replacement does not reduce
-sustained throughput or reintroduce broad ledger normalization, replay
-authority, GPU-resident archival metadata, or hidden language reasoning.
+sustained throughput or reintroduce broad ledger normalization, repo-local
+benchmark baselines, replay authority, GPU-resident archival metadata, or
+hidden language reasoning.

@@ -360,10 +360,18 @@ language reasoning, and no CUDA archive. The benchmark
 read `260` rows instead of `2944`, preserved newest-first display quality and
 retained-count parity, and reduced mean snapshot latency from `393.040600 ms`
 to `67.334088 ms` (`5.837171x`) with `0.0 MiB` CUDA allocation/reservation.
-The matching `524288`-token protection run stayed in the maintained band at
-`6443.960 tokens/sec`, with `train_compute=0.127084 ms/token`, bounded
-`12/65536` route rows, no observed contention, and flat RTX 3060 memory at
-`1899 MiB`. The broad snapshot-through-normalizer shape is retired.
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-snapshot-comparator-removed.json`
+removes the executable all-family snapshot comparator, verifies returned-field
+only reads directly, reads `260` bounded CPU rows for `13` returned snapshot
+fields, projects `2684` removed all-family rows from `23` retained ledger
+fields, averages `77.561856 ms`, and keeps CUDA allocation/reservation at
+`0.0 MiB`.
+The current matching `524288`-token protection run stayed in the maintained
+band at `6069.794524 tokens/sec`, with `train_compute=0.132884 ms/token`,
+bounded `12/65536` route rows, zero graph/native sequence failures, boundary
+`contention_observed` (`cpu max=64%`, `gpu max=20%`), and flat RTX 3060 memory
+at `2191 MiB`. The broad snapshot-through-normalizer shape is retired.
 
 Known readout-evidence hashes now use the same one-path replay/readout ledger
 boundary. Replay design, dry-run, preflight, and bridge provenance checks call

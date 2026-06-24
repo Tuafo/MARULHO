@@ -52,10 +52,11 @@ the explicit source-window operators instead:
 - `_store_state(...)` for persistence copies, bounded by the event-field helper.
 
 The all-family normalization and full-materialized legacy models remain only
-inside `snn_readout_ledger_normalization_source_window_benchmark.py` and
-`snn_readout_ledger_snapshot_source_window_benchmark.py` as benchmark-local
-retired comparisons. Their reports mark `production_callable=false` and
-`benchmark_local_only=true`.
+inside `snn_readout_ledger_normalization_source_window_benchmark.py` as
+normalizer-specific benchmark evidence. The snapshot benchmark no longer keeps
+its executable all-family normalized snapshot comparator; it reports
+`retired_all_family_snapshot_comparator_absence.implementation_present=false`
+and checks the maintained returned-field-only path directly.
 
 ## Evidence
 

@@ -5299,19 +5299,33 @@ allocation/reservation stayed `0.0 MiB`; archival/source/snapshot placement was
 CPU-only with no live tick, every-token work, global score scan, or hidden
 language reasoning.
 
-Long protection run:
+Maintained-only comparator-removal refresh:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-snapshot-comparator-removed.json`
 
-Result: `success=true`, `524288` tokens in `81.361154 s`,
-`6443.960 tokens/sec`, `tick_duration_ms.p95=19.655`,
-`train_compute=0.127084 ms/token`, `prepare_training=0.006251 ms/token`, and
-`finalize_total=0.005922 ms/token`. Prewarm took `245.711 s`. Runtime Truth
+Result: `pass=true`; the benchmark no longer executes the all-family
+normalized snapshot comparator. It verifies returned-field-only source reads
+directly, reads `260` bounded CPU rows for `13` returned snapshot fields,
+projects `2684` removed all-family rows from `23` retained ledger fields,
+averages `77.561856 ms`, traces `0.581556 MiB` Python peak, and keeps CUDA
+allocation/reservation at `0.0 MiB`. Runtime Truth stays CPU archival/snapshot,
+non-live, non-every-token, no global candidate/score scan, no hidden language
+reasoning, and no GPU-resident archival metadata.
+
+Current long protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-snapshot-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `86.376565 s`,
+`6069.794524 tokens/sec`, `tick_duration_ms.p95=21.299300`,
+`train_compute=0.132884 ms/token`, `prepare_training=0.006725 ms/token`, and
+`finalize_total=0.006776 ms/token`. Prewarm took `252.831 s`. Runtime Truth
 kept route scoring at `12/65536` input rows and `10` output candidates, cached
 `65526` transition rows, kept `state_transition_runs_all_columns=false`, and
-recorded zero graph/native sequence failures. Contention was `not_observed`
-(`cpu max=19%`, `gpu max=13%`, GPU memory utilization max `18%`). RTX 3060
-memory stayed flat at `1899 MiB`.
+recorded zero graph/native sequence failures. The environment verdict was
+`contention_observed` from boundary samples (`cpu max=64%`, `gpu max=20%`, GPU
+memory utilization max `16%`), so this is same-band protection evidence rather
+than a speed ceiling. RTX 3060 memory stayed flat at `2191 MiB`.
 
 ## Readout Ledger Production Normalizer Retirement
 
@@ -5341,10 +5355,12 @@ Snapshot smoke after the production deletion:
 
 `python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 5 --output reports\bounded_replay_window_20260620\snn-readout-ledger-snapshot-source-window-production-normalizer-retired-smoke.json`
 
-Result: `quality_preserved=true`; the bounded snapshot read `260` rows instead
-of `2944` benchmark-local all-family rows (`11.323077x`) and reduced mean
-snapshot latency from `409.182080 ms` to `71.702280 ms` (`5.706682x`) with
-`0.0 MiB` CUDA allocation/reservation.
+Result: historical `quality_preserved=true`; before the comparator-removal
+refresh, the bounded snapshot read `260` rows instead of `2944`
+benchmark-local all-family rows (`11.323077x`) and reduced mean snapshot
+latency from `409.182080 ms` to `71.702280 ms` (`5.706682x`) with `0.0 MiB`
+CUDA allocation/reservation. The current snapshot benchmark no longer executes
+that all-family comparator.
 
 Long protection run:
 

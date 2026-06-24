@@ -93,6 +93,9 @@ from marulho.evaluation.sleep_repair_replay_bounded_benchmark import (
 from marulho.evaluation.plasticity_runtime_state_source_window_benchmark import (
     run_benchmark as run_plasticity_runtime_state_source_window_benchmark,
 )
+from marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark import (
+    run_benchmark as run_snn_readout_ledger_snapshot_source_window_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +141,8 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/sleep_repair_replay_bounded_benchmark.py",
         ROOT
         / "src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/snn_readout_ledger_snapshot_source_window_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -249,6 +254,12 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "source_read_reduction",
         "latency_reduction",
         "thought_newborn_neuron_critical_period_learning",
+        "_retired_benchmark_bounded_all_family_snapshot_state",
+        "_retired_normalized_snapshot_model_once",
+        "retired_normalized_snapshot_model",
+        "benchmark_local_retired_all_family_snapshot_model",
+        "row_read_reduction_ratio",
+        "latency_speedup_ratio",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -529,6 +540,50 @@ def test_plasticity_runtime_state_source_window_benchmark_reports_maintained_onl
     assert report["runtime_truth"]["runs_live_tick"] is False
     assert report["runtime_truth"]["runs_every_token"] is False
     assert report["runtime_truth"]["hidden_language_reasoning"] is False
+
+
+def test_snn_readout_ledger_snapshot_benchmark_reports_maintained_only_path() -> None:
+    report = run_snn_readout_ledger_snapshot_source_window_benchmark(
+        retention_count=128,
+        ledger_limit=32,
+        snapshot_limit=4,
+        runs=2,
+    )
+
+    assert report["pass"] is True
+    assert "retired_normalized_snapshot_model" not in report
+    assert "comparison" not in report
+    assert report["retired_all_family_snapshot_comparator_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": (
+            "snn_readout_ledger_snapshot_all_family_normalized_comparator"
+        ),
+    }
+    quality = report["quality"]
+    assert quality["newest_first_parity"] is True
+    assert quality["retained_event_count_preserved"] is True
+    assert quality["source_window_policy_match"] is True
+    assert quality["returned_field_only_source_reads"] is True
+    assert quality["source_window_rows_match_memory_budget"] is True
+    budget = report["memory_budget"]
+    assert budget["all_ledger_event_field_count"] == 23
+    assert budget["snapshot_event_field_count"] == 13
+    assert budget["bounded_snapshot_rows_read"] == 52
+    assert budget["projected_all_family_snapshot_rows"] == 736
+    assert budget["projected_all_family_snapshot_rows_removed"] == 684
+    assert budget["archival_storage_device"] == "cpu"
+    assert budget["runs_live_tick"] is False
+    assert budget["runs_every_token"] is False
+    assert budget["global_candidate_scan"] is False
+    assert budget["global_score_scan"] is False
+    assert budget["language_reasoning"] is False
+    runtime_truth = report["runtime_truth"]
+    assert runtime_truth["runs_live_tick"] is False
+    assert runtime_truth["runs_every_token"] is False
+    assert runtime_truth["language_reasoning"] is False
+    assert runtime_truth["gpu_resident_archival_metadata"] is False
 
 
 def test_source_bank_memory_match_benchmark_reports_maintained_only_path() -> None:

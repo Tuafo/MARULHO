@@ -2317,7 +2317,8 @@ event families it returns, caps each family at the requested snapshot limit and
 retention limit, keeps archival/source/snapshot metadata on CPU, and reports no
 global candidate/score scan, no live tick, no every-token cadence, no hidden
 language reasoning, and no CUDA archive. The old all-family normalization model
-is benchmark-local retired evidence only.
+is now removed from the snapshot benchmark too; all-family comparison evidence
+must stay external or in explicitly normalizer-scoped benchmark evidence.
 
 The focused report
 `reports/bounded_replay_window_20260620/snn-readout-ledger-snapshot-source-window.json`
@@ -2326,12 +2327,22 @@ used `2048` rows per retained ledger family, `ledger_limit=128`, and
 preserved newest-first returned rows and retained-count parity, and reduced mean
 latency from `393.040600 ms` to `67.334088 ms` (`5.837171x`) with
 `0.575356 MiB` traced Python peak and `0.0 MiB` CUDA allocation/reservation.
-The matching long protection run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json`
-processed `524288` tokens at `6443.960 tokens/sec`,
-`train_compute=0.127084 ms/token`, bounded `12/65536` route rows, `65526`
-cached transition rows, zero graph/native sequence failures, no observed
-contention, and flat RTX 3060 memory at `1899 MiB`.
+The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-snapshot-comparator-removed.json`
+deletes the executable comparator, verifies returned-field-only source reads
+directly, reads `260` bounded CPU rows for `13` returned snapshot fields,
+projects `2684` removed all-family rows from `23` retained ledger fields,
+averages `77.561856 ms`, traces `0.581556 MiB` Python peak, and keeps CUDA
+allocation/reservation at `0.0 MiB`.
+The current matching long protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-snapshot-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6069.794524 tokens/sec`,
+`train_compute=0.132884 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, and zero graph/native sequence failures. Boundary
+environment samples marked `contention_observed` (`cpu max=64%`,
+`gpu max=20%`, GPU memory utilization max `16%`), so this is same-band
+protection evidence rather than a speed ceiling. RTX 3060 memory stayed flat at
+`2191 MiB`.
 
 Applied-synapse provenance status now follows the same selected-source rule.
 Modern Hopfield-style recall is useful only after the memory/replay window is

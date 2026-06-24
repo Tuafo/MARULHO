@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
-from itertools import islice
 import json
 from pathlib import Path
 import statistics
@@ -23,10 +21,6 @@ from marulho.service.snn_language_readout_ledger import (
     SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS,
     SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY,
     SNNLanguageReadoutEvidenceLedger,
-)
-
-SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY = (
-    "recent_ledger_event_field_source_window_v1"
 )
 
 
@@ -124,66 +118,6 @@ def _quality_from_events(
     }
 
 
-def _benchmark_source_record_count(rows: Any) -> int | None:
-    if isinstance(rows, (str, bytes, Mapping)):
-        return 0
-    try:
-        return int(len(rows))
-    except TypeError:
-        return None
-
-
-def _retired_benchmark_bounded_all_family_snapshot_state(
-    state: Mapping[str, Any],
-    *,
-    limit: int,
-) -> dict[str, Any]:
-    source_limit = max(1, int(limit))
-    normalized: dict[str, Any] = {}
-    source_record_counts: dict[str, int | None] = {}
-    source_window_counts: dict[str, int] = {}
-    for field in SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS:
-        raw_rows = state.get(field) or []
-        source_record_counts[field] = _benchmark_source_record_count(raw_rows)
-        normalized[field] = deque(
-            (
-                deepcopy(dict(item))
-                for item in islice(raw_rows, source_limit)
-                if isinstance(item, Mapping)
-            ),
-            maxlen=source_limit,
-        )
-        source_window_counts[field] = int(len(normalized[field]))
-    normalized["_normalization_source_window"] = {
-        "surface": "bounded_snn_readout_ledger_normalization_source_window.v1",
-        "policy": SNN_BENCHMARK_READOUT_LEDGER_NORMALIZATION_SOURCE_WINDOW_POLICY,
-        "source": "benchmark_local_retired_all_family_snapshot_model",
-        "event_field_count": len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS),
-        "source_window_limit_per_field": int(source_limit),
-        "source_window_count_total": int(sum(source_window_counts.values())),
-        "source_record_count_total_known": int(
-            sum(value for value in source_record_counts.values() if value is not None)
-        ),
-        "source_record_counts": source_record_counts,
-        "source_window_counts": source_window_counts,
-        "selection_criteria": (
-            "benchmark-local bounded all-family retired snapshot comparison after "
-            "production normalizer retirement"
-        ),
-        "archival_storage_device": "cpu",
-        "normalization_device": "cpu",
-        "gpu_used": False,
-        "runs_live_tick": False,
-        "runs_every_token": False,
-        "global_candidate_scan": False,
-        "global_score_scan": False,
-        "language_reasoning": False,
-        "production_callable": False,
-        "benchmark_local_only": True,
-    }
-    return normalized
-
-
 def _bounded_snapshot_once(
     *,
     retention_count: int,
@@ -226,49 +160,6 @@ def _bounded_snapshot_once(
                 for field, count in row_reads.items()
                 if field not in snapshot_fields
             ),
-        },
-    }
-
-
-def _retired_normalized_snapshot_model_once(
-    *,
-    retention_count: int,
-    ledger_limit: int,
-    snapshot_limit: int,
-) -> dict[str, Any]:
-    ledger, rows_by_field = _ledger_with_counted_rows(
-        retention_count=retention_count,
-        ledger_limit=ledger_limit,
-    )
-    normalized = _retired_benchmark_bounded_all_family_snapshot_state(
-        ledger._ledger_state(),  # noqa: SLF001
-        limit=ledger_limit,
-    )
-    events_by_field = {
-        field: [
-            deepcopy(dict(item))
-            for item in list(normalized.get(field) or [])[:snapshot_limit]
-        ]
-        for field in SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS
-    }
-    row_reads = _row_reads(rows_by_field)
-    return {
-        "row_reads": row_reads,
-        "row_read_count": int(sum(row_reads.values())),
-        "source_window": dict(normalized.get("_normalization_source_window") or {}),
-        "event_count": int(len(normalized.get("events") or [])),
-        "returned_event_count": int(len(events_by_field["events"])),
-        "quality": {
-            **_quality_from_events(
-                events_by_field,
-                snapshot_limit=snapshot_limit,
-            ),
-            "retained_event_count_preserved": (
-                int(len(normalized.get("events") or []))
-                == min(int(retention_count), int(ledger_limit))
-            ),
-            "source_window_policy_match": True,
-            "unreturned_fields_unread": False,
         },
     }
 
@@ -335,22 +226,42 @@ def run_benchmark(
         ),
         runs=runs,
     )
-    retired = _measure(
-        lambda: _retired_normalized_snapshot_model_once(
-            retention_count=retention_count,
-            ledger_limit=ledger_limit,
-            snapshot_limit=snapshot_limit,
-        ),
-        runs=runs,
+    source_window = bounded["source_window"]
+    bounded_row_reads = int(bounded["row_read_count"]["last"])
+    retained_rows_per_field = min(int(retention_count), int(ledger_limit))
+    projected_all_family_rows = (
+        int(len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS))
+        * int(retained_rows_per_field)
     )
-    bounded_rows = max(1.0, float(bounded["row_read_count"]["mean"]))
-    retired_rows = float(retired["row_read_count"]["mean"])
-    bounded_latency = max(1e-9, float(bounded["latency_ms"]["mean"]))
-    retired_latency = float(retired["latency_ms"]["mean"])
+    source_window_memory_budget = (
+        source_window.get("memory_budget")
+        if isinstance(source_window.get("memory_budget"), Mapping)
+        else {}
+    )
+    quality = {
+        **bounded["quality"],
+        "retired_all_family_snapshot_comparator_removed": True,
+        "returned_field_only_source_reads": bool(
+            bounded["quality"]["unreturned_fields_unread"]
+        ),
+        "source_window_rows_match_memory_budget": (
+            bounded_row_reads
+            == int(source_window_memory_budget.get("max_records_total", -1))
+        ),
+    }
+    retired_absence = {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": (
+            "snn_readout_ledger_snapshot_all_family_normalized_comparator"
+        ),
+    }
     cuda_available = bool(torch.cuda.is_available())
     return {
         "surface": "snn_readout_ledger_snapshot_source_window_benchmark.v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "pass": all(bool(value) for value in quality.values()),
         "parameters": {
             "retention_count": int(retention_count),
             "ledger_limit": int(ledger_limit),
@@ -358,25 +269,37 @@ def run_benchmark(
             "runs": int(runs),
         },
         "bounded_snapshot": bounded,
-        "retired_normalized_snapshot_model": retired,
-        "comparison": {
-            "row_read_reduction_ratio": float(retired_rows / bounded_rows),
-            "latency_speedup_ratio": float(retired_latency / bounded_latency),
-            "bounded_reads_only_returned_snapshot_fields": bool(
-                bounded["quality"]["unreturned_fields_unread"]
+        "quality": quality,
+        "memory_budget": {
+            "all_ledger_event_field_count": int(
+                len(SNN_LANGUAGE_READOUT_LEDGER_EVENT_FIELDS)
             ),
-            "quality_preserved": bool(
-                bounded["quality"]["newest_first_parity"]
-                and bounded["quality"]["retained_event_count_preserved"]
-                and retired["quality"]["newest_first_parity"]
-                and retired["quality"]["retained_event_count_preserved"]
+            "snapshot_event_field_count": int(
+                len(SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_EVENT_FIELDS)
             ),
+            "retained_rows_per_field": int(retained_rows_per_field),
+            "projected_all_family_snapshot_rows": int(projected_all_family_rows),
+            "bounded_snapshot_rows_read": int(bounded_row_reads),
+            "projected_all_family_snapshot_rows_removed": max(
+                0,
+                int(projected_all_family_rows) - int(bounded_row_reads),
+            ),
+            "source_window_limit_per_field": int(
+                source_window.get("source_window_limit_per_field", 0) or 0
+            ),
+            "archival_storage_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
         },
+        "retired_all_family_snapshot_comparator_absence": retired_absence,
         "runtime_truth": {
-            "source_window_surface": bounded["source_window"]["surface"],
-            "source_window_policy": bounded["source_window"]["policy"],
-            "selection_criteria": bounded["source_window"]["selection_criteria"],
-            "memory_budget": bounded["source_window"]["memory_budget"],
+            "source_window_surface": source_window["surface"],
+            "source_window_policy": source_window["policy"],
+            "selection_criteria": source_window["selection_criteria"],
+            "memory_budget": source_window["memory_budget"],
             "archival_storage_device": "cpu",
             "snapshot_device": "cpu",
             "gpu_used": False,
@@ -398,6 +321,7 @@ def run_benchmark(
             "global_score_scan": False,
             "language_reasoning": False,
             "raw_text_scored": False,
+            "retired_all_family_snapshot_comparator_removed": True,
         },
     }
 

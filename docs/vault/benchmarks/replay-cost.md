@@ -2316,17 +2316,30 @@ rows instead of `2944` in the benchmark-local retired normalizer model
 `393.040600 ms` to `67.334088 ms` (`5.837171x`). Traced Python peak allocation
 was `0.575356 MiB`; CUDA allocation/reservation stayed `0.0 MiB`.
 
-The `524288`-token protection run was:
+Maintained-only refresh:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-ledger-snapshot-source-window.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.snn_readout_ledger_snapshot_source_window_benchmark --retention-count 2048 --ledger-limit 128 --snapshot-limit 20 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-snapshot-comparator-removed.json`
 
-It processed `524288` tokens at `6443.960 tokens/sec`, with
-`train_compute=0.127084 ms/token`, `prepare_training=0.006251 ms/token`,
-`finalize_total=0.005922 ms/token`, `tick_duration_ms.p95=19.655`, bounded
+Result: `pass=true`; the benchmark no longer executes the all-family
+normalized snapshot comparator. It verifies returned-field-only source reads
+directly, reads `260` bounded CPU rows for `13` returned snapshot fields,
+projects `2684` removed all-family rows from `23` retained ledger fields,
+averages `77.561856 ms`, traces `0.581556 MiB` Python peak, and keeps CUDA
+allocation/reservation at `0.0 MiB`.
+
+The current `524288`-token protection run was:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-snapshot-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+It processed `524288` tokens at `6069.794524 tokens/sec`, with
+`train_compute=0.132884 ms/token`, `prepare_training=0.006725 ms/token`,
+`finalize_total=0.006776 ms/token`, `tick_duration_ms.p95=21.299300`, bounded
 `route_input_rows_scored=12/65536`, `route_output_candidate_count=10`, and
 `state_transition_cached_count=65526`. Graph/native/sequence failures were
-all `0`, no contention was observed, and RTX 3060 memory stayed flat at
-`1899 MiB`.
+all `0`. Boundary environment samples marked `contention_observed`
+(`cpu max=64%`, `gpu max=20%`, GPU memory utilization max `16%`), so this is
+same-band protection evidence rather than a speed ceiling. RTX 3060 memory
+stayed flat at `2191 MiB`.
 
 The applied-synapse provenance status follow-up retires the broad readiness
 scan over all applied sparse weights and provenance rows. The status projection
