@@ -4,6 +4,7 @@ import argparse
 import json
 import statistics
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -24,19 +25,25 @@ def _store(*, entries: int, buckets: int) -> DualMemoryStore:
     return store
 
 
-def _retired_scan_level(store: DualMemoryStore, bucket_id: int) -> float:
+def _seeded_bucket_expected_level(
+    *,
+    store: DualMemoryStore,
+    entries: int,
+    buckets: int,
+    bucket_id: int,
+) -> tuple[float, int]:
     weighted_sum = 0.0
     total_weight = 0.0
-    for idx, raw_bucket_id in enumerate(store.slow_bucket_ids):
-        if raw_bucket_id is None or int(raw_bucket_id) != int(bucket_id):
-            continue
+    selected_count = 0
+    for idx in range(int(bucket_id), int(entries), int(buckets)):
         weight = max(1e-6, float(store.slow_importance[idx]))
         level = max(0.0, min(1.0, float(store.slow_consolidation_level[idx])))
         weighted_sum += weight * level
         total_weight += weight
+        selected_count += 1
     if total_weight <= 0.0:
-        return 0.0
-    return float(weighted_sum / total_weight)
+        return 0.0, int(selected_count)
+    return float(weighted_sum / total_weight), int(selected_count)
 
 
 def _measure(fn: Any, *, runs: int) -> tuple[list[float], list[float]]:
@@ -67,34 +74,35 @@ def run_benchmark(
 ) -> dict[str, Any]:
     store = _store(entries=entries, buckets=buckets)
     bucket = int(bucket_id) % max(1, int(buckets))
-    retired_elapsed, retired_values = _measure(
-        lambda: _retired_scan_level(store, bucket),
-        runs=runs,
+    expected_value, expected_selected_rows = _seeded_bucket_expected_level(
+        store=store,
+        entries=entries,
+        buckets=buckets,
+        bucket_id=bucket,
     )
+    tracemalloc.start()
     cached_elapsed, cached_values = _measure(
         lambda: store.bucket_consolidation_level(bucket),
         runs=runs,
     )
+    traced_current, traced_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
     report = dict(store.device_report()["last_bucket_consolidation_level_report"])
-    retired_stats = _latency(retired_elapsed)
     cached_stats = _latency(cached_elapsed)
-    value_delta = abs(float(retired_values[-1]) - float(cached_values[-1]))
+    cached_last = float(cached_values[-1]) if cached_values else 0.0
+    value_delta = abs(float(expected_value) - cached_last)
     quality = {
         "value_delta": float(value_delta),
-        "cached_value_matches_retired_scan": bool(value_delta <= 1e-6),
+        "cached_value_matches_seeded_bucket": bool(value_delta <= 1e-6),
         "cached_lookup_no_scan": bool(
             report.get("full_memory_scan") is False
             and int(report.get("scan_entry_count", -1)) == 0
             and report.get("status") == "cache_hit"
         ),
-        "latency_reduction_mean_ms": float(
-            max(0.0, retired_stats["mean_ms"] - cached_stats["mean_ms"])
-        ),
     }
     quality["pass"] = bool(
-        quality["cached_value_matches_retired_scan"]
+        quality["cached_value_matches_seeded_bucket"]
         and quality["cached_lookup_no_scan"]
-        and cached_stats["mean_ms"] < retired_stats["mean_ms"]
     )
     cuda_available = bool(torch.cuda.is_available())
     cuda_allocated_mib = (
@@ -115,7 +123,8 @@ def run_benchmark(
         ],
         "memory_budget": {
             "cached_bucket_rows": int(buckets),
-            "retired_scan_rows": int(entries),
+            "seeded_expected_bucket_rows": int(expected_selected_rows),
+            "retired_scan_rows_removed": int(entries),
             "archival_storage_device": "cpu",
             "cache_metadata_device": "cpu",
         },
@@ -123,6 +132,17 @@ def run_benchmark(
             "bucket_cache_device": "cpu",
             "archival_storage_device": "cpu",
             "cuda_available": cuda_available,
+            "cuda_memory_allocated_after_mib": cuda_allocated_mib,
+        },
+        "resource_behavior": {
+            "python_tracemalloc_current_mib": round(
+                float(traced_current) / (1024.0 * 1024.0),
+                6,
+            ),
+            "python_tracemalloc_peak_mib": round(
+                float(traced_peak) / (1024.0 * 1024.0),
+                6,
+            ),
             "cuda_memory_allocated_after_mib": cuda_allocated_mib,
         },
         "runtime_truth": {
@@ -133,8 +153,13 @@ def run_benchmark(
             "hidden_language_reasoning": False,
             "mutates_runtime_state": False,
         },
+        "retired_full_bucket_scan_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "scalar_bucket_consolidation_full_slow_memory_scan",
+        },
         "latency": {
-            "retired_full_bucket_scan": retired_stats,
             "cached_bucket_lookup": cached_stats,
         },
         "last_cached_lookup_report": report,
@@ -149,7 +174,7 @@ def run_benchmark(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark cached bucket consolidation lookup versus retired scan."
+        description="Benchmark maintained cached bucket consolidation lookup."
     )
     parser.add_argument("--entries", type=int, default=65_536)
     parser.add_argument("--buckets", type=int, default=65_536)
@@ -170,12 +195,10 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} entries={entries} bucket={bucket} "
-        "retired_mean_ms={retired_ms:.6f} cached_mean_ms={cached_ms:.6f} "
-        "scan_count={scan_count}".format(
+        "cached_mean_ms={cached_ms:.6f} scan_count={scan_count}".format(
             pass_gate=report["pass"],
             entries=report["entries"],
             bucket=report["bucket_id"],
-            retired_ms=report["latency"]["retired_full_bucket_scan"]["mean_ms"],
             cached_ms=report["latency"]["cached_bucket_lookup"]["mean_ms"],
             scan_count=report["last_cached_lookup_report"].get("scan_entry_count"),
         )

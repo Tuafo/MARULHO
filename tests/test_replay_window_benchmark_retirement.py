@@ -27,6 +27,9 @@ from marulho.evaluation.status_replay_path_source_window_benchmark import (
 from marulho.evaluation.applied_replay_lineage_checkpoint_summary_benchmark import (
     run_benchmark as run_applied_replay_lineage_checkpoint_summary_benchmark,
 )
+from marulho.evaluation.bucket_consolidation_cache_lookup_benchmark import (
+    run_benchmark as run_bucket_consolidation_cache_lookup_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +46,7 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT
         / "src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py",
         ROOT / "src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py",
+        ROOT / "src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -84,6 +88,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "full_path_rebuilt",
         "latency_reduction_mean_ms",
         "full_mean_ms",
+        "_retired_scan_level",
+        "\"retired_full_bucket_scan\":",
+        "cached_value_matches_retired_scan",
+        "retired_mean_ms",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -319,3 +327,27 @@ def test_sleep_replay_routing_index_refresh_benchmark_reports_maintained_only_pa
     assert report["runtime_truth"]["routing_index_full_rebuild"] is False
     assert report["runtime_truth"]["runs_live_tick"] is False
     assert report["runtime_truth"]["runs_every_token"] is False
+
+
+def test_bucket_consolidation_cache_lookup_benchmark_reports_maintained_only_path() -> None:
+    report = run_bucket_consolidation_cache_lookup_benchmark(
+        entries=128,
+        buckets=128,
+        bucket_id=7,
+        runs=2,
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["cached_value_matches_seeded_bucket"] is True
+    assert report["quality"]["cached_lookup_no_scan"] is True
+    assert report["retired_full_bucket_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "scalar_bucket_consolidation_full_slow_memory_scan",
+    }
+    assert "retired_full_bucket_scan" not in report["latency"]
+    assert report["memory_budget"]["seeded_expected_bucket_rows"] == 1
+    assert report["runtime_truth"]["full_memory_scan"] is False
+    assert report["runtime_truth"]["scan_entry_count"] == 0
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0

@@ -2613,31 +2613,35 @@ use the maintained CPU bucket consolidation cache and report
 `bucket_consolidation_level_cache_lookup.v1` with `full_memory_scan=false` and
 `scan_entry_count=0`. A missing cache is reported as a no-scan miss; explicit
 tensor rebuilds remain load/capture/offline, explicit tensor request,
-checkpoint load, graph capture/prewarm, or benchmark-local work.
+checkpoint load, graph capture/prewarm, or offline work. The benchmark-local
+full-bucket scan comparator has also been removed.
 
 Focused quality and latency benchmark:
 
-`python -m marulho.evaluation.bucket_consolidation_cache_lookup_benchmark --entries 65536 --buckets 65536 --bucket-id 37 --runs 25 --output reports\bounded_replay_window_20260620\bucket-consolidation-cache-lookup.json`
+`python -m marulho.evaluation.bucket_consolidation_cache_lookup_benchmark --entries 65536 --buckets 65536 --bucket-id 37 --runs 25 --output ..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-consolidation-cache-legacy-baseline-removed.json`
 
-Result: `pass=true`; cached scalar lookup matched the retired full scan within
-`1e-6`, reported `cache_hit`, and scanned `0` entries. Mean latency fell from
-`12.999192 ms` for the retired scalar scan to `0.016260 ms` for the cached
-lookup. The cache is CPU metadata; CUDA was available but unused by the
-benchmark.
+Result: `pass=true`; the maintained benchmark now reports only cached scalar
+lookup and records `retired_full_bucket_scan_absence.implementation_present=false`.
+The cached value matched the seeded bucket expectation exactly
+(`value_delta=0.0`, bucket level `0.1875`), reported `cache_hit`, and scanned
+`0` entries. Mean lookup latency was `0.017516 ms` across `25` runs
+(`median=0.014200 ms`, `max=0.089300 ms`). The measured path kept archival
+storage and cache metadata on CPU, used `0.002090 MiB` Python trace-memory peak,
+and allocated `0.0 MiB` CUDA memory.
 
 Hot-path protection:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-cache-legacy-baseline-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 
-Result: `success=true`, `524288` tokens in `87.860658 s`,
-`5967.267 tokens/sec`, `tick_duration_ms.p95=22.005`,
-`train_compute=0.135870 ms/token`, `prepare_training=0.007225 ms/token`, and
-`finalize_total=0.006671 ms/token`. Prewarm took `325.285 s`. Runtime Truth
+Result: `success=true`, `524288` tokens in `81.144881 s`,
+`6461.135 tokens/sec`, `tick_duration_ms.p95=19.207`,
+`train_compute=0.125097 ms/token`, `prepare_training=0.006387 ms/token`, and
+`finalize_total=0.006131 ms/token`. Prewarm took `238.392 s`. Runtime Truth
 kept route scoring at `12/65536` input rows and `10` output candidates, cached
 `65526` transition rows, kept `state_transition_runs_all_columns=false`, and
-recorded zero graph/native sequence failures. CPU max was `28%`; GPU max was
-`25%`, so velocity marked contention observed, but RTX 3060 memory stayed flat
-at `1963->1964 MiB` and throughput remained in the maintained 6k-ish band.
+recorded zero graph/native sequence failures. Velocity marked contention not
+observed with CPU max `9%`, GPU max `18%`, and RTX 3060 memory
+`1929->1928 MiB`; throughput remained in the maintained 6k-ish band.
 
 Next gate: repeat the target-specific schedule budgets on a larger or more
 grounded target, or replace the synthetic capped-window/readout-payload proof

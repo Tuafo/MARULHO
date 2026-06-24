@@ -499,16 +499,19 @@ maintained CPU bucket cache and report
 `scan_entry_count=0`; if the cache is absent, the scalar API returns a no-scan
 miss instead of rebuilding. Explicit `bucket_consolidation_tensor(...)`
 rebuilds remain load/capture/offline, explicit tensor request, checkpoint
-load, graph capture/prewarm, or benchmark-local work. The benchmark
-`reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
-matched the retired scalar scan for a `65536`-entry store while reducing mean
-latency from `12.999192 ms` to `0.016260 ms`. The paired `524288`-token
+load, graph capture/prewarm, or offline work. The maintained-only benchmark
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-consolidation-cache-legacy-baseline-removed.json`
+removes the executable retired scalar-scan comparator and records
+`retired_full_bucket_scan_absence.implementation_present=false`. It matched the
+seeded bucket expectation exactly for a `65536`-entry store, reported
+`scan_entry_count=0`, averaged `0.017516 ms`, kept Python trace-memory peak to
+`0.002090 MiB`, and used `0.0 MiB` CUDA allocation. The paired `524288`-token
 hot-path run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json`
-stayed same-band at `5967.267 tokens/sec`, `tick_duration_ms.p95=22.005`,
-`train_compute=0.135870 ms/token`, bounded `12/65536` route rows, cached
-`65526` transition rows, zero graph/native sequence failures, and RTX 3060
-memory `1963->1964 MiB`; velocity again observed a `25%` pre-run GPU sample.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-cache-legacy-baseline-removed-default-nosample.json`
+stayed same-band at `6461.135 tokens/sec`, `tick_duration_ms.p95=19.207`,
+`train_compute=0.125097 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, zero graph/native sequence failures, no observed
+contention, and RTX 3060 memory `1929->1928 MiB`.
 
 Selected replay consolidation follows the same local-window rule. A selected
 replay window can update selected memory STC/replay state, but it must not

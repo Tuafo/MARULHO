@@ -142,10 +142,15 @@ reports `bucket_consolidation_level_cache_lookup.v1` with
 `full_memory_scan=false`; a missing cache returns a no-scan miss instead of
 rebuilding by iterating slow memory. Explicit tensor rebuilds remain checkpoint
 load, graph capture/prewarm, offline diagnostic, explicit tensor request, or
-benchmark-local work. The 65536-entry benchmark reduced scalar lookup from
-`12.999192 ms` to `0.016260 ms` while matching the retired full scan, and the
-paired 524288-token run stayed same-band at `5967.267 tokens/sec` with bounded
-`12/65536` route rows and zero graph/native sequence failures.
+offline work. The maintained-only 65536-entry benchmark
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-consolidation-cache-legacy-baseline-removed.json`
+records the old full-bucket scan comparator as absent, matches a seeded bucket
+expectation exactly, scans `0` entries in the measured lookup, and averages
+`0.017516 ms` with `0.002090 MiB` Python trace-memory peak and `0.0 MiB` CUDA
+allocation. The paired 524288-token run stayed same-band at
+`6461.135 tokens/sec` with bounded `12/65536` route rows, cached `65526`
+transition rows, CPU max `9%`, GPU max `18%`, RTX 3060 memory
+`1929->1928 MiB`, and zero graph/native sequence failures.
 
 Selected replay consolidation now uses the same boundary. `DualMemoryStore`
 reports `bounded_selected_replay_consolidation.v1`; selected entries still

@@ -5608,26 +5608,28 @@ scanning every slow-memory entry. Production reads use
 `bucket_consolidation_level_cache_lookup.v1` over the maintained CPU bucket
 cache and report `full_memory_scan=false`; missing cache state is a no-scan
 miss, while explicit tensor rebuilds remain load/capture/offline, explicit
-tensor request, checkpoint load, graph capture/prewarm, or benchmark-local
-work.
+tensor request, checkpoint load, graph capture/prewarm, or offline work. The
+benchmark-local retired full-bucket scan comparator is now absent too.
 
 The focused report
-`reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json`
-passed over `65536` entries with retired-scan parity, cached lookup mean
-`0.016260 ms`, retired scan mean `12.999192 ms`, and scan count `0`.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\bucket-consolidation-cache-legacy-baseline-removed.json`
+passed over `65536` entries with seeded bucket-value parity, cached lookup mean
+`0.017516 ms`, median `0.014200 ms`, scan count `0`, CPU archival/cache
+metadata, Python trace-memory peak `0.002090 MiB`, `0.0 MiB` CUDA allocation,
+and `retired_full_bucket_scan_absence.implementation_present=false`.
 
 The paired protection run
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json`
-processed `524288` tokens at `5967.267 tokens/sec`,
-`tick_duration_ms.p95=22.005`, `train_compute=0.135870 ms/token`,
-`prepare_training=0.007225 ms/token`, and `finalize_total=0.006671 ms/token`.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-bucket-cache-legacy-baseline-removed-default-nosample.json`
+processed `524288` tokens at `6461.135 tokens/sec`,
+`tick_duration_ms.p95=19.207`, `train_compute=0.125097 ms/token`,
+`prepare_training=0.006387 ms/token`, and `finalize_total=0.006131 ms/token`.
 Runtime Truth kept route scoring bounded at `12/65536` input rows and `10`
 output candidates, cached `65526` transition rows, kept
 `state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
-recorded zero graph/native sequence failures. Prewarm took `325.285 s`; CPU max
-was `28%`; GPU max was `25%`, so velocity reported contention observed. RTX
-3060 memory stayed flat at `1963->1964 MiB`, so this is same-band live-tick
-protection evidence, not a new throughput ceiling.
+recorded zero graph/native sequence failures. Prewarm took `238.392 s`; velocity
+reported contention not observed with CPU max `9%`, GPU max `18%`, and RTX 3060
+memory `1929->1928 MiB`, so this is same-band live-tick protection evidence,
+not a new throughput ceiling.
 
 ## Generic Replay Entry API Retired
 
