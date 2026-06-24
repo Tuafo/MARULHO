@@ -33,6 +33,9 @@ from marulho.evaluation.bucket_consolidation_cache_lookup_benchmark import (
 from marulho.evaluation.live_memory_summary_projection_benchmark import (
     run_benchmark as run_live_memory_summary_projection_benchmark,
 )
+from marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark import (
+    run_benchmark as run_snn_readout_ledger_normalization_benchmark,
+)
 from marulho.evaluation.concept_signature_lookup_benchmark import (
     run_benchmark as run_concept_signature_lookup_benchmark,
 )
@@ -81,6 +84,8 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py",
         ROOT / "src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py",
         ROOT / "src/marulho/evaluation/live_memory_summary_projection_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/snn_readout_ledger_normalization_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/concept_signature_lookup_benchmark.py",
         ROOT / "src/marulho/evaluation/concept_frontier_scope_benchmark.py",
         ROOT / "src/marulho/evaluation/frontier_gap_bounded_benchmark.py",
@@ -167,6 +172,12 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "legacy_report",
         "legacy_target_hit",
         "legacy_top_text",
+        "_legacy_full_materialized_normalized_state",
+        "_legacy_full_materialized_store_state",
+        "def _broad_normalized",
+        "bounded_speedup_vs_broad_normalized",
+        "bounded_speedup_vs_legacy",
+        "\"broad_normalized\"",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -452,6 +463,47 @@ def test_live_memory_summary_projection_benchmark_reports_maintained_only_path()
     assert report["runtime_truth"]["live_summary_scan_entry_count"] == 0
     assert report["memory_budget"]["retired_live_full_summary_scan_rows_removed"] == 128
     assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_snn_readout_ledger_normalization_benchmark_reports_maintained_only_path() -> None:
+    report = run_snn_readout_ledger_normalization_benchmark(
+        argparse.Namespace(retention_count=64, ledger_limit=8, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["retired_full_materialized_ledger_normalization_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": (
+            "snn_readout_ledger_full_materialized_normalization_comparator"
+        ),
+    }
+    assert report["retired_broad_normalized_ledger_comparator_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "snn_readout_ledger_broad_normalized_boundary_comparators",
+    }
+    assert "retired_path_comparison" not in report
+    assert "legacy" not in report["latency"]
+    assert "broad_normalized" not in report["latency"]
+    assert "bounded_speedup_vs_legacy" not in report["latency"]
+    assert "bounded_speedup_vs_broad_normalized" not in report["latency"]
+    expected_rows = (
+        report["input"]["event_field_count"]
+        * report["input"]["retention_count_per_field"]
+    )
+    bounded_rows = report["memory_budget"]["bounded_window_rows"]
+    assert report["memory_budget"]["source_rows_known"] == expected_rows
+    assert report["memory_budget"]["retired_full_materialized_rows_removed"] == (
+        expected_rows - bounded_rows
+    )
+    assert report["memory_budget"]["runs_live_tick"] is False
+    assert report["memory_budget"]["runs_every_token"] is False
+    assert report["memory_budget"]["global_candidate_scan"] is False
+    assert report["memory_budget"]["global_score_scan"] is False
+    assert report["memory_budget"]["language_reasoning"] is False
+    assert report["normalization_source_window"]["archival_storage_device"] == "cpu"
+    assert report["normalization_source_window"]["gpu_used"] is False
 
 
 def test_concept_signature_lookup_benchmark_reports_maintained_only_path() -> None:

@@ -271,6 +271,23 @@ allocation/reservation. The paired `524288`-token run stayed in band at
 transition rows, and recorded zero graph/native sequence failures with
 borderline `21%` GPU contention.
 
+The 2026-06-24 follow-up removes those executable benchmark comparators as
+well. The active readout-ledger normalization benchmark now calls only bounded
+source-window helpers, checks seeded newest-first reconstruction, and records
+absence evidence for the deleted full-materialized and broad-normalized
+comparator families. The local report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-normalization-comparators-removed.json`
+passed with `2944` bounded rows out of `47104` known source rows, `44160`
+full-materialized rows removed, CPU archival/normalization/store/lookup
+placement, and `0.0 MiB` CUDA allocation/reservation. The paired `524288`-token
+run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-normalization-comparators-removed-default-nosample.json`
+stayed in band at `6507.349 tokens/sec`, p95 `19.722 ms`,
+`train_compute=0.124647 ms/token`, route scoring `12/65536`, cached `65526`
+transition rows, no observed contention, flat RTX memory `1968->1968 MiB`, and
+zero graph/native sequence failures. Repo-local old comparator implementations
+should remain absent rather than returning as benchmark-local side paths.
+
 The 2026-06-22 readout-consolidation cleanup keeps that source-window rule but
 removes another thought-era production name. `snn_language_readout_consolidation_*`
 is now the single active consolidation chain through API, facade, ledger, and

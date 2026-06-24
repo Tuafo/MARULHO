@@ -3180,6 +3180,22 @@ Result: positive-pressure sleep recall passed with `1` query, candidate scope
 input-pattern distance `5.96046447753906e-08`; zero-pressure/no-anchor controls
 ran no recall.
 
+Readout-ledger normalization comparator removal:
+
+`python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output ..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-normalization-comparators-removed.json`
+
+Result: `pass=true`; the maintained-only benchmark removed executable
+full-materialized normalization/store comparators and broad-normalized
+per-boundary comparators. Seeded newest-first reconstruction passed with
+`2944` bounded rows out of `47104` known source rows, `44160`
+full-materialized rows removed, mean bounded normalization `370.034532 ms`,
+store `363.536084 ms`, known-hash lookup `15.750868 ms`, event-map lookup
+`14.613768 ms`, dense-label evaluation `17.247176 ms`, and record append
+`36.442308 ms`. The report records both comparator families absent, keeps
+archival/normalization/store/lookup/evaluation placement on CPU, uses
+`226.780760 MiB` traced Python peak, and allocates/reserves `0.0 MiB` CUDA
+memory on the RTX 3060.
+
 Hot-path protection:
 
 `python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-semantic-row-reader.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`

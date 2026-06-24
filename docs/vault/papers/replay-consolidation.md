@@ -2644,6 +2644,35 @@ instead of maintaining old field aliases.
 
 The focused benchmark
 `reports/bounded_replay_window_20260622/snn-readout-ledger-normalization-readout-consolidation-canonical.json`
+
+### Readout-Ledger Benchmark Comparator Removal
+
+Modern Hopfield-style recall remains a local associative operator only after a
+bounded source family or replay window has been selected. Complementary learning
+systems, continual-learning replay, synaptic tagging/capture, and sparse replay
+also argue against keeping executable archive-wide comparators around as
+side-path evidence once the maintained path has its own quality gates.
+
+The current readout-ledger normalization benchmark therefore removes the old
+full-materialized normalization/store comparators and the broad-normalized
+per-boundary comparators. The maintained report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\snn-readout-ledger-normalization-comparators-removed.json`
+uses seeded newest-first reconstruction as the quality target, records absence
+for both deleted comparator families, and keeps CPU archival/normalization/store
+/lookup/evaluation placement with no live tick, no every-token cadence, no
+global candidate/score scan, no hidden language reasoning, and `0.0 MiB` CUDA
+allocation/reservation. It passed with `2944` bounded rows out of `47104`
+source rows and `44160` full-materialized rows removed. The paired long run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-readout-ledger-normalization-comparators-removed-default-nosample.json`
+processed `524288` tokens at `6507.349 tokens/sec`, p95 `19.722 ms`,
+`train_compute=0.124647 ms/token`, route scoring `12/65536`, cached `65526`
+transition rows, no observed contention, flat RTX memory, and zero graph/native
+sequence failures.
+
+Implication: rejected recall/replay comparators may be described in retired
+docs, but repo-local executable code should expose only the maintained bounded
+path unless a new architecture decision reopens the trade-off with stronger
+quality and throughput evidence.
 passed with bounded mean `371.891600 ms` versus the benchmark-local retired
 diagnostic `5302.309467 ms` (`16x` source-work reduction). The downstream
 autonomous-chain comparison stayed bounded at `921.487733 ms` versus

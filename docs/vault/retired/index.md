@@ -40,6 +40,7 @@ related_benchmarks: []
 - [Raw Caller Window Replay Artifact Recording](raw-caller-window-replay-artifact-recording.md)
 - [Readout Known Hash Report Dropping Path](readout-known-hash-report-dropping-path.md)
 - [Readout Ledger Broad Snapshot Normalization](readout-ledger-broad-snapshot-normalization.md)
+- [Readout Ledger Normalization Benchmark Comparators](readout-ledger-normalization-benchmark-comparators.md)
 - [Readout Ledger Production All Family Normalizer](readout-ledger-production-all-family-normalizer.md)
 - [Readout Ledger Record Family Broad Normalization](readout-ledger-record-family-broad-normalization.md)
 - [Readout Replay Priority Report Dropping Path](readout-replay-priority-report-dropping-path.md)
