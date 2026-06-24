@@ -3146,6 +3146,31 @@ report states no direct slow-memory row reads, no effective-capture helper, and
 no live tick. A larger `65536` concept-frontier diagnostic is too slow for this
 bounded gate shape and remains rejected for current iteration evidence.
 
+Semantic/frontier comparator removal:
+
+`python -m marulho.evaluation.concept_signature_lookup_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260623\concept-signature-legacy-baseline-removed.json --capacity 65536 --source-count 8 --indices-per-source 8 --reference-scan-limit 32 --iterations 32 --seed 20260623`
+
+Result: `passed=true`; the maintained bounded signature lookup matched seeded
+expected signatures with mean cosine `1.0000000538` and minimum cosine
+`0.9999998212`, capped each source at `8` memory indices, removed the
+`65536`-row archive-materializing comparator, averaged `1.309419 ms`, used
+`0.002109 MiB` Python trace peak, and allocated `0.0 MiB` CUDA memory.
+
+`python -m marulho.evaluation.concept_frontier_scope_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260623\concept-frontier-legacy-baseline-removed.json --capacity 8192 --bucket-count 1024 --candidate-bucket-count 8 --probe-count 64 --dim 16 --iterations 16 --seed 20260623`
+
+Result: `passed=true`; seeded target hit rate was `1.0`, top-1 was a seeded
+target, the benchmark scored `64/8192` CPU archival rows from a `16`-probe
+source signature, removed the full slow-memory concept-frontier comparator,
+averaged `7.402244 ms`, used `0.089705 MiB` Python trace peak, and allocated
+`0.0 MiB` CUDA memory.
+
+`python -m marulho.evaluation.frontier_gap_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260623\frontier-gap-legacy-baseline-removed.json --capacity 65536 --iterations 16 --top-entries 24 --max-terms 8 --min-quality 1.0`
+
+Result: `passed=true`; expected frontier-term recall was `1.0`, candidate
+budget was `192/65536`, the old full raw-window archive-scan comparator is
+absent, mean bounded latency was `16.086825 ms`, Python trace peak was
+`0.070801 MiB`, and CUDA allocation stayed `0.0 MiB`.
+
 Replay quality:
 
 `python -m marulho.evaluation.bounded_replay_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\semantic-row-reader-replay-quality.json --seed 20260622 --n-columns 16 --column-latent-dim 32 --memory-capacity 64 --slow-memory-archive-interval-tokens 1 --task-repetitions 8 --boundary-cycles 1 --consolidation-cycles 1 --replay-steps 4 --candidate-pool 8`

@@ -6185,6 +6185,23 @@ contention, CPU max `44%`, GPU max `13%`, GPU memory utilization max `18%`,
 and RTX memory flat at `1993 MiB`. This is same-band protection evidence, not
 a new speed ceiling.
 
+Maintained-only semantic/frontier comparator-removal protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-semantic-frontier-legacy-baselines-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `80.707443 s` at
+`6496.154 tokens/sec`, p95 tick `19.229 ms`,
+`train_compute=0.125202 ms/token`, `prepare_training=0.005981 ms/token`, and
+`finalize_total=0.005879 ms/token`. Prewarm took `211.634 s` and did not enter
+the measured throughput window. Runtime Truth kept route scoring bounded at
+`12/65536`, output candidates at `10`, and transition caching at `65526` rows;
+`state_transition_runs_all_columns=false`, graph/native sequence failures were
+zero, and velocity sampled no contention. CPU max was `6%`, GPU max was `10%`,
+GPU memory utilization max was `10%`, and RTX 3060 memory stayed flat at
+`1866 MiB`. This run protects the live tick after removing benchmark-local
+archive-materializing signature lookup, full concept-frontier scan, and full
+frontier-gap raw-window scan comparators.
+
 ## Recent Anchor-Capture Row-Reader Protection
 
 This run protects the live tick after retiring trainer-side direct bucket reads

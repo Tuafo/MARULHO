@@ -598,6 +598,12 @@ transition rows, flat `1746 MiB` GPU memory, no observed contention, and zero
 graph/native/sequence failures. Longer 524288-token same-code checks were fast
 but secondary because their condition report saw pre-measurement GPU
 contention.
+The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\concept-signature-legacy-baseline-removed.json`
+now removes the benchmark-local archive-materializing comparator too: seeded
+expected signature quality passed with minimum cosine `0.9999998212`, bounded
+mean latency `1.309419 ms`, CPU archival lookup, `0.002109 MiB` Python trace
+peak, and `0.0 MiB` CUDA allocation.
 
 Semantic frontier-gap planning is also bounded to a selected slow-path window.
 `frontier_gap_plan(...)` now calls
@@ -619,6 +625,11 @@ The longer 524288-token hot-path check
 stayed in band at `6233.085 tokens/sec`, with bounded `12/65536` route rows,
 `65526` cached transition rows, GPU memory `1844->1840 MiB`, no observed
 contention, and zero graph/native/sequence failures.
+The maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\frontier-gap-legacy-baseline-removed.json`
+removes the benchmark-local full raw-window comparator while keeping expected
+term recall at `1.0`, a `192/65536` candidate budget, CPU archival placement,
+`16.086825 ms` mean bounded latency, and no CUDA allocation.
 
 Positive-pressure deep replay now commits through `bounded_reconstruction_gated_candidate_repair`, not the old stored-bucket `CompetitiveColumnLayer.process(...)` mutation. The trainer de-duplicates selected replay traces, builds a bounded candidate-column set from route candidates plus explicit stored-bucket fallback candidates, temporarily tests prototype repair, and commits only candidates that improve `mean_one_minus_best_similarity_over_selected_replay_routing_keys` inside the selected replay-window candidate columns. Runtime Truth records unique traces, duplicate skips, rejected commits, candidate-column union/trial counts, updated-column count, quality before/after, score device, archival storage device, and `runs_live_tick=false`. Emergency repair mode is also anchor-bucket scoped now: `bounded_repair_reanchor` can run only from a bucket-indexed anchor window, while no-anchor repair records `no_anchor_bucket_scope_for_repair_replay` and applies `0` updates. Micro maintenance is scoped the same way: anchored micro refresh reports `bounded_micro_maintenance_refresh`, selects through `bucket_indexed_candidate_window`, updates CPU memory metadata only, and bypasses the old zero-LR `CompetitiveColumnLayer.process(...)` call; no-anchor micro refresh records `no_anchor_bucket_scope_for_micro_replay` and applies `0` updates. The 2026-06-17 synthetic report `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json` passes bounded stored input-pattern recall under positive pressure (`5.960464477539063e-08` mean input distance, threshold `0.01`) and passes the prototype reconstruction gate after `6` committed repairs across `4` cycles: Task-A reconstruction moved from `0.0052170157` after Task B to `0.0034434795` after consolidation, relative degradation was `0.0467838377` under the `0.05` threshold, overlap was `0.8981397152`, and zero-pressure/no-anchor arms still applied `0` updates. The HF-backed guarded report `reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation/summary.json` passes bounded stored-experience recall after consolidation over `3` Task-A anchor-window queries with `mean_input_pattern_distance=0.0` and adds `reconstruction_guarded_replay_consolidation.v1`: replay cycles are selected from the bounded anchor window, then accepted only if Task-A `mean_reconstruction_error` does not regress. In that run the guard attempted `9` candidate repair updates across `3` cycles, rejected all `9`, restored model/memory state, kept effective updates at `0`, and left the memory-consolidation gate passing. The cadenced follow-up `reports/bounded_replay_window_20260617/hf-recall-guarded-consolidation-cadenced/summary.json` adds `cadence_strategy=skip_repeated_rejected_selection`, so the first rejected cycle attempted `3` repairs and the next `2` identical rejected cycles were skipped without re-entering replay. The longer 65536-column hot-path check at `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-candidate-repair.json` stayed in the same band at `6306.507 tokens/sec`, `train_compute=0.129511 ms/token`, `tick_duration_ms.p95=20.176`, `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`, zero graph/native/sequence failures, and no observed contention. The current-tree repair-scope rerun at `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-131072-i32-bounded-repair.json` also stayed in band at `6252.073 tokens/sec` with `train_compute=0.129794 ms/token`; the micro-scope rerun processed `262144` tokens at `6332.439 tokens/sec` with `train_compute=0.129001 ms/token`. The guarded-consolidation current-tree rerun processed `262144` tokens at `6606.251 tokens/sec`, `train_compute=0.123393 ms/token`, `tick_duration_ms.p95=18.562`, `route_input_rows_scored=12/65536`, `state_transition_cached_count=65526`, zero graph/native/sequence failures, flat `1539 MiB` GPU memory, and no observed contention. The cadenced rerun stayed in band at `6199.988 tokens/sec`, `train_compute=0.130574 ms/token`, `tick_duration_ms.p95=20.215`, the same `12/65536` route rows, `65526` cached transition rows, zero graph/native/sequence failures, and no observed contention after an earlier same-code run was rejected as low-throughput evidence.
 
@@ -2214,7 +2225,17 @@ bounded-scan, quality, latency, and live-tick gates with `64` row reads at
 `8192` capacity. All three reports state no direct slow-memory row reads, no
 mutating replay-entry reader, no STC advance, no live tick, and CPU archival
 placement. The paired long hot-path check for this exact tree is recorded in
-the hot-path benchmark note when complete.
+`..\..\MARULHO_reports\bounded_replay_window_20260622\hotpath-active-pressure-65536-524288-i32-semantic-row-reader.json`.
+The later maintained-only semantic/frontier comparator-removal slice removes
+the benchmark-local archive-materializing signature lookup, full slow-memory
+concept-frontier scan, and full raw-window frontier-gap scan. Its three reports
+pass seeded signature cosine min `0.9999998212`, concept-frontier target hit
+rate `1.0`, and frontier-gap expected term recall `1.0`, all with CPU archival
+placement and `0.0 MiB` CUDA allocation. The paired long run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-semantic-frontier-legacy-baselines-removed-default-nosample.json`
+processed `524288` tokens at `6496.154 tokens/sec`, p95 `19.229 ms`, bounded
+`12/65536` route rows, cached `65526` transition rows, no observed contention,
+flat RTX memory `1866 MiB`, and zero graph/native sequence failures.
 
 ## Recent Anchor-Capture Row Boundary
 

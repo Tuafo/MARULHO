@@ -51,6 +51,7 @@ related_benchmarks: []
 - [Replay Restore Full Materialized Normalization](replay-restore-full-materialized-normalization.md)
 - [Runtime Trace Export Replay Summary Full History](runtime-trace-export-replay-summary-full-history.md)
 - [Selected Replay Bucket Consolidation Cache Rebuild](selected-replay-bucket-consolidation-cache-rebuild.md)
+- [Semantic Frontier Benchmark Legacy Comparators](semantic-frontier-benchmark-legacy-comparators.md)
 - [Semantic Frontier Direct Archive Row Reads](semantic-frontier-direct-archive-row-reads.md)
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)
 - [Sleep Replay All Anchor Source Pass](sleep-replay-all-anchor-source-pass.md)

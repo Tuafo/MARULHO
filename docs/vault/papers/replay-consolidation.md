@@ -2818,6 +2818,25 @@ check
 kept sleep recall passing with `1` query and best input-pattern distance
 `5.96046447753906e-08`.
 
+The follow-up maintained-only reports remove the benchmark-local legacy
+comparators that still executed old paths after the bounded operators were
+accepted. Concept signature lookup no longer carries an archive-materializing
+signature helper, concept-frontier scope no longer carries a full slow-memory
+metric helper, and frontier-gap planning no longer carries a full raw-window
+term scanner. The reports
+`..\..\MARULHO_reports\bounded_replay_window_20260623\concept-signature-legacy-baseline-removed.json`,
+`concept-frontier-legacy-baseline-removed.json`, and
+`frontier-gap-legacy-baseline-removed.json` passed seeded signature cosine min
+`0.9999998212`, concept-frontier target hit rate `1.0`, and frontier-gap
+expected term recall `1.0` with CPU archival placement, Python trace peaks
+below `0.09 MiB`, and `0.0 MiB` CUDA allocation. The paired long run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-semantic-frontier-legacy-baselines-removed-default-nosample.json`
+kept throughput in band at `6496.154 tokens/sec` with bounded `12/65536` route
+rows, cached `65526` transition rows, no observed contention, flat RTX memory
+`1866 MiB`, and zero graph/native sequence failures. This keeps replay and
+semantic recall evidence on the selected bounded path instead of preserving old
+archive comparators as side implementations.
+
 ## Recent Anchor-Capture Row Boundary
 
 Selected replay anchors now follow the same boundary after recent-window

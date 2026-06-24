@@ -33,6 +33,15 @@ from marulho.evaluation.bucket_consolidation_cache_lookup_benchmark import (
 from marulho.evaluation.live_memory_summary_projection_benchmark import (
     run_benchmark as run_live_memory_summary_projection_benchmark,
 )
+from marulho.evaluation.concept_signature_lookup_benchmark import (
+    run_benchmark as run_concept_signature_lookup_benchmark,
+)
+from marulho.evaluation.concept_frontier_scope_benchmark import (
+    run_benchmark as run_concept_frontier_scope_benchmark,
+)
+from marulho.evaluation.frontier_gap_bounded_benchmark import (
+    run as run_frontier_gap_bounded_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +60,9 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py",
         ROOT / "src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py",
         ROOT / "src/marulho/evaluation/live_memory_summary_projection_benchmark.py",
+        ROOT / "src/marulho/evaluation/concept_signature_lookup_benchmark.py",
+        ROOT / "src/marulho/evaluation/concept_frontier_scope_benchmark.py",
+        ROOT / "src/marulho/evaluation/frontier_gap_bounded_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -99,6 +111,15 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "\"full_summary_stats\":",
         "full_path_scans_entries",
         "full_summary_scan_entry_count",
+        "_legacy_signature",
+        "legacy_archive_materializing_lookup",
+        "_legacy_full_scan_metrics",
+        "legacy_full_scan",
+        "diagnostic_full_slow_memory_scan",
+        "_diagnostic_legacy_frontier_terms",
+        "term_recall_against_legacy",
+        "archive_window_materialization_count",
+        "side_list_materialization_count",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -383,4 +404,102 @@ def test_live_memory_summary_projection_benchmark_reports_maintained_only_path()
     assert report["runtime_truth"]["live_summary_full_memory_scan"] is False
     assert report["runtime_truth"]["live_summary_scan_entry_count"] == 0
     assert report["memory_budget"]["retired_live_full_summary_scan_rows_removed"] == 128
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_concept_signature_lookup_benchmark_reports_maintained_only_path() -> None:
+    report = run_concept_signature_lookup_benchmark(
+        capacity=128,
+        dim=8,
+        iterations=4,
+        group_size=4,
+        seed=20260623,
+    )
+
+    assert report["passed"] is True
+    assert report["quality"]["seeded_expected_signature_matches"] is True
+    assert report["quality"]["min"] >= 0.9999
+    assert report["retired_archive_materializing_signature_lookup_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "concept_signature_lookup_archive_materializing_comparator",
+    }
+    assert "legacy_archive_materializing_lookup" not in report
+    assert "legacy_mean_latency_ms" not in report["latency"]
+    bounded = report["bounded_direct_index_lookup"]
+    assert bounded["archive_list_materialization_count"] == 0
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert report["memory_budget"]["retired_archive_materializing_lookup_rows_removed"] == 128
+    assert report["device_placement"]["archival_storage_device"] == "cpu"
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_concept_frontier_scope_benchmark_reports_maintained_only_path() -> None:
+    report = run_concept_frontier_scope_benchmark(
+        capacity=256,
+        bucket_count=64,
+        candidate_bucket_count=8,
+        probe_count=16,
+        dim=8,
+        iterations=2,
+        seed=20260623,
+    )
+
+    assert report["passed"] is True
+    assert all(bool(value) for value in report["gates"].values())
+    assert report["quality"]["top1_target_match"] is True
+    assert report["quality"]["target_hit_rate"] == 1.0
+    assert report["retired_concept_frontier_full_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "concept_frontier_metrics_full_slow_memory_scan_comparator",
+    }
+    assert "legacy_full_scan" not in report
+    assert "speedup" not in report["latency"]
+    bounded = report["bounded_candidate_window"]
+    assert bounded["score_count"] <= report["memory_budget"]["candidate_window_limit"]
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert bounded["runs_live_tick"] is False
+    assert bounded["frontier_row_reader_owned_by_store"] is True
+    assert bounded["direct_slow_memory_array_reads_retired"] is True
+    assert report["device_placement"]["archival_storage_device"] == "cpu"
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_frontier_gap_benchmark_reports_maintained_only_path() -> None:
+    report = run_frontier_gap_bounded_benchmark(
+        argparse.Namespace(
+            output=None,
+            capacity=512,
+            iterations=2,
+            top_entries=8,
+            max_terms=4,
+            min_quality=1.0,
+        )
+    )
+
+    assert report["passed"] is True
+    assert all(bool(value) for value in report["gates"].values())
+    assert report["quality"]["expected_term_recall"] == 1.0
+    assert report["retired_frontier_full_archive_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "frontier_gap_full_archive_raw_window_scan_comparator",
+    }
+    assert "legacy" not in report
+    assert "legacy_mean" not in report["latency_ms"]
+    bounded = report["bounded_selection_report"]
+    assert bounded["candidate_index_count"] <= report["memory_budget"]["candidate_window_limit"]
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert bounded["runs_live_tick"] is False
+    assert bounded["language_reasoning"] is False
+    assert bounded["frontier_row_reader_owned_by_store"] is True
+    assert report["missing_collector_gate"]["passed"] is True
+    assert report["device"]["archival_storage_device"] == "cpu"
     assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
