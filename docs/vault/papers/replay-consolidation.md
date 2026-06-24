@@ -2346,8 +2346,24 @@ hot-path rerun
 stayed in band at `6441.166 tokens/sec`, with bounded `12/65536` route rows,
 `65526` cached transition rows, zero graph/native sequence failures, no
 observed contention, and flat RTX 3060 memory at `1866 MiB`. The old full
-applied-synapse audit scan is retired from production; broad comparison remains
-only benchmark-local diagnostic evidence.
+applied-synapse audit scan is retired from production.
+
+The maintained-only refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260624\synapse-provenance-audit-comparator-removed.json`
+removes the executable full-scan comparator from the benchmark too. Quality is
+now `seeded_bounded_applied_synapse_audit_source_window_reconstruction`: the
+bounded audit reconstructs the expected seeded source keys directly, reads
+`128` bounded CPU source rows over `2048` retained rows, projects `3968`
+removed full-scan rows, records `full_scan_comparator_removed=true`, averages
+`73.058288 ms`, and keeps CUDA allocation/reservation at `0.0 MiB`. The paired
+`524288`-token protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-comparator-removed-default-nosample.json`
+stayed in the 6k-ish band at `6101.308 tokens/sec`, with `last_tick_duration_ms=17.730`,
+bounded `12/65536` route rows, `65526` cached transition rows,
+`state_transition_runs_all_columns=false`, native sequence-loop and burst-replay
+failure counts `0`, no observed before/after contention (`cpu max=42%`,
+`gpu max=10%`), and RTX 3060 memory `2049->2050 MiB`. Broad comparison no
+longer exists as repo-local executable benchmark code.
 
 Transition-memory status projection now applies the same selected-source rule
 to the broader status family. Modern Hopfield-style associative recall belongs

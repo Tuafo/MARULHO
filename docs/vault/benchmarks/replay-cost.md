@@ -2370,6 +2370,32 @@ recorded zero graph/native sequence failures. Contention was `not_observed`
 (`cpu max=20%`, `gpu max=13%`, GPU memory utilization max `18%`), and RTX 3060
 memory stayed flat at `1866 MiB`.
 
+Maintained-only refresh:
+
+`python -m marulho.evaluation.synapse_provenance_audit_source_window_benchmark --entry-count 2048 --runs 25 --output ..\..\MARULHO_reports\bounded_replay_window_20260624\synapse-provenance-audit-comparator-removed.json`
+
+The current-tree report removes the executable full-scan comparator from the
+benchmark. It keeps the same selected audit path but validates quality by
+seeded bounded source-window reconstruction, reads `64` sparse rows plus `64`
+provenance rows from CPU archival state, reports `128` bounded rows for `2048`
+retained rows, projects `3968` removed full-scan rows, and records
+`retired_full_applied_synapse_audit_scan_absence.implementation_present=false`.
+Mean bounded audit latency is `73.058288 ms`, p95 is `84.848 ms`, traced Python
+peak allocation is `0.254670 MiB`, and CUDA allocation/reservation remain
+`0.0 MiB`.
+
+Current protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Accepted current-tree run: `success=true`, `524288` tokens in `85.930428 s`,
+`6101.308 tokens/sec`, `last_tick_duration_ms=17.730`, prewarm `277.363 s`,
+trainer profile total `0.126931 ms/token`, bounded `12/65536` route rows,
+`65526` cached transition rows, `state_transition_runs_all_columns=false`,
+native sequence-loop and burst-replay failure counts `0`, no observed
+before/after contention (`cpu max=42%`, `gpu max=10%`), and RTX 3060 memory
+`2049->2050 MiB`.
+
 ## Runtime Trace Export And Replay Sample Summary Windows
 
 Runtime trace export and replay-sample summary now follow the same selected

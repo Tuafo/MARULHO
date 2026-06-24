@@ -1961,8 +1961,23 @@ by report metric), and reduced mean audit latency from `259.221928 ms` to
 stayed in band at `6441.166 tokens/sec`, with `tick_duration_ms.p95=19.527`,
 `train_compute=0.127184 ms/token`, bounded `12/65536` route rows, no observed
 contention, flat RTX 3060 memory at `1866 MiB`, and zero graph/native sequence
-failures. Full applied-synapse audit scans are now benchmark-local diagnostics
-only.
+failures.
+
+The current maintained-only refresh removes the full-scan comparator from
+repo-local benchmark code as well. Report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\synapse-provenance-audit-comparator-removed.json`
+uses seeded bounded source-window reconstruction rather than a full audit
+baseline, reads `128` bounded CPU source rows for `2048` retained rows,
+projects `3968` removed full-scan rows, averages `73.058288 ms`, and records
+`retired_full_applied_synapse_audit_scan_absence.implementation_present=false`.
+The current `524288`-token run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-comparator-removed-default-nosample.json`
+stayed protected at `6101.308 tokens/sec`, with `last_tick_duration_ms=17.730`,
+bounded `12/65536` route rows, `65526` cached transition rows, native
+sequence-loop and burst-replay failure counts `0`, no observed before/after
+contention (`gpu max=10%`), and RTX 3060 memory `2049->2050 MiB`. Full
+applied-synapse audit scans are now retired from production and absent from
+repo-local benchmark executables.
 
 Transition-memory status projections now share that same source-window rule
 instead of each projection materializing all retained sparse-transition and

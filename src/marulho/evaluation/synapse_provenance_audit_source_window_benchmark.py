@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from pathlib import Path
 import statistics
 from threading import RLock
@@ -116,127 +115,16 @@ def _build_fixture(entry_count: int) -> tuple[SNNLanguageReadoutEvidenceLedger, 
     return ledger, runtime, readout_hashes
 
 
-def _diagnostic_full_applied_synapse_audit(
-    runtime: Mapping[str, Any],
-    *,
-    source_limit: int,
-) -> dict[str, Any]:
-    weights = runtime.get("sparse_transition_weights")
-    weight_items = list(weights.items()) if isinstance(weights, Mapping) else []
-    provenance = runtime.get("synapse_provenance_by_key")
-    provenance_items = list(provenance.items()) if isinstance(provenance, Mapping) else []
-    requested_hashes: list[str] = []
-    finite_weight_count = 0
-    bounded_weight_count = 0
-    materialized_rows: list[dict[str, Any]] = []
-    for _key, value in weight_items:
-        try:
-            weight = float(value)
-        except (TypeError, ValueError):
-            continue
-        if not math.isfinite(weight):
-            continue
-        finite_weight_count += 1
-        if abs(weight) <= 1.0:
-            bounded_weight_count += 1
-    for _key, raw in provenance_items:
-        if not isinstance(raw, Mapping):
-            continue
-        key = str(_key)
-        readout_hash = str(raw.get("readout_evidence_hash") or "").strip()
-        if readout_hash:
-            requested_hashes.append(readout_hash)
-        raw_weight = weights.get(_key) if isinstance(weights, Mapping) else None
-        try:
-            weight = float(raw_weight)
-        except (TypeError, ValueError):
-            weight = float("nan") if raw_weight is not None else None
-        try:
-            pre_text, post_text = key.split(":", 1)
-            pre_index = int(pre_text)
-            post_index = int(post_text)
-        except (TypeError, ValueError):
-            pre_index = None
-            post_index = None
-        source_pre_indices = [
-            int(value)
-            for value in list(raw.get("source_pre_indices") or [])
-            if isinstance(value, int)
-        ]
-        source_post_indices = [
-            int(value)
-            for value in list(raw.get("source_post_indices") or [])
-            if isinstance(value, int)
-        ]
-        source_active_indices = [
-            int(value)
-            for value in list(raw.get("source_active_indices") or [])
-            if isinstance(value, int)
-        ]
-        materialized_rows.append(
-            {
-                "synapse_key": key,
-                "weight_available": raw_weight is not None,
-                "weight": weight,
-                "weight_finite": bool(weight is not None and math.isfinite(float(weight))),
-                "weight_bounded": bool(
-                    weight is not None and math.isfinite(float(weight)) and abs(float(weight)) <= 1.0
-                ),
-                "pre_index": pre_index,
-                "post_index": post_index,
-                "readout_evidence_hash": readout_hash,
-                "prediction_hash": raw.get("prediction_hash"),
-                "transition_memory_evaluation_hash": raw.get("transition_memory_evaluation_hash"),
-                "persistent_transition_weights_hash": raw.get("persistent_transition_weights_hash"),
-                "source_pre_indices": source_pre_indices,
-                "source_post_indices": source_post_indices,
-                "source_active_indices": source_active_indices,
-                "source_indices_match_synapse": bool(
-                    pre_index in source_pre_indices
-                    and post_index in source_post_indices
-                    and pre_index in source_active_indices
-                    and post_index in source_active_indices
-                )
-                if pre_index is not None and post_index is not None
-                else False,
-            }
-        )
-    return {
-        "surface": "diagnostic_full_applied_synapse_provenance_audit_scan.v1",
-        "records_scanned": int(len(weight_items) + len(provenance_items)),
-        "weight_records_scanned": int(len(weight_items)),
-        "provenance_records_scanned": int(len(provenance_items)),
-        "rows_materialized": int(len(materialized_rows)),
-        "requested_hash_count": int(len(requested_hashes)),
-        "finite_weight_count": int(finite_weight_count),
-        "bounded_weight_count": int(bounded_weight_count),
-        "first_source_window_keys": [
-            str(key) for key, _value in provenance_items[:source_limit]
-        ],
-        "production_callable": False,
-        "benchmark_local_only": True,
-    }
-
-
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     entry_count = max(1, int(args.entry_count))
     runs = max(1, int(args.runs))
     source_limit = SNN_READOUT_SYNAPSE_PROVENANCE_AUDIT_SOURCE_WINDOW_LIMIT
     ledger, runtime, _readout_hashes = _build_fixture(entry_count)
     cuda_before = _cuda_snapshot()
-    diagnostic_latencies: list[float] = []
     bounded_latencies: list[float] = []
-    diagnostic: dict[str, Any] = {}
     bounded: dict[str, Any] = {}
     tracemalloc.start()
     for _run in range(runs):
-        started = time.perf_counter()
-        diagnostic = _diagnostic_full_applied_synapse_audit(
-            runtime,
-            source_limit=source_limit,
-        )
-        diagnostic_latencies.append((time.perf_counter() - started) * 1000.0)
-
         started = time.perf_counter()
         bounded = ledger.synapse_provenance_audit(
             plasticity_runtime_state=runtime,
@@ -253,18 +141,21 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         for row in list(bounded.get("audited_synapses") or [])
         if isinstance(row, Mapping)
     ]
-    diagnostic_keys = list(diagnostic.get("first_source_window_keys") or [])
+    expected_source_count = min(entry_count, source_limit)
+    expected_source_keys = [
+        f"{index}:{index + 1}" for index in range(expected_source_count)
+    ]
     source_rows = int(source_window.get("source_window_count", 0) or 0)
-    retained_rows = int(source_window.get("source_record_count", 0) or 0)
-    reduction = float(diagnostic.get("records_scanned", 0) or 0) / max(
-        1.0,
-        float(source_rows * 2),
+    source_weight_rows = int(source_window.get("source_sparse_weight_rows", 0) or 0)
+    source_provenance_rows = int(
+        source_window.get("source_synapse_provenance_rows", 0) or 0
     )
+    retained_rows = int(source_window.get("source_record_count", 0) or 0)
     quality = {
-        "metric": "bounded_applied_synapse_audit_matches_diagnostic_source_window",
+        "metric": "seeded_bounded_applied_synapse_audit_source_window_reconstruction",
         "bounded_synapse_keys": bounded_keys,
-        "diagnostic_source_window_keys": diagnostic_keys,
-        "source_window_keys_match": bounded_keys == diagnostic_keys,
+        "expected_source_window_keys": expected_source_keys,
+        "source_window_keys_match": bounded_keys == expected_source_keys,
         "truncated_windows_block_exact_review": bool(
             bounded.get("promotion_gate", {})
             .get("required_evidence", {})
@@ -293,7 +184,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             dict(bounded.get("ledger_event_source_window") or {}).get("requested_hash_count", 0)
             or 0
         )
-        == min(entry_count, source_limit),
+        == expected_source_count,
         "runs_live_tick_false": source_window.get("runs_live_tick") is False,
         "runs_every_token_false": source_window.get("runs_every_token") is False,
         "language_reasoning_false": source_window.get("language_reasoning") is False,
@@ -302,6 +193,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "truncated_windows_block_exact_review": bool(
             quality["truncated_windows_block_exact_review"]
         ),
+        "full_scan_comparator_removed": True,
+    }
+    removed_full_scan_absence = {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "full_applied_synapse_audit_scan",
     }
     report = {
         "surface": "bounded_snn_readout_synapse_provenance_audit_source_window_benchmark.v1",
@@ -311,16 +208,33 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "pass_checks": pass_checks,
         "quality": quality,
         "latency_ms": {
-            "diagnostic_full_applied_synapse_scan": _latency_stats(diagnostic_latencies),
             "bounded_applied_synapse_audit": _latency_stats(bounded_latencies),
         },
-        "work_reduction": {
-            "diagnostic_records_scanned": int(diagnostic.get("records_scanned", 0) or 0),
-            "bounded_source_rows": source_rows,
+        "memory_budget": {
+            "selection_criteria": (
+                "bounded applied sparse-weight and synapse-provenance source rows"
+            ),
+            "max_sparse_transition_weight_rows": int(source_limit),
+            "max_synapse_provenance_rows": int(source_limit),
+            "bounded_sparse_transition_weight_rows": source_weight_rows,
+            "bounded_synapse_provenance_rows": source_provenance_rows,
+            "bounded_source_rows_total": source_weight_rows + source_provenance_rows,
             "retained_source_rows": retained_rows,
-            "record_reduction": round(float(reduction), 6),
+            "projected_full_scan_rows_removed": max(
+                0,
+                int(entry_count * 2) - int(source_weight_rows + source_provenance_rows),
+            ),
+            "archival_storage_device": "cpu",
+            "active_computation_device": "cpu",
+            "runs_live_tick": False,
+            "runs_every_token": False,
+            "global_candidate_scan": False,
+            "global_score_scan": False,
+            "language_reasoning": False,
         },
-        "diagnostic": diagnostic,
+        "retired_full_applied_synapse_audit_scan_absence": (
+            removed_full_scan_absence
+        ),
         "audit_summary": dict(bounded.get("audit_summary") or {}),
         "source_window": source_window,
         "ledger_event_source_window": dict(bounded.get("ledger_event_source_window") or {}),

@@ -15,6 +15,9 @@ from marulho.evaluation.snn_replay_artifact_provenance_source_window_benchmark i
 from marulho.evaluation.status_transition_memory_source_window_benchmark import (
     run_benchmark as run_status_transition_memory_benchmark,
 )
+from marulho.evaluation.synapse_provenance_audit_source_window_benchmark import (
+    run_benchmark as run_synapse_provenance_audit_benchmark,
+)
 from marulho.evaluation.snn_emission_review_replay_policy_source_window_benchmark import (
     run_benchmark as run_emission_review_replay_policy_benchmark,
 )
@@ -88,6 +91,8 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT
         / "src/marulho/evaluation/snn_replay_artifact_provenance_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/status_transition_memory_source_window_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/synapse_provenance_audit_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/snn_rollout_rehearsal_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/status_replay_path_source_window_benchmark.py",
@@ -196,6 +201,9 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "bounded_speedup_vs_retired",
         "retired_rows_read_total",
         "retired_python_peak_mib",
+        "_diagnostic_full_applied_synapse_audit",
+        "diagnostic_full_applied_synapse_scan",
+        "diagnostic_full_applied_synapse_provenance_audit_scan",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -278,6 +286,36 @@ def test_status_transition_memory_benchmark_reports_maintained_only_path() -> No
     assert work["global_candidate_scan"] is False
     assert work["global_score_scan"] is False
     assert work["language_reasoning"] is False
+
+
+def test_synapse_provenance_audit_benchmark_reports_maintained_only_path() -> None:
+    report = run_synapse_provenance_audit_benchmark(
+        argparse.Namespace(entry_count=128, runs=2, output=None)
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["source_window_keys_match"] is True
+    assert "diagnostic" not in report
+    assert "work_reduction" not in report
+    assert "diagnostic_full_applied_synapse_scan" not in report["latency_ms"]
+    assert report["retired_full_applied_synapse_audit_scan_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "full_applied_synapse_audit_scan",
+    }
+    budget = report["memory_budget"]
+    assert budget["bounded_sparse_transition_weight_rows"] == 64
+    assert budget["bounded_synapse_provenance_rows"] == 64
+    assert budget["bounded_source_rows_total"] == 128
+    assert budget["projected_full_scan_rows_removed"] == 128
+    assert budget["archival_storage_device"] == "cpu"
+    assert budget["runs_live_tick"] is False
+    assert budget["runs_every_token"] is False
+    assert budget["global_candidate_scan"] is False
+    assert budget["global_score_scan"] is False
+    assert budget["language_reasoning"] is False
+    assert report["source_window"]["source_payload_truncated"] is True
+    assert report["source_window"]["gpu_resident_archival_metadata"] is False
 
 
 def test_source_bank_memory_match_benchmark_reports_maintained_only_path() -> None:

@@ -5407,6 +5407,36 @@ recorded zero graph/native sequence failures. Contention was `not_observed`
 (`cpu max=20%`, `gpu max=13%`, GPU memory utilization max `18%`), and RTX 3060
 memory stayed flat at `1866 MiB`.
 
+Current maintained-only refresh:
+
+`python -m marulho.evaluation.synapse_provenance_audit_source_window_benchmark --entry-count 2048 --runs 25 --output ..\..\MARULHO_reports\bounded_replay_window_20260624\synapse-provenance-audit-comparator-removed.json`
+
+The current report removes the benchmark-local full-scan comparator instead of
+executing it as a baseline. Quality is
+`seeded_bounded_applied_synapse_audit_source_window_reconstruction`; the
+bounded audit reconstructs the seeded source keys directly, reads `64` sparse
+rows plus `64` provenance rows on CPU, reports `128` bounded source rows for
+`2048` retained rows, projects `3968` removed full-scan rows, and records
+`full_scan_comparator_removed=true`. Mean bounded audit latency is
+`73.058288 ms`, p95 is `84.848 ms`, traced Python peak is `0.254670 MiB`, and
+CUDA allocation/reservation remain `0.0 MiB`.
+
+Current protection run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-synapse-provenance-audit-comparator-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Accepted current-tree run: `success=true`, `524288` tokens in `85.930428 s`,
+`6101.308 tokens/sec`, `last_tick_duration_ms=17.730`, and prewarm
+`277.363 s`. Last tick stages were `train_compute=15.801600 ms/tick`,
+`prepare_training=0.781400 ms/tick`, and `finalize_total=0.724400 ms/tick`;
+trainer profile total was `0.126931 ms/token`. Runtime Truth kept route
+scoring at `12/65536` input rows and `10` output candidates, cached `65526`
+transition rows, kept `state_transition_runs_all_columns=false`, and recorded
+native sequence-loop and burst-replay failure counts `0`. Environment sampling
+was disabled during the loop, so contention evidence is before/after: verdict
+`not_observed`, `cpu max=42%`, `gpu max=10%`, and RTX 3060 memory
+`2049->2050 MiB`.
+
 ## Status Transition Memory Source Window
 
 Capacity pressure, dense readout tensor integrity, applied-synapse provenance,
