@@ -1837,21 +1837,25 @@ route rows, `65526` cached rows, no observed contention, flat RTX 3060 memory
 at `1959 MiB`, and zero graph/native sequence failures.
 
 Live memory summaries follow the same slow-window rule. Trainer telemetry,
-BrainRuntime summaries, living-loop status, and status Runtime Truth now call
+BrainRuntime summaries, living-loop status, and status Runtime Truth call
 `DualMemoryStore.live_summary_stats()` instead of full `summary_stats()`.
 The live projection emits `bounded_memory_summary_projection.v1`, reports
 fill/counter/last-report fields, keeps `summary_full_memory_scan=false` and
 `summary_scan_entry_count=0`, and does not advance STC tag/PRP decay. Full
 `summary_stats()` remains available only for explicit offline consolidation and
-quality runners. The 65536-entry report
-`reports/bounded_replay_window_20260620/live-memory-summary-projection.json`
-passed with scalar fill/report parity and mean latency `0.149500 ms` versus
-`658.789240 ms` for the retired full-summary scan. The paired protection run
-processed `524288` tokens at `6024.783 tokens/sec`,
-`train_compute=0.135003 ms/token`, bounded `12/65536` route rows, `65526`
-cached rows, flat RTX 3060 memory `1959->1958 MiB`, and zero graph/native
-sequence failures. Status remains read-only projection, not replay selection or
-hidden consolidation.
+quality runners. The repo-local benchmark now removes the executable full
+summary comparator too: the current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260623\live-memory-summary-legacy-baseline-removed.json`
+passed with scalar fill/report parity, `retired_live_full_summary_scan_absence.implementation_present=false`,
+`65536` retired scan rows removed, `0.237312 ms` mean bounded projection
+latency, `0.259369 MiB` Python peak, and `0.0 MiB` CUDA allocation. The clean
+paired protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-live-summary-legacy-baseline-removed-default-nosample-rerun.json`
+processed `524288` tokens at `6530.655 tokens/sec`,
+`train_compute=0.123872 ms/token`, bounded `12/65536` route rows, `65526`
+cached rows, no observed contention, CPU max `6%`, GPU max `10%`, flat RTX
+3060 memory `1929->1929 MiB`, and zero graph/native sequence failures. Status
+remains read-only projection, not replay selection or hidden consolidation.
 
 ## Status
 

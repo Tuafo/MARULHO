@@ -5,6 +5,7 @@ from array import array
 import json
 import statistics
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
@@ -93,40 +94,30 @@ def _latency_stats(values: list[float]) -> dict[str, float]:
 
 def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, Any]:
     token = 50_000
-    full_store = _build_store(entries=entries, dim=dim, seed=seed, token=token)
     live_store = _build_store(entries=entries, dim=dim, seed=seed, token=token)
     live_state_before = int(live_store._state_token)
     live_tags_before = list(live_store.slow_capture_tag[:8])
 
-    full_elapsed, full_rows = _measure(
-        lambda: full_store.summary_stats(
-            current_token=int(full_store._state_token) + 1,
-            force=True,
-        ),
-        runs=runs,
-    )
+    tracemalloc.start()
     live_elapsed, live_rows = _measure(
         lambda: live_store.live_summary_stats(
             current_token=int(live_store._state_token) + 1_000
         ),
         runs=runs,
     )
-    full_last = full_rows[-1] if full_rows else {}
+    traced_current, traced_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
     live_last = live_rows[-1] if live_rows else {}
     live_state_after = int(live_store._state_token)
     live_tags_after = list(live_store.slow_capture_tag[:8])
-    full_stats = _latency_stats(full_elapsed)
     live_stats = _latency_stats(live_elapsed)
     quality = {
         "scalar_fill_exact": bool(
-            int(live_last.get("size", -1)) == int(full_last.get("size", -2))
-            and int(live_last.get("capacity", -1)) == int(full_last.get("capacity", -2))
-            and abs(
-                float(live_last.get("fill_fraction", -1.0))
-                - float(full_last.get("fill_fraction", -2.0))
-            )
-            < 1e-12
-            and int(live_last.get("n_seen", -1)) == int(full_last.get("n_seen", -2))
+            int(live_last.get("size", -1)) == int(entries)
+            and int(live_last.get("capacity", -1)) == int(entries)
+            and abs(float(live_last.get("fill_fraction", -1.0)) - 1.0) < 1e-12
+            and int(live_last.get("n_seen", -1)) == int(entries)
+            and int(live_last.get("total_stored", -1)) == int(entries)
         ),
         "last_report_surface_visible": bool(
             live_last.get("last_replay_selection_report", {}).get("surface")
@@ -139,12 +130,10 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
             live_last.get("summary_full_memory_scan") is False
             and int(live_last.get("summary_scan_entry_count", -1)) == 0
         ),
-        "full_path_scans_entries": bool(
-            full_last.get("summary_full_memory_scan") is True
-            and int(full_last.get("summary_scan_entry_count", -1)) == int(entries)
-        ),
-        "latency_reduction_mean_ms": float(
-            max(0.0, full_stats["mean_ms"] - live_stats["mean_ms"])
+        "live_projection_has_expected_marker": bool(
+            int(live_last.get("summary_token_marker", -1)) == token + 1_000
+            and int(live_last.get("summary_state_token", -1)) == token
+            and live_last.get("summary_projection_read_only") is True
         ),
     }
     quality["pass"] = bool(
@@ -152,10 +141,14 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
         and quality["last_report_surface_visible"]
         and quality["live_projection_read_only"]
         and quality["live_scan_count_zero"]
-        and quality["full_path_scans_entries"]
-        and live_stats["mean_ms"] < full_stats["mean_ms"]
+        and quality["live_projection_has_expected_marker"]
     )
     cuda_available = bool(torch.cuda.is_available())
+    cuda_allocated = (
+        float(torch.cuda.memory_allocated() / (1024 * 1024))
+        if cuda_available
+        else 0.0
+    )
     return {
         "artifact_kind": "live_memory_summary_projection_benchmark",
         "surface": "bounded_memory_summary_projection.v1",
@@ -169,7 +162,7 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
         ],
         "memory_budget": {
             "live_summary_scan_entry_budget": 0,
-            "full_summary_scan_entry_count": int(entries),
+            "retired_live_full_summary_scan_rows_removed": int(entries),
             "archival_storage_device": "cpu",
         },
         "device_placement": {
@@ -177,7 +170,18 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
             "projection_device": "cpu",
             "cuda_available": cuda_available,
             "cuda_memory_allocated_before_mib": 0.0,
-            "cuda_memory_allocated_after_mib": 0.0,
+            "cuda_memory_allocated_after_mib": cuda_allocated,
+        },
+        "resource_behavior": {
+            "python_tracemalloc_current_mib": round(
+                float(traced_current) / (1024.0 * 1024.0),
+                6,
+            ),
+            "python_tracemalloc_peak_mib": round(
+                float(traced_peak) / (1024.0 * 1024.0),
+                6,
+            ),
+            "cuda_memory_allocated_after_mib": cuda_allocated,
         },
         "runtime_truth": {
             "live_summary_surface": str(live_last.get("summary_surface")),
@@ -186,10 +190,6 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
             ),
             "live_summary_scan_entry_count": int(
                 live_last.get("summary_scan_entry_count", -1)
-            ),
-            "full_summary_surface": str(full_last.get("summary_surface")),
-            "full_summary_scan_entry_count": int(
-                full_last.get("summary_scan_entry_count", -1)
             ),
             "global_candidate_scan": False,
             "hidden_language_reasoning": False,
@@ -201,10 +201,16 @@ def run_benchmark(*, entries: int, dim: int, runs: int, seed: int) -> dict[str, 
                 "full_summary_kept_for_explicit_offline_quality_and_consolidation_windows"
             ),
         },
+        "retired_live_full_summary_scan_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "live_projection_full_summary_stats_scan_comparator",
+        },
         "latency": {
-            "full_summary_stats": full_stats,
             "live_summary_projection": live_stats,
         },
+        "last_live_summary_projection": live_last,
         "quality": quality,
         "pass": bool(quality["pass"]),
     }
@@ -232,11 +238,10 @@ def main() -> None:
         encoding="utf-8",
     )
     print(
-        "pass={pass_gate} entries={entries} full_mean_ms={full_ms:.6f} "
-        "live_mean_ms={live_ms:.6f} live_scan_entries={live_scan}".format(
+        "pass={pass_gate} entries={entries} live_mean_ms={live_ms:.6f} "
+        "live_scan_entries={live_scan}".format(
             pass_gate=report["pass"],
             entries=report["entries"],
-            full_ms=report["latency"]["full_summary_stats"]["mean_ms"],
             live_ms=report["latency"]["live_summary_projection"]["mean_ms"],
             live_scan=report["runtime_truth"]["live_summary_scan_entry_count"],
         )

@@ -30,6 +30,9 @@ from marulho.evaluation.applied_replay_lineage_checkpoint_summary_benchmark impo
 from marulho.evaluation.bucket_consolidation_cache_lookup_benchmark import (
     run_benchmark as run_bucket_consolidation_cache_lookup_benchmark,
 )
+from marulho.evaluation.live_memory_summary_projection_benchmark import (
+    run_benchmark as run_live_memory_summary_projection_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +50,7 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         / "src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py",
         ROOT / "src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py",
         ROOT / "src/marulho/evaluation/bucket_consolidation_cache_lookup_benchmark.py",
+        ROOT / "src/marulho/evaluation/live_memory_summary_projection_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -92,6 +96,9 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "\"retired_full_bucket_scan\":",
         "cached_value_matches_retired_scan",
         "retired_mean_ms",
+        "\"full_summary_stats\":",
+        "full_path_scans_entries",
+        "full_summary_scan_entry_count",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -350,4 +357,30 @@ def test_bucket_consolidation_cache_lookup_benchmark_reports_maintained_only_pat
     assert report["memory_budget"]["seeded_expected_bucket_rows"] == 1
     assert report["runtime_truth"]["full_memory_scan"] is False
     assert report["runtime_truth"]["scan_entry_count"] == 0
+    assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_live_memory_summary_projection_benchmark_reports_maintained_only_path() -> None:
+    report = run_live_memory_summary_projection_benchmark(
+        entries=128,
+        dim=8,
+        runs=2,
+        seed=20260621,
+    )
+
+    assert report["pass"] is True
+    assert report["quality"]["scalar_fill_exact"] is True
+    assert report["quality"]["live_projection_read_only"] is True
+    assert report["quality"]["live_scan_count_zero"] is True
+    assert report["quality"]["live_projection_has_expected_marker"] is True
+    assert report["retired_live_full_summary_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "live_projection_full_summary_stats_scan_comparator",
+    }
+    assert "full_summary_stats" not in report["latency"]
+    assert report["runtime_truth"]["live_summary_full_memory_scan"] is False
+    assert report["runtime_truth"]["live_summary_scan_entry_count"] == 0
+    assert report["memory_budget"]["retired_live_full_summary_scan_rows_removed"] == 128
     assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0

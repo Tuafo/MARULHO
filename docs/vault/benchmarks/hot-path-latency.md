@@ -4317,26 +4317,28 @@ velocity sampler reported no observed contention, CPU max `56%`, GPU max
 This is same-band protection after deleting automatic sleep replay from service
 source-tick fallback, not a speed-ceiling claim.
 
-The live memory-summary projection protection run was:
+The live memory-summary projection maintained-only protection run was:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-live-memory-summary-projection.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260623\hotpath-active-pressure-65536-524288-i32-live-summary-legacy-baseline-removed-default-nosample-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 
-It processed `524288` tokens at `6024.783 tokens/sec`, with
-`train_compute=0.135003 ms/token`, `prepare_training=0.006861 ms/token`,
-`finalize_total=0.006603 ms/token`, `tick_duration_ms.p95=21.265`, and prewarm
-`323.662 s`. Runtime Truth stayed bounded at
+It processed `524288` tokens at `6530.655 tokens/sec`, with
+`train_compute=0.123872 ms/token`, `prepare_training=0.006295 ms/token`,
+`finalize_total=0.005965 ms/token`, `tick_duration_ms.p95=18.804`, and prewarm
+`218.862 s`. Runtime Truth stayed bounded at
 `route_input_rows_scored=12/65536`, `route_output_candidate_count=10`,
 `state_transition_cached_count=65526`, and
 `state_transition_runs_all_columns=false`. Graph, native burst, and native
 sequence failures were all `0`; conditional-WHILE q16 remained active. The
-velocity sampler reported no observed contention, CPU max `22%`, GPU max
-`13%`, GPU memory-util max `18%`, and RTX 3060 memory moved `1959->1958 MiB`.
+velocity sampler reported no observed contention, CPU max `6%`, GPU max `10%`,
+GPU memory-util max `10%`, and RTX 3060 memory stayed flat at `1929 MiB`.
 The paired source-window benchmark
-`reports/bounded_replay_window_20260620/live-memory-summary-projection.json`
-measured `0` live scan entries and `0.149500 ms` mean bounded projection
-latency versus `658.789240 ms` for the retired full summary over `65536`
-entries. This is same-band protection after deleting full memory-summary scans
-from trainer/service/status projection, not a speed-ceiling claim.
+`..\..\MARULHO_reports\bounded_replay_window_20260623\live-memory-summary-legacy-baseline-removed.json`
+measured `0` live scan entries, `0.237312 ms` mean bounded projection latency,
+`0.259369 MiB` Python peak, `0.0 MiB` CUDA allocation, and
+`retired_live_full_summary_scan_absence.implementation_present=false`. This is
+same-band protection after deleting full memory-summary scans from
+trainer/service/status projection and removing the repo-local full-summary
+benchmark comparator, not a speed-ceiling claim.
 
 The dense-label calibration source-window protection run was:
 
