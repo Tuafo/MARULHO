@@ -84,6 +84,9 @@ from marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark import (
 from marulho.evaluation.strong_capture_admission_cadence_benchmark import (
     run_benchmark as run_strong_capture_admission_cadence_benchmark,
 )
+from marulho.evaluation.selected_replay_consolidation_cache_benchmark import (
+    run_benchmark as run_selected_replay_consolidation_cache_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,6 +127,8 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         / "src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py",
         ROOT
         / "src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py",
+        ROOT
+        / "src/marulho/evaluation/selected_replay_consolidation_cache_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -219,6 +224,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "_retired_every_strong_projection",
         "retired_every_strong_projection",
         "retired_every_strong_projection_matches_forced_candidates",
+        "_run_retired_diagnostic",
+        "selected_state_matches_retired_diagnostic",
+        "retired_diagnostic_full_cache_rebuild_then_replay",
+        "retired_diagnostic_report",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -382,6 +391,41 @@ def test_strong_capture_admission_benchmark_reports_maintained_only_path() -> No
     assert report["memory_budget"]["archival_storage_device"] == "cpu"
     assert report["runtime_truth"]["runs_every_token"] is False
     assert report["runtime_truth"]["slow_memory_admission_every_token"] is False
+    assert report["runtime_truth"]["hidden_language_reasoning"] is False
+
+
+def test_selected_replay_consolidation_cache_benchmark_reports_maintained_only_path() -> None:
+    report = run_selected_replay_consolidation_cache_benchmark(
+        entries=128,
+        buckets=32,
+        selected_count=8,
+        runs=2,
+    )
+
+    assert report["pass"] is True
+    assert "retired_diagnostic_report" not in report
+    assert "retired_diagnostic_full_cache_rebuild_then_replay" not in report["latency"]
+    assert report["retired_full_cache_rebuild_diagnostic_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "selected_replay_full_bucket_cache_rebuild_diagnostic",
+    }
+    quality = report["quality"]
+    assert quality["metric"] == "seeded_selected_replay_consolidation_update_integrity"
+    assert quality["selected_replay_counts_incremented"] is True
+    assert quality["selected_consolidation_events_incremented"] is True
+    assert quality["selected_consolidation_levels_above_seeded_initial"] is True
+    assert quality["selected_fast_ema_matches_expected_centroid"] is True
+    assert quality["retired_full_cache_rebuild_diagnostic_removed"] is True
+    budget = report["memory_budget"]
+    assert budget["selected_window_indices"] == 8
+    assert budget["retained_entries"] == 128
+    assert budget["bounded_rebuild_scan_entries"] == 0
+    assert budget["projected_full_cache_rebuild_entries_removed"] == 128
+    assert budget["archival_storage_device"] == "cpu"
+    assert report["runtime_truth"]["full_memory_scan"] is False
+    assert report["runtime_truth"]["runs_live_tick"] is False
+    assert report["runtime_truth"]["runs_every_token"] is False
     assert report["runtime_truth"]["hidden_language_reasoning"] is False
 
 

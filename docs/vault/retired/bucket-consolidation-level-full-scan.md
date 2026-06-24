@@ -19,6 +19,7 @@ related_benchmarks:
   - reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-bucket-consolidation-cache-lookup.json
   - reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-selected-replay-consolidation-cache-rerun.json
+  - ../../../../../MARULHO_reports/bounded_replay_window_20260624/selected-replay-consolidation-cache-diagnostic-removed.json
 ---
 
 # Bucket Consolidation Level Full Scan
@@ -27,9 +28,9 @@ Scalar `DualMemoryStore.bucket_consolidation_level(...)` full-memory scans are r
 
 The maintained path is `bucket_consolidation_level_cache_lookup.v1`. `DualMemoryStore` maintains CPU bucket consolidation metadata as entries are stored or selected replay updates consolidation. Scalar reads use that cache, report `full_memory_scan=false`, `scan_entry_count=0`, cache generation, cache hit/miss status, and return a no-scan miss if the cache is absent. Explicit `bucket_consolidation_tensor(...)` rebuilds remain checkpoint load, graph capture/prewarm, offline quality, or explicit tensor request. The benchmark-local full-scan comparator is now removed too.
 
-Selected replay is not a cache-recovery context anymore. `bounded_selected_replay_consolidation.v1` mutates only selected replay entries; if cache metadata exists, it applies selected-bucket delta updates, and if cache metadata is missing, it reports `cache_missing_deferred_no_full_rebuild` rather than rebuilding over the whole archive. `reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json` matched selected-entry state against the benchmark-local retired full-cache rebuild diagnostic with `0` cache-rebuild scan entries, `2.291943 ms` bounded mean latency versus `2979.156029 ms`, and `4096x` less source work on `65536` retained entries.
+Selected replay is not a cache-recovery context anymore. `bounded_selected_replay_consolidation.v1` mutates only selected replay entries; if cache metadata exists, it applies selected-bucket delta updates, and if cache metadata is missing, it reports `cache_missing_deferred_no_full_rebuild` rather than rebuilding over the whole archive. Historical evidence in `reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json` matched selected-entry state against the benchmark-local retired full-cache rebuild diagnostic with `0` cache-rebuild scan entries, `2.291943 ms` bounded mean latency versus `2979.156029 ms`, and `4096x` less source work on `65536` retained entries. Current maintained-only evidence in `..\..\MARULHO_reports\bounded_replay_window_20260624\selected-replay-consolidation-cache-diagnostic-removed.json` removes that diagnostic, validates seeded selected replay state directly, reads `16/65536` selected CPU entries, scans `0` cache-rebuild entries, averages `1.957360 ms`, and keeps CUDA allocation/reservation at `0.0 MiB`.
 
-The selected-replay cache-recovery rerun stayed same-band at `5973.047 tokens/sec` with no observed contention, bounded `12/65536` route rows, and zero graph/native sequence failures.
+The selected-replay cache-recovery protection rerun now stays same-band at `6209.501 tokens/sec` with bounded `12/65536` route rows, flat RTX 3060 memory at `2026 MiB`, and zero native sequence-loop or burst-replay failures; a `21%` before-sample GPU reading marks borderline contention.
 
 The historical 65536-entry benchmark `reports/bounded_replay_window_20260620/bucket-consolidation-cache-lookup.json` matched the retired scalar scan within `1e-6`, reported `cache_hit`, scanned `0` entries, and reduced mean lookup latency from `12.999192 ms` to `0.016260 ms`.
 

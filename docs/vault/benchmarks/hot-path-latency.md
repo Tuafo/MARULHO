@@ -5791,27 +5791,27 @@ same-band live-tick protection evidence, not a new speed ceiling.
 ## Selected Replay Consolidation Cache Recovery
 
 Selected replay no longer rebuilds the full bucket-consolidation cache when
-cache metadata is missing. The focused report
-`reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json`
-matched selected-entry replay/consolidation/EMA state against a benchmark-local
-retired full-cache rebuild diagnostic while scanning `0` cache-rebuild entries,
-reducing source work `4096x`, and cutting mean latency from
-`2979.156029 ms` to `2.291943 ms`.
+cache metadata is missing. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\selected-replay-consolidation-cache-diagnostic-removed.json`
+removes the executable full-cache rebuild diagnostic, validates seeded selected
+replay counts, consolidation-event increments, consolidation-level increase,
+capture-tag decay, and fast-EMA centroid directly, reads `16/65536` selected
+CPU entries, scans `0` cache-rebuild entries, projects `65536` removed rebuild
+entries (`4096x` source-work avoidance), and averages `1.957360 ms`.
 
-The accepted protection rerun
-`reports/bounded_replay_window_20260620/hotpath-active-pressure-65536-524288-i32-selected-replay-consolidation-cache-rerun.json`
-processed `524288` tokens in `87.775633 s` at `5973.047 tokens/sec`,
-`tick_duration_ms.p95=21.749`, `train_compute=0.135713 ms/token`,
-`prepare_training=0.007071 ms/token`, and
-`finalize_total=0.006787 ms/token`. Runtime Truth kept route scoring bounded
-at `12/65536` input rows and `10` output candidates, cached `65526`
-transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
-on the RTX 3060, and recorded zero graph/native sequence failures. Prewarm took
-`339.026 s`; velocity reported no observed contention, CPU max `27%`, GPU max
-`13%`, GPU memory utilization max `18%`, and RTX memory `2039->2041 MiB`. The
-first same-slice run at `5879.905 tokens/sec` is retained as contended variance
-because velocity observed GPU contention at `21%`, so the rerun is the accepted
-live-tick protection evidence.
+The current protection rerun
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-selected-replay-cache-diagnostic-removed-default-nosample.json`
+processed `524288` tokens in `84.433196 s` at `6209.501 tokens/sec`,
+`tick_duration_ms.p95=20.916`, `train_compute=0.129968 ms/token`,
+`prepare_training=0.006687 ms/token`, and
+`finalize_total=0.006559 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536` input rows and `10` output candidates, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, and recorded zero native sequence-loop and burst-replay failures. Prewarm
+took `245.169 s`; velocity reported CPU max `22%`, GPU max `21%`, and RTX
+memory `2026->2026 MiB`. The before-sample GPU reading of `21%` makes this
+throughput protection under borderline contention rather than a clean speed
+ceiling.
 
 ## Replay Restore Source Window Protection
 

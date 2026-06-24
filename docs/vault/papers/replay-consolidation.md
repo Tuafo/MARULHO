@@ -518,18 +518,23 @@ replay window can update selected memory STC/replay state, but it must not
 repair missing global bucket-cache metadata by scanning every retained
 slow-memory entry before consolidation. `DualMemoryStore.consolidate_replay`
 now emits `bounded_selected_replay_consolidation.v1`: selected replay counts,
-capture tags, consolidation levels/events, and EMAs match the retired
-benchmark-local full-cache rebuild diagnostic for the touched entries; cache
-delta updates run only when cache metadata is already present; and missing cache
-metadata records `cache_missing_deferred_no_full_rebuild`. The focused report
-`reports/bounded_replay_window_20260620/selected-replay-consolidation-cache.json`
-matched selected-entry state with `0` cache-rebuild scan entries, mean bounded
-latency `2.291943 ms` versus `2979.156029 ms`, CPU archival/cache metadata, no
-CUDA allocation, and `4096x` less source work on a `65536`-entry archive. The
-accepted `524288`-token rerun stayed same-band at `5973.047 tokens/sec`,
-`train_compute=0.135713 ms/token`, bounded `12/65536` route rows, no observed
-contention, RTX 3060 memory `2039->2041 MiB`, and zero graph/native sequence
-failures.
+capture tags, consolidation levels/events, and EMAs are validated directly
+against seeded maintained-path expectations; cache delta updates run only when
+cache metadata is already present; and missing cache metadata records
+`cache_missing_deferred_no_full_rebuild`. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\selected-replay-consolidation-cache-diagnostic-removed.json`
+removes the executable full-cache rebuild diagnostic, reads `16/65536` selected
+CPU entries, scans `0` cache-rebuild entries, projects `65536` removed rebuild
+entries (`4096x` source-work avoidance), averages `1.957360 ms`, uses
+`0.510799 MiB` traced Python peak, and keeps CUDA allocation/reservation at
+`0.0 MiB`. The current `524288`-token protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-selected-replay-cache-diagnostic-removed-default-nosample.json`
+stayed in band at `6209.501 tokens/sec`, p95 `20.916 ms`,
+`train_compute=0.129968 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, native sequence-loop and burst-replay failures `0`, and
+RTX 3060 memory flat at `2026 MiB`; a before-sample GPU reading of `21%` makes
+this throughput protection under borderline contention rather than a clean speed
+ceiling.
 
 After the micro-maintenance cleanup, the current synthetic report
 `reports/bounded_replay_window_20260617/synthetic-selection-candidate-repair-bounded-micro.json`

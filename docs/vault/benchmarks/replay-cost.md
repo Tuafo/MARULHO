@@ -2828,34 +2828,36 @@ global/local EMAs; selected-bucket cache delta updates run only when cache
 metadata already exists; and missing metadata records
 `cache_missing_deferred_no_full_rebuild`.
 
-Focused benchmark:
+Maintained-only benchmark:
 
-`python -m marulho.evaluation.selected_replay_consolidation_cache_benchmark --entries 65536 --buckets 65536 --selected-count 16 --runs 7 --output reports\bounded_replay_window_20260620\selected-replay-consolidation-cache.json`
+`python -m marulho.evaluation.selected_replay_consolidation_cache_benchmark --entries 65536 --buckets 65536 --selected-count 16 --runs 25 --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\selected-replay-consolidation-cache-diagnostic-removed.json`
 
-Result: `pass=true`. The bounded path matched selected-entry consolidation
-levels, replay counts, consolidation events, capture tags, and fast EMA against
-the benchmark-local retired diagnostic that rebuilt the full cache first. It
-scanned `0` cache-rebuild entries, reduced source work `4096x`, and averaged
-`2.291943 ms` versus `2979.156029 ms` for the retired diagnostic. Runtime Truth
-fields report no full-memory scan, no global candidate scan, no live tick, no
-every-token cadence, no raw replay text, no hidden language reasoning, CPU
-archival/cache metadata placement, CUDA available but unused with `0.0 MiB`
-allocated/reserved, and `0.510799 MiB` traced Python peak.
+Result: `pass=true`. The benchmark no longer executes the retired full-cache
+rebuild diagnostic. It validates seeded selected replay counts,
+consolidation-event increments, consolidation-level increase, capture-tag decay,
+and fast-EMA centroid directly on the maintained path. It reads `16/65536`
+selected CPU entries, scans `0` cache-rebuild entries, projects `65536` removed
+full-cache rebuild entries (`4096x` source-work avoidance), and averages
+`1.957360 ms` (`median=1.612600 ms`). Runtime Truth fields report no
+full-memory scan, no global candidate scan, no live tick, no every-token cadence,
+no raw replay text, no hidden language reasoning, CPU archival/cache metadata
+placement, CUDA available but unused with `0.0 MiB` allocated/reserved, and
+`0.510799 MiB` traced Python peak.
 
 Hot-path protection:
 
-`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output reports\bounded_replay_window_20260620\hotpath-active-pressure-65536-524288-i32-selected-replay-consolidation-cache-rerun.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output C:\Users\thiag\Documents\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-selected-replay-cache-diagnostic-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
 
-Result: `success=true`, `524288` tokens in `87.775633 s`,
-`5973.047 tokens/sec`, p95 tick `21.749 ms`,
-`train_compute=0.135713 ms/token`, `prepare_training=0.007071 ms/token`, and
-`finalize_total=0.006787 ms/token`. Prewarm took `339.026 s`. Runtime Truth
+Result: `success=true`, `524288` tokens in `84.433196 s`,
+`6209.501 tokens/sec`, p95 tick `20.916 ms`,
+`train_compute=0.129968 ms/token`, `prepare_training=0.006687 ms/token`, and
+`finalize_total=0.006559 ms/token`. Prewarm took `245.169 s`. Runtime Truth
 kept route scoring at `12/65536` input rows and `10` output candidates, cached
 `65526` transition rows, kept `state_transition_runs_all_columns=false`, and
-recorded zero graph/native sequence failures. Velocity reported no observed
-contention, CPU max `27%`, GPU max `13%`, and RTX 3060 memory `2039->2041 MiB`.
-The first same-slice run at `5879.905 tokens/sec` is treated as contended
-variance because velocity observed GPU contention at `21%`.
+recorded zero native sequence-loop and burst-replay failures. Velocity reported
+CPU max `22%`, GPU max `21%`, and RTX 3060 memory `2026->2026 MiB`; the `21%`
+before-sample marks this as throughput protection under borderline contention,
+not a clean speed ceiling.
 
 ## Replay Restore Source Window
 

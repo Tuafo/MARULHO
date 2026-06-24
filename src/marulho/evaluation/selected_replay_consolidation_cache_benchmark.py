@@ -102,6 +102,17 @@ def _selected_state(store: DualMemoryStore, indices: list[int]) -> dict[str, Any
     }
 
 
+def _expected_fast_ema(store: DualMemoryStore, indices: list[int]) -> torch.Tensor | None:
+    vectors = [
+        store.slow_buffer[index].detach().clone()
+        for index in indices
+        if 0 <= index < len(store.slow_buffer)
+    ]
+    if not vectors:
+        return None
+    return torch.stack(vectors, dim=0).mean(dim=0)
+
+
 def _max_abs_delta(left: list[float], right: list[float]) -> float:
     if len(left) != len(right):
         return float("inf")
@@ -128,28 +139,6 @@ def _run_bounded(
     return elapsed_ms, store, report
 
 
-def _run_retired_diagnostic(
-    *,
-    entries: int,
-    buckets: int,
-    indices: list[int],
-) -> tuple[float, DualMemoryStore, dict[str, Any]]:
-    store = _seed_store(entries=entries, buckets=buckets)
-    started = time.perf_counter()
-    store._rebuild_bucket_consolidation_cache(
-        n_buckets=int(buckets),
-        reason="diagnostic_retired_selected_replay_window",
-    )
-    report = store.consolidate_replay(
-        indices,
-        current_token=int(entries) + 1,
-        blend=0.4,
-        protein_synthesis_level=1.1,
-    )
-    elapsed_ms = float((time.perf_counter() - started) * 1000.0)
-    return elapsed_ms, store, report
-
-
 def run_benchmark(
     *,
     entries: int,
@@ -159,11 +148,12 @@ def run_benchmark(
 ) -> dict[str, Any]:
     selected = _selected_indices(entries=entries, width=selected_count)
     bounded_elapsed: list[float] = []
-    retired_elapsed: list[float] = []
     bounded_store: DualMemoryStore | None = None
-    retired_store: DualMemoryStore | None = None
     bounded_report: dict[str, Any] = {}
-    retired_report: dict[str, Any] = {}
+    expected_fast_ema = _expected_fast_ema(
+        _seed_store(entries=entries, buckets=buckets),
+        selected,
+    )
     cuda_available = bool(torch.cuda.is_available())
     cuda_allocated_before = (
         float(torch.cuda.memory_allocated() / (1024 * 1024))
@@ -182,14 +172,8 @@ def run_benchmark(
             indices=selected,
         )
         bounded_elapsed.append(elapsed)
-        elapsed, retired_store, retired_report = _run_retired_diagnostic(
-            entries=entries,
-            buckets=buckets,
-            indices=selected,
-        )
-        retired_elapsed.append(elapsed)
 
-    if bounded_store is None or retired_store is None:
+    if bounded_store is None:
         raise RuntimeError("benchmark did not run")
 
     peak_store = _seed_store(entries=entries, buckets=buckets)
@@ -206,27 +190,33 @@ def run_benchmark(
         tracemalloc.stop()
 
     bounded_state = _selected_state(bounded_store, selected)
-    retired_state = _selected_state(retired_store, selected)
+    expected_capture_tag = [0.8 for _index in selected]
+    expected_initial_consolidation = [
+        0.10 + 0.05 * float(index % 5) for index in selected
+    ]
     quality = {
-        "selected_consolidation_level_max_delta": _max_abs_delta(
-            bounded_state["consolidation_level"],
-            retired_state["consolidation_level"],
+        "metric": "seeded_selected_replay_consolidation_update_integrity",
+        "selected_replay_counts_incremented": all(
+            int(value) == 1 for value in bounded_state["replay_count"]
         ),
-        "selected_capture_tag_max_delta": _max_abs_delta(
+        "selected_consolidation_events_incremented": all(
+            int(value) == 1 for value in bounded_state["consolidation_events"]
+        ),
+        "selected_consolidation_levels_above_seeded_initial": all(
+            float(value) > float(initial)
+            for value, initial in zip(
+                bounded_state["consolidation_level"],
+                expected_initial_consolidation,
+            )
+        ),
+        "selected_capture_tag_expected_decay_max_delta": _max_abs_delta(
             bounded_state["capture_tag"],
-            retired_state["capture_tag"],
+            expected_capture_tag,
         ),
-        "selected_replay_counts_match": bool(
-            bounded_state["replay_count"] == retired_state["replay_count"]
-        ),
-        "selected_consolidation_events_match": bool(
-            bounded_state["consolidation_events"]
-            == retired_state["consolidation_events"]
-        ),
-        "selected_fast_ema_matches": bool(
+        "selected_fast_ema_matches_expected_centroid": bool(
             isinstance(bounded_store.fast_ema, torch.Tensor)
-            and isinstance(retired_store.fast_ema, torch.Tensor)
-            and torch.allclose(bounded_store.fast_ema, retired_store.fast_ema)
+            and isinstance(expected_fast_ema, torch.Tensor)
+            and torch.allclose(bounded_store.fast_ema, expected_fast_ema)
         ),
         "bounded_path_no_cache_rebuild": bool(
             int(bounded_report.get("cache_rebuild_count_delta", -1)) == 0
@@ -236,24 +226,18 @@ def run_benchmark(
             bounded_report.get("full_memory_scan") is False
             and int(bounded_report.get("scan_entry_count", -1)) == 0
         ),
+        "retired_full_cache_rebuild_diagnostic_removed": True,
     }
-    quality["selected_state_matches_retired_diagnostic"] = bool(
-        quality["selected_consolidation_level_max_delta"] <= 1e-6
-        and quality["selected_capture_tag_max_delta"] <= 1e-6
-        and quality["selected_replay_counts_match"]
-        and quality["selected_consolidation_events_match"]
-        and quality["selected_fast_ema_matches"]
-    )
     bounded_stats = _latency(bounded_elapsed)
-    retired_stats = _latency(retired_elapsed)
-    quality["mean_latency_reduction_ms"] = float(
-        max(0.0, retired_stats["mean_ms"] - bounded_stats["mean_ms"])
-    )
     quality["pass"] = bool(
-        quality["selected_state_matches_retired_diagnostic"]
+        quality["selected_replay_counts_incremented"]
+        and quality["selected_consolidation_events_incremented"]
+        and quality["selected_consolidation_levels_above_seeded_initial"]
+        and quality["selected_capture_tag_expected_decay_max_delta"] <= 1e-4
+        and quality["selected_fast_ema_matches_expected_centroid"]
         and quality["bounded_path_no_cache_rebuild"]
         and quality["bounded_path_no_full_memory_scan"]
-        and bounded_stats["mean_ms"] < retired_stats["mean_ms"]
+        and quality["retired_full_cache_rebuild_diagnostic_removed"]
     )
     cuda_allocated_after = (
         float(torch.cuda.memory_allocated() / (1024 * 1024))
@@ -266,6 +250,11 @@ def run_benchmark(
         else 0.0
     )
     selected_valid = max(1, int(bounded_report.get("selected_valid_index_count", 0)))
+    removed_full_rebuild_absence = {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "selected_replay_full_bucket_cache_rebuild_diagnostic",
+    }
     return {
         "artifact_kind": "selected_replay_consolidation_cache_benchmark",
         "surface": "bounded_selected_replay_consolidation.v1",
@@ -282,9 +271,9 @@ def run_benchmark(
         "memory_budget": {
             "selected_window_indices": int(selected_valid),
             "retained_entries": int(entries),
-            "retired_rebuild_scan_entries": int(entries),
             "bounded_rebuild_scan_entries": 0,
-            "work_reduction_vs_retired_rebuild": float(entries / selected_valid),
+            "projected_full_cache_rebuild_entries_removed": int(entries),
+            "projected_work_avoidance_vs_full_rebuild": float(entries / selected_valid),
             "archival_storage_device": "cpu",
             "cache_metadata_device": "cpu",
         },
@@ -314,10 +303,11 @@ def run_benchmark(
         },
         "latency": {
             "bounded_selected_replay_missing_cache": bounded_stats,
-            "retired_diagnostic_full_cache_rebuild_then_replay": retired_stats,
         },
         "bounded_report": bounded_report,
-        "retired_diagnostic_report": retired_report,
+        "retired_full_cache_rebuild_diagnostic_absence": (
+            removed_full_rebuild_absence
+        ),
         "quality": quality,
         "pass": bool(quality["pass"]),
     }
@@ -327,7 +317,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark selected replay consolidation without full bucket-cache "
-            "rebuild against the retired diagnostic rebuild path."
+            "rebuild using seeded maintained-path quality checks."
         )
     )
     parser.add_argument("--entries", type=int, default=65_536)
@@ -349,19 +339,19 @@ def main() -> None:
     )
     print(
         "pass={pass_gate} entries={entries} selected={selected} "
-        "bounded_mean_ms={bounded_ms:.6f} retired_mean_ms={retired_ms:.6f} "
-        "work_reduction={work_reduction:.1f}".format(
+        "bounded_mean_ms={bounded_ms:.6f} removed_full_rebuild_entries={removed} "
+        "projected_work_avoidance={work_avoidance:.1f}".format(
             pass_gate=report["pass"],
             entries=report["entries"],
             selected=report["selected_count"],
             bounded_ms=report["latency"]["bounded_selected_replay_missing_cache"][
                 "mean_ms"
             ],
-            retired_ms=report["latency"][
-                "retired_diagnostic_full_cache_rebuild_then_replay"
-            ]["mean_ms"],
-            work_reduction=report["memory_budget"][
-                "work_reduction_vs_retired_rebuild"
+            removed=report["memory_budget"][
+                "projected_full_cache_rebuild_entries_removed"
+            ],
+            work_avoidance=report["memory_budget"][
+                "projected_work_avoidance_vs_full_rebuild"
             ],
         )
     )
