@@ -56,6 +56,7 @@ related_benchmarks: []
 - [Semantic Frontier Benchmark Legacy Comparators](semantic-frontier-benchmark-legacy-comparators.md)
 - [Semantic Frontier Direct Archive Row Reads](semantic-frontier-direct-archive-row-reads.md)
 - [Sleep Plasticity Ticket Queue Full Retained Scan](sleep-plasticity-ticket-queue-full-retained-scan.md)
+- [Sleep Repair Dense Input Prepare Comparator](sleep-repair-dense-input-prepare-comparator.md)
 - [Sleep Replay All Anchor Source Pass](sleep-replay-all-anchor-source-pass.md)
 - [Sleep Replay Routing Index Full Rebuild](sleep-replay-routing-index-full-rebuild.md)
 - [Snn Language Thought Capacity Mutation Production Naming](snn-language-thought-capacity-mutation-production-naming.md)

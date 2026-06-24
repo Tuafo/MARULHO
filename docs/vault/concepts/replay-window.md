@@ -89,11 +89,13 @@ signatures from already-selected evidence. Recent replay setup uses
   keys are required for repair mutation; missing keys are deferred and reported
   through `sleep_replay_missing_routing_key_deferred_count` while
   `sleep_replay_dense_input_assembly_fallback_count=0` remains true. The
-  mixed-key benchmark
-  `reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
-  updated `16` stored-key entries, deferred `16` missing-key entries, made `0`
-  dense input-assembly calls, and the 524288-token hot-path run stayed in band
-  at `5988.223 tokens/sec`.
+  mixed-key maintained-only benchmark
+  `..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+  updates `8` stored-key repair entries, defers `8` missing-key selected rows in
+  the repair window, makes `0` dense input-assembly calls, removes the executable
+  dense-prepare comparator, and the current 524288-token hot-path run stayed in
+  band at `6410.861 tokens/sec` with bounded `12/65536` route rows and no
+  observed contention.
 - Micro maintenance follows the same anchor-bucket rule. Without anchor buckets
   it must report `no_anchor_bucket_scope_for_micro_replay` and apply no refresh.
   Anchored micro refresh updates CPU metadata only; it must not call the live

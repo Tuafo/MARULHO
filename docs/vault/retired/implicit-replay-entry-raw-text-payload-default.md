@@ -18,7 +18,7 @@ related_papers:
 related_benchmarks:
   - ../../../../MARULHO_reports/bounded_replay_window_20260622/query-memory-payload-query-row-no-replay-entry.json
   - ../../../../MARULHO_reports/bounded_replay_window_20260622/context-memory-query-row-cache-no-replay-entry.json
-  - ../../../../MARULHO_reports/bounded_replay_window_20260622/sleep-repair-replay-row-api-retired.json
+  - ../../../../../MARULHO_reports/bounded_replay_window_20260624/sleep-repair-replay-dense-prepare-comparator-removed.json
   - ../../../../MARULHO_reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-entry-api-retired-noprofile.json
 ---
 
@@ -32,6 +32,6 @@ Current external checks:
 
 - `..\..\MARULHO_reports\bounded_replay_window_20260622\query-memory-payload-query-row-no-replay-entry.json`: selected indices matched the diagnostic eager payload path, bounded text payloads were `5` instead of `192`, and the report used `returned_similarity_matches_only`.
 - `..\..\MARULHO_reports\bounded_replay_window_20260622\context-memory-query-row-cache-no-replay-entry.json`: two context reads preserved selected indices, loaded `8` payloads instead of `16`, and reused `8` query-row cache hits.
-- `..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-repair-replay-row-api-retired.json`: sleep repair used `sleep_repair_replay_row(...)`, improved mean anchor distance by `0.076463`, deferred `8` missing routing-key rows, made `0` dense input-assembly calls, and kept raw text/language reasoning/global scan/live tick flags false.
+- `..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`: sleep repair used `sleep_repair_replay_row(...)`, improved mean anchor distance by `0.076463`, deferred `8` missing routing-key rows, made `0` dense input-assembly calls, removed the dense-prepare comparator, and kept raw text/language reasoning/global scan/live tick flags false.
 
 Reopen only as a new named row API with explicit source budget, mutation/read-only semantics, CPU archival placement, no hidden language reasoning through replay text, and repeated long-run live-tick protection.

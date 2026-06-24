@@ -3365,12 +3365,24 @@ promotion.
 The sleep repair replay slice changes only selected slow-window repair replay.
 Normal replay entries already carry stored routing keys, so repair no longer
 builds dense input assemblies after the replay window has selected anchored
-entries. The focused benchmark
+entries. The historical focused benchmark
 `reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
 selected and repaired `32/32` anchored entries at `65536` columns, improved
 mean anchor distance from `0.508855` to `0.360171`, reduced selected input-prep
 latency from `61.351 ms` to `32.613 ms` (`1.881x`), and reported `0` dense
-assembly calls during repair.
+assembly calls during repair. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+removes the executable dense-prepare comparator, applies `8` repair updates,
+defers `8` missing-key selected rows in the repair window, improves stored-key
+quality by `0.076463`, measures bounded prepare mean `44.895575 ms` under a
+`100 ms` budget, and still reports `0` dense assembly calls. The current
+protection run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-sleep-repair-dense-prepare-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6410.861 tokens/sec`, p95 `20.195 ms`,
+`train_compute=0.126774 ms/token`, `prepare_training=0.006142 ms/token`,
+`finalize_total=0.005975 ms/token`, bounded `12/65536` route rows, `65526`
+cached transition rows, no observed contention, CPU max `10%`, GPU max `15%`,
+and RTX memory `2190->2190 MiB`.
 
 The accepted 65536-column 524288-token protection run was:
 
@@ -3726,13 +3738,15 @@ emitted, and `sleep_replay_dense_input_assembly_fallback_count=0` stays true.
 
 The focused mixed-key benchmark was:
 
-`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output reports\bounded_replay_window_20260620\sleep-repair-replay-missing-routing-key-deferred.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --min-prepare-speedup 1.0`
+`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --seed 31 --max-bounded-prepare-mean-ms 100.0`
 
-It selected `32` anchored repair entries, updated `16` entries with stored
-routing keys, deferred `16` missing-key entries, made `0` dense input-assembly
-calls, removed the stored-assembly projection fallback field, improved stored-key
-repair quality by `0.149600`, and kept selected input-prep speedup at
-`1.869720x`. Archival repair traces stayed CPU-resident, and active repair
+It selected `32` anchored repair entries, had `16` stored routing keys and `16`
+missing keys before repair, updated `8` stored-key repair entries, deferred `8`
+missing-key selected rows in the repair window, made `0` dense input-assembly
+calls, removed the stored-assembly projection fallback field, removed the
+executable dense-prepare comparator, improved stored-key repair quality by
+`0.076463`, and kept bounded prepare mean at `44.895575 ms` under a `100 ms`
+budget. Archival repair traces stayed CPU-resident, and active repair
 computation ran on CUDA.
 
 The 65536-column protection run was:

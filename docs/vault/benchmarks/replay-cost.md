@@ -838,18 +838,27 @@ when the replay entry already had a stored routing key and bucket. The new path
 uses `prepare_input_for_candidate_routing(...)` for stored-key entries, clears
 stale dense caches when an input trace is absent, and reports
 `sleep_replay_unconditional_dense_input_assembly_retired=true` plus dense
-fallback counts. The 65536-column benchmark
+fallback counts. The historical 65536-column benchmark
 `reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
 selected and repaired `32/32` anchored replay entries, improved mean anchor
 distance from `0.508855` to `0.360171`, reduced selected input-prep latency from
 `61.351 ms` to `32.613 ms` (`1.881x`), made `0` dense assembly calls during
 repair, kept archival tensors on CPU, and used CUDA only for active repair
-computation. The focused replay/checkpoint suite passed `15` tests, including
+computation. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+removes the executable dense-prepare comparator, selects `32` entries with `16`
+stored routing keys and `16` missing keys, applies `8` repair updates, defers
+`8` missing-key selected rows in the repair window, improves stored-key quality
+by `0.076463`, measures bounded prepare mean `44.895575 ms` under a `100 ms`
+budget, makes `0` dense assembly calls, keeps archival tensors on CPU, and runs
+active repair computation on CUDA. The current hot-path report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-sleep-repair-dense-prepare-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6410.861 tokens/sec`, p95 `20.195 ms`,
+`train_compute=0.126774 ms/token`, bounded `12/65536` route rows, cached
+`65526` transition rows, no observed contention, and RTX memory `2190->2190 MiB`.
+The focused replay/checkpoint suite passed `15` tests, including
 repair replay, selected-window SFA correction, and checkpoint roundtrip
-coverage. The paired hot-path run processed `524288` tokens at
-`6302.207 tokens/sec`, bounded route scoring at `12/65536`, cached `65526`
-transition rows, reported no observed contention, and kept GPU memory
-`1805->1806 MiB`.
+coverage.
 
 The follow-up retires the remaining missing-key repair fallback entirely.
 Selected repair entries without stored routing keys no longer rebuild keys from
@@ -859,8 +868,11 @@ input patterns or project stored assemblies; they are deferred and reported as
 used `32` selected anchored repair entries, updated the `16` entries with
 stored routing keys, deferred `16` missing-key entries, made `0` dense
 input-assembly calls, removed the stored-assembly projection fallback field,
-improved stored-key repair quality by `0.149600`, and kept selected input-prep
-speedup at `1.869720x`. The long hot-path check processed `524288` tokens at
+and improved stored-key repair quality by `0.149600`. The current
+maintained-only repair report above keeps missing-key deferral while removing
+the dense-prepare comparator from benchmark code and records
+`retired_dense_prepare_comparator_absence.implementation_present=false`. The
+long hot-path check processed `524288` tokens at
 `5988.223 tokens/sec`, with `train_compute=0.135762 ms/token`, bounded
 `12/65536` route rows, `65526` cached transition rows, GPU memory
 `1877->1878 MiB`, and zero graph/native/sequence failures. Velocity observed a
@@ -2722,16 +2734,16 @@ Focused benchmarks:
 
 `python -m marulho.evaluation.context_memory_match_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\context-memory-query-row-cache-no-replay-entry.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 8 --context-count 2 --text-repeats 64 --iterations 24 --min-speedup 1.0`
 
-`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260622\sleep-repair-replay-row-api-retired.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --seed 31 --min-prepare-speedup 1.0`
+`python -m marulho.evaluation.sleep_repair_replay_bounded_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json --n-columns 65536 --column-latent-dim 64 --entry-count 32 --candidate-pool 64 --prepare-iterations 8 --drop-routing-key-every 2 --seed 31 --max-bounded-prepare-mean-ms 100.0`
 
 Results: query payload parity passed with selected indices `[0, 16, 32, 48,
 64]`, bounded text payloads `5` instead of `192`, and
 `returned_similarity_matches_only`; context parity passed for both contexts
 with `8` payloads instead of `16` and `8` cache hits; sleep repair passed with
-quality delta `0.076463`, `1.954494x` input-prepare speedup, `8` missing-key
-deferrals, `0` dense input-assembly calls, CPU archival metadata, CUDA active
-compute, and no global scan/live tick/every-token/raw-text/language-reasoning
-work.
+quality delta `0.076463`, `8` missing-key deferrals, bounded prepare mean
+`44.895575 ms` under a `100 ms` budget, `0` dense input-assembly calls, explicit
+retired dense-comparator absence, CPU archival metadata, CUDA active compute, and
+no global scan/live tick/every-token/raw-text/language-reasoning work.
 
 Hot-path protection:
 

@@ -1125,17 +1125,25 @@ was scoring all columns only to refresh competitive input state. The repair path
 now calls `prepare_input_for_candidate_routing(...)` when a stored routing key
 exists, clears stale dense caches when no input trace exists, and reports
 `sleep_replay_unconditional_dense_input_assembly_retired=true` plus dense
-fallback counts for legacy entries. The benchmark
+fallback counts for legacy entries. The historical benchmark
 `reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
 selected and repaired `32/32` anchored replay entries, improved mean anchor
 distance from `0.508855` to `0.360171`, reduced selected input-prep latency from
 `61.351 ms` to `32.613 ms` (`1.881x`), made `0` dense assembly calls during
 repair, and kept archival tensors on CPU while active repair computation used
-CUDA. The paired hot-path run
-`reports/bounded_replay_window_20260618/hotpath-active-pressure-65536-524288-i32-sleep-repair-bounded-input-prepare.json`
-processed `524288` tokens at `6302.207 tokens/sec`, bounded route scoring at
-`12/65536`, cached `65526` transition rows, reported no observed contention,
-and kept GPU memory effectively flat at `1805->1806 MiB`.
+CUDA. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+removes the executable dense-prepare comparator, selects `32` entries with `16`
+stored routing keys and `16` missing keys, applies `8` repair updates, defers
+`8` missing-key selected rows in the repair window, improves stored-key quality
+by `0.076463`, measures bounded prepare mean `44.895575 ms` under a `100 ms`
+budget, makes `0` dense assembly calls, keeps archival tensors on CPU, and runs
+active repair computation on CUDA. The current hot-path run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-sleep-repair-dense-prepare-comparator-removed-default-nosample.json`
+processed `524288` tokens at `6410.861 tokens/sec`, p95 `20.195 ms`,
+`train_compute=0.126774 ms/token`, bounded route scoring at `12/65536`, cached
+`65526` transition rows, reported no observed contention, and kept RTX memory
+flat at `2190 MiB`.
 
 The missing-key cleanup removes the remaining legacy branch for selected repair
 entries that lack stored routing keys. Instead of rebuilding a routing key from
@@ -1146,9 +1154,12 @@ benchmark
 `reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
 dropped routing keys for `16/32` anchored repair entries, updated the `16`
 stored-key entries, deferred the `16` missing-key entries, made `0` dense
-input-assembly calls, removed the assembly-projection fallback field, improved
-stored-key repair quality by `0.149600`, and kept selected input-prep speedup at
-`1.869720x`. The 524288-token protection run stayed in band at
+input-assembly calls, removed the assembly-projection fallback field, and
+improved stored-key repair quality by `0.149600`. The current maintained-only
+repair report above keeps missing-key deferral while removing the dense-prepare
+comparator from benchmark code and records
+`retired_dense_prepare_comparator_absence.implementation_present=false`. The
+524288-token protection run stayed in band at
 `5988.223 tokens/sec`, with bounded `12/65536` route rows, `65526` cached
 transition rows, GPU memory `1877->1878 MiB`, and zero graph/native/sequence
 failures; a GPU-utilization sample crossed the contention threshold, so this is
@@ -2460,11 +2471,13 @@ Fresh cleanup reports under
 `..\..\MARULHO_reports\bounded_replay_window_20260622\` passed: query payload
 parity loaded `5` bounded text payloads instead of `192`; context comparison
 kept selected-index parity while loading `8` payloads instead of `16` and
-reusing `8` query-row cache hits; sleep repair improved mean anchor distance by
-`0.076463`, reached `1.954494x` input-prepare speedup, deferred `8` missing-key
-rows, made `0` dense input-assembly calls, kept archive metadata on CPU, used
-CUDA only for active repair compute, and reported no global scan, live tick,
-every-token work, raw replay text, or language reasoning.
+reusing `8` query-row cache hits. The current repair report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+improves mean anchor distance by `0.076463`, defers `8` missing-key rows, makes
+`0` dense input-assembly calls, removes the executable dense-prepare comparator,
+keeps archive metadata on CPU, uses CUDA only for active repair compute, and
+reports no global scan, live tick, every-token work, raw replay text, or language
+reasoning.
 
 ## Replay Sample Single Path
 

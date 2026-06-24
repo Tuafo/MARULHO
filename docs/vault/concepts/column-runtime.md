@@ -687,22 +687,32 @@ input state with `prepare_input_for_candidate_routing(...)`, clears stale dense
 caches when an input trace is absent, and reports
 `sleep_replay_unconditional_dense_input_assembly_retired=true`,
 `sleep_replay_dense_input_assembly_fallback_count`, and
-`sleep_replay_bounded_input_prepare_count`. The 65536-column benchmark
+`sleep_replay_bounded_input_prepare_count`. The historical 65536-column
+benchmark
 `reports/bounded_replay_window_20260618/sleep-repair-replay-bounded-input-prepare.json`
 selected `32` anchored entries, repaired all `32`, improved mean anchor
 distance by `0.148684`, reduced selected input-prep latency from `61.351 ms` to
 `32.613 ms`, made `0` dense assembly calls during repair, and kept archival
-payloads on CPU. The paired long hot-path run stayed in band at
-`6302.207 tokens/sec` with bounded `12/65536` route rows and no observed
-contention.
+payloads on CPU. The current maintained-only report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+removes the executable dense-prepare comparator, updates `8` stored-key repair
+entries, defers `8` missing-key selected rows in the repair window, improves
+stored-key quality by `0.076463`, measures bounded prepare mean
+`44.895575 ms` under a `100 ms` budget, makes `0` dense assembly calls, keeps
+archival tensors on CPU, and runs active repair computation on CUDA. The current
+long hot-path run stayed in band at `6410.861 tokens/sec`, p95 `20.195 ms`,
+`train_compute=0.126774 ms/token`, bounded `12/65536` route rows, no observed
+contention, and flat RTX memory at `2190 MiB`.
 The remaining missing-key repair fallback is also retired. Repair replay and
 deep candidate repair now require stored routing keys; entries without that key
 are deferred, counted under `sleep_replay_missing_routing_key_deferred_count`,
 and no longer project selected stored assemblies. The mixed-key benchmark
 `reports/bounded_replay_window_20260620/sleep-repair-replay-missing-routing-key-deferred.json`
 updated `16` stored-key entries, deferred `16` missing-key entries, made `0`
-dense input-assembly calls, improved stored-key repair quality by `0.149600`,
-and the 524288-token hot-path check stayed in band at `5988.223 tokens/sec`
+dense input-assembly calls, and improved stored-key repair quality by
+`0.149600`. The maintained-only report above keeps that missing-key deferral and
+records `retired_dense_prepare_comparator_absence.implementation_present=false`.
+The 524288-token hot-path check stayed in band at `5988.223 tokens/sec`
 with bounded `12/65536` route rows, `65526` cached transition rows, GPU memory
 `1877->1878 MiB`, and zero graph/native/sequence failures.
 
@@ -2068,10 +2078,12 @@ Fresh external reports under
 query payload parity kept selected indices `[0, 16, 32, 48, 64]` while loading
 `5` bounded text payloads instead of `192`; context comparison kept the same
 selected indices across two contexts while loading `8` payloads instead of `16`
-and reusing `8` query-row cache hits; sleep repair improved mean anchor distance
-by `0.076463`, reached `1.954494x` input-prepare speedup, deferred `8`
-missing-key rows, made `0` dense input-assembly calls, and kept global scan,
-live tick, every-token work, raw text, and language reasoning false.
+and reusing `8` query-row cache hits. The current repair report
+`..\..\MARULHO_reports\bounded_replay_window_20260624\sleep-repair-replay-dense-prepare-comparator-removed.json`
+improves mean anchor distance by `0.076463`, defers `8` missing-key rows, makes
+`0` dense input-assembly calls, removes the executable dense-prepare comparator,
+and keeps global scan, live tick, every-token work, raw text, and language
+reasoning false.
 
 ## Replay Sample Single Path
 

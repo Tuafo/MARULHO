@@ -87,6 +87,9 @@ from marulho.evaluation.strong_capture_admission_cadence_benchmark import (
 from marulho.evaluation.selected_replay_consolidation_cache_benchmark import (
     run_benchmark as run_selected_replay_consolidation_cache_benchmark,
 )
+from marulho.evaluation.sleep_repair_replay_bounded_benchmark import (
+    run_benchmark as run_sleep_repair_replay_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +132,7 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         / "src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py",
         ROOT
         / "src/marulho/evaluation/selected_replay_consolidation_cache_benchmark.py",
+        ROOT / "src/marulho/evaluation/sleep_repair_replay_bounded_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -228,6 +232,11 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "selected_state_matches_retired_diagnostic",
         "retired_diagnostic_full_cache_rebuild_then_replay",
         "retired_diagnostic_report",
+        "legacy_latencies",
+        "legacy_dense_prepare_mean",
+        "prepare_speedup",
+        "min_prepare_speedup",
+        "--min-prepare-speedup",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -427,6 +436,47 @@ def test_selected_replay_consolidation_cache_benchmark_reports_maintained_only_p
     assert report["runtime_truth"]["runs_live_tick"] is False
     assert report["runtime_truth"]["runs_every_token"] is False
     assert report["runtime_truth"]["hidden_language_reasoning"] is False
+
+
+def test_sleep_repair_replay_benchmark_reports_maintained_only_path() -> None:
+    report = run_sleep_repair_replay_benchmark(
+        argparse.Namespace(
+            n_columns=128,
+            column_latent_dim=32,
+            entry_count=8,
+            candidate_pool=16,
+            prepare_iterations=2,
+            drop_routing_key_every=2,
+            seed=31,
+            max_bounded_prepare_mean_ms=1000.0,
+            enable_learned_chunking=False,
+        )
+    )
+
+    assert report["pass"] is True
+    assert "legacy_dense_prepare_mean" not in report["latency_ms"]
+    assert "prepare_speedup" not in report["latency_ms"]
+    assert report["retired_dense_prepare_comparator_absence"] == {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "sleep_repair_dense_input_prepare_comparator",
+    }
+    assert report["selected_count"] == 8
+    assert report["selected_stored_routing_key_count"] == 4
+    assert report["selected_missing_routing_key_count"] == 4
+    assert report["updates"] > 0
+    assert report["quality"]["pass"] is True
+    assert report["latency_ms"]["bounded_candidate_prepare_mean"] <= 1000.0
+    runtime_truth = report["runtime_truth"]
+    assert runtime_truth["dense_input_assembly_call_count"] == 0
+    assert runtime_truth["dense_input_assembly_fallback_count"] == 0
+    assert runtime_truth["bounded_input_prepare_count"] >= report["updates"]
+    assert runtime_truth["missing_routing_key_deferred_count"] == 4
+    assert runtime_truth["retired_dense_prepare_comparator_removed"] is True
+    assert runtime_truth["raw_text_payload_loaded"] is False
+    assert runtime_truth["language_reasoning"] is False
+    assert runtime_truth["runs_live_tick"] is False
+    assert runtime_truth["runs_every_token"] is False
 
 
 def test_source_bank_memory_match_benchmark_reports_maintained_only_path() -> None:

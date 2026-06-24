@@ -1,4 +1,8 @@
-"""Quality and cost gate for bounded repair replay input preparation."""
+"""Quality and cost gate for bounded repair replay input preparation.
+
+The benchmark is maintained-only: it does not execute the retired dense
+``assembly_from_input`` preparation path as a comparator.
+"""
 
 from __future__ import annotations
 
@@ -192,16 +196,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         len(selected_indices) - selected_stored_routing_key_count
     )
 
-    legacy_latencies: list[float] = []
     bounded_latencies: list[float] = []
     for _ in range(max(1, int(args.prepare_iterations))):
-        legacy_latencies.append(
-            _measure_input_prepare(
-                trainer,
-                selected_indices,
-                trainer.model.competitive.assembly_from_input,
-            )
-        )
         bounded_latencies.append(
             _measure_input_prepare(
                 trainer,
@@ -246,11 +242,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         - int(_routing_key_count(trainer, repair_selected_indices)),
     )
 
-    legacy_mean = float(statistics.fmean(legacy_latencies)) if legacy_latencies else 0.0
     bounded_mean = float(statistics.fmean(bounded_latencies)) if bounded_latencies else 0.0
-    speedup = legacy_mean / max(1e-9, bounded_mean)
+    bounded_max = float(max(bounded_latencies)) if bounded_latencies else 0.0
     quality_delta = float(quality_before - quality_after)
     quality_pass = bool(updates > 0 and quality_delta > 0.0)
+    retired_dense_prepare_comparator_absence = {
+        "implementation_present": False,
+        "active_report_field_present": False,
+        "removed_policy": "sleep_repair_dense_input_prepare_comparator",
+    }
     report_pass = bool(
         repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
         and int(repair_report.get("sleep_replay_dense_input_assembly_fallback_count", -1)) == 0
@@ -264,8 +264,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         and not bool(repair_report.get("sleep_replay_text_payload_loaded"))
         and not bool(repair_report.get("sleep_replay_language_reasoning"))
         and not bool(repair_report.get("global_score_scan"))
+        and not retired_dense_prepare_comparator_absence["implementation_present"]
     )
-    latency_pass = bool(speedup >= float(args.min_prepare_speedup))
+    latency_pass = bool(bounded_mean <= float(args.max_bounded_prepare_mean_ms))
     return {
         "surface": "bounded_sleep_repair_replay_input_prepare_benchmark.v1",
         "pass": bool(quality_pass and report_pass and latency_pass),
@@ -288,11 +289,17 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "pass": bool(quality_pass),
         },
         "latency_ms": {
-            "legacy_dense_prepare_mean": float(legacy_mean),
             "bounded_candidate_prepare_mean": float(bounded_mean),
-            "prepare_speedup": float(speedup),
+            "bounded_candidate_prepare_max": float(bounded_max),
+            "bounded_prepare_iteration_count": int(len(bounded_latencies)),
+            "bounded_prepare_mean_budget_ms": float(
+                args.max_bounded_prepare_mean_ms
+            ),
             "repair_replay_latency": float(repair_latency_ms),
         },
+        "retired_dense_prepare_comparator_absence": (
+            retired_dense_prepare_comparator_absence
+        ),
         "runtime_truth": {
             "runs_live_tick": False,
             "runs_every_token": False,
@@ -325,6 +332,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "unconditional_dense_input_assembly_retired": bool(
                 repair_report.get("sleep_replay_unconditional_dense_input_assembly_retired")
             ),
+            "retired_dense_prepare_comparator_removed": True,
         },
         "device_placement": {
             "active_computation_device": str(trainer.model.device),
@@ -359,7 +367,7 @@ def main() -> None:
     parser.add_argument("--prepare-iterations", type=int, default=8)
     parser.add_argument("--drop-routing-key-every", type=int, default=0)
     parser.add_argument("--seed", type=int, default=31)
-    parser.add_argument("--min-prepare-speedup", type=float, default=1.0)
+    parser.add_argument("--max-bounded-prepare-mean-ms", type=float, default=100.0)
     parser.add_argument("--enable-learned-chunking", action="store_true")
     args = parser.parse_args()
 
@@ -371,7 +379,9 @@ def main() -> None:
             {
                 "pass": result["pass"],
                 "quality_delta": result["quality"]["delta"],
-                "prepare_speedup": result["latency_ms"]["prepare_speedup"],
+                "bounded_prepare_mean_ms": result["latency_ms"][
+                    "bounded_candidate_prepare_mean"
+                ],
                 "dense_input_assembly_call_count": result["runtime_truth"][
                     "dense_input_assembly_call_count"
                 ],
