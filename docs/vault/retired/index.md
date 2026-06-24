@@ -34,6 +34,7 @@ related_benchmarks: []
 - [Nonreversible Anchor Source Materialization](nonreversible-anchor-source-materialization.md)
 - [Partial Native Parent Graph](partial-native-parent-graph.md)
 - [Plasticity Runtime State Full Snapshot](plasticity-runtime-state-full-snapshot.md)
+- [Query Readout Benchmark Legacy Comparators](query-readout-benchmark-legacy-comparators.md)
 - [Query Recent Entry Text Support Fallback](query-recent-entry-text-support-fallback.md)
 - [Query Runner Direct Slow Memory Row Reads](query-runner-direct-slow-memory-row-reads.md)
 - [Raw Caller Window Replay Artifact Recording](raw-caller-window-replay-artifact-recording.md)

@@ -3254,3 +3254,34 @@ was `0.680000 ms`, and CUDA allocation delta was `0.0 MiB`.
 Result: `passed=true`; scalar scans were `0`, vector scans were `0`,
 wake-bucket scans were `256`, last candidates were `10/10`, tagged traces were
 `10`, and mean scoped latency was `1.271697 ms`.
+## Query Readout Comparator Removal
+
+Query/readout benchmarks now assert the maintained bounded reports directly
+instead of executing report-dropping context readout, eager candidate text
+payload loading, direct runtime concept archive lookup, or fragment-only episode
+readout comparators.
+
+`python -m marulho.evaluation.context_memory_match_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\context-memory-match-comparator-removed.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 8 --context-count 2 --text-repeats 64 --iterations 24 --max-bounded-mean-ms 500.0`
+
+Result: `passed=true`; bounded context selection consistency was `1.0`, the
+candidate limit was `192`, returned text payloads were `8`, payload cache hits
+were `8`, and mean bounded latency was `53.762454 ms`.
+
+`python -m marulho.evaluation.query_memory_payload_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\query-memory-payload-comparator-removed.json --capacity 65536 --bucket-count 16 --candidate-limit 192 --top-k 5 --iterations 16`
+
+Result: `passed=true`; selected indices were `[0, 16, 32, 48, 64]`,
+payload policy was `returned_similarity_matches_only`, payload count was `5`,
+and mean bounded latency was `25.570462 ms`.
+
+`python -m marulho.evaluation.runtime_concept_memory_lookup_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\runtime-concept-memory-lookup-comparator-removed.json --capacity 65536 --dim 16 --observation-count 512 --unique-indices 64 --max-observations 512 --text-repeats 64 --iterations 24 --max-bounded-mean-ms 500.0`
+
+Result: `passed=true`; explicit memory-index evidence recall was `1.0`, bounded
+matches were `512`, unique payload reads were `64`, payload cache hits were
+`448`, archive iteration count stayed `0`, and mean bounded latency was
+`7.919283 ms`.
+
+`python -m marulho.evaluation.query_episode_readout_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\query-episode-readout-comparator-removed.json --capacity 65536 --iterations 256 --neighbor-radius 3 --max-bounded-mean-ms 10.0`
+
+Result: `passed=true`; the bounded neighbor-window readout recovered
+`a cat purrs when it feels safe.`, loaded `10` selected neighbor-window
+payloads across `4` bounded neighbor indices, and averaged `0.512807 ms`.

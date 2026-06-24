@@ -6254,3 +6254,20 @@ measured throughput window. Runtime Truth kept route scoring bounded at
 `state_transition_runs_all_columns=false`, graph/native sequence failures were
 zero, and velocity sampled no contention. CPU max was `20%`, GPU max was
 `18%`, and RTX 3060 memory stayed flat at `1875 MiB`.
+## Query Readout Comparator-Removal Protection
+
+This run protects the live tick after removing benchmark-local report-dropping
+context readout, eager candidate text payload loading, direct runtime concept
+archive lookup, and fragment-only episode readout comparators.
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-query-readout-comparators-removed-default-nosample.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `79.605266 s` at
+`6586.097 tokens/sec`, p95 tick `18.732 ms`,
+`train_compute=0.123762 ms/token`, `prepare_training=0.005740 ms/token`, and
+`finalize_total=0.005744 ms/token`. Prewarm took `206.655 s` outside the
+measured throughput window. Runtime Truth kept route scoring bounded at
+`12/65536`, output candidates at `10`, and transition caching at `65526` rows;
+`state_transition_runs_all_columns=false`, graph/native sequence failures were
+zero, and velocity sampled no contention. CPU max was `39%`, GPU max was `9%`,
+and RTX 3060 memory stayed flat at `1886 MiB`.

@@ -51,6 +51,18 @@ from marulho.evaluation.sfa_sample_scope_benchmark import (
 from marulho.evaluation.awake_ripple_scope_benchmark import (
     run_awake_ripple_scope_benchmark,
 )
+from marulho.evaluation.context_memory_match_benchmark import (
+    run_benchmark as run_context_memory_match_benchmark,
+)
+from marulho.evaluation.query_memory_payload_benchmark import (
+    run_benchmark as run_query_memory_payload_benchmark,
+)
+from marulho.evaluation.runtime_concept_memory_lookup_benchmark import (
+    run_benchmark as run_runtime_concept_memory_lookup_benchmark,
+)
+from marulho.evaluation.query_episode_readout_benchmark import (
+    run_benchmark as run_query_episode_readout_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +87,10 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/bucket_candidate_source_window_benchmark.py",
         ROOT / "src/marulho/evaluation/sfa_sample_scope_benchmark.py",
         ROOT / "src/marulho/evaluation/awake_ripple_scope_benchmark.py",
+        ROOT / "src/marulho/evaluation/context_memory_match_benchmark.py",
+        ROOT / "src/marulho/evaluation/query_memory_payload_benchmark.py",
+        ROOT / "src/marulho/evaluation/runtime_concept_memory_lookup_benchmark.py",
+        ROOT / "src/marulho/evaluation/query_episode_readout_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -141,6 +157,16 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "global_unscoped",
         "retired_scalar_full_memory_scan",
         "retired_vector_full_memory_scan",
+        "_run_report_dropping_context",
+        "legacy_selected_by_context",
+        "legacy_raw_text_payload",
+        "_diagnostic_eager_payload",
+        "diagnostic_eager_query_payload",
+        "_legacy_direct_runtime_concept_lookup",
+        "retired_service_direct_runtime_concept_lookup",
+        "legacy_report",
+        "legacy_target_hit",
+        "legacy_top_text",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -617,3 +643,121 @@ def test_awake_ripple_scope_benchmark_reports_maintained_only_path(
     assert scoped["ripple_awake_bucket_scan_count"] == 4
     assert scoped["last_ripple_awake_candidate_count"] <= 10
     assert all(bool(value) for value in report["gates"].values())
+
+
+def test_context_memory_match_benchmark_reports_maintained_only_path() -> None:
+    report = run_context_memory_match_benchmark(
+        argparse.Namespace(
+            capacity=128,
+            bucket_count=8,
+            candidate_limit=16,
+            top_k=4,
+            context_count=2,
+            text_repeats=2,
+            iterations=2,
+            max_bounded_mean_ms=500.0,
+        )
+    )
+
+    assert report["passed"] is True
+    assert report["retired_report_dropping_context_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "context_memory_match_report_dropping_comparator",
+    }
+    assert "legacy_report" not in report
+    assert report["quality"]["selected_indices_consistent"] is True
+    assert report["quality"]["selected_indices_inside_candidate_window"] is True
+    aggregate = report["aggregate_report"]
+    assert aggregate["surface"] == "bounded_context_comparison_memory_match.v1"
+    assert aggregate["global_candidate_scan"] is False
+    assert aggregate["global_score_scan"] is False
+    assert aggregate["runs_live_tick"] is False
+    assert aggregate["language_reasoning"] is False
+    assert report["payload"]["aggregate_raw_text_payload_count"] <= 4
+
+
+def test_query_memory_payload_benchmark_reports_maintained_only_path() -> None:
+    report = run_query_memory_payload_benchmark(
+        capacity=128,
+        bucket_count=8,
+        candidate_limit=16,
+        top_k=4,
+        iterations=2,
+    )
+
+    assert report["passed"] is True
+    assert report["retired_eager_query_payload_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "query_memory_eager_candidate_text_payload_comparator",
+    }
+    assert "legacy_report" not in report
+    assert report["quality"]["selected_indices_inside_candidate_window"] is True
+    assert report["payload"]["bounded_report_raw_text_payload_count"] <= 4
+    bounded = report["bounded_report"]
+    assert bounded["raw_text_payload_policy"] == "returned_similarity_matches_only"
+    assert bounded["query_row_surface"] == "bounded_query_memory_match_row.v1"
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert bounded["language_reasoning"] is False
+
+
+def test_runtime_concept_memory_lookup_benchmark_reports_maintained_only_path() -> None:
+    report = run_runtime_concept_memory_lookup_benchmark(
+        argparse.Namespace(
+            capacity=128,
+            dim=8,
+            observation_count=16,
+            unique_indices=4,
+            max_observations=16,
+            text_repeats=2,
+            iterations=2,
+            max_bounded_mean_ms=500.0,
+        )
+    )
+
+    assert report["passed"] is True
+    assert report["retired_direct_runtime_concept_lookup_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "runtime_concept_direct_archive_lookup_comparator",
+    }
+    assert "legacy_report" not in report
+    assert report["quality"]["selected_indices_match_expected"] is True
+    assert report["quality"]["expected_indices"] == [0, 32, 64, 96]
+    bounded = report["bounded_report"]
+    assert bounded["candidate_scope"] == "train_step_memory_index_evidence"
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert bounded["language_reasoning"] is False
+    assert bounded["archival_storage_device"] == "cpu"
+
+
+def test_query_episode_readout_benchmark_reports_maintained_only_path() -> None:
+    report = run_query_episode_readout_benchmark(
+        capacity=128,
+        iterations=4,
+        neighbor_radius=3,
+        max_bounded_mean_ms=10.0,
+    )
+
+    assert report["passed"] is True
+    assert report["retired_fragment_only_episode_readout_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "query_episode_fragment_only_readout_comparator",
+    }
+    assert "legacy_top_text" not in report["quality"]
+    assert report["quality"]["bounded_target_hit"] is True
+    assert "cat purrs when it feels safe" in report["quality"]["bounded_top_text"]
+    bounded = report["bounded_report"]
+    assert bounded["raw_text_payload_policy"] == "selected_match_neighbor_windows_only"
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["global_score_scan"] is False
+    assert bounded["runs_live_tick"] is False
+    assert bounded["language_reasoning"] is False

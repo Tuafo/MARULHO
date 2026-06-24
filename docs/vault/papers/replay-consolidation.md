@@ -2880,3 +2880,25 @@ rows, cached `65526` transition rows, no observed contention, flat RTX memory
 `1875 MiB`, and zero graph/native sequence failures. This keeps replay
 metabolism, SFA correction, and ripple tagging as selected source-window
 operators instead of retaining full-memory benchmark side paths.
+## Query Readout Comparator Removal
+
+The same bounded-recall rule applies to the query/readout benchmark layer:
+modern Hopfield-style association is useful only inside selected local evidence
+windows, and CLS/continual replay/STC/sparse replay do not justify preserving
+full or report-dropping readout comparators beside maintained reports. MARULHO
+therefore removes benchmark-local report-dropping context readout, eager
+candidate text payload loading, direct runtime concept archive lookup, and
+fragment-only episode readout comparators.
+
+The maintained-only reports
+`..\..\MARULHO_reports\bounded_replay_window_20260624\context-memory-match-comparator-removed.json`,
+`query-memory-payload-comparator-removed.json`,
+`runtime-concept-memory-lookup-comparator-removed.json`, and
+`query-episode-readout-comparator-removed.json` pass bounded context selection
+consistency `1.0`, returned-only query payloads, explicit memory-index evidence
+recall `1.0`, and target phrase recovery with no global scan, no live tick, and
+no hidden language reasoning. The paired long run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-query-readout-comparators-removed-default-nosample.json`
+kept throughput in band at `6586.097 tokens/sec` with bounded `12/65536` route
+rows, cached `65526` transition rows, no observed contention, flat RTX memory
+`1886 MiB`, and zero graph/native sequence failures.

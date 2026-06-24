@@ -159,34 +159,6 @@ def _trainer_for_store(store: _SyntheticMemoryStore) -> Any:
     )
 
 
-def _run_report_dropping_context(
-    trainer: Any,
-    *,
-    context_count: int,
-    top_k: int,
-    candidate_limit: int,
-    candidate_bucket_ids: Sequence[int],
-) -> dict[str, Any]:
-    pattern = torch.tensor([1.0, 0.0], dtype=torch.float32)
-    selected_by_context: list[list[int]] = []
-    started = time.perf_counter()
-    for _ in range(max(1, int(context_count))):
-        matches, _report = query_runner.memory_matches_with_report(
-            trainer,
-            pattern,
-            pattern,
-            top_k=top_k,
-            top_chars=1,
-            memory_candidate_limit=candidate_limit,
-            candidate_bucket_ids=candidate_bucket_ids,
-        )
-        selected_by_context.append([int(match["memory_index"]) for match in matches])
-    return {
-        "latency_ms": float((time.perf_counter() - started) * 1000.0),
-        "selected_by_context": selected_by_context,
-    }
-
-
 def _run_reported_context(
     trainer: Any,
     *,
@@ -229,29 +201,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     )
     trainer = _trainer_for_store(store)
     candidate_bucket_ids = [0]
-    legacy_latencies: list[float] = []
     bounded_latencies: list[float] = []
-    legacy_payload_counts: list[int] = []
     bounded_payload_counts: list[int] = []
-    legacy_selected: list[list[int]] = []
     bounded_selected: list[list[int]] = []
     aggregate_report: dict[str, Any] = {}
 
     for _ in range(max(1, int(args.iterations))):
-        store.query_match_row_calls.clear()
-        legacy = _run_report_dropping_context(
-            trainer,
-            context_count=args.context_count,
-            top_k=args.top_k,
-            candidate_limit=args.candidate_limit,
-            candidate_bucket_ids=candidate_bucket_ids,
-        )
-        legacy_latencies.append(float(legacy["latency_ms"]))
-        legacy_payload_counts.append(
-            sum(1 for _index, include_text in store.query_match_row_calls if include_text)
-        )
-        legacy_selected = list(legacy["selected_by_context"])
-
         store.query_match_row_calls.clear()
         bounded = _run_reported_context(
             trainer,
@@ -267,10 +222,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         bounded_selected = list(bounded["selected_by_context"])
         aggregate_report = dict(bounded["aggregate_report"])
 
-    legacy_mean = statistics.fmean(legacy_latencies)
     bounded_mean = statistics.fmean(bounded_latencies)
-    speedup = legacy_mean / max(1e-9, bounded_mean)
-    quality_pass = bool(legacy_selected == bounded_selected)
+    selected_consistent = bool(
+        bounded_selected
+        and all(selection == bounded_selected[0] for selection in bounded_selected)
+    )
+    selected_in_candidate_window = bool(
+        all(
+            int(index) % int(args.bucket_count) in candidate_bucket_ids
+            for selection in bounded_selected
+            for index in selection
+        )
+    )
+    quality_pass = bool(selected_consistent and selected_in_candidate_window)
     payload_gate_pass = bool(
         int(aggregate_report.get("raw_text_payload_count", 0) or 0)
         <= int(args.top_k)
@@ -285,7 +249,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         and not bool(aggregate_report.get("runs_every_token"))
         and not bool(aggregate_report.get("language_reasoning"))
     )
-    latency_gate_pass = bool(speedup >= float(args.min_speedup))
+    latency_gate_pass = bool(bounded_mean <= float(args.max_bounded_mean_ms))
     return {
         "surface": "bounded_context_comparison_memory_match_benchmark.v1",
         "passed": bool(
@@ -300,24 +264,31 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "iterations": int(args.iterations),
         "text_repeats": int(args.text_repeats),
         "selection_criteria": "per-context bounded query memory candidate window",
+        "retired_report_dropping_context_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "context_memory_match_report_dropping_comparator",
+        },
+        "memory_budget": {
+            "archival_entries": int(args.capacity),
+            "candidate_window_limit": int(args.candidate_limit),
+            "context_count": int(args.context_count),
+            "raw_text_payload_limit": int(args.top_k),
+        },
         "quality": {
-            "metric": "selected_indices_match_report_dropping_context",
+            "metric": "bounded_context_selection_consistency",
             "min": 1.0 if quality_pass else 0.0,
-            "selected_indices_match": quality_pass,
-            "legacy_selected_by_context": legacy_selected,
+            "selected_indices_consistent": selected_consistent,
+            "selected_indices_inside_candidate_window": selected_in_candidate_window,
             "bounded_selected_by_context": bounded_selected,
         },
         "latency_ms": {
-            "legacy_mean": float(legacy_mean),
             "bounded_mean": float(bounded_mean),
-            "speedup": float(speedup),
-            "legacy_min": float(min(legacy_latencies)),
             "bounded_min": float(min(bounded_latencies)),
+            "max_bounded_mean_ms": float(args.max_bounded_mean_ms),
         },
         "payload": {
-            "legacy_raw_text_payload_count_mean": float(
-                statistics.fmean(legacy_payload_counts)
-            ),
             "bounded_raw_text_payload_count_mean": float(
                 statistics.fmean(bounded_payload_counts)
             ),
@@ -353,7 +324,7 @@ def main() -> None:
     parser.add_argument("--context-count", type=int, default=2)
     parser.add_argument("--text-repeats", type=int, default=64)
     parser.add_argument("--iterations", type=int, default=24)
-    parser.add_argument("--min-speedup", type=float, default=1.0)
+    parser.add_argument("--max-bounded-mean-ms", type=float, default=500.0)
     args = parser.parse_args()
 
     result = run_benchmark(args)
@@ -365,7 +336,7 @@ def main() -> None:
                 "passed": bool(result["passed"]),
                 "quality": result["quality"],
                 "payload": result["payload"],
-                "speedup": result["latency_ms"]["speedup"],
+                "bounded_mean_ms": result["latency_ms"]["bounded_mean"],
             },
             sort_keys=True,
         )

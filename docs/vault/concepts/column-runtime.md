@@ -2275,3 +2275,22 @@ allocation. The paired long run processed `524288` tokens at
 `6580.539 tokens/sec`, p95 `19.094 ms`, bounded `12/65536` route rows, cached
 `65526` transition rows, no observed contention, flat RTX memory `1875 MiB`,
 and zero graph/native sequence failures.
+## Query Readout Comparator Removal
+
+Query/readout benchmark code now matches the maintained runtime contract.
+Context comparison uses the reported bounded context aggregate directly, query
+payload readout materializes text only for returned matches, runtime concept
+lookup reads explicit `memory_index` evidence through the bounded runtime
+concept lookup report, and query episode readout uses store-owned bounded
+neighbor rows. The report-dropping context helper, eager candidate text payload
+loader, direct archive runtime concept reader, and fragment-only episode
+readout comparator are absent from active benchmark code.
+
+The maintained reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260624\` pass context selection
+consistency `1.0`, returned-only query payloads, explicit memory-index recall
+`1.0`, and target phrase recovery, all with CPU archival placement, no global
+scan, no live tick, and no hidden language reasoning. The paired long run
+processed `524288` tokens at `6586.097 tokens/sec`, p95 `18.732 ms`, bounded
+`12/65536` route rows, cached `65526` transition rows, no observed contention,
+flat RTX memory `1886 MiB`, and zero graph/native sequence failures.
