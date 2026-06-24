@@ -42,6 +42,15 @@ from marulho.evaluation.concept_frontier_scope_benchmark import (
 from marulho.evaluation.frontier_gap_bounded_benchmark import (
     run as run_frontier_gap_bounded_benchmark,
 )
+from marulho.evaluation.bucket_candidate_source_window_benchmark import (
+    run_benchmark as run_bucket_candidate_source_window_benchmark,
+)
+from marulho.evaluation.sfa_sample_scope_benchmark import (
+    run_benchmark as run_sfa_sample_scope_benchmark,
+)
+from marulho.evaluation.awake_ripple_scope_benchmark import (
+    run_awake_ripple_scope_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +72,9 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         ROOT / "src/marulho/evaluation/concept_signature_lookup_benchmark.py",
         ROOT / "src/marulho/evaluation/concept_frontier_scope_benchmark.py",
         ROOT / "src/marulho/evaluation/frontier_gap_bounded_benchmark.py",
+        ROOT / "src/marulho/evaluation/bucket_candidate_source_window_benchmark.py",
+        ROOT / "src/marulho/evaluation/sfa_sample_scope_benchmark.py",
+        ROOT / "src/marulho/evaluation/awake_ripple_scope_benchmark.py",
         ROOT / "src/marulho/semantics/frontier.py",
     ]
     forbidden_fragments = [
@@ -120,6 +132,15 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
         "term_recall_against_legacy",
         "archive_window_materialization_count",
         "side_list_materialization_count",
+        "_legacy_materialized_candidates",
+        "legacy_hot_bucket_candidate_materialization",
+        "_legacy_full_buffer_sfa_sample",
+        "retired_global_full_buffer_sfa_sample",
+        "_legacy_global_awake_ripple_scan",
+        "legacy_global_baseline",
+        "global_unscoped",
+        "retired_scalar_full_memory_scan",
+        "retired_vector_full_memory_scan",
     ]
     for path in benchmark_paths:
         source = path.read_text(encoding="utf-8")
@@ -503,3 +524,96 @@ def test_frontier_gap_benchmark_reports_maintained_only_path() -> None:
     assert report["missing_collector_gate"]["passed"] is True
     assert report["device"]["archival_storage_device"] == "cpu"
     assert report["resource_behavior"]["python_tracemalloc_peak_mib"] >= 0.0
+
+
+def test_bucket_candidate_source_window_benchmark_reports_maintained_only_path(
+    tmp_path: Path,
+) -> None:
+    report = run_bucket_candidate_source_window_benchmark(
+        output=tmp_path / "bucket-candidate.json",
+        archive_size=128,
+        candidate_limit=8,
+        iterations=2,
+        bucket_id=7,
+    )
+
+    assert report["status"] == "passed"
+    assert report["expected_recent_candidate_indices"] == list(range(127, 119, -1))
+    assert report["retired_hot_bucket_materialization_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "hot_bucket_candidate_source_full_materialization_comparator",
+    }
+    assert "legacy" not in report
+    assert report["memory_budget"]["retired_full_bucket_materialization_rows_removed"] == 128
+    bounded = report["bounded"]["result"]
+    assert bounded["match_indices"] == report["expected_recent_candidate_indices"]
+    assert bounded["candidate_source_entry_read_count"] <= 8
+    assert bounded["candidate_source_full_bucket_scan"] is False
+    assert bounded["candidate_source_full_bucket_materialization"] is False
+    assert report["device"]["archival_storage_device"] == "cpu"
+    assert report["device"]["cuda_memory_delta_mib"] == 0.0
+
+
+def test_sfa_sample_scope_benchmark_reports_maintained_only_path() -> None:
+    report = run_sfa_sample_scope_benchmark(
+        argparse.Namespace(
+            capacity=128,
+            vector_dim=16,
+            candidate_count=16,
+            sample_count=8,
+            iterations=2,
+            seed=17,
+            min_selected_window_purity=1.0,
+            max_bounded_mean_ms=10.0,
+        )
+    )
+
+    assert report["passed"] is True
+    assert report["retired_full_buffer_sfa_sample_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "sfa_full_buffer_sample_comparator",
+    }
+    assert "legacy_report" not in report
+    assert report["quality"]["bounded_mean"] == 1.0
+    assert set(report["quality"]["selected_sample_indices"]).issubset(set(range(16)))
+    bounded = report["bounded_report"]
+    assert bounded["surface"] == "bounded_sfa_sample.v1"
+    assert bounded["candidate_scope"] == "selected_replay_window"
+    assert bounded["global_candidate_scan"] is False
+    assert bounded["runs_live_tick"] is False
+    assert bounded["language_reasoning"] is False
+    assert report["device_placement"]["archival_storage_device"] == "cpu"
+    assert report["device_placement"]["cuda_memory_delta_mib"] == 0.0
+
+
+def test_awake_ripple_scope_benchmark_reports_maintained_only_path(
+    tmp_path: Path,
+) -> None:
+    report = run_awake_ripple_scope_benchmark(
+        output_path=tmp_path / "awake-ripple.json",
+        capacity=256,
+        bucket_count=256,
+        awake_bucket_count=10,
+        iterations=4,
+        dim=8,
+    )
+
+    assert report["passed"] is True
+    assert report["retired_global_awake_ripple_scan_absence"] == {
+        "implementation_present": False,
+        "diagnostic_callable": False,
+        "active_report_field_present": False,
+        "removed_policy": "awake_ripple_scalar_vector_full_memory_scan_comparator",
+    }
+    assert "global_unscoped" not in report
+    assert report["memory_budget"]["retired_full_scan_rows_removed"] == 256
+    scoped = report["wake_bucket_scoped"]
+    assert scoped["ripple_scalar_scan_count"] == 0
+    assert scoped["ripple_vector_scan_count"] == 0
+    assert scoped["ripple_awake_bucket_scan_count"] == 4
+    assert scoped["last_ripple_awake_candidate_count"] <= 10
+    assert all(bool(value) for value in report["gates"].values())

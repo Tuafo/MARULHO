@@ -2255,3 +2255,23 @@ mean capture latency `1.743 ms`. The paired long hot-path report stayed in the
 same band at `5916.223 tokens/sec` with p95 tick `21.992 ms`, bounded
 `12/65536` route rows, no observed contention, and zero graph/native/sequence
 failures.
+## Source-Window Comparator Removal
+
+Hot-bucket source construction, SFA correction sampling, and awake-ripple
+tagging already use bounded maintained runtime operators. The benchmark code now
+matches that single-path contract: `bucket_candidate_source_window_benchmark.py`
+checks the tail-indexed bucket source window directly, `sfa_sample_scope_benchmark.py`
+checks `sample_for_sfa_with_report(...)` directly, and
+`awake_ripple_scope_benchmark.py` checks wake-bucket scoped ripple tagging
+directly. The old full hot-bucket materializer, full-buffer SFA sampler, and
+scalar/vector full-memory awake-ripple scan helpers are absent from active
+benchmark code.
+
+The maintained reports under
+`..\..\MARULHO_reports\bounded_replay_window_20260624\` pass with
+newest-candidate hit rate `1.0`, selected-window SFA purity `1.0`, awake-ripple
+`0` scalar/vector scans, bounded CPU archival placement, and no CUDA archival
+allocation. The paired long run processed `524288` tokens at
+`6580.539 tokens/sec`, p95 `19.094 ms`, bounded `12/65536` route rows, cached
+`65526` transition rows, no observed contention, flat RTX memory `1875 MiB`,
+and zero graph/native sequence failures.

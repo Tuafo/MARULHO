@@ -3229,3 +3229,28 @@ transition rows, kept `state_transition_runs_all_columns=false`, selected CUDA
 on the RTX 3060, and recorded zero graph/native/sequence failures. Velocity
 reported no observed contention, CPU max `37%`, GPU max `16%`, GPU memory
 utilization max `18%`, and RTX memory `1997->1998 MiB`.
+## Source-Window Comparator Removal
+
+Hot-bucket candidate source construction, selected-window SFA sampling, and
+awake-ripple tagging now have maintained-only benchmark evidence. The repo-local
+benchmarks no longer execute the full hot-bucket materializer, full-buffer SFA
+sampler, or scalar/vector full-memory awake-ripple scan comparators.
+
+`python -m marulho.evaluation.bucket_candidate_source_window_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\bucket-candidate-source-window-comparator-removed.json --archive-size 65536 --candidate-limit 32 --iterations 64 --bucket-id 7`
+
+Result: `status=passed`; newest-candidate hit rate stayed `1.0`, source reads
+were `32`, materialized rows were `0`, full-bucket scan was false, mean latency
+was `0.036322 ms`, p95 was `0.051400 ms`, and CUDA allocation delta was
+`0.0 MiB`.
+
+`python -m marulho.evaluation.sfa_sample_scope_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\sfa-sample-comparator-removed.json --capacity 65536 --vector-dim 64 --candidate-count 192 --sample-count 64 --iterations 32 --seed 17 --min-selected-window-purity 1.0 --max-bounded-mean-ms 10.0`
+
+Result: `passed=true`; selected-window sample purity was `1.0`, samples were
+`64/192`, global candidate scan was false, mean latency was `0.534319 ms`, p95
+was `0.680000 ms`, and CUDA allocation delta was `0.0 MiB`.
+
+`python -m marulho.evaluation.awake_ripple_scope_benchmark --output ..\..\MARULHO_reports\bounded_replay_window_20260624\awake-ripple-comparator-removed.json --capacity 8192 --bucket-count 8192 --awake-bucket-count 10 --iterations 256 --dim 16`
+
+Result: `passed=true`; scalar scans were `0`, vector scans were `0`,
+wake-bucket scans were `256`, last candidates were `10/10`, tagged traces were
+`10`, and mean scoped latency was `1.271697 ms`.

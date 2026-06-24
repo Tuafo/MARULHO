@@ -65,21 +65,10 @@ def _build_hot_bucket_store(*, archive_size: int, bucket_id: int) -> DualMemoryS
     return store
 
 
-def _legacy_materialized_candidates(
-    store: DualMemoryStore,
-    *,
-    bucket_id: int,
-    limit: int,
-) -> dict[str, Any]:
-    materialized = list(reversed(store._bucket_entry_indices[int(bucket_id)]))
-    return {
-        "surface": "legacy_hot_bucket_candidate_materialization.v1",
-        "candidate_indices": [int(index) for index in materialized[: max(0, int(limit))]],
-        "source_materialized_entry_count": int(len(materialized)),
-        "source_materialization_count": 1,
-        "candidate_source_full_bucket_materialization": True,
-        "candidate_source_full_bucket_scan": True,
-    }
+def _expected_recent_candidates(*, archive_size: int, limit: int) -> list[int]:
+    expected = list(range(max(0, int(archive_size) - int(limit)), int(archive_size)))
+    expected.reverse()
+    return expected
 
 
 def run_benchmark(
@@ -95,14 +84,6 @@ def run_benchmark(
     cuda_available = bool(torch.cuda.is_available())
     cuda_before = int(torch.cuda.memory_allocated()) if cuda_available else 0
 
-    legacy_result, legacy_latency = _timed(
-        lambda: _legacy_materialized_candidates(
-            store,
-            bucket_id=bucket_id,
-            limit=limit,
-        ),
-        iterations=iterations,
-    )
     bounded_result, bounded_latency = _timed(
         lambda: store.collect_query_memory_match_indices(
             candidate_bucket_ids=[bucket_id],
@@ -122,17 +103,15 @@ def run_benchmark(
 
     cuda_after = int(torch.cuda.memory_allocated()) if cuda_available else 0
     bounded_indices = [int(index) for index in bounded_result.get("match_indices", [])]
-    legacy_indices = [int(index) for index in legacy_result.get("candidate_indices", [])]
-    expected_recent = list(range(max(0, int(archive_size) - limit), int(archive_size)))
-    expected_recent.reverse()
-    recent_hits = len(set(bounded_indices).intersection(expected_recent))
-    speedup = (
-        float(legacy_latency["mean_ms"] / bounded_latency["mean_ms"])
-        if bounded_latency["mean_ms"] > 0.0
-        else float("inf")
+    expected_recent = _expected_recent_candidates(
+        archive_size=archive_size,
+        limit=limit,
     )
+    recent_hits = len(set(bounded_indices).intersection(expected_recent))
     quality_gate = {
-        "selected_index_parity": bool(bounded_indices == legacy_indices),
+        "selected_indices_match_expected_recent": bool(
+            bounded_indices == expected_recent
+        ),
         "newest_candidate_hit_rate": float(recent_hits / max(1, len(expected_recent))),
         "bounded_source_read_lte_candidate_limit": bool(
             int(bounded_result.get("candidate_source_entry_read_count", 0) or 0)
@@ -150,12 +129,9 @@ def run_benchmark(
             bounded_result.get("archival_storage_device")
         )
         == "cpu",
-        "latency_improved": bool(
-            bounded_latency["mean_ms"] <= legacy_latency["mean_ms"]
-        ),
     }
     status_pass = bool(
-        quality_gate["selected_index_parity"]
+        quality_gate["selected_indices_match_expected_recent"]
         and quality_gate["newest_candidate_hit_rate"] >= 1.0
         and quality_gate["bounded_source_read_lte_candidate_limit"]
         and quality_gate["no_full_bucket_materialization"]
@@ -170,16 +146,24 @@ def run_benchmark(
         "candidate_limit": int(limit),
         "bucket_id": int(bucket_id),
         "iterations": int(max(1, int(iterations))),
-        "legacy": {
-            **legacy_latency,
-            "result": legacy_result,
-        },
         "bounded": {
             **bounded_latency,
             "result": bounded_result,
         },
         "replay_selection": replay_selection,
-        "speedup": speedup,
+        "expected_recent_candidate_indices": expected_recent,
+        "retired_hot_bucket_materialization_absence": {
+            "implementation_present": False,
+            "diagnostic_callable": False,
+            "active_report_field_present": False,
+            "removed_policy": "hot_bucket_candidate_source_full_materialization_comparator",
+        },
+        "memory_budget": {
+            "archival_entries": int(archive_size),
+            "candidate_window_limit": int(limit),
+            "source_read_limit": int(limit),
+            "retired_full_bucket_materialization_rows_removed": int(archive_size),
+        },
         "quality_gate": quality_gate,
         "device": {
             "archival_storage_device": "cpu",
@@ -220,9 +204,10 @@ def main() -> None:
             "status": payload["status"],
             "archive_size": payload["archive_size"],
             "candidate_limit": payload["candidate_limit"],
-            "legacy_mean_ms": payload["legacy"]["mean_ms"],
             "bounded_mean_ms": payload["bounded"]["mean_ms"],
-            "speedup": payload["speedup"],
+            "newest_candidate_hit_rate": payload["quality_gate"][
+                "newest_candidate_hit_rate"
+            ],
         }
     )
 

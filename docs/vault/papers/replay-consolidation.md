@@ -2859,3 +2859,24 @@ latency `1.743 ms` with p95 `2.071 ms`. The paired hot-path report processed
 `524288` tokens at `5916.223 tokens/sec`, p95 tick `21.992 ms`, bounded
 `12/65536` route rows, no observed contention, and zero graph/native/sequence
 failures.
+## Source-Window Comparator Removal
+
+Complementary learning systems, continual replay, synaptic tagging/capture,
+latent replay, sparse replay, and modern Hopfield-style associative recall all
+point to selected local windows rather than preserving full-source replay
+comparators beside the active path. MARULHO now applies that rule to the
+benchmark layer for hot-bucket source construction, selected-window SFA
+sampling, and awake-ripple tagging.
+
+The maintained-only reports
+`..\..\MARULHO_reports\bounded_replay_window_20260624\bucket-candidate-source-window-comparator-removed.json`,
+`sfa-sample-comparator-removed.json`, and
+`awake-ripple-comparator-removed.json` pass newest-candidate hit rate `1.0`,
+selected-window SFA purity `1.0`, and awake-ripple `0` scalar/vector scans over
+`256` wake-bucket scans. The paired long run
+`..\..\MARULHO_reports\bounded_replay_window_20260624\hotpath-active-pressure-65536-524288-i32-source-window-comparators-removed-default-nosample.json`
+kept throughput in band at `6580.539 tokens/sec` with bounded `12/65536` route
+rows, cached `65526` transition rows, no observed contention, flat RTX memory
+`1875 MiB`, and zero graph/native sequence failures. This keeps replay
+metabolism, SFA correction, and ripple tagging as selected source-window
+operators instead of retaining full-memory benchmark side paths.

@@ -64,6 +64,7 @@ related_benchmarks: []
 - [Snn Language Thought Surface Production Naming](snn-language-thought-surface-production-naming.md)
 - [Source Bank Per Probe Query Recall](source-bank-per-probe-query-recall.md)
 - [Source Tick Sleep Replay Fallback](source-tick-sleep-replay-fallback.md)
+- [Source Window Benchmark Legacy Comparators](source-window-benchmark-legacy-comparators.md)
 - [Standalone Candidate Predictive Writeback](standalone-candidate-predictive-writeback.md)
 - [Status Applied Synapse Provenance Broad Key Scan](status-applied-synapse-provenance-broad-key-scan.md)
 - [Status Transition Memory Broad Projection](status-transition-memory-broad-projection.md)
