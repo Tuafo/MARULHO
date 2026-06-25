@@ -2135,6 +2135,10 @@ one bounded controller-owned source window. `ReplayController` slices persisted
 replay histories, permits, evaluation contexts, review tickets, scheduler
 installations, and transition-memory replay artifacts to their retention
 budgets before normalization, index rebuild, or evaluated-artifact validation.
+`RuntimePersistence` now restores those records through `ReplayController`
+owner properties instead of manager/BrainRuntime `_snn_*` queue aliases, and
+`BrainRuntime` snapshots replay/action state by reading `ReplayController` and
+`ActionExecutor` directly.
 That makes restore/reload a slow-path CPU metadata boundary rather than a
 full-retained replay-history materializer.
 

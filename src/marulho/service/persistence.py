@@ -34,7 +34,6 @@ _SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
 
 
 _FORWARDED_STATE_NAMES = frozenset({
-    "_action_history",
     "_action_root",
     "_brain_config",
     "_brain_runtime",
@@ -57,13 +56,6 @@ _FORWARDED_STATE_NAMES = frozenset({
     "_geometric_curiosity",
     "_interaction_pipeline",
     "_metadata",
-    "_replay_regeneration_permits",
-    "_snn_replay_evaluation_contexts",
-    "_snn_replay_artifact_recording_review_tickets",
-    "_snn_sleep_plasticity_review_tickets",
-    "_snn_sleep_plasticity_scheduler_design_review_tickets",
-    "_snn_sleep_plasticity_review_scheduler_installations",
-    "_snn_transition_memory_replay_artifacts",
     "_runtime_config",
     "_runtime_env",
     "_runtime_state",
@@ -76,7 +68,9 @@ _FORWARDED_STATE_NAMES = frozenset({
 
 @dataclass(frozen=True)
 class RuntimePersistenceDependencies:
+    action_executor: Callable[[], Any]
     get_state: Callable[[str], Any]
+    replay_controller: Callable[[], Any]
     set_state: Callable[[str, Any], None]
     brain_persisted_state: Callable[[], Mapping[str, Any]]
     brain_runtime_snapshot: Callable[..., Mapping[str, Any]]
@@ -680,24 +674,31 @@ class RuntimePersistence:
             terminus_state.get("background_source_utility")
         )
         self._brain_last_error = None
-        self._action_history = list(terminus_state.get("action_history") or [])
-        self._replay_regeneration_permits = terminus_state.get("replay_regeneration_permits") or []
-        self._snn_replay_evaluation_contexts = (
+        self._dependencies.action_executor().history = list(
+            terminus_state.get("action_history") or []
+        )
+        replay_controller = self._dependencies.replay_controller()
+        replay_controller.regeneration_permits = (
+            terminus_state.get("replay_regeneration_permits") or []
+        )
+        replay_controller.snn_replay_evaluation_contexts = (
             terminus_state.get("snn_replay_evaluation_contexts") or []
         )
-        self._snn_replay_artifact_recording_review_tickets = (
+        replay_controller.snn_replay_artifact_recording_review_tickets = (
             terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
         )
-        self._snn_sleep_plasticity_review_tickets = (
+        replay_controller.snn_sleep_plasticity_review_tickets = (
             terminus_state.get("snn_sleep_plasticity_review_tickets") or []
         )
-        self._snn_sleep_plasticity_scheduler_design_review_tickets = (
-            terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets") or []
+        replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets = (
+            terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets")
+            or []
         )
-        self._snn_sleep_plasticity_review_scheduler_installations = (
-            terminus_state.get("snn_sleep_plasticity_review_scheduler_installations") or []
+        replay_controller.snn_sleep_plasticity_review_scheduler_installations = (
+            terminus_state.get("snn_sleep_plasticity_review_scheduler_installations")
+            or []
         )
-        self._snn_transition_memory_replay_artifacts = (
+        replay_controller.snn_transition_memory_replay_artifacts = (
             terminus_state.get("snn_transition_memory_replay_artifacts") or []
         )
         self._delayed_consequence_records = deque(

@@ -550,9 +550,10 @@ class RuntimeEvidenceReporter:
         for episode in trace_window:
             if isinstance(episode, Mapping):
                 targets.append(("runtime_episode", str(episode.get("episode_id", "") or ""), episode.get("feedback", [])))
+        action_history = self._action_executor.history
         action_limit = max(1, int(DEFAULT_RUNTIME_FEEDBACK_HISTORY))
         action_window_count = 0
-        for action in islice(self._action_history, action_limit):
+        for action in islice(action_history, action_limit):
             action_window_count += 1
             if isinstance(action, Mapping):
                 targets.append(("action", str(action.get("action_id", "") or ""), action.get("feedback", [])))
@@ -569,8 +570,8 @@ class RuntimeEvidenceReporter:
             "runtime_episode_trace_source_window": trace_source_window,
             "action_history_window_limit": int(action_limit),
             "action_history_window_count": int(action_window_count),
-            "action_history_record_count": int(len(self._action_history)),
-            "action_history_payload_truncated": bool(len(self._action_history) > action_window_count),
+            "action_history_record_count": int(len(action_history)),
+            "action_history_payload_truncated": bool(len(action_history) > action_window_count),
             "global_candidate_scan": False,
             "global_score_scan": False,
             "raw_replay_text_payload_loaded": False,

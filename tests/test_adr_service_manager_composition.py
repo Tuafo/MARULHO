@@ -340,6 +340,7 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         forbidden = (
             "ExplicitOwnerModule",
             "install_owner_forwarders(BrainRuntime",
+            "_install_dependency_alias_property",
             "_bound_module(",
             '"_manager"',
             "'_manager'",
@@ -349,6 +350,43 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             violations,
             "BrainRuntime still uses owner-backed transition helpers: "
             + ", ".join(violations),
+        )
+
+    def test_action_and_replay_state_are_not_manager_aliases(self) -> None:
+        """Action and replay queues must stay owned by their deep modules."""
+        service_paths = (
+            _SERVICE_SRC_ROOT / "brain_runtime.py",
+            _SERVICE_SRC_ROOT / "manager.py",
+            _SERVICE_SRC_ROOT / "persistence.py",
+        )
+        forbidden = (
+            "def _action_history(",
+            "def _replay_regeneration_permits(",
+            "def _snn_replay_evaluation_contexts(",
+            "def _snn_replay_artifact_recording_review_tickets(",
+            "def _snn_sleep_plasticity_review_tickets(",
+            "def _snn_sleep_plasticity_scheduler_design_review_tickets(",
+            "def _snn_sleep_plasticity_review_scheduler_installations(",
+            "def _snn_transition_memory_replay_artifacts(",
+            '"_action_history",',
+            '"_replay_regeneration_permits",',
+            '"_snn_replay_evaluation_contexts",',
+            '"_snn_replay_artifact_recording_review_tickets",',
+            '"_snn_sleep_plasticity_review_tickets",',
+            '"_snn_sleep_plasticity_scheduler_design_review_tickets",',
+            '"_snn_sleep_plasticity_review_scheduler_installations",',
+            '"_snn_transition_memory_replay_artifacts",',
+        )
+        violations: list[str] = []
+        for path in service_paths:
+            text = path.read_text(encoding="utf-8")
+            for fragment in forbidden:
+                if fragment in text:
+                    violations.append(f"{path.relative_to(_REPO_ROOT)} contains {fragment}")
+        self.assertFalse(
+            violations,
+            "Action/replay state still has manager or BrainRuntime aliases:\n"
+            + "\n".join(violations),
         )
 
     def test_manager_constructs_deep_modules(self) -> None:

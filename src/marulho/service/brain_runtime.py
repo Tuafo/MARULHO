@@ -1822,6 +1822,8 @@ class BrainRuntime:
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
         runtime_state_snapshot = self._runtime_state.snapshot()
+        action_history = self._deps.action_executor().history
+        replay_controller = self._deps.replay_controller()
         return {
             "source_bank": deepcopy(self._brain_config.get("source_bank", [])),
             "tick_tokens": int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)),
@@ -1852,28 +1854,41 @@ class BrainRuntime:
             "delayed_consequence_split_total": int(self._delayed_consequence_split_total),
             "delayed_consequence_remerged_total": int(self._delayed_consequence_remerged_total),
             "recent_query_gaps": self._interaction_pipeline.recent_query_gaps(),
-            "action_history": [deepcopy(item) for item in list(self._action_history)],
+            "action_history": [deepcopy(item) for item in list(action_history)],
             "runtime_episode_traces": self._interaction_pipeline.runtime_episode_traces(),
-            "replay_regeneration_permits": [deepcopy(item) for item in list(self._replay_regeneration_permits)],
+            "replay_regeneration_permits": [
+                deepcopy(item)
+                for item in list(replay_controller.regeneration_permits)
+            ],
             "snn_replay_evaluation_contexts": [
-                deepcopy(item) for item in list(self._snn_replay_evaluation_contexts)
+                deepcopy(item)
+                for item in list(replay_controller.snn_replay_evaluation_contexts)
             ],
             "snn_replay_artifact_recording_review_tickets": [
-                deepcopy(item) for item in list(self._snn_replay_artifact_recording_review_tickets)
+                deepcopy(item)
+                for item in list(
+                    replay_controller.snn_replay_artifact_recording_review_tickets
+                )
             ],
             "snn_sleep_plasticity_review_tickets": [
-                deepcopy(item) for item in list(self._snn_sleep_plasticity_review_tickets)
+                deepcopy(item)
+                for item in list(replay_controller.snn_sleep_plasticity_review_tickets)
             ],
             "snn_sleep_plasticity_scheduler_design_review_tickets": [
                 deepcopy(item)
-                for item in list(self._snn_sleep_plasticity_scheduler_design_review_tickets)
+                for item in list(
+                    replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets
+                )
             ],
             "snn_sleep_plasticity_review_scheduler_installations": [
                 deepcopy(item)
-                for item in list(self._snn_sleep_plasticity_review_scheduler_installations)
+                for item in list(
+                    replay_controller.snn_sleep_plasticity_review_scheduler_installations
+                )
             ],
             "snn_transition_memory_replay_artifacts": [
-                deepcopy(item) for item in list(self._snn_transition_memory_replay_artifacts)
+                deepcopy(item)
+                for item in list(replay_controller.snn_transition_memory_replay_artifacts)
             ],
             "last_event": runtime_state_snapshot["last_event"],
             "recent_events": runtime_state_snapshot["recent_events"],
@@ -1900,20 +1915,6 @@ def _install_dependency_object_property(name: str, provider_name: str) -> None:
         return getattr(self._deps, provider_name)()
 
     setattr(BrainRuntime, name, property(_get))
-
-
-def _install_dependency_alias_property(name: str, provider_name: str, target_name: str) -> None:
-    def _provider(self: BrainRuntime) -> Any:
-        provider = getattr(self._deps, provider_name)
-        return provider()
-
-    def _get(self: BrainRuntime) -> Any:
-        return getattr(_provider(self), target_name)
-
-    def _set(self: BrainRuntime, value: Any) -> None:
-        setattr(_provider(self), target_name, value)
-
-    setattr(BrainRuntime, name, property(_get, _set))
 
 
 for _name in (
@@ -1992,39 +1993,7 @@ for _name in (
 _install_dependency_object_property("_autonomy_planner", "autonomy_planner")
 _install_dependency_object_property("_brain_config", "brain_config")
 _install_dependency_object_property("_interaction_pipeline", "interaction_pipeline")
-_install_dependency_alias_property("_action_history", "action_executor", "history")
 _install_dependency_property("_action_loop_summary_locked", "action_executor")
-_install_dependency_alias_property("_replay_regeneration_permits", "replay_controller", "regeneration_permits")
-_install_dependency_alias_property(
-    "_snn_replay_evaluation_contexts",
-    "replay_controller",
-    "snn_replay_evaluation_contexts",
-)
-_install_dependency_alias_property(
-    "_snn_replay_artifact_recording_review_tickets",
-    "replay_controller",
-    "snn_replay_artifact_recording_review_tickets",
-)
-_install_dependency_alias_property(
-    "_snn_sleep_plasticity_review_tickets",
-    "replay_controller",
-    "snn_sleep_plasticity_review_tickets",
-)
-_install_dependency_alias_property(
-    "_snn_sleep_plasticity_scheduler_design_review_tickets",
-    "replay_controller",
-    "snn_sleep_plasticity_scheduler_design_review_tickets",
-)
-_install_dependency_alias_property(
-    "_snn_sleep_plasticity_review_scheduler_installations",
-    "replay_controller",
-    "snn_sleep_plasticity_review_scheduler_installations",
-)
-_install_dependency_alias_property(
-    "_snn_transition_memory_replay_artifacts",
-    "replay_controller",
-    "snn_transition_memory_replay_artifacts",
-)
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable
 from copy import deepcopy
 from threading import RLock
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 import unittest
 
 from marulho.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
@@ -37,6 +38,12 @@ def _tick_event(timestamp: str = _SNAPSHOT_TIMESTAMP) -> dict[str, str]:
         "type": "tick",
         "timestamp": timestamp,
     }
+
+
+def _queue(value: object) -> deque[dict[str, object]]:
+    if value is None:
+        return deque()
+    return deque(cast(Iterable[dict[str, object]], value))
 
 
 class _FakeRuntimeState:
@@ -133,6 +140,9 @@ class _BrainRuntimeFixtureBase:
         self._replay_regeneration_permits: deque[dict[str, object]] = deque()
         self._snn_replay_evaluation_contexts: deque[dict[str, object]] = deque()
         self._snn_replay_artifact_recording_review_tickets: deque[dict[str, object]] = deque()
+        self._snn_sleep_plasticity_review_tickets: deque[dict[str, object]] = deque()
+        self._snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, object]] = deque()
+        self._snn_sleep_plasticity_review_scheduler_installations: deque[dict[str, object]] = deque()
         self._snn_transition_memory_replay_artifacts: deque[dict[str, object]] = deque()
         self._brain_events: list[dict[str, object]] = []
         self._delayed_maintenance_calls: dict[str, int] = {
@@ -141,6 +151,32 @@ class _BrainRuntimeFixtureBase:
             "compact": 0,
             "cool": 0,
         }
+        self._ingestion_configured_at = None
+        self._ingestion_configured_perf = None
+        self._ingestion_prewarm_started_at = None
+        self._ingestion_prewarm_started_perf = None
+        self._ingestion_prewarm_completed_at = None
+        self._ingestion_prewarm_last_duration_ms = None
+        self._ingestion_prewarm_last_error = None
+        self._ingestion_prewarm_run_count = 0
+        self._ingestion_prewarm_last_trigger = None
+        self._ingestion_prewarm_budget_exhausted = False
+        self._ingestion_prewarm_running = False
+        self._ingestion_prewarm_thread = None
+        self._ingestion_prewarm_stop_event = None
+        self._ingestion_warm_ready_at = None
+        self._ingestion_startup_warm_latency_ms = None
+        self._remote_warm_promotion_thread = None
+        self._remote_warm_promotion_stop_event = None
+        self._remote_warm_promotion_running = False
+        self._remote_warm_promotion_last_trigger = None
+        self._sensory_configured_at = None
+        self._sensory_configured_perf = None
+        self._sensory_prewarm_budget_exhausted = False
+        self._sensory_warm_ready_at = None
+        self._sensory_startup_warm_latency_ms = None
+        self._brain_stream_epoch = 0
+        self._sensory_stream_epoch = 0
 
     def _initialize_runtime_state(self) -> None:
         self._brain_source_index = 0
@@ -168,32 +204,70 @@ class _BrainRuntimeFixtureBase:
         self._real_sensory_episodes_completed = 0
         self._real_visual_accepted = 0
         self._real_audio_accepted = 0
-        self._ingestion_configured_at = None
-        self._ingestion_configured_perf = None
-        self._ingestion_prewarm_started_at = None
-        self._ingestion_prewarm_started_perf = None
-        self._ingestion_prewarm_completed_at = None
-        self._ingestion_prewarm_last_duration_ms = None
-        self._ingestion_prewarm_last_error = None
-        self._ingestion_prewarm_run_count = 0
-        self._ingestion_prewarm_last_trigger = None
-        self._ingestion_prewarm_budget_exhausted = False
-        self._ingestion_prewarm_running = False
-        self._ingestion_prewarm_thread = None
-        self._ingestion_prewarm_stop_event = None
-        self._ingestion_warm_ready_at = None
-        self._ingestion_startup_warm_latency_ms = None
-        self._remote_warm_promotion_thread = None
-        self._remote_warm_promotion_stop_event = None
-        self._remote_warm_promotion_running = False
-        self._remote_warm_promotion_last_trigger = None
-        self._sensory_configured_at = None
-        self._sensory_configured_perf = None
-        self._sensory_prewarm_budget_exhausted = False
-        self._sensory_warm_ready_at = None
-        self._sensory_startup_warm_latency_ms = None
-        self._brain_stream_epoch = 0
-        self._sensory_stream_epoch = 0
+
+    @property
+    def history(self) -> deque[dict[str, object]]:
+        return self._action_history
+
+    @history.setter
+    def history(self, value: object) -> None:
+        self._action_history = _queue(value)
+
+    @property
+    def regeneration_permits(self) -> deque[dict[str, object]]:
+        return self._replay_regeneration_permits
+
+    @regeneration_permits.setter
+    def regeneration_permits(self, value: object) -> None:
+        self._replay_regeneration_permits = _queue(value)
+
+    @property
+    def snn_replay_evaluation_contexts(self) -> deque[dict[str, object]]:
+        return self._snn_replay_evaluation_contexts
+
+    @snn_replay_evaluation_contexts.setter
+    def snn_replay_evaluation_contexts(self, value: object) -> None:
+        self._snn_replay_evaluation_contexts = _queue(value)
+
+    @property
+    def snn_replay_artifact_recording_review_tickets(self) -> deque[dict[str, object]]:
+        return self._snn_replay_artifact_recording_review_tickets
+
+    @snn_replay_artifact_recording_review_tickets.setter
+    def snn_replay_artifact_recording_review_tickets(self, value: object) -> None:
+        self._snn_replay_artifact_recording_review_tickets = _queue(value)
+
+    @property
+    def snn_sleep_plasticity_review_tickets(self) -> deque[dict[str, object]]:
+        return self._snn_sleep_plasticity_review_tickets
+
+    @snn_sleep_plasticity_review_tickets.setter
+    def snn_sleep_plasticity_review_tickets(self, value: object) -> None:
+        self._snn_sleep_plasticity_review_tickets = _queue(value)
+
+    @property
+    def snn_sleep_plasticity_scheduler_design_review_tickets(self) -> deque[dict[str, object]]:
+        return self._snn_sleep_plasticity_scheduler_design_review_tickets
+
+    @snn_sleep_plasticity_scheduler_design_review_tickets.setter
+    def snn_sleep_plasticity_scheduler_design_review_tickets(self, value: object) -> None:
+        self._snn_sleep_plasticity_scheduler_design_review_tickets = _queue(value)
+
+    @property
+    def snn_sleep_plasticity_review_scheduler_installations(self) -> deque[dict[str, object]]:
+        return self._snn_sleep_plasticity_review_scheduler_installations
+
+    @snn_sleep_plasticity_review_scheduler_installations.setter
+    def snn_sleep_plasticity_review_scheduler_installations(self, value: object) -> None:
+        self._snn_sleep_plasticity_review_scheduler_installations = _queue(value)
+
+    @property
+    def snn_transition_memory_replay_artifacts(self) -> deque[dict[str, object]]:
+        return self._snn_transition_memory_replay_artifacts
+
+    @snn_transition_memory_replay_artifacts.setter
+    def snn_transition_memory_replay_artifacts(self, value: object) -> None:
+        self._snn_transition_memory_replay_artifacts = _queue(value)
 
     def _background_focus_terms_locked(self, *, focus_plan: Any = None) -> list[str]:
         return ["cats", "mice"]

@@ -39,6 +39,22 @@ class _FakeTrainer:
     token_count = 17
 
 
+class _FakeActionExecutor:
+    def __init__(self) -> None:
+        self.history: deque[dict[str, object]] = deque(maxlen=24)
+
+
+class _FakeReplayController:
+    def __init__(self) -> None:
+        self.regeneration_permits: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_replay_evaluation_contexts: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_replay_artifact_recording_review_tickets: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_sleep_plasticity_review_tickets: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_sleep_plasticity_review_scheduler_installations: deque[dict[str, object]] = deque(maxlen=64)
+        self.snn_transition_memory_replay_artifacts: deque[dict[str, object]] = deque(maxlen=64)
+
+
 class _ExplodingMapping(dict):
     def __len__(self):  # type: ignore[override]
         raise AssertionError("provenance mapping length was checked")
@@ -99,10 +115,8 @@ class _FakePersistenceManager:
         self._runtime_env = {}
         self._env_root = None
         self._action_root = root
-        self._replay_regeneration_permits = deque(maxlen=64)
-        self._snn_replay_evaluation_contexts = deque(maxlen=64)
-        self._snn_replay_artifact_recording_review_tickets = deque(maxlen=64)
-        self._snn_transition_memory_replay_artifacts = deque(maxlen=64)
+        self._action_executor = _FakeActionExecutor()
+        self._replay_controller = _FakeReplayController()
         self._delayed_consequence_records = deque(maxlen=24)
         self._delayed_consequence_cooled_total = 0
         self._delayed_consequence_retired_total = 0
@@ -115,19 +129,31 @@ class _FakePersistenceManager:
 
     def _brain_persisted_state_locked(self) -> dict[str, object]:
         return {
-            "replay_regeneration_permits": [dict(item) for item in list(self._replay_regeneration_permits)],
+            "action_history": [
+                dict(item) for item in list(self._action_executor.history)
+            ],
+            "replay_regeneration_permits": [
+                dict(item)
+                for item in list(self._replay_controller.regeneration_permits)
+            ],
             "snn_replay_evaluation_contexts": [
-                dict(item) for item in list(self._snn_replay_evaluation_contexts)
+                dict(item)
+                for item in list(self._replay_controller.snn_replay_evaluation_contexts)
             ],
             "snn_replay_artifact_recording_review_tickets": [
-                dict(item) for item in list(self._snn_replay_artifact_recording_review_tickets)
+                dict(item)
+                for item in list(
+                    self._replay_controller.snn_replay_artifact_recording_review_tickets
+                )
             ],
             "snn_transition_memory_replay_artifacts": [
-                dict(item) for item in list(self._snn_transition_memory_replay_artifacts)
+                dict(item)
+                for item in list(
+                    self._replay_controller.snn_transition_memory_replay_artifacts
+                )
             ],
             "last_event": {"type": "brain_event_recorded"},
             "recent_events": [{"type": "brain_event_recorded"}],
-            "action_history": [],
             "runtime_episode_traces": [],
             "delayed_consequence_records": [],
             "delayed_consequence_cooled_total": self._delayed_consequence_cooled_total,
@@ -188,7 +214,9 @@ def _runtime_persistence(
 ) -> RuntimePersistence:
     return RuntimePersistence(
         RuntimePersistenceDependencies(
+            action_executor=lambda: manager._action_executor,
             get_state=lambda name: getattr(manager, name),
+            replay_controller=lambda: manager._replay_controller,
             set_state=lambda name, value: setattr(manager, name, value),
             brain_persisted_state=manager._brain_persisted_state_locked,
             brain_runtime_snapshot=manager._brain_runtime_snapshot_locked,
@@ -365,16 +393,16 @@ class RuntimePersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _FakePersistenceManager(root)
-            manager._replay_regeneration_permits.appendleft(
+            manager._replay_controller.regeneration_permits.appendleft(
                 {"permit_id": "permit-1", "evidence_hash": "hash-1"}
             )
-            manager._snn_replay_evaluation_contexts.appendleft(
+            manager._replay_controller.snn_replay_evaluation_contexts.appendleft(
                 {"replay_evaluation_context_id": "context-1", "evidence_hash": "context-hash-1"}
             )
-            manager._snn_replay_artifact_recording_review_tickets.appendleft(
+            manager._replay_controller.snn_replay_artifact_recording_review_tickets.appendleft(
                 {"review_ticket_id": "ticket-1", "evidence_hash": "ticket-hash-1"}
             )
-            manager._snn_transition_memory_replay_artifacts.appendleft(
+            manager._replay_controller.snn_transition_memory_replay_artifacts.appendleft(
                 {"replay_artifact_id": "artifact-1", "evidence_hash": "artifact-hash-1"}
             )
             persistence = _runtime_persistence(manager, trace_history_limit=2)

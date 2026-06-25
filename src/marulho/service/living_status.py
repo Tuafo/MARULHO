@@ -32,9 +32,10 @@ class LivingStatusCore:
             if isinstance(memory_snapshot, Mapping)
             else {}
         )
+        action_history = self._action_executor.history
         action_records = [
             ActionExecutionRecord.from_payload(item)
-            for item in list(self._action_history)[:8]
+            for item in list(action_history)[:8]
             if isinstance(item, Mapping)
         ]
         consolidation_records = [

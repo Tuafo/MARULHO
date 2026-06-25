@@ -176,7 +176,9 @@ class MarulhoServiceManager:
         )
         self._runtime_persistence = RuntimePersistence(
             RuntimePersistenceDependencies(
+                action_executor=lambda: self._action_executor,
                 get_state=lambda name: object.__getattribute__(self, name),
+                replay_controller=lambda: self._replay_controller,
                 set_state=lambda name, value: setattr(self, name, value),
                 brain_persisted_state=lambda: self._brain_runtime._brain_persisted_state_locked(),
                 brain_runtime_snapshot=self._brain_runtime_snapshot_locked,
@@ -600,88 +602,12 @@ class MarulhoServiceManager:
         self._action_executor.rebind_action_root(self._action_root)
 
     @property
-    def _action_history(self) -> deque[dict[str, Any]]:
-        return self._action_executor.history
-
-    @_action_history.setter
-    def _action_history(self, value: Sequence[Mapping[str, Any]]) -> None:
-        self._action_executor.history = value
-
-    @property
     def _trace_history(self) -> deque[dict[str, Any]]:
         return self._runtime_persistence.trace_history
 
     @_trace_history.setter
     def _trace_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._runtime_persistence.trace_history = value
-
-    @property
-    def _replay_regeneration_permits(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.regeneration_permits
-
-    @_replay_regeneration_permits.setter
-    def _replay_regeneration_permits(self, value: Sequence[Mapping[str, Any]]) -> None:
-        self._replay_controller.regeneration_permits = value
-
-    @property
-    def _snn_replay_evaluation_contexts(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_replay_evaluation_contexts
-
-    @_snn_replay_evaluation_contexts.setter
-    def _snn_replay_evaluation_contexts(self, value: Sequence[Mapping[str, Any]]) -> None:
-        self._replay_controller.snn_replay_evaluation_contexts = value
-
-    @property
-    def _snn_replay_artifact_recording_review_tickets(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_replay_artifact_recording_review_tickets
-
-    @_snn_replay_artifact_recording_review_tickets.setter
-    def _snn_replay_artifact_recording_review_tickets(
-        self,
-        value: Sequence[Mapping[str, Any]],
-    ) -> None:
-        self._replay_controller.snn_replay_artifact_recording_review_tickets = value
-
-    @property
-    def _snn_sleep_plasticity_review_tickets(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_sleep_plasticity_review_tickets
-
-    @_snn_sleep_plasticity_review_tickets.setter
-    def _snn_sleep_plasticity_review_tickets(
-        self,
-        value: Sequence[Mapping[str, Any]],
-    ) -> None:
-        self._replay_controller.snn_sleep_plasticity_review_tickets = value
-
-    @property
-    def _snn_sleep_plasticity_scheduler_design_review_tickets(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets
-
-    @_snn_sleep_plasticity_scheduler_design_review_tickets.setter
-    def _snn_sleep_plasticity_scheduler_design_review_tickets(
-        self,
-        value: Sequence[Mapping[str, Any]],
-    ) -> None:
-        self._replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets = value
-
-    @property
-    def _snn_sleep_plasticity_review_scheduler_installations(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_sleep_plasticity_review_scheduler_installations
-
-    @_snn_sleep_plasticity_review_scheduler_installations.setter
-    def _snn_sleep_plasticity_review_scheduler_installations(
-        self,
-        value: Sequence[Mapping[str, Any]],
-    ) -> None:
-        self._replay_controller.snn_sleep_plasticity_review_scheduler_installations = value
-
-    @property
-    def _snn_transition_memory_replay_artifacts(self) -> deque[dict[str, Any]]:
-        return self._replay_controller.snn_transition_memory_replay_artifacts
-
-    @_snn_transition_memory_replay_artifacts.setter
-    def _snn_transition_memory_replay_artifacts(self, value: Sequence[Mapping[str, Any]]) -> None:
-        self._replay_controller.snn_transition_memory_replay_artifacts = value
 
     @property
     def _brain_recent_query_gaps(self) -> deque[dict[str, Any]]:

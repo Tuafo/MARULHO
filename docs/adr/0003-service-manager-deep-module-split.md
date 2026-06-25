@@ -30,6 +30,7 @@ The accepted implementation goes further than simple mixin extraction:
 - Manager-owned ADR runtime state is moved behind the owning modules. Brain Runtime owns source runtimes, source utility, tick counters, stream epochs, and sensory episode/preview counters. Interaction Pipeline owns query gap history and runtime episode traces. RuntimeState owns mutation truth and brain event history.
 - Public runtime behavior is reached through `RuntimeFacade`; any remaining manager methods are explicit internal dependency callbacks and state bridges, not manager-bound attribute magic, import-time dynamic delegate installation, generic mixin delegate trampolines, or manager-private wrappers around former interaction helper names.
 - Deep modules no longer inherit from `ManagerBoundModule`; the owner-forwarder helper has been removed. RuntimeController and AutonomyPlanner use explicit dependency adapters, and the remaining service modules that previously used owner forwarders now receive explicit dependency objects or constructor callbacks. Module-level `*Mixin = ...` compatibility aliases have been removed. StatusReadModel owns the sensory preview projection directly.
+- Action and replay state no longer survive as manager or BrainRuntime underscore aliases. Runtime snapshots read `ActionExecutor` and `ReplayController` directly, and checkpoint restore writes through those owners instead of forwarding `_action_history` or `_snn_*` replay queues through the composition root.
 
 ### Module inventory
 
@@ -56,7 +57,8 @@ The accepted implementation goes further than simple mixin extraction:
 2. **Writer owns state.** The module that mutates a piece of state owns it. Other modules access it through the owner's read methods. Key ownership assignments:
  - `brain_source_utility` → BrainRuntime (mutated by DelayedConsequence via `brain_runtime.update_source_utility()`)
  - `brain_recent_query_gaps` → InteractionPipeline (read by Autonomy and SourceFocus via `interaction.recent_query_gaps()`)
- - `action_history` → ActionExecutor (read by 8+ modules via `action_executor.action_history()` and `action_executor.recent_relevant_actions()`)
+ - `action_history` → ActionExecutor (read by 8+ modules via `action_executor.history`, `action_executor.action_history()`, and `action_executor.recent_relevant_actions()`)
+ - replay permits/contexts/tickets/artifacts → ReplayController (checkpoint restore and BrainRuntime snapshots use ReplayController properties, not manager-owned queue aliases)
 3. **Shared RLock.** Each module receives the RLock as a constructor parameter. No module owns the lock. This avoids deadlock while preserving the current thread-safety model (brain thread + FastAPI handlers).
 4. **Direct references between modules.** Modules hold references to each other through injected dependencies or explicit dependency adapters. No event bus, no manager orchestration. The dependency graph must stay visible in code.
 5. **RuntimeState for cross-cutting concerns.** A tiny module owns `dirty_state`, `state_revision`, and the brain event log. Modules call `runtime_state.mark_mutated()` and `runtime_state.record_event()` instead of depending on the Service Manager's internals.
