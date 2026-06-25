@@ -350,7 +350,6 @@ class BindingLayer:
             "pv_inhibition": self.pv_inhibition.detach().clone().cpu(),
             "connectivity": self.connectivity.detach().clone().cpu(),
             "output_weights": self.output_weights.detach().clone().cpu(),
-            "coincidence_weights": self.output_weights.detach().clone().cpu(),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:
@@ -359,13 +358,8 @@ class BindingLayer:
             self.connectivity = connectivity.to(self.device)
             self.n_bindings = int(self.connectivity.shape[0])
         else:
-            legacy_weights = snapshot.get("coincidence_weights")
-            if isinstance(legacy_weights, torch.Tensor):
-                self.connectivity = torch.eye(self.n_columns, device=self.device)
-                self.n_bindings = self.n_columns
-            else:
-                self.connectivity = self._initial_connectivity()
-                self.n_bindings = int(self.connectivity.shape[0])
+            self.connectivity = self._initial_connectivity()
+            self.n_bindings = int(self.connectivity.shape[0])
         self.fan_in = int(snapshot.get("fan_in", self.fan_in))
 
         defaults = {
@@ -380,10 +374,6 @@ class BindingLayer:
         stored_output = snapshot.get("output_weights")
         if isinstance(stored_output, torch.Tensor):
             self.output_weights = _row_normalize(torch.clamp(stored_output.to(self.device), min=1e-6))
-        else:
-            legacy_weights = snapshot.get("coincidence_weights")
-            if isinstance(legacy_weights, torch.Tensor):
-                self.output_weights = _row_normalize(torch.clamp(legacy_weights.to(self.device), min=1e-6))
 
         for attr in (
             "binding_state",

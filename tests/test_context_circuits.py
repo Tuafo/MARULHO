@@ -154,6 +154,41 @@ class BindingCircuitTests(unittest.TestCase):
         self.assertEqual(report["connectivity_device"], str(layer.connectivity.device))
         self.assertEqual(report["output_weights_device"], str(layer.output_weights.device))
 
+    def test_binding_state_dict_uses_current_dense_checkpoint_schema(self) -> None:
+        layer = BindingLayer(
+            n_columns=4,
+            n_bindings=8,
+            fan_in=2,
+            device=torch.device("cpu"),
+        )
+
+        snapshot = layer.state_dict()
+
+        self.assertNotIn("coincidence_weights", snapshot)
+        self.assertIn("connectivity", snapshot)
+        self.assertIn("output_weights", snapshot)
+
+    def test_binding_load_without_connectivity_uses_current_initialization(self) -> None:
+        torch.manual_seed(9)
+        layer = BindingLayer(
+            n_columns=4,
+            n_bindings=8,
+            fan_in=2,
+            device=torch.device("cpu"),
+        )
+        retired_alias = torch.eye(4)
+
+        layer.load_state_dict(
+            {
+                "fan_in": 2,
+                "coincidence_weights": retired_alias,
+            }
+        )
+
+        self.assertEqual(layer.n_bindings, 8)
+        self.assertEqual(tuple(layer.connectivity.shape), (8, 4))
+        self.assertNotIn("coincidence_weights", layer.state_dict())
+
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_binding_cuda_device_report_exposes_live_tensor_devices(self) -> None:
         layer = BindingLayer(
@@ -275,6 +310,33 @@ class ContextCheckpointTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(before_context, after_context, atol=1e-5))
         self.assertTrue(torch.allclose(before_binding.cpu(), after_binding, atol=1e-5))
+
+    def test_dense_binding_checkpoint_uses_current_schema(self) -> None:
+        cfg = MarulhoConfig(
+            n_columns=4,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            eta_competitive=0.05,
+            eta_decay=0.0,
+            input_weight_blend=0.0,
+            enable_context_layer=True,
+            enable_binding_layer=True,
+            binding_mode="dense",
+        )
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_path = save_trainer_checkpoint(
+                Path(tmpdir) / "dense-binding.pt",
+                trainer,
+            )
+            payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            binding_snapshot = payload["model"]["binding_layer"]
+
+        self.assertNotIn("coincidence_weights", binding_snapshot)
+        self.assertIn("connectivity", binding_snapshot)
+        self.assertIn("output_weights", binding_snapshot)
 
 
 if __name__ == "__main__":
