@@ -1517,8 +1517,7 @@ callable instead of keeping it as dead code. `SNNLanguageReadoutEvidenceLedger`
 no longer exposes `_normalized_state()`, and the normalization policy string is
 owned by benchmark-local retired comparisons only. The report
 `reports/bounded_replay_window_20260620/snn-readout-ledger-normalization-production-normalizer-retired.json`
-marks the all-family comparison `production_callable=false` and
-`benchmark_local_only=true`, passes all quality checks, keeps bounded
+keeps the all-family comparison outside production, passes all quality checks, keeps bounded
 all-family comparison at `2944` rows versus `47104` for the full-materialized
 legacy model (`16x`), preserves newest-first retention, and uses `0.0 MiB`
 CUDA allocation/reservation with CPU archival/normalization placement. The

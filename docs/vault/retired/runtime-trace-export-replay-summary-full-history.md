@@ -57,6 +57,6 @@ memory at `1911 MiB`, and zero graph/native sequence failures.
 
 ## Revisit Condition
 
-Only as a benchmark-local diagnostic with explicit source-size accounting, or
+Only as an external/offline diagnostic with explicit source-size accounting, or
 if a stronger indexed export/summary path improves operator evidence while
 preserving source-window reports and long-run hot-path throughput.

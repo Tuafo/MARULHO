@@ -1623,13 +1623,14 @@ rather than the primary throughput gate.
 The 2026-06-20 cleanup removes the production all-family normalizer callable
 instead of retaining it as dead code. `SNNLanguageReadoutEvidenceLedger` no
 longer exposes `_normalized_state()`; all-family normalization is now only a
-benchmark-local retired comparison. The focused benchmark was:
+historical external/offline comparison report. Current repo-local benchmark
+code asserts maintained bounded source windows and retired-comparator absence.
+The focused benchmark was:
 
 `python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-normalization-production-normalizer-retired.json`
 
-It passed all checks, marked the comparison `production_callable=false` and
-`benchmark_local_only=true`, kept bounded all-family source work to `2944` rows
-instead of the full-materialized legacy model's `47104` rows (`16x`), preserved
+It passed all checks, kept bounded all-family source work to `2944` rows instead
+of the full-materialized legacy model's `47104` rows (`16x`), preserved
 newest-first retention, and reduced mean normalization latency from
 `5807.281164 ms` to `379.736352 ms`. The autonomous chain boundary preserved
 hash/review/count/current-pointer parity while checking `4352` target-family
@@ -2400,7 +2401,7 @@ Quality and latency report:
 
 It passed with `2048` retained sparse weights and `2048` retained provenance
 rows. The bounded production audit read `64` source rows while the
-benchmark-local diagnostic full scan touched `4096` records and materialized
+historical external/offline diagnostic full scan touched `4096` records and materialized
 `2048` audit rows (`32x` less source work by the benchmark's comparison
 metric). Selected source keys matched the diagnostic first source window,
 requested ledger hashes were capped at `64`, truncated source windows blocked

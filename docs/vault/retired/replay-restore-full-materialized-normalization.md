@@ -51,7 +51,7 @@ stayed in band at `5945.577 tokens/sec`, p95 tick `22.062 ms`,
 `65526` transition rows, no observed contention, CPU max `30%`, GPU max `13%`,
 RTX memory `2061->2062 MiB`, and zero graph/native sequence failures.
 
-Reopen only as benchmark-local diagnostics or if a new checkpoint format
+Reopen only as external/offline diagnostics or if a new checkpoint format
 provides an indexed restore contract that proves stronger replay quality
 without archive-wide restore-time materialization and without weakening live
 tick throughput.

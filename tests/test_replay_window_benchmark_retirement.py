@@ -267,6 +267,34 @@ def test_bounded_replay_window_benchmarks_do_not_keep_retired_baselines() -> Non
             assert fragment not in source
 
 
+def test_retired_path_docs_do_not_reopen_repo_local_legacy_diagnostics() -> None:
+    doc_paths = [
+        ROOT / "docs/retired-paths.md",
+        ROOT / "docs/research-living-brain.md",
+        ROOT / "docs/vault/concepts/column-runtime.md",
+        ROOT / "docs/vault/benchmarks/replay-cost.md",
+        ROOT / "docs/vault/benchmarks/hot-path-latency.md",
+        ROOT / "docs/vault/papers/replay-consolidation.md",
+        ROOT / "docs/vault/retired/raw-caller-window-replay-artifact-recording.md",
+        ROOT / "docs/vault/retired/replay-restore-full-materialized-normalization.md",
+        ROOT / "docs/vault/retired/runtime-trace-export-replay-summary-full-history.md",
+        ROOT / "docs/vault/retired/sleep-replay-routing-index-full-rebuild.md",
+    ]
+    forbidden_fragments = [
+        "benchmark-local diagnostics",
+        "benchmark-local diagnostic",
+        "benchmark-local diagnostic evidence",
+        "benchmark-local compatibility fixtures",
+        "benchmark-local retired evidence",
+        "benchmark_local_only=true",
+        "production_callable=false",
+    ]
+    for path in doc_paths:
+        source = path.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            assert fragment not in source
+
+
 def test_snn_replay_priority_benchmark_reports_maintained_only_path() -> None:
     report = run_snn_replay_priority_benchmark(
         argparse.Namespace(retention_count=64, limit=4, runs=2, output=None)

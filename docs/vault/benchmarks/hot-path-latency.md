@@ -5339,9 +5339,9 @@ Focused quality and latency benchmark:
 
 `python -m marulho.evaluation.snn_readout_ledger_normalization_source_window_benchmark --retention-count 2048 --ledger-limit 128 --runs 25 --output reports\bounded_replay_window_20260620\snn-readout-ledger-normalization-production-normalizer-retired.json`
 
-Result: `pass=true`; the report marks the all-family comparison
-`production_callable=false` and `benchmark_local_only=true`. The benchmark-local
-bounded all-family model read `2944` rows instead of the full-materialized
+Result: `pass=true`; the historical external/offline report kept the all-family
+comparison outside production. The bounded all-family model read `2944` rows
+instead of the full-materialized
 legacy model's `47104` rows (`16x` less source work), preserved newest-first
 retention (`1.0` versus `0.0`), and reduced mean normalization latency from
 `5807.281164 ms` to `379.736352 ms`. The autonomous chain boundary preserved
@@ -5442,7 +5442,7 @@ Quality and latency report:
 Result: `pass=true`; selected source keys matched the diagnostic first source
 window; requested ledger hashes were capped at `64`; truncated source windows
 blocked exact review. The bounded audit read `64` source rows instead of the
-benchmark-local diagnostic full materializer's `4096` records and `2048`
+historical external/offline diagnostic full materializer's `4096` records and `2048`
 materialized rows (`32x` less source work by the report metric). Mean latency
 was `75.262088 ms` versus `259.221928 ms`, traced Python peak allocation was
 `1.909667 MiB`, CUDA was available but unused for production audit work, and

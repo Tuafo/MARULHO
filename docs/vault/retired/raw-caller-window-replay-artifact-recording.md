@@ -62,7 +62,7 @@ speed ceiling.
 ## Revisit Only If
 
 Reintroduce caller-window artifact recording only through a new ADR and
-benchmark-local diagnostic isolation. Production replay artifacts must remain
+external/offline diagnostic isolation. Production replay artifacts must remain
 evaluated, internal-ledger-backed, source-window-hashed, CPU-archival, non-live,
 non-every-token, no raw text, no hidden language reasoning, and protected by
 repeated 6k-ish long-run evidence.

@@ -262,9 +262,9 @@ summaries and persistence copies from becoming archive scans.
 
 The 2026-06-20 cleanup removes the production all-family normalizer callable
 entirely. `SNNLanguageReadoutEvidenceLedger` no longer exposes
-`_normalized_state()`; all-family normalization remains only in benchmark-local
-retired comparisons that report `production_callable=false` and
-`benchmark_local_only=true`. The replacement is one path per source window:
+`_normalized_state()`; historical all-family comparison reports remain
+external/offline evidence while repo-local active benchmarks assert maintained
+bounded source windows and retired-comparator absence. The replacement is one path per source window:
 snapshot display, record-family append/review, known-hash lookup, dense-label
 calibration/evaluation, emission history, and checkpoint-style store copies all
 keep explicit source budgets. The benchmark
