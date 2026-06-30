@@ -88,7 +88,7 @@ CUDA claims require observed backend/device/failure-counter evidence, not config
 
 ## Current Validation
 
-Latest local validation snapshot, 2026-06-30:
+Latest local validation snapshot, 2026-06-30 on a RTX3060:
 
 - `python -m compileall -q src tests`: passed.
 - `python -m pytest`: `1625 passed`, `1 warning`.
