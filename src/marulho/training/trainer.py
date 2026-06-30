@@ -2955,9 +2955,15 @@ class MarulhoTrainer:
             "mean_best_distance": None,
             "mean_best_input_distance": None,
             "mean_recalled_distance": None,
+            "mean_recalled_input_pattern_distance": None,
             "exact_input_recall_count": 0,
+            "exact_recalled_input_pattern_count": 0,
             "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+            "projection_quality_metric": (
+                "mean_recalled_input_pattern_distance_over_selected_sleep_replay_queries"
+            ),
             "quality_pass": False,
+            "projection_quality_pass": False,
             "query_row_surface": "bounded_replay_recall_row.v1",
             "query_row_reader": "DualMemoryStore.replay_recall_row",
             "query_row_reader_owned_by_store": True,
@@ -2972,11 +2978,13 @@ class MarulhoTrainer:
             "query_prepare_missing_routing_key_count": 0,
             "query_prepare_missing_input_pattern_count": 0,
             "score_device": "cpu",
+            "active_replay_compute_device": "cpu",
             "archival_storage_device": "cpu",
             "device_placement": {
                 "archival_storage_device": "cpu",
                 "source_window_device": "cpu",
                 "score_device": "cpu",
+                "active_replay_compute_device": "cpu",
                 "gpu_used": False,
                 "gpu_resident_archival_metadata": False,
             },
@@ -3125,6 +3133,7 @@ class MarulhoTrainer:
         best_distances: list[float] = []
         best_input_distances: list[float] = []
         recalled_distances: list[float] = []
+        recalled_input_distances: list[float] = []
         for _idx, routing_key, input_pattern in queries:
             recall_report = self.model.memory_store.recall_replay_window(
                 query_routing_key=routing_key,
@@ -3140,6 +3149,10 @@ class MarulhoTrainer:
                 (recall_report.get("best_distance"), best_distances),
                 (recall_report.get("best_input_distance"), best_input_distances),
                 (recall_report.get("recalled_distance"), recalled_distances),
+                (
+                    recall_report.get("recalled_input_pattern_distance"),
+                    recalled_input_distances,
+                ),
             ):
                 if isinstance(value, (float, int)):
                     target.append(float(value))
@@ -3148,8 +3161,12 @@ class MarulhoTrainer:
             return float(sum(values) / len(values)) if values else None
 
         mean_best_input_distance = _mean(best_input_distances)
+        mean_recalled_input_distance = _mean(recalled_input_distances)
         exact_input_recall_count = sum(
             1 for value in best_input_distances if float(value) <= 1e-5
+        )
+        exact_recalled_input_count = sum(
+            1 for value in recalled_input_distances if float(value) <= 1e-5
         )
         all_bucket_scoped = all(
             report.get("candidate_scope") == "bucket_indexed_candidate_window"
@@ -3213,13 +3230,27 @@ class MarulhoTrainer:
             "mean_best_distance": _mean(best_distances),
             "mean_best_input_distance": mean_best_input_distance,
             "mean_recalled_distance": _mean(recalled_distances),
+            "mean_recalled_input_pattern_distance": mean_recalled_input_distance,
             "exact_input_recall_count": int(exact_input_recall_count),
+            "exact_recalled_input_pattern_count": int(exact_recalled_input_count),
             "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+            "projection_quality_metric": (
+                "mean_recalled_input_pattern_distance_over_selected_sleep_replay_queries"
+            ),
             "quality_pass": bool(
                 len(queries) > 0
                 and len(best_input_distances) == len(queries)
+                and len(recalled_input_distances) == len(queries)
                 and mean_best_input_distance is not None
+                and mean_recalled_input_distance is not None
                 and mean_best_input_distance <= 1e-5
+                and mean_recalled_input_distance <= 1e-5
+            ),
+            "projection_quality_pass": bool(
+                len(queries) > 0
+                and len(recalled_input_distances) == len(queries)
+                and mean_recalled_input_distance is not None
+                and mean_recalled_input_distance <= 1e-5
             ),
             "query_row_surface": "bounded_replay_recall_row.v1",
             "query_row_reader": "DualMemoryStore.replay_recall_row",
@@ -3243,11 +3274,13 @@ class MarulhoTrainer:
             "query_prepare_missing_routing_key_count": int(missing_routing_key_count),
             "query_prepare_missing_input_pattern_count": int(missing_input_pattern_count),
             "score_device": "cpu",
+            "active_replay_compute_device": "cpu",
             "archival_storage_device": "cpu",
             "device_placement": {
                 "archival_storage_device": "cpu",
                 "source_window_device": "cpu",
                 "score_device": "cpu",
+                "active_replay_compute_device": "cpu",
                 "gpu_used": False,
                 "gpu_resident_archival_metadata": False,
             },
@@ -3511,11 +3544,20 @@ class MarulhoTrainer:
             "sleep_replay_associative_recall_quality_metric": associative_recall_report.get(
                 "quality_metric"
             ),
+            "sleep_replay_associative_recall_projection_quality_metric": (
+                associative_recall_report.get("projection_quality_metric")
+            ),
             "sleep_replay_associative_recall_quality_pass": bool(
                 associative_recall_report.get("quality_pass", False)
             ),
+            "sleep_replay_associative_recall_projection_quality_pass": bool(
+                associative_recall_report.get("projection_quality_pass", False)
+            ),
             "sleep_replay_associative_recall_mean_best_input_distance": (
                 associative_recall_report.get("mean_best_input_distance")
+            ),
+            "sleep_replay_associative_recall_mean_recalled_input_pattern_distance": (
+                associative_recall_report.get("mean_recalled_input_pattern_distance")
             ),
             "sleep_replay_associative_recall_query_row_surface": (
                 associative_recall_report.get("query_row_surface")

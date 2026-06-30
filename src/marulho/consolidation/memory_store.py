@@ -670,6 +670,7 @@ class DualMemoryStore:
             "mutates_runtime_state": False,
             "applies_plasticity": False,
             "score_device": "cpu",
+            "active_replay_compute_device": "cpu",
             "archival_storage_device": "cpu",
             "candidate_scope": "not_run",
             "selected_indices": [],
@@ -679,6 +680,11 @@ class DualMemoryStore:
             "best_distance": None,
             "best_input_distance": None,
             "recalled_distance": None,
+            "recalled_input_pattern_distance": None,
+            "recalled_input_pattern_similarity": None,
+            "input_attention_entropy": 0.0,
+            "recall_operator": "bounded_hopfield_softmax_cpu",
+            "input_recall_operator": "not_run",
             "fallback_reason": "not_run",
         }
 
@@ -2767,8 +2773,8 @@ class DualMemoryStore:
         """Select a bounded replay window and record the selection evidence.
 
         Candidate bucket ids make selection score only indexed memory entries
-        attached to those buckets. Unscoped full-memory scoring is retired from
-        the runtime API; legacy comparisons live in evaluation harnesses only.
+        attached to those buckets. Unscoped full-memory scoring is not a runtime
+        API path.
         """
 
         started = time.perf_counter()
@@ -2997,9 +3003,15 @@ class DualMemoryStore:
         recalled_distance: float | None = None
         recalled_key_norm = 0.0
         attention_entropy = 0.0
+        key_weight_by_index: dict[int, float] = {}
         best_input_index: int | None = None
         best_input_similarity: float | None = None
         best_input_distance: float | None = None
+        recalled_input_similarity: float | None = None
+        recalled_input_distance: float | None = None
+        recalled_input_norm = 0.0
+        input_attention_entropy = 0.0
+        input_recall_operator = "not_run"
         if not keys:
             fallback_reason = (
                 selection_blocked_reason
@@ -3016,6 +3028,10 @@ class DualMemoryStore:
                 similarities * max(1e-6, float(temperature)),
                 dim=0,
             )
+            key_weight_by_index = {
+                int(key_indices[local_index]): float(weight.item())
+                for local_index, weight in enumerate(weights)
+            }
             recalled = torch.mv(matrix.t(), weights)
             recalled_key_norm = float(recalled.norm().item())
             recalled = recalled.clamp(min=1e-6)
@@ -3033,6 +3049,31 @@ class DualMemoryStore:
             best_input_index = int(input_indices[input_best_local])
             best_input_similarity = float(input_similarities[input_best_local].item())
             best_input_distance = max(0.0, 1.0 - best_input_similarity)
+            raw_input_weights = [
+                float(key_weight_by_index.get(int(index), 0.0))
+                for index in input_indices
+            ]
+            if any(weight > 0.0 for weight in raw_input_weights):
+                input_weights = torch.tensor(
+                    raw_input_weights,
+                    dtype=input_matrix.dtype,
+                )
+                input_weights = input_weights / input_weights.sum().clamp(min=1e-12)
+                recalled_input = torch.mv(input_matrix.t(), input_weights)
+                recalled_input_norm = float(recalled_input.norm().item())
+                recalled_input = recalled_input.clamp(min=1e-6)
+                recalled_input = recalled_input / recalled_input.norm().clamp(min=1e-8)
+                recalled_input_similarity = float(
+                    torch.dot(recalled_input, query_input).item()
+                )
+                recalled_input_distance = max(0.0, 1.0 - recalled_input_similarity)
+                input_attention_entropy = float(
+                    -(
+                        input_weights
+                        * torch.log(input_weights.clamp(min=1e-12))
+                    ).sum().item()
+                )
+                input_recall_operator = "bounded_hopfield_input_projection_cpu"
 
         latency_ms = (time.perf_counter() - started) * 1000.0
         report = {
@@ -3066,8 +3107,14 @@ class DualMemoryStore:
             "recalled_similarity": recalled_similarity,
             "recalled_distance": recalled_distance,
             "recalled_key_norm": recalled_key_norm,
+            "recalled_input_pattern_similarity": recalled_input_similarity,
+            "recalled_input_pattern_distance": recalled_input_distance,
+            "recalled_input_pattern_norm": recalled_input_norm,
             "attention_entropy": attention_entropy,
+            "input_attention_entropy": input_attention_entropy,
             "temperature": float(temperature),
+            "recall_operator": "bounded_hopfield_softmax_cpu",
+            "input_recall_operator": input_recall_operator,
             "selection_report": dict(selection_report),
             "selection_surface": selection_report.get("surface"),
             "selection_read_only": bool(selection_report.get("selection_read_only")),
@@ -3077,6 +3124,7 @@ class DualMemoryStore:
             "selection_score_count": int(selection_report.get("score_count", 0) or 0),
             "stc_state_advance": bool(selection_report.get("stc_state_advance", False)),
             "score_device": "cpu",
+            "active_replay_compute_device": "cpu",
             "archival_storage_device": "cpu",
             "runs_live_tick": False,
             "raw_text_payload_loaded": False,

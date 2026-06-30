@@ -717,6 +717,46 @@ memory was `1688 MiB` before and `1689 MiB` after measurement. Treat the first
 run as a failed/noisy gate and the rerun as the current accepted live-tick
 protection evidence for this slow-window cadence change.
 
+## Bounded Hopfield Input Projection
+
+`DualMemoryStore.recall_replay_window(...)` now reports an actual bounded
+Hopfield-style input projection from selected replay candidates. The recall
+window still scores only the bucket-indexed candidate set, stays CPU-resident,
+does not run live, does not mutate state, and does not load replay text; the new
+quality field is `recalled_input_pattern_distance`, with
+`input_recall_operator=bounded_hopfield_input_projection_cpu`.
+
+Focused replay quality:
+
+`python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --task-boundary-replay-repair-strength-schedule 0.1 --consolidation-replay-repair-strength-schedule 0.1 --no-plots --output-dir ..\..\MARULHO_reports\bounded_replay_window_20260630\hf-bounded-hopfield-input-recall-512-final --checkpoint-out ..\..\MARULHO_reports\bounded_replay_window_20260630\hf-bounded-hopfield-input-recall-512-final\checkpoint.pt`
+
+Result: recall after Task B and after consolidation both passed with `1` query,
+`1` candidate bucket, `mean_input_pattern_distance=0.0`,
+`mean_recalled_input_pattern_distance=0.0`, CPU score/active recall/archive
+placement, `anchor_source_full_scan=false`, `runs_live_tick=false`, and
+`mutates_runtime_state=false`. The guarded slow-window consolidation accepted
+`3` replay updates, improved Task-A reconstruction from `0.0258607082` to
+`0.0246669967`, and kept `memory_consolidation_gate.pass=true`. Checkpoint
+reload preserved `recalled_input_pattern_distance=0.0`,
+`input_recall_operator=bounded_hopfield_input_projection_cpu`,
+`active_replay_compute_device=cpu`, `runs_live_tick=false`, and no config
+migrations.
+
+Hot-path protection:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260630\hotpath-active-pressure-65536-524288-i32-bounded-hopfield-input-recall.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `92.181800 s` at
+`5687.544 tokens/sec`, p95 tick `23.405 ms`,
+`train_compute=0.140331 ms/token`, `prepare_training=0.007717 ms/token`, and
+`finalize_total=0.007422 ms/token`. Runtime Truth kept route scoring at
+`12/65536`, `route_output_candidate_count=10`,
+`state_transition_cached_count=65526`, `state_transition_runs_all_columns=false`,
+and zero graph/native sequence failures. Velocity reported no observed
+contention (`cpu max=34%`, `gpu max=12%`, memory-util max `11%`), and RTX 3060
+memory stayed `1650 MiB`. This protects the live tick; the new recall projection
+remains an explicit slow-window quality operator.
+
 The target-aware replay-strength search follow-up keeps that guard but now
 records the trial budget and budget policy beside the exact schedule. Each
 trial restores from the same model/memory snapshot, measures the same target

@@ -57,6 +57,7 @@ def _bounded_replay_recall_summary(
     reports: list[dict[str, Any]] = []
     routing_distances: list[float] = []
     input_distances: list[float] = []
+    recalled_input_distances: list[float] = []
     for _raw_window, pattern in items:
         report = trainer.model.memory_store.recall_replay_window(
             query_routing_key=trainer.model.routing_key_from_pattern(pattern),
@@ -79,9 +80,18 @@ def _bounded_replay_recall_summary(
             if isinstance(input_distance, (float, int))
             else float("inf")
         )
+        recalled_input_distance = report.get("recalled_input_pattern_distance")
+        recalled_input_distances.append(
+            float(recalled_input_distance)
+            if isinstance(recalled_input_distance, (float, int))
+            else float("inf")
+        )
 
     mean_routing_distance = float(sum(routing_distances) / max(1, len(routing_distances)))
     mean_input_distance = float(sum(input_distances) / max(1, len(input_distances)))
+    mean_recalled_input_distance = float(
+        sum(recalled_input_distances) / max(1, len(recalled_input_distances))
+    )
     all_bucket_scoped = all(
         report.get("candidate_scope") == "bucket_indexed_candidate_window"
         and bool(report.get("selection_report", {}).get("bounded_by_bucket_index"))
@@ -93,6 +103,10 @@ def _bounded_replay_recall_summary(
         int(report.get("input_pattern_count", 0) or 0) > 0
         for report in reports
     )
+    has_recalled_input_projection = all(
+        isinstance(report.get("recalled_input_pattern_distance"), (int, float))
+        for report in reports
+    )
     return {
         "surface": "bounded_replay_window_recall_benchmark.v1",
         "candidate_bucket_ids": candidate_bucket_ids,
@@ -101,24 +115,32 @@ def _bounded_replay_recall_summary(
         "anchor_bucket_source_window": source_window,
         "mean_routing_key_distance": mean_routing_distance,
         "mean_input_pattern_distance": mean_input_distance,
+        "mean_recalled_input_pattern_distance": mean_recalled_input_distance,
         "reports": reports,
         "gate": {
             "pass": bool(
                 all_bucket_scoped
                 and has_input_recall
+                and has_recalled_input_projection
                 and not any_live_tick
                 and not any_mutation
                 and mean_input_distance <= 0.01
+                and mean_recalled_input_distance <= 0.01
             ),
             "bounded_bucket_scoped": bool(all_bucket_scoped),
             "has_input_recall": bool(has_input_recall),
+            "has_recalled_input_projection": bool(has_recalled_input_projection),
             "runs_live_tick": bool(any_live_tick),
             "mutates_runtime_state": bool(any_mutation),
             "mean_input_pattern_distance_lte_0_01": bool(
                 mean_input_distance <= 0.01
             ),
+            "mean_recalled_input_pattern_distance_lte_0_01": bool(
+                mean_recalled_input_distance <= 0.01
+            ),
             "thresholds": {
                 "mean_input_pattern_distance_max": 0.01,
+                "mean_recalled_input_pattern_distance_max": 0.01,
             },
         },
     }
@@ -317,6 +339,11 @@ def run_trial(
             "task_a_sleep_replay_associative_recall_input_pattern_distance": (
                 sleep_replay_associative_recall["mean_best_input_distance"]
             ),
+            "task_a_sleep_replay_associative_recall_recalled_input_pattern_distance": (
+                sleep_replay_associative_recall[
+                    "mean_recalled_input_pattern_distance"
+                ]
+            ),
             "task_a_recovery_delta": (
                 task_a_after_b - task_a_after_consolidation
             ),
@@ -452,6 +479,12 @@ def _sleep_replay_associative_recall_summary(
         for value in [report.get("mean_best_input_distance")]
         if isinstance(value, (int, float))
     ]
+    recalled_input_distances = [
+        float(value)
+        for report in recall_reports
+        for value in [report.get("mean_recalled_input_pattern_distance")]
+        if isinstance(value, (int, float))
+    ]
     best_distances = [
         float(value)
         for report in recall_reports
@@ -489,13 +522,22 @@ def _sleep_replay_associative_recall_summary(
         if input_distances
         else None
     )
+    mean_recalled_input_distance = (
+        float(sum(recalled_input_distances) / len(recalled_input_distances))
+        if recalled_input_distances
+        else None
+    )
     return {
         "surface": "bounded_sleep_replay_associative_recall_summary.v1",
         "cycle_count": int(len(cycle_selection_reports)),
         "report_count": int(len(recall_reports)),
         "query_count": int(query_count),
         "quality_metric": "mean_best_input_distance_over_selected_sleep_replay_queries",
+        "projection_quality_metric": (
+            "mean_recalled_input_pattern_distance_over_selected_sleep_replay_queries"
+        ),
         "mean_best_input_distance": mean_input_distance,
+        "mean_recalled_input_pattern_distance": mean_recalled_input_distance,
         "mean_best_distance": (
             float(sum(best_distances) / len(best_distances))
             if best_distances
@@ -504,13 +546,24 @@ def _sleep_replay_associative_recall_summary(
         "quality_pass": bool(
             query_count > 0
             and mean_input_distance is not None
+            and mean_recalled_input_distance is not None
             and mean_input_distance <= 1e-5
+            and mean_recalled_input_distance <= 1e-5
             and all(bool(report.get("quality_pass")) for report in recall_reports)
+            and all(
+                bool(report.get("projection_quality_pass"))
+                for report in recall_reports
+            )
             and query_row_read_count >= query_count
             and query_row_state_advance_count == 0
             and recall_selection_state_advance_count == 0
             and read_only_replay_row
             and recall_selection_read_only
+        ),
+        "projection_quality_pass": bool(
+            query_count > 0
+            and mean_recalled_input_distance is not None
+            and mean_recalled_input_distance <= 1e-5
         ),
         "query_row_surface": "bounded_replay_recall_row.v1",
         "query_row_reader": "DualMemoryStore.replay_recall_row",

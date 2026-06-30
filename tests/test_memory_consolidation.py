@@ -1395,7 +1395,13 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(report["raw_text_payload_loaded"])
         self.assertFalse(report["language_reasoning"])
         self.assertEqual(report["score_device"], "cpu")
+        self.assertEqual(report["active_replay_compute_device"], "cpu")
         self.assertEqual(report["archival_storage_device"], "cpu")
+        self.assertEqual(report["recall_operator"], "bounded_hopfield_softmax_cpu")
+        self.assertEqual(
+            report["input_recall_operator"],
+            "bounded_hopfield_input_projection_cpu",
+        )
         self.assertEqual(report["routing_key_count"], 2)
         self.assertEqual(report["input_pattern_count"], 2)
         self.assertEqual(
@@ -1404,6 +1410,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertLess(report["best_distance"], 1e-5)
         self.assertLess(report["best_input_distance"], 1e-5)
+        self.assertLess(report["recalled_input_pattern_distance"], 0.01)
+        self.assertGreaterEqual(report["input_attention_entropy"], 0.0)
 
         restored = DualMemoryStore(capacity=1)
         restored.restore(store.snapshot())
@@ -1411,6 +1419,11 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(restored_report["surface"], "bounded_replay_window_recall.v1")
         self.assertLess(restored_report["best_distance"], 1e-5)
         self.assertLess(restored_report["best_input_distance"], 1e-5)
+        self.assertLess(restored_report["recalled_input_pattern_distance"], 0.01)
+        self.assertEqual(
+            restored_report["input_recall_operator"],
+            "bounded_hopfield_input_projection_cpu",
+        )
 
     def test_hf_recall_evaluation_reports_bounded_anchor_window(self) -> None:
         set_seed(7)
@@ -1518,7 +1531,13 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(report["runs_live_tick"])
         self.assertFalse(report["mutates_runtime_state"])
         self.assertEqual(report["score_device"], "cpu")
+        self.assertEqual(report["active_replay_compute_device"], "cpu")
         self.assertLess(report["mean_input_pattern_distance"], 1e-5)
+        self.assertLess(report["mean_recalled_input_pattern_distance"], 1e-5)
+        self.assertTrue(report["gate"]["has_recalled_input_projection"])
+        self.assertTrue(
+            report["gate"]["mean_recalled_input_pattern_distance_lte_0_01"]
+        )
         self.assertEqual(
             report["reports"][0]["candidate_scope"],
             "bucket_indexed_candidate_window",
@@ -1722,7 +1741,10 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(report["gate"]["anchor_bucket_source_window_bounded"])
         self.assertTrue(report["gate"]["pass"])
         self.assertEqual(report["score_device"], "cpu")
+        self.assertEqual(report["active_replay_compute_device"], "cpu")
         self.assertEqual(report["archival_storage_device"], "cpu")
+        self.assertLess(report["mean_recalled_input_pattern_distance"], 0.01)
+        self.assertTrue(report["gate"]["has_recalled_input_projection"])
 
         noncanonical_report = dict(inherited_report)
         noncanonical_report["candidate_bucket_ids"] = list(range(24))
@@ -2296,7 +2318,12 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertFalse(recall_report["global_candidate_scan"])
         self.assertFalse(recall_report["global_score_scan"])
         self.assertEqual(recall_report["archival_storage_device"], "cpu")
+        self.assertEqual(recall_report["active_replay_compute_device"], "cpu")
         self.assertFalse(recall_report["device_placement"]["gpu_used"])
+        self.assertEqual(
+            recall_report["device_placement"]["active_replay_compute_device"],
+            "cpu",
+        )
         self.assertEqual(
             recall_report["query_row_surface"],
             "bounded_replay_recall_row.v1",
@@ -2341,10 +2368,24 @@ class MemoryConsolidationTests(unittest.TestCase):
         )
         self.assertFalse(report["sleep_replay_associative_recall_stc_state_advance"])
         self.assertTrue(report["sleep_replay_associative_recall_quality_pass"])
+        self.assertTrue(
+            report["sleep_replay_associative_recall_projection_quality_pass"]
+        )
         self.assertLessEqual(
             report["sleep_replay_associative_recall_mean_best_input_distance"],
             1e-5,
         )
+        self.assertLessEqual(
+            report[
+                "sleep_replay_associative_recall_mean_recalled_input_pattern_distance"
+            ],
+            1e-5,
+        )
+        self.assertLessEqual(
+            recall_report["mean_recalled_input_pattern_distance"],
+            1e-5,
+        )
+        self.assertTrue(recall_report["projection_quality_pass"])
         self.assertTrue(report["sleep_replay_sfa_full_memory_sample_retired"])
         self.assertEqual(report["sleep_replay_sfa_correction_scope"], "not_run")
         self.assertEqual(report["sleep_replay_winner_source"], "bounded_route_candidates")

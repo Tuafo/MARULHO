@@ -6336,6 +6336,42 @@ runtime was fully warm. Velocity sampled CPU max `40%` and GPU at the `20%`
 contention threshold, with RTX memory flat at `1934 MiB`; this is same-band
 live-tick protection evidence, not a new speed ceiling.
 
+## Bounded Hopfield Input Projection Protection
+
+This run protects the live tick after adding recalled-input projection metrics
+to bounded replay recall. The code slice changes only explicit slow replay
+windows: `DualMemoryStore.recall_replay_window(...)` still selects through the
+bucket-indexed candidate window, keeps archival metadata and recall computation
+on CPU, does not run live, does not load replay text, and does not mutate state.
+
+Focused quality evidence:
+
+`python -m marulho.training.memory_consolidation_runner --task-a-train-tokens 512 --task-b-train-tokens 512 --eval-tokens 128 --n-columns 64 --column-latent-dim 64 --memory-capacity 512 --deep-sleep-replay-steps 32 --deep-sleep-candidate-pool 32 --task-boundary-consolidation-cycles 2 --consolidation-cycles 3 --task-boundary-replay-repair-strength-schedule 0.1 --consolidation-replay-repair-strength-schedule 0.1 --no-plots --output-dir ..\..\MARULHO_reports\bounded_replay_window_20260630\hf-bounded-hopfield-input-recall-512-final --checkpoint-out ..\..\MARULHO_reports\bounded_replay_window_20260630\hf-bounded-hopfield-input-recall-512-final\checkpoint.pt`
+
+Result: the HF run passed recall after Task B and after consolidation with
+`mean_recalled_input_pattern_distance=0.0`, `mean_input_pattern_distance=0.0`,
+one query, one selected bucket, CPU recall/archive placement, no full scan, no
+live tick, and no recall mutation. Guarded consolidation accepted `3`
+slow-window replay updates and improved Task-A reconstruction from
+`0.0258607082` to `0.0246669967`. Reloading the checkpoint preserved
+`input_recall_operator=bounded_hopfield_input_projection_cpu` with no config
+migrations.
+
+Hot-path run:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260630\hotpath-active-pressure-65536-524288-i32-bounded-hopfield-input-recall.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --host-truth-sync-interval-tokens 32`
+
+Result: `success=true`, `524288` tokens in `92.181800 s` at
+`5687.544 tokens/sec`, p95 tick `23.405 ms`, prewarm `303.488 s`,
+`train_compute=0.140331 ms/token`, `prepare_training=0.007717 ms/token`, and
+`finalize_total=0.007422 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536`, output candidates at `10`, cached transition rows at `65526`,
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060, and
+recorded zero graph/native sequence failures. Velocity reported no observed
+contention (`cpu max=34%`, `gpu max=12%`, memory-util max `11%`) and RTX memory
+stayed `1650 MiB`. This is same-band live-tick protection, not a new speed
+ceiling.
+
 ## Semantic Frontier Row-Reader Protection
 
 This run protects the live tick after retiring semantic/source-frontier direct

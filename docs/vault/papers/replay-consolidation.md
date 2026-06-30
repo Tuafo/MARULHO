@@ -311,6 +311,17 @@ operator over the selected replay window: routing keys and optional input
 patterns stay CPU-normalized for archival recall evidence, `runs_live_tick=false`,
 `mutates_runtime_state=false`, and no plasticity is applied.
 
+The maintained recall report now distinguishes nearest-row lookup from the
+bounded Hopfield-style recalled input projection. After bucket-scoped selection,
+the CPU softmax over selected routing keys is also projected through selected
+input-pattern tensors and reported as `recalled_input_pattern_distance`,
+`input_attention_entropy`, `recall_operator=bounded_hopfield_softmax_cpu`, and
+`input_recall_operator=bounded_hopfield_input_projection_cpu`. The HF replay
+summary gate and trainer-owned sleep replay aggregate require that projection to
+pass when query input tensors exist; this keeps the attention-like operation
+inside the selected replay window instead of turning it into a global memory
+scan.
+
 `DualMemoryStore.collect_replay_query_indices(...)` records
 `bounded_replay_query_collection.v1`. HF replay recall now collects Task-A
 anchor queries through the same bucket-indexed recent round-robin candidate
@@ -602,6 +613,19 @@ queries from `3` anchor buckets with `mean_input_pattern_distance=0.0`. That
 result supports bounded local stored-experience recall plus quality-gated replay
 acceptance, not a claim that replay should run continuously or reason through
 text.
+
+The 2026-06-30 refresh
+`..\..\MARULHO_reports\bounded_replay_window_20260630\hf-bounded-hopfield-input-recall-512-final\summary.json`
+adds the recalled-input projection gate to the same HF shape. Recall after Task B
+and after consolidation both passed with `1` query, `1` candidate bucket,
+`mean_input_pattern_distance=0.0`,
+`mean_recalled_input_pattern_distance=0.0`, CPU score/active recall/archive
+placement, `anchor_source_full_scan=false`, `runs_live_tick=false`, and
+`mutates_runtime_state=false`. The guarded consolidation accepted `3` slow-window
+updates and improved Task-A reconstruction from `0.0258607082` to
+`0.0246669967`; checkpoint reload preserved
+`input_recall_operator=bounded_hopfield_input_projection_cpu` with no config
+migrations.
 
 The matching current-tree hot-path report
 `reports/bounded_replay_window_20260617/hotpath-active-pressure-65536-262144-i32-guarded-consolidation.json`

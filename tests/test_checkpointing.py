@@ -297,6 +297,12 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
                 "input_pattern_count": 2,
                 "best_distance": 0.001,
                 "best_input_distance": 0.0,
+                "recalled_input_pattern_distance": 0.0,
+                "recalled_input_pattern_similarity": 1.0,
+                "input_attention_entropy": 0.0,
+                "recall_operator": "bounded_hopfield_softmax_cpu",
+                "input_recall_operator": "bounded_hopfield_input_projection_cpu",
+                "active_replay_compute_device": "cpu",
                 "runs_live_tick": False,
                 "mutates_runtime_state": False,
                 "applies_plasticity": False,
@@ -448,6 +454,12 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             self.assertEqual(restored_report["routing_key_count"], 2)
             self.assertEqual(restored_report["input_pattern_count"], 2)
             self.assertEqual(restored_report["best_input_distance"], 0.0)
+            self.assertEqual(restored_report["recalled_input_pattern_distance"], 0.0)
+            self.assertEqual(
+                restored_report["input_recall_operator"],
+                "bounded_hopfield_input_projection_cpu",
+            )
+            self.assertEqual(restored_report["active_replay_compute_device"], "cpu")
             self.assertFalse(restored_report["runs_live_tick"])
             self.assertFalse(restored_report["mutates_runtime_state"])
             restored_query_report = (

@@ -321,6 +321,7 @@ def _bounded_replay_recall_evaluation(
             "query_collection": dict(query_collection_report or {}),
             "max_candidates": int(max_candidates),
             "score_device": "cpu",
+            "active_replay_compute_device": "cpu",
             "archival_storage_device": "cpu",
             "runs_live_tick": False,
             "raw_text_payload_loaded": False,
@@ -336,6 +337,7 @@ def _bounded_replay_recall_evaluation(
     reports: list[dict[str, Any]] = []
     routing_distances: list[float] = []
     input_distances: list[float] = []
+    recalled_input_distances: list[float] = []
     for _source_index, pattern in queries:
         report = trainer.model.memory_store.recall_replay_window(
             query_routing_key=trainer.model.routing_key_from_pattern(pattern),
@@ -359,9 +361,18 @@ def _bounded_replay_recall_evaluation(
             if isinstance(input_distance, (float, int))
             else float("inf")
         )
+        recalled_input_distance = report.get("recalled_input_pattern_distance")
+        recalled_input_distances.append(
+            float(recalled_input_distance)
+            if isinstance(recalled_input_distance, (float, int))
+            else float("inf")
+        )
 
     mean_routing_distance = float(sum(routing_distances) / max(1, len(routing_distances)))
     mean_input_distance = float(sum(input_distances) / max(1, len(input_distances)))
+    mean_recalled_input_distance = float(
+        sum(recalled_input_distances) / max(1, len(recalled_input_distances))
+    )
     all_bucket_scoped = all(
         report.get("candidate_scope") == "bucket_indexed_candidate_window"
         and bool(report.get("selection_report", {}).get("bounded_by_bucket_index"))
@@ -371,6 +382,10 @@ def _bounded_replay_recall_evaluation(
     any_mutation = any(bool(report.get("mutates_runtime_state")) for report in reports)
     has_input_recall = all(
         int(report.get("input_pattern_count", 0) or 0) > 0
+        for report in reports
+    )
+    has_recalled_input_projection = all(
+        isinstance(report.get("recalled_input_pattern_distance"), (int, float))
         for report in reports
     )
     return {
@@ -405,8 +420,10 @@ def _bounded_replay_recall_evaluation(
         "max_candidates": int(max_candidates),
         "mean_routing_key_distance": mean_routing_distance,
         "mean_input_pattern_distance": mean_input_distance,
+        "mean_recalled_input_pattern_distance": mean_recalled_input_distance,
         "reports": reports,
         "score_device": "cpu",
+        "active_replay_compute_device": "cpu",
         "archival_storage_device": "cpu",
         "runs_live_tick": bool(any_live_tick),
         "raw_text_payload_loaded": False,
@@ -417,9 +434,11 @@ def _bounded_replay_recall_evaluation(
             "pass": bool(
                 all_bucket_scoped
                 and has_input_recall
+                and has_recalled_input_projection
                 and not any_live_tick
                 and not any_mutation
                 and mean_input_distance <= 0.01
+                and mean_recalled_input_distance <= 0.01
             ),
             "bounded_bucket_scoped": bool(all_bucket_scoped),
             "anchor_bucket_source_window_bounded": bool(
@@ -430,13 +449,18 @@ def _bounded_replay_recall_evaluation(
                 <= int(source_window.get("anchor_bucket_window_limit", 0) or 0)
             ),
             "has_input_recall": bool(has_input_recall),
+            "has_recalled_input_projection": bool(has_recalled_input_projection),
             "runs_live_tick": bool(any_live_tick),
             "mutates_runtime_state": bool(any_mutation),
             "mean_input_pattern_distance_lte_0_01": bool(
                 mean_input_distance <= 0.01
             ),
+            "mean_recalled_input_pattern_distance_lte_0_01": bool(
+                mean_recalled_input_distance <= 0.01
+            ),
             "thresholds": {
                 "mean_input_pattern_distance_max": 0.01,
+                "mean_recalled_input_pattern_distance_max": 0.01,
             },
         },
     }
