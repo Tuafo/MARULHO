@@ -143,8 +143,9 @@ Latency-sensitive runtime surface checks.
 ## Canonical Readout Route Boundary, 2026-06-30
 
 This run protects the live tick after removing the remaining generic
-readout-memory, readout-consolidation, and readout-structural API route/schema
-surface. The maintained service route families are now only
+readout-surface, readout-memory, readout-consolidation, and
+readout-structural API route/schema surface. The maintained service route
+families are now only `snn-language-readout-surface-*`,
 `snn-language-readout-memory-*`, `snn-language-readout-consolidation-*`, and
 `snn-language-readout-structural-plasticity-*`; request fields are readout
 prefixed; the removed API mapper remains absent. This is a control-plane
@@ -154,9 +155,10 @@ Focused tests:
 
 `python -m pytest tests\test_service_api.py -q --tb=short`
 
-Result: `41 passed in 139.12s`. The route-contract test proves canonical
-readout routes are registered and generic memory/consolidation/structural
-routes are absent.
+Result: `41 passed in 139.12s` for the memory/consolidation/structural cleanup
+and `41 passed in 100.73s` after the surface-route cleanup. The route-contract
+test proves canonical readout routes are registered and generic
+surface/memory/consolidation/structural routes are absent.
 
 `python -m pytest tests\test_action_executor.py tests\test_gap_planner.py tests\test_replay_controller.py tests\test_language_surface.py tests\test_snn_language_plasticity_executor.py tests\test_snn_language_readout_ledger.py tests\test_runtime_persistence.py tests\test_checkpointing.py -q --tb=short`
 
@@ -187,6 +189,22 @@ zero graph/native sequence failures. Velocity reported no observed contention
 with CPU max `50%`, GPU max `15%`, memory utilization max `13%`, and RTX memory
 `1689->1683 MiB`. This protects the live tick under the current noisy baseline;
 it is not a new speed ceiling.
+
+Surface-route follow-up:
+
+`python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint reports\column_scheduler_20260618\checkpoints\active-pressure-scheduler-65536-seeded.pt --output ..\..\MARULHO_reports\bounded_replay_window_20260625\hotpath-active-pressure-65536-524288-i32-canonical-readout-surface-routes.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --source-concept-observation-tick-interval 4 --timeout-seconds 900 --sample-interval-seconds 0.05 --environment-sample-interval-seconds 0 --host-truth-sync-interval-tokens 32 --profile-trainer-stages`
+
+Result: `success=true`, `524288` tokens in `93.122359 s` at
+`5630.098 tokens/sec`, p95 tick `23.528 ms`,
+`train_compute=0.141511 ms/token`, `prepare_training=0.007760 ms/token`, and
+`finalize_total=0.007688 ms/token`. Prewarm took `301.557 s` outside the
+measured throughput window. Runtime Truth kept route scoring bounded at
+`12/65536`, output candidates at `10`, transition caching at `65526` rows,
+`state_transition_runs_all_columns=false`, CUDA selected on the RTX 3060, and
+zero graph/native sequence failures. Velocity reported no observed contention
+with CPU max `48%`, GPU max `15%`, memory utilization max `13%`, and RTX memory
+`1682->1684 MiB`. The surface cleanup stays in the same sustained band as the
+preceding route cleanup and does not add live-tick work.
 
 ## Service Replay Surface Retirement, 2026-06-23
 

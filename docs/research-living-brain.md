@@ -7,11 +7,12 @@ This file records research anchors for current architecture work. It is not a pr
 - Readout API canonical-payload note, June 2026: bounded readout/replay text
   must remain selected evidence, not a hidden thought-language substrate.
   MARULHO therefore removes the service API mapper that translated canonical
-  readout payloads back into thought-era names for readout-memory,
-  readout-consolidation, structural-plasticity, capacity, and newborn routes.
+  readout payloads back into thought-era names for readout-surface,
+  readout-memory, readout-consolidation, structural-plasticity, capacity, and
+  newborn routes.
   The active route family now uses canonical readout route and request names
-  for memory, consolidation, structural plasticity, capacity, and newborn
-  surfaces, passes canonical readout payloads directly to the reviewed
+  for surface, memory, consolidation, structural plasticity, capacity, and
+  newborn surfaces, passes canonical readout payloads directly to the reviewed
   ledger/executor gates, and returns canonical runtime payloads directly. This
   is a slow-path/control-plane cleanup: it adds no live-tick recall, no
   every-token replay, no raw replay text reasoning, and no GPU-resident

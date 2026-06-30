@@ -109,10 +109,10 @@ from .schemas import (
     SNNLanguageReadoutMemoryExecutorRequest,
     SNNLanguageReadoutMemoryEventReviewRequest,
     SNNLanguageReadoutMemoryPreflightRequest,
-    SNNLanguageSurfaceDesignRequest,
-    SNNLanguageSurfaceExecutorRequest,
-    SNNLanguageSurfaceEventReviewRequest,
-    SNNLanguageSurfacePreflightRequest,
+    SNNLanguageReadoutSurfaceDesignRequest,
+    SNNLanguageReadoutSurfaceExecutorRequest,
+    SNNLanguageReadoutSurfaceEventReviewRequest,
+    SNNLanguageReadoutSurfacePreflightRequest,
     SNNLanguageAutonomousSNNLanguageGenerationExecutorRequest,
     SNNLanguageAutonomousSNNLanguageGenerationEventReviewRequest,
     SNNLanguageAutonomousSNNLanguageGenerationPreflightRequest,
@@ -1882,9 +1882,9 @@ def create_app(
             review_policy=request.review_policy,
         )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-design")
-    def terminus_snn_language_surface_design(
-        request: SNNLanguageSurfaceDesignRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-design")
+    def terminus_snn_language_readout_surface_design(
+        request: SNNLanguageReadoutSurfaceDesignRequest,
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_surface_design(
             autonomous_snn_language_decoding_event_review=(
@@ -1893,38 +1893,38 @@ def create_app(
             surface_policy=request.surface_policy,
         )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-preflight")
-    def terminus_snn_language_surface_preflight(
-        request: SNNLanguageSurfacePreflightRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-preflight")
+    def terminus_snn_language_readout_surface_preflight(
+        request: SNNLanguageReadoutSurfacePreflightRequest,
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_surface_preflight(
             snn_language_readout_surface_design=(
-                request.snn_language_surface_design
+                request.snn_language_readout_surface_design
             ),
             expected_state_revision=request.expected_state_revision,
             device_evidence=request.device_evidence,
             executor_capabilities=request.executor_capabilities,
         )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-executor")
-    def terminus_snn_language_surface_executor(
-        request: SNNLanguageSurfaceExecutorRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-executor")
+    def terminus_snn_language_readout_surface_executor(
+        request: SNNLanguageReadoutSurfaceExecutorRequest,
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_surface_executor(
             snn_language_readout_surface_preflight=(
-                request.snn_language_surface_preflight
+                request.snn_language_readout_surface_preflight
             ),
             expected_state_revision=request.expected_state_revision,
             execution_policy=request.execution_policy,
         )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review")
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-event-review")
     def terminus_snn_language_readout_surface_event_review(
-        request: SNNLanguageSurfaceEventReviewRequest,
+        request: SNNLanguageReadoutSurfaceEventReviewRequest,
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_surface_event_review(
             snn_language_readout_surface_executor=(
-                request.snn_language_surface_executor
+                request.snn_language_readout_surface_executor
             ),
             expected_state_revision=request.expected_state_revision,
             review_policy=request.review_policy,

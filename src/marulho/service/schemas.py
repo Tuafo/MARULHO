@@ -976,15 +976,15 @@ class SNNLanguageAutonomousSNNLanguageDecodingEventReviewRequest(BaseModel):
     review_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageSurfaceDesignRequest(BaseModel):
+class SNNLanguageReadoutSurfaceDesignRequest(BaseModel):
     autonomous_snn_language_decoding_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     surface_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageSurfacePreflightRequest(BaseModel):
-    snn_language_surface_design: dict[str, Any] = Field(
+class SNNLanguageReadoutSurfacePreflightRequest(BaseModel):
+    snn_language_readout_surface_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -992,16 +992,16 @@ class SNNLanguageSurfacePreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageSurfaceExecutorRequest(BaseModel):
-    snn_language_surface_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutSurfaceExecutorRequest(BaseModel):
+    snn_language_readout_surface_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     execution_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageSurfaceEventReviewRequest(BaseModel):
-    snn_language_surface_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutSurfaceEventReviewRequest(BaseModel):
+    snn_language_readout_surface_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)

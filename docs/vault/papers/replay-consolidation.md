@@ -227,22 +227,26 @@ external migration adapter would need explicit source budgets, checkpoint/reload
 coverage, and a fresh long-run protection gate.
 
 The 2026-06-30 follow-up finishes the service-edge cleanup rather than leaving
-generic readout route aliases around. Memory, consolidation, and structural
-plasticity API routes and schemas now expose only
-`snn-language-readout-memory-*`, `snn-language-readout-consolidation-*`, and
+generic readout route aliases around. Surface, memory, consolidation, and
+structural-plasticity API routes and schemas now expose only
+`snn-language-readout-surface-*`, `snn-language-readout-memory-*`,
+`snn-language-readout-consolidation-*`, and
 `snn-language-readout-structural-plasticity-*` with readout-prefixed request
 fields. Focused service/API tests prove the canonical routes are registered and
 the generic routes are absent. The bounded replay quality run selected one
 bucket-indexed positive-pressure candidate, used no global fallback, and passed
 sleep recall with input-pattern distance `5.960464477539063e-08`; the stricter
-commit/update gate did not promote consolidation. The paired `524288`-token
-long run reached `5646.557 tokens/sec`, p95 tick `23.796 ms`,
+commit/update gate did not promote consolidation. The first paired
+`524288`-token long run reached `5646.557 tokens/sec`, p95 tick `23.796 ms`,
 `train_compute=0.141930 ms/token`, `prepare_training=0.007484 ms/token`, and
-`finalize_total=0.007600 ms/token`, with CUDA on the RTX 3060, bounded
-`12/65536` route rows, no all-column transition, no observed contention, and
-zero graph/native sequence failures. This is live-tick protection and API
-single-path evidence, not a new speed ceiling or consolidation-promotion
-claim.
+`finalize_total=0.007600 ms/token`; the surface-route follow-up stayed in band
+at `5630.098 tokens/sec`, p95 tick `23.528 ms`,
+`train_compute=0.141511 ms/token`, `prepare_training=0.007760 ms/token`, and
+`finalize_total=0.007688 ms/token`. Runtime Truth kept CUDA on the RTX 3060,
+bounded `12/65536` route rows, no all-column transition, no observed
+contention, and zero graph/native sequence failures. This is live-tick
+protection and API single-path evidence, not a new speed ceiling or
+consolidation-promotion claim.
 
 The bounded action-recall and regeneration-provenance cleanup extends that
 boundary into selected respond/replay windows. Multi-clause respond assistance

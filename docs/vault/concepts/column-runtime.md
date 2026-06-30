@@ -106,10 +106,11 @@ no observed contention, and zero graph/native sequence failures.
 
 ## Readout API Route Boundary
 
-The readout memory/consolidation/structural service edge is now single-path:
-generic `snn-language-memory-*`, `snn-language-consolidation-*`, and
-`snn-language-structural-plasticity-*` routes and schema fields are removed
-from the active API. The maintained route families are
+The readout surface/memory/consolidation/structural service edge is now
+single-path: generic `snn-language-surface-*`, `snn-language-memory-*`,
+`snn-language-consolidation-*`, and `snn-language-structural-plasticity-*`
+routes and schema fields are removed from the active API. The maintained route
+families are `snn-language-readout-surface-*`,
 `snn-language-readout-memory-*`, `snn-language-readout-consolidation-*`, and
 `snn-language-readout-structural-plasticity-*`, with canonical readout request
 fields that call the same reviewed ledger/executor gates. This is control-plane
@@ -124,6 +125,15 @@ The paired long gate for this cleanup processed `524288` tokens at
 observed no CPU/GPU contention, moved RTX memory `1689->1683 MiB`, and recorded
 zero graph/native sequence failures. Treat this as same-band live-tick
 protection under the current noisy baseline, not a new throughput ceiling.
+
+The surface-route follow-up processed `524288` tokens at
+`5630.098 tokens/sec`, p95 tick `23.528 ms`,
+`train_compute=0.141511 ms/token`, `prepare_training=0.007760 ms/token`, and
+`finalize_total=0.007688 ms/token`. Runtime Truth again kept route scoring
+bounded at `12/65536`, output candidates at `10`, cached `65526` transition
+rows, kept `state_transition_runs_all_columns=false`, selected CUDA on the RTX
+3060, observed no CPU/GPU contention, moved RTX memory `1682->1684 MiB`, and
+recorded zero graph/native sequence failures.
 
 HF replay recall now re-caps inherited query-collection bucket scopes before
 local recall. `_bounded_replay_recall_evaluation(...)` trusts inherited

@@ -260,6 +260,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
         prefix = "/terminus/snn-language-sequence/readout-ledger/"
         for suffix in (
+            "snn-language-readout-surface-design",
+            "snn-language-readout-surface-preflight",
+            "snn-language-readout-surface-executor",
+            "snn-language-readout-surface-event-review",
             "snn-language-readout-memory-design",
             "snn-language-readout-memory-preflight",
             "snn-language-readout-memory-executor",
@@ -276,6 +280,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIn(prefix + suffix, routes)
 
         for suffix in (
+            "snn-language-surface-design",
+            "snn-language-surface-preflight",
+            "snn-language-surface-executor",
+            "snn-language-surface-event-review",
             "snn-language-memory-design",
             "snn-language-memory-preflight",
             "snn-language-memory-executor",
@@ -2300,7 +2308,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 snn_language_readout_surface_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-design",
                     json={
                         "autonomous_snn_language_decoding_event_review": (
                             autonomous_snn_language_decoding_event_review_response.json()
@@ -2316,9 +2324,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_surface_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-preflight",
                         json={
-                            "snn_language_surface_design": (
+                            "snn_language_readout_surface_design": (
                                 snn_language_readout_surface_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2336,9 +2344,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_surface_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-executor",
                         json={
-                            "snn_language_surface_preflight": (
+                            "snn_language_readout_surface_preflight": (
                                 snn_language_readout_surface_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2349,9 +2357,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_surface_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-surface-event-review",
                         json={
-                            "snn_language_surface_executor": (
+                            "snn_language_readout_surface_executor": (
                                 snn_language_readout_surface_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
