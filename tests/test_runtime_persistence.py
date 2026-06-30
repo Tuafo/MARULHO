@@ -163,6 +163,13 @@ class _FakePersistenceManager:
             "delayed_consequence_remerged_total": self._delayed_consequence_remerged_total,
         }
 
+    def _marulho_brain_state_locked(self) -> dict[str, object]:
+        return {
+            "surface": "marulho_brain_state.v1",
+            "token_count": self._trainer.token_count,
+            "trace_count": 0,
+        }
+
     def _brain_runtime_snapshot_locked(self, **kwargs: object) -> dict[str, object]:
         return {
             **self._brain_persisted_state_locked(),
@@ -219,6 +226,7 @@ def _runtime_persistence(
             replay_controller=lambda: manager._replay_controller,
             set_state=lambda name, value: setattr(manager, name, value),
             brain_persisted_state=manager._brain_persisted_state_locked,
+            marulho_brain_state=manager._marulho_brain_state_locked,
             brain_runtime_snapshot=manager._brain_runtime_snapshot_locked,
             join_brain_thread=manager._join_brain_thread,
             lock=manager._lock,

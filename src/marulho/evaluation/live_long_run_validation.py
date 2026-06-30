@@ -41,6 +41,30 @@ def _action_audit_status(long_test: Mapping[str, Any], benchmark: Mapping[str, A
     }
 
 
+def _replay_safety_status(
+    long_test: Mapping[str, Any],
+    benchmark: Mapping[str, Any],
+) -> dict[str, bool]:
+    keys = (
+        "training_started",
+        "memory_mutated",
+        "feedback_posted",
+        "digital_action_executed",
+        "external_calls_made",
+        "sleep_started",
+    )
+    status = {key: False for key in keys}
+    for runtime_truth in (
+        _mapping(long_test.get("final_runtime_truth")),
+        _mapping(benchmark.get("status_runtime_truth_summary")),
+        _mapping(benchmark.get("terminus_runtime_truth_summary")),
+    ):
+        safety = _mapping(_mapping(runtime_truth.get("safety_flags")).get("replay_safety"))
+        for key in keys:
+            status[key] = bool(status[key] or safety.get(key, False))
+    return status
+
+
 def validate_live_long_run(
     *,
     long_test_report: Mapping[str, Any],
@@ -52,6 +76,8 @@ def validate_live_long_run(
     embedder = _mapping(long_test_report.get("final_embedder"))
     memory_pressure = _mapping(runtime_truth.get("memory_pressure"))
     action_audit = _action_audit_status(long_test_report, benchmark_report)
+    replay_safety = _replay_safety_status(long_test_report, benchmark_report)
+    replay_safety_no_mutation = not any(replay_safety.values())
     trace = dict(trace_report or {})
     gate = dict(replay_gate_report or {})
     runtime_verdict = str(runtime_truth.get("verdict", "unknown"))
@@ -68,6 +94,7 @@ def validate_live_long_run(
         "recommended_action_present": bool(str(runtime_truth.get("recommended_action", "")).strip()),
         "trace_evidence_present": bool(trace.get("count", 0) or long_test_report.get("snapshots")),
         "replay_gate_present": not gate or gate.get("eligible_for_training") is False,
+        "replay_safety_no_mutation": replay_safety_no_mutation,
     }
     passed = all(checks.values())
     return {
@@ -86,6 +113,7 @@ def validate_live_long_run(
         },
         "embedding_health": dict(embedder),
         "action_audit_status": action_audit,
+        "replay_safety_status": replay_safety,
         "memory_pressure": dict(memory_pressure) if memory_pressure else {"fill_fraction": long_test_report.get("final_memory_fill")},
         "recommended_operator_action": runtime_truth.get("recommended_action", ""),
         "trace_evidence": {
