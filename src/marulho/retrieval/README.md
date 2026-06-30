@@ -19,10 +19,10 @@ support paths.
 - Trainer mutation policy.
 - Hidden alternate routing backends in the live path.
 
-## Ported Guidance
+## Runtime Rules
 
-- The legacy list-returning search API and selectable CPU FAISS/numpy routing
-  backends are not the maintained live path.
+- The maintained live path is exact tensor candidate search with device-aware
+  routing cache evidence.
 - Future IVF or quantized routing work must enter as a bounded GPU-owned
   candidate router with capacity, fallback, recall, device, and complete-run
   throughput evidence.

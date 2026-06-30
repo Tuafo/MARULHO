@@ -19,7 +19,7 @@ surfaces, decoder probes, concept evidence, and support diagnostics.
 - Fact promotion or action authority.
 - External checkpoint loading or hidden LLM generation.
 
-## Ported Guidance
+## Runtime Rules
 
 - A readable label, readout slot, or draft is evidence for review, not proof of
   thought or autonomous fact formation.

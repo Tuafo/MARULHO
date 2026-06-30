@@ -16,36 +16,31 @@ Use this with [../../../README.md](../../../README.md) and
 
 - Neural algorithms, CUDA execution policy, or readout learning.
 - Hidden replay, consolidation, or delayed-consequence work inside status reads.
-- Old service-owned route/schema/readiness families kept for compatibility.
+- Compatibility aliases that make HTTP routing look like a second runtime
+  spine.
 
 ## Active Contract
 
 The active API surface is `/health`, `/`, and `/brain/*`. `create_app()` builds
-`MarulhoBrainServiceManager`; the old `MarulhoServiceManager` file is deleted.
-Legacy `/status`, `/feed`, `/query`, `/respond`, root checkpoint aliases,
-`/terminus/*`, `/traces`, `/stream/status`, and `/datasets` are retired from
-active FastAPI routing.
+`MarulhoBrainServiceManager`, which loads a checkpoint-backed `MarulhoBrain`
+and adapts its feed, tick, generate, replay, grow/prune, trace, lifecycle, and
+checkpoint methods.
 
-`/brain/start` and `/brain/stop` call the brain-owned lifecycle loop. They must
-not return or depend on legacy Terminus runtime-control payloads.
+`/brain/start` and `/brain/stop` call the brain-owned lifecycle loop. Status
+and status-stream responses should come from compact brain state and
+`BrainTrace`, not from broad schema expansion or hidden work.
 
-`api_schemas.py` contains only the active checkpoint request/response models.
-The old giant service schema module, legacy manager, legacy facade,
-StatusReadModel, Terminus runtime-control file, and old BrainRuntime file are
-deleted. Callers must use `create_app` or `MarulhoBrainServiceManager` for
-active service integration. Skipped legacy suites that only protected those
-surfaces were removed; port still-useful machinery assertions into
-package-local brain/core/data/service owner tests instead of rebuilding the
-Terminus service suite.
+`api_schemas.py` contains the active request/response models for the maintained
+contract. New route models should stay small and should be backed by an owner
+module in `brain`, `training`, `core`, `data`, `semantics`, or another
+machinery package.
 
-Large owner modules such as replay runtime, SNN readout ledger, action
-execution, runtime sources, and plasticity still physically live in this
-package while migration continues. They are machinery owners, not the service
-spine. Move them only with focused tests; do not recreate `manager.py`,
-`brain_runtime.py`, `runtime_control.py`, `runtime_facade.py`, or
-`status_read_model.py` as compatibility surfaces.
+Some machinery modules for replay, SNN readout ledger, action execution,
+runtime sources, and plasticity live under `service` because they currently
+serve the HTTP/UI boundary. They must name their real owner clearly and should
+not turn service into the algorithm owner.
 
-## Ported Guidance
+## Runtime Rules
 
 - Status and Runtime Truth reads must remain read-only.
 - Checkpoint writes/restores and trace persistence are explicit slow paths.

@@ -2,37 +2,38 @@
 
 MARULHO is an experimental spiking cognitive runtime for grounded, auditable autonomous behavior.
 
-The name comes from Brazilian Portuguese: marulho is the constant wave-like movement of water and the soft sound produced by that motion. That is the project metaphor: cognition as a continuous flow of sparse signals, prediction errors, memory traces, replay, and local plasticity rather than a hidden text generator.
+The name comes from Brazilian Portuguese: marulho is the constant wave-like movement of water and the soft sound produced by that motion. The project uses that metaphor for cognition as a continuous flow of sparse signals, prediction errors, memory traces, replay, and local plasticity.
 
 MARULHO is not presented as a biological brain, an AGI system, or a production safety boundary. It is a research codebase for building and inspecting a local SNN-native substrate where language-facing output must be grounded in runtime evidence.
 
-## Goal
+## Runtime Shape
 
-The project goal is to grow a local, observable cognitive substrate that can:
+`MarulhoBrain` is the main runtime entry point. The maintained loop is:
 
-- encode text, visual, audio, and multimodal observations into sparse runtime evidence;
-- route evidence through competitive columns, context, binding, abstraction, surprise, and memory layers;
-- expose compact `BrainTrace` telemetry instead of hiding capability claims behind fluent text;
-- generate early SNN-native language readout through local sparse transition state, replay, and plasticity evidence;
-- keep mutation paths checkpoint-backed, operator-reviewable, and rollback-aware.
+1. Load or restore a checkpoint.
+2. Feed text or another local source.
+3. Tick the trainer and learn from the source window.
+4. Generate a bounded local readout from sparse runtime state.
+5. Run explicit replay windows.
+6. Review growth/pruning hooks under checkpoint-backed boundaries.
+7. Emit compact `BrainTrace` telemetry.
+8. Save or restore runtime state.
 
-The current direction intentionally avoids an external LLM or mock "thought loop" as the cognition substrate. External SNN and neuromorphic papers can inform design, but runtime behavior should be owned by MARULHO code, MARULHO checkpoints, and MARULHO evidence ledgers.
-
-## Current Spine
-
-`MarulhoBrain` is the main runtime entry point. The intended hot path is:
+Minimal Python shape:
 
 ```python
-brain = MarulhoBrain.load(checkpoint_path)
-brain.feed(text_or_source)
+from marulho.brain import MarulhoBrain
+
+brain = MarulhoBrain.load("checkpoints/marulho/model.pt")
+brain.feed("local source text")
 trace = brain.tick(tokens=128)
-sample = brain.generate(prompt=None, max_tokens=64)
+sample = brain.generate(max_tokens=64)
 brain.replay(window="recent_surprise")
 brain.grow_prune(budget="small")
-brain.save(checkpoint_path)
+brain.save("checkpoints/marulho/model.pt")
 ```
 
-The service and UI are adapters over that spine. CUDA/Triton/native graph execution stays in `MarulhoTrainer`; checkpoint serialization stays in `marulho.training.checkpointing`; the brain layer owns source buffering, tick orchestration, local readout, replay/growth hooks, compact trace telemetry, and checkpoint metadata continuity.
+The project does not use a hidden external LLM, Cortex loop, or ThoughtLoop as the brain. External research can inform design, but runtime behavior should be owned by MARULHO code, MARULHO checkpoints, and MARULHO evidence.
 
 ## Architecture
 
@@ -40,77 +41,62 @@ The service and UI are adapters over that spine. CUDA/Triton/native graph execut
 flowchart LR
     Sources["Grounded sources<br/>text, audio, visual, multimodal"] --> Encoders["Sparse encoders"]
     Encoders --> Brain["MarulhoBrain<br/>feed, tick, generate, replay"]
-    Brain --> Subcortex["Trainer/Subcortex runtime<br/>columns, context, binding, surprise"]
-    Subcortex --> Memory["Concept memory<br/>transition memory<br/>replay records"]
+    Brain --> Trainer["MarulhoTrainer<br/>SNN columns, context, binding, surprise"]
+    Trainer --> Memory["Concept memory<br/>transition memory<br/>replay records"]
+    Trainer --> CUDA["CUDA/Triton/native graph executors"]
     Memory --> Trace["BrainTrace<br/>compact status and evidence"]
-    Trace --> Surface["Service/UI adapter<br/>status, feed, tick, generate"]
-    Brain --> Checkpoints["Checkpoint-backed save/restore"]
-    Checkpoints --> Memory
+    Brain --> Checkpoints["Checkpoint save/restore"]
+    Trace --> Service["FastAPI /brain/* adapter"]
+    Service --> UI["MARULHO_UI control room"]
 ```
 
-The Python package is `marulho`. `MarulhoBrain` is the runtime spine; `MarulhoBrainServiceManager` is the active service adapter for `/brain/*`. New runtime work should target `src/marulho/brain` first and expose only thin service/UI projections.
+Key machinery:
 
-Key areas:
+- `src/marulho/brain`: `MarulhoBrain`, `BrainTrace`, source buffering, tick orchestration, local generation/readout, replay/growth hooks, and checkpoint metadata continuity.
+- `src/marulho/training`: trainer execution, checkpoint serialization, CUDA/Triton/native graph lifecycle, sequence execution, replay hooks, and long-run runners.
+- `src/marulho/core`: local SNN mechanisms such as competitive columns, predictive state, binding, context, topography, plasticity, sparsity, and surprise.
+- `src/marulho/data`: source loaders and sparse encoders for text, semantic features, event-camera style input, audio, and multimodal streams.
+- `src/marulho/semantics`: grounded readout contracts, concept evidence, cognitive signal surfaces, decoder probes, and support diagnostics.
+- `src/marulho/consolidation`: CPU archival memory, replay records, and consolidation metadata.
+- `src/marulho/retrieval`: tensor candidate search, routing caches, and graph-safe cache generation.
+- `src/marulho/service`: thin FastAPI adapter over `MarulhoBrain`.
+- `src/marulho/evaluation`: benchmarks, promotion gates, readiness checks, and validation harnesses.
+- `MARULHO_UI`: the control-room UI.
 
-- `src/marulho/core`: local SNN mechanisms such as columns, binding, context, topography, plasticity, sparsity, and surprise.
-- `src/marulho/data`: source loaders and encoders for text, semantic features, event camera style input, audio, and multimodal streams.
-- `src/marulho/semantics`: grounded language/readout contracts, cognitive signal surfaces, decoder probes, and concept evidence.
-- `src/marulho/service`: thin FastAPI adapter over `MarulhoBrain`; old service-owned route families are retired from the active app.
-- `src/marulho/brain`: the main runtime spine, compact trace, local generation/readout, source buffer, replay/growth hooks, and checkpoint metadata continuity.
-- `src/marulho/training`: bootstrap, developmental, autonomy, consolidation, query, and long-run evaluation runners.
-- `src/marulho/evaluation`: promotion gates, benchmarks, readiness checks, and validation harnesses.
-- `MARULHO_UI`: the control-room UI submodule.
+## HTTP And UI
 
-## Evidence Gates
+The maintained service surface is intentionally small:
 
-MARULHO separates observation, review, and mutation. Read-only gates can measure readiness, support, sparsity, device placement, and rollback evidence. Executor paths are narrower: they require current runtime revision checks, explicit confirmation, checkpoint transactions, and bounded deltas.
+- `GET /health`
+- `GET /`
+- `/brain/*` for status, status stream, start, stop, feed, tick, generate, replay, grow/prune, traces, and checkpoint actions
 
-```mermaid
-sequenceDiagram
-    participant O as Operator
-    participant R as Runtime
-    participant G as Read-only gate
-    participant E as Executor
-    participant C as Checkpoint
+The service should adapt `MarulhoBrain`; it should not own neural algorithms, scheduler policy, CUDA execution, replay selection, or hidden mutation work. The UI should call the `/brain/*` contract and render compact traces plus explicit evidence.
 
-    O->>R: feed/generate/inspect
-    R->>G: produce evidence artifact
-    G-->>O: readiness, hashes, device truth, rollback requirements
-    O->>E: confirm bounded application
-    E->>C: save rollback checkpoint
-    E->>R: apply constrained mutation
-    R-->>O: new revision and review evidence
-```
+## Evidence And Checkpoints
 
-This keeps public claims narrow. A readable label, draft, or rollout is not automatically a thought, fact, action, or proof of cognition. Promotion requires explicit evidence.
+MARULHO separates observation, review, and mutation. Readout text, labels, rollout candidates, benchmark reports, and traces are evidence for review. They are not automatically facts, actions, or proof of cognition.
 
-## Public Status
+Mutation paths should be:
 
-This repository is public for research and engineering review.
+- checkpoint-backed;
+- bounded by explicit runtime revision and rollback evidence;
+- operator-reviewable when they affect durable state;
+- measurable through tests, traces, or benchmark artifacts.
 
-Current strengths:
+CUDA claims require observed backend/device/failure-counter evidence, not configured intent.
 
-- broad test coverage over runtime gates and service behavior;
-- explicit domain language in `CONTEXT.md`;
-- package-local machinery docs in `src/marulho/*/README.md`;
-- local runtime and UI surfaces for inspecting evidence.
+## Current Validation
 
-Known limitations:
+Latest local validation snapshot, 2026-06-30:
 
-- the project is experimental and changes quickly;
-- many language/readout paths are intentionally bounded or read-only;
-- generated reports and checkpoints are local artifacts, not part of the public source tree;
-- CUDA/GPU claims should be treated as valid only when supported by observed runtime evidence.
+- `python -m compileall -q src tests`: passed.
+- `python -m pytest`: `1625 passed`, `1 warning`.
+- `npm run build` in `MARULHO_UI`: passed.
+- Long sequence-input CUDA gate: `6601.19` sequence tokens/sec versus `6507.41` per-quantum tokens/sec, backend `cuda_graph_conditional_while`, execution mode `cuda_graph_route_transition_burst`, device `cuda:0`, zero graph/native/burst failures.
+- Continuous stress: `256`, `1024`, and `4096` token runs passed through the same conditional-WHILE CUDA backend with zero graph/native/burst failures. The `4096` token run reached `121.93` tokens/sec over `32` ticks.
 
-Current refactor validation note, 2026-06-30: the brain spine compile/test/UI
-checks pass, and the active service loads `MarulhoBrainServiceManager` without
-importing the legacy manager/status/control modules. A short promoted-checkpoint
-stress smoke completed through the CUDA conditional-WHILE backend with zero
-graph/native failures. Two short sequence-input staging smokes failed their
-speedup comparison, but the longer default 64-sequence gate passed with
-`5632.644` sequence tokens/sec versus `4878.951` per-quantum tokens/sec
-(`1.154x`) on the same conditional-WHILE backend with zero graph/native
-failures.
+Known current validation gap: the `8192` and `131072` token continuous stress attempts did not produce a final JSON report before manual stop. Treat the long continuous stress boundary as open until that runner is diagnosed.
 
 ## Setup
 
@@ -145,22 +131,21 @@ npm run dev
 Launch the local FastAPI service with an existing checkpoint:
 
 ```bash
-python -m marulho.service.server --checkpoint checkpoints/terminus/model.pt --port 8000
+python -m marulho.service.server --checkpoint checkpoints/marulho/model.pt --port 8000
 ```
 
-The maintained HTTP contract is `/brain/*` for status, status stream, feed, tick, generate, replay, grow/prune, and checkpoint actions. Legacy root-level and `/terminus/*` route families are retired from the active API.
+For a clean checkout, generate checkpoints locally before launching the service. Runtime checkpoints and validation reports are local artifacts.
 
-For a clean public checkout, generate checkpoints locally before launching the service. Runtime checkpoints and validation reports are intentionally ignored by git.
+## Documentation
 
-## Documentation Map
+The maintained documentation set is small:
 
-- `CONTEXT.md`: project vocabulary and current domain model.
+- `CONTEXT.md`: project vocabulary and domain model.
 - `src/marulho/README.md`: package-level machinery map.
 - `src/marulho/*/README.md`: local ownership rules, hot-path boundaries, and evidence notes for each machinery folder.
 - `tests`: executable behavior expectations.
 
-The former vault, Graphify outputs, goals folder, ADR docs, research monolith,
-and Terminus tutorial are retired from the maintained documentation surface.
+Update the closest README when machinery ownership changes. Update `CONTEXT.md` when vocabulary or domain rules change.
 
 ## Repository Hygiene
 

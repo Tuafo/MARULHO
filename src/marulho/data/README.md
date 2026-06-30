@@ -18,7 +18,7 @@ audio, event-camera style input, and multimodal streams.
 - Promotion of observations into facts or actions.
 - Hot-path mutation of learned chunk codebooks.
 
-## Ported Guidance
+## Runtime Rules
 
 - Live RTF ingestion is inference-only. When the learned chunk codebook is
   empty, build bounded CPU control-plane windows and emit one device batch.

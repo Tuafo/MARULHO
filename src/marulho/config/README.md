@@ -14,10 +14,11 @@ Use this with [../../../README.md](../../../README.md) and
 ## Must Not Own
 
 - Capability proof. Configured CUDA intent is not CUDA evidence.
-- Compatibility aliases for retired service or executor surfaces.
+- Compatibility aliases that obscure the current brain, service, or executor
+  owner.
 - Runtime mutation decisions.
 
-## Ported Guidance
+## Runtime Rules
 
 Promoted defaults should be tied to measured evidence. The current service
 source tick width and execution quantum are evidence-backed defaults, not

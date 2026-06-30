@@ -17,7 +17,7 @@ summaries, and report helpers.
 - Mutation decisions.
 - Capability claims without source evidence.
 
-## Ported Guidance
+## Runtime Rules
 
 Reporting is a slow-path projection over evidence. It must not run hidden
 benchmarks, mutate runtime state, or turn configured intent into a proven CUDA

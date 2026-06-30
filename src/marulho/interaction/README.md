@@ -16,7 +16,7 @@ Use this with [../../../README.md](../../../README.md) and
 - Unsupported fluency claims.
 - Fact/action promotion without the relevant evidence gates.
 
-## Ported Guidance
+## Runtime Rules
 
 Interactions should expose what MARULHO evidence supports and what remains
 uncertain. Do not turn a readable response into proof of cognition, grounding,

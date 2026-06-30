@@ -18,7 +18,7 @@ consolidation metadata.
 - Live plasticity application.
 - Global scans hidden in live ticks.
 
-## Ported Guidance
+## Runtime Rules
 
 - Reservoir admission is decided before optional CUDA-to-CPU payload copies.
   Rejected archival rows should avoid unnecessary tensor copies.

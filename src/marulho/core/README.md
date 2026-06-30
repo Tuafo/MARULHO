@@ -20,7 +20,7 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
 - Public capability claims. Core emits evidence; it does not promote claims.
 - Hidden structural mutation inside ordinary live ticks.
 
-## Ported Guidance
+## Runtime Rules
 
 - Reporting must not force repeated scalar CUDA synchronization. Bounded column
   reports may take compact snapshots while live tensors remain on the runtime

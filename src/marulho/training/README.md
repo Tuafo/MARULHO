@@ -21,7 +21,7 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - Service-owned source selection and operator locks.
 - Structural mutation authority outside explicit checkpoint/review gates.
 
-## Ported Guidance
+## Runtime Rules
 
 - The persistent text tick executor is not the whole brain loop. Source I/O,
   archival memory, replay review, service orchestration, and UI remain outside
@@ -38,5 +38,4 @@ developmental and consolidation runners, query runners, and long-run evidence.
   boundaries; they do not justify moving algorithms into service.
 - `long_test_runner.py` is now a `MarulhoBrain` health runner. It feeds local
   preset text, starts/stops the brain loop, samples compact brain status, and
-  checks feed/readout/tick progress without constructing the legacy service
-  manager.
+  checks feed/readout/tick progress through the active brain spine.

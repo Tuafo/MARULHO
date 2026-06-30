@@ -13,8 +13,8 @@ grow/prune, compact trace, and save.
 - Tick orchestration through `MarulhoTrainer.train_text_sequence`.
 - Early local readout through sparse MARULHO-owned transition state.
 - `BrainTrace` telemetry for status, generation before/after evidence, replay,
-  growth/prune, checkpoint path, executor/device names, and retired-surface
-  booleans.
+  growth/prune, checkpoint path, executor/device names, and negative external
+  cognition flags.
 - Brain-local checkpoint metadata continuity.
 - Brain-owned background start/stop loop for queued source ticks.
 
@@ -22,19 +22,20 @@ grow/prune, compact trace, and save.
 
 - CUDA/Triton/native graph algorithms. Those stay in `training`.
 - HTTP route shape or UI layout. Those stay in `service` and `MARULHO_UI`.
-- Legacy Terminus runtime-control lifecycle. `/brain/start` and `/brain/stop`
-  must call `MarulhoBrain.start()` and `MarulhoBrain.stop()`.
+- Service-owned lifecycle or scheduler policy. `/brain/start` and
+  `/brain/stop` must call `MarulhoBrain.start()` and `MarulhoBrain.stop()`.
 - Hidden external LLM, Cortex, or ThoughtLoop cognition.
 - Broad Runtime Truth schema expansion. Use compact `BrainTrace` as the default
   spine status and keep deeper gates explicit.
 
-## Current Evidence
+## Validation Snapshot
 
-The pre-refactor archive branch is
-`origin/archive/pre-refactor-2026-06-30` at
-`1b2861c19d5f48cb9895f6fe600e21f36b9cc714`.
+Current brain validation covers load, feed, tick, local generate/readout,
+replay/growth hooks, save/restore continuity, and service adapter use through
+focused tests plus the full repository test suite.
 
-The first brain-spine CUDA stress check used the existing active-pressure
-checkpoint and reached `6658.764` sequence tokens/sec with backend
-`cuda_graph_conditional_while`, speedup `1.304x`, and zero graph, burst, or text
-fallback failures.
+The current CUDA sequence-input gate uses the active checkpoint and preserves
+`cuda_graph_route_transition_burst` with backend
+`cuda_graph_conditional_while`, device `cuda:0`, and zero graph/native/burst
+failures. The latest measured long sequence gate reached `6601.19` sequence
+tokens/sec versus `6507.41` per-quantum tokens/sec.

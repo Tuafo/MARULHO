@@ -1,59 +1,36 @@
-# MARULHO / Terminus Domain Language
+# MARULHO Domain Language
 
-MARULHO/Terminus is a grounded Subcortex runtime for auditable autonomous cognition. "Living brain" is an aspiration only when backed by runtime evidence; the maintained claim is behavioral liveness under explicit validation conditions.
+MARULHO is a grounded Subcortex runtime for auditable autonomous cognition. "Living brain" is an aspiration only when backed by runtime evidence; the maintained claim is behavioral liveness under explicit validation conditions.
 
 ## Documentation Layout
 
 `CONTEXT.md` is the domain vocabulary source of truth. The root `README.md`
 explains the project orientation and current runtime spine. Package-local
 `README.md` files under `src/marulho/*` describe machinery ownership, hot-path
-rules, evidence boundaries, and package-specific retired warnings. Do not add a
-generated documentation layer back to the active tree.
+rules, and evidence boundaries. Keep the documentation surface small and close
+to the code that owns the machinery.
 
 ## Core Concepts
 
 **MarulhoBrain** — the main runtime spine. It owns load/restore, feed/source buffering, tick/learn orchestration, local generation/readout, replay, growth/prune hooks, compact `BrainTrace` telemetry, and save/checkpoint metadata continuity. It delegates CUDA/Triton/native graph execution to `MarulhoTrainer`; service and UI code are adapters over this spine, not owners of neural algorithms.
 _Avoid_: rebuilding the brain as service/status/schema ceremony, hiding an external LLM/ThoughtLoop/Cortex behind the readout, or moving CUDA trainer decisions into FastAPI routes.
 
-**Brain-Owned Lifecycle Loop** — the `/brain/start` and `/brain/stop` contract is a `MarulhoBrain` loop over queued source ticks. It reports `marulho_brain_loop_state.v1`, owner `MarulhoBrain`, configured tick width, interval, tick count, uptime, and the explicit fact that legacy Terminus runtime control is not the owner.
-_Avoid_: routing the maintained brain lifecycle through old `/terminus` start/stop, hiding service-owned schedulers behind `/brain/start`, or using lifecycle status as evidence of cognition by itself.
+**Brain-Owned Lifecycle Loop** — the `/brain/start` and `/brain/stop` contract is a `MarulhoBrain` loop over queued source ticks. It reports `marulho_brain_loop_state.v1`, owner `MarulhoBrain`, configured tick width, interval, tick count, and uptime.
+_Avoid_: hiding service-owned schedulers behind `/brain/start`, moving trainer algorithms into lifecycle handlers, or using lifecycle status as evidence of cognition by itself.
 
-**Brain Service Adapter** — the active FastAPI composition root is `MarulhoBrainServiceManager`, a small adapter that loads one checkpoint into `MarulhoBrain`, exposes `/brain/*`, lists/saves/restores checkpoints, and stops the brain loop on shutdown. The legacy service manager, status read model, runtime control, runtime facade, and BrainRuntime files are deleted; the active HTTP/UI path must not recreate them as compatibility shells.
-_Avoid_: keeping a hidden service owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating legacy compatibility as the maintained runtime spine.
+**Brain Service Adapter** — the active FastAPI composition root is `MarulhoBrainServiceManager`, a small adapter that loads one checkpoint into `MarulhoBrain`, exposes `/brain/*`, lists/saves/restores checkpoints, and stops the brain loop on shutdown. The HTTP/UI path should stay thin and should not become a second runtime owner.
+_Avoid_: keeping a hidden service owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating compatibility aliases as the maintained runtime spine.
 
-**BrainTrace** — compact telemetry emitted by `MarulhoBrain` for status, generation before/after evidence, tick throughput, checkpoint path, replay/growth events, device/executor names, and retired-surface booleans. It replaces broad Runtime Truth as the default spine status surface, while deeper gates remain explicit validation tools.
+**BrainTrace** — compact telemetry emitted by `MarulhoBrain` for status, generation before/after evidence, tick throughput, checkpoint path, replay/growth events, device/executor names, and negative external-cognition flags. It replaces broad Runtime Truth as the default spine status surface, while deeper gates remain explicit validation tools.
 _Avoid_: re-expanding status into a giant schema court system, treating trace text as proof of cognition, or using status reads as replay/consolidation work.
-
-**2026-06-30 Brain Spine Checkpoint** — the pre-refactor archive is
-`origin/archive/pre-refactor-2026-06-30` at
-`1b2861c19d5f48cb9895f6fe600e21f36b9cc714`. The active FastAPI surface is
-`/health`, `/`, and `/brain/*`; legacy root-level and `/terminus/*` route
-families are retired, and the old service manager/facade/status/control/runtime
-files plus skipped legacy suites are deleted. Current validation:
-`python -m compileall -q src tests`, active brain/service/readout/replay pytest
-(`153 passed`), runtime benchmark/CUDA pytest (`76 passed`), API import probe
-with no deleted legacy modules loaded, and the UI build pass. A
-promoted-checkpoint `MarulhoBrain` stress smoke over
-`256` tokens completed through backend `cuda_graph_conditional_while` with zero
-graph/native failures, bounded `12/65536` route rows, and `97.815` tokens/sec;
-that short run is compile/capture dominated and is not a sustained speed claim.
-Two short 8-sequence input-staging smokes kept the same backend and zero
-graph/native failures but failed the speedup comparison (`0.891x` and
-`0.872x`), so they are retained as variance/failure evidence rather than
-completion proof. The longer default 64-sequence gate at
-`reports/brain_spine_20260630/sequence-input-staging-brain-spine-long-default.json`
-passed: `5632.644` sequence tokens/sec versus `4878.951` per-quantum
-tokens/sec (`1.154x`), backend `cuda_graph_conditional_while`, zero
-graph/native failures, `64` sequence input stages versus `768` per-quantum
-input stages, and bounded conditional-WHILE execution preserved.
 
 **Subcortex** — the grounded predictive spiking substrate. Owns sparse routing, multimodal grounding, predictive error, neuromodulation, replay, and curiosity pressure. Does not reason in language.
 _Avoid_: SSN, raw SNN side
 
-**Retired LLM Path** — the former external LLM/ThoughtLoop deliberation path. It is no longer an active runtime requirement because it added external dependency and code weight without being the living substrate. Public HTTP endpoints for this path are removed; any temporary internal compatibility surface must report the path as retired, not unavailable or required.
+**External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the runtime spine.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
-**Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize or mirror into the Retired LLM Path.
+**Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize or mirror into the external-LLM boundary.
 _Avoid_: action history as ThoughtLoop memory, booting Cortex to mirror an action
 
 **Subcortex Grounded Observation** — the runtime-owned source or sensory evidence packet created from real text, visual, audio, or multimodal input. It carries grounded metadata, focus terms, salience, and device/encoder evidence without requiring ThoughtLoop observation or surprise injection.
@@ -1251,13 +1228,13 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 
 **Routing Index** — the subcortical retrieval path that maps queries to candidate assemblies/prototypes. CUDA evidence requires actual cache/backend device telemetry, not only configured device intent.
 
-**ThoughtLoop** — deleted LLM cognition orchestrator. The name survives only in retirement documentation and negative tests; no module, constructor, skipped behavior suite, or compatibility namespace should remain.
+**ThoughtLoop** — external LLM cognition orchestrator name. It is not part of the MARULHO brain runtime, service contract, checkpoint contract, or package extension surface.
 
 **DriveSystem** — converts predictive error, surprise, fatigue, and novelty into cognitive pressure and thalamic context.
 
 **ThalamicGate** — assembles budgeted language/readout context packets from memory, drives, and source evidence.
 
-**Cognitive Signal** — the typed Subcortex control packet carrying prediction error, predictive confidence, neuromodulator mirrors, recent concepts, source, and sample time. It is owned by Subcortex/semantics code, not the Retired LLM Path.
+**Cognitive Signal** — the typed Subcortex control packet carrying prediction error, predictive confidence, neuromodulator mirrors, recent concepts, source, and sample time. It is owned by Subcortex/semantics code, not the external-LLM boundary.
 
 **WorkingMemory** — chain-local global workspace. Active scratchpad with strength-based decay and broadcast compression.
 
@@ -1374,13 +1351,13 @@ _Avoid_: using Runtime Truth as the self-repair evaluator, exposing repair case 
 
 ## Key Relationships
 
-- Subcortex is the active cognition substrate; the former external LLM/ThoughtLoop path is retired from runtime liveness claims.
-- Subcortex Action Ledger owns action evidence. Digital action execution may update runtime history, provider calibration, consequences, and Runtime Truth evidence, but it must not initialize the Retired LLM Path just to mirror action records.
-- Subcortex Grounded Observations own source and sensory evidence. Focus selection comes from query gaps, autonomy plans, geometric curiosity, concept state, and source metadata; it must not depend on a retired ThoughtLoop exploration target.
-- Grounding Diagnostics belong to the Subcortex Language Surface boundary. Retired compatibility code may consume them, but future SNN language/readout modules must be able to produce and inspect them without instantiating ThoughtLoop.
-- Active Exploration State belongs to Subcortex control. ThalamicGate stores the canonical state object and may expose compatibility properties; future curiosity, source-focus, and SNN deliberation modules must be able to normalize and inspect exploration targets without instantiating ThoughtLoop.
-- Runtime Truth must not own retired-path vocabulary. `retired_runtime_path`, `cortex_available`, `cortex_retired`, `cortex_enabled`, and retired evidence aliases are deleted from active status and report contracts.
-- Living Loop and Runtime Truth consumers should read active Subcortex evidence only; retired LLM/ThoughtLoop paths are absence checks, not status channels.
+- Subcortex is the active cognition substrate; external LLM/ThoughtLoop paths are outside runtime liveness claims.
+- Subcortex Action Ledger owns action evidence. Digital action execution may update runtime history, provider calibration, consequences, and Runtime Truth evidence, but it must not initialize an external LLM path just to mirror action records.
+- Subcortex Grounded Observations own source and sensory evidence. Focus selection comes from query gaps, autonomy plans, geometric curiosity, concept state, and source metadata; it must not depend on an external ThoughtLoop exploration target.
+- Grounding Diagnostics belong to the Subcortex Language Surface boundary. SNN language/readout modules must be able to produce and inspect them without instantiating ThoughtLoop.
+- Active Exploration State belongs to Subcortex control. ThalamicGate stores the canonical state object; curiosity, source-focus, and SNN deliberation modules must be able to normalize and inspect exploration targets without instantiating ThoughtLoop.
+- Runtime Truth must describe active Subcortex evidence rather than external-path availability.
+- Living Loop and Runtime Truth consumers should read active Subcortex evidence only; external LLM/ThoughtLoop paths are not status channels.
 - Living Loop payloads must not emit a `cortex` sibling snapshot, `cortex_loop_snapshot` capability, or `retired_runtime_path` snapshot; replay pressure reads sleep/fatigue state from Subcortex Sleep Pressure.
 - Long-test reports should emphasize Subcortex progress, Runtime Truth, memory pressure, spike health, and CUDA/device evidence. Retired LLM path fields are not compatibility payloads.
 - Subcortex Language Surface may describe, narrate, or decode Subcortex state, but it must not own memory, policy, liveness, or Runtime Truth.
@@ -1465,16 +1442,16 @@ _Avoid_: using Runtime Truth as the self-repair evaluator, exposing repair case 
 - Language Result is the Subcortex/semantics-owned result packet for language/readout quality metrics. Active code must import `LanguageResult` directly and must not use `ThoughtResult` aliases.
 - Language Packet is the Subcortex/semantics-owned context contract for language/readout slots, mode, memory items, and depth. Active code must import `ContextPacket`, `MemoryItem`, `ReadoutMode`, and `DeliberationDepth` from `marulho.semantics.language_packet`; `marulho.cortex.core` is deleted.
 - Cortex prompt templates are deleted. Language/readout steering should be semantics/Subcortex-owned and grounded by packet evidence, not preserved as Cortex-owned static LLM prompts.
-- The `marulho.cortex` package is deleted. Cortex-owned drives, episodic memory, working memory, narrative self, prompt, core, and ThoughtLoop modules must not be active extension points; reusable concepts belong under semantics, service runtime, or Subcortex modules.
+- Cortex-owned drives, episodic memory, working memory, narrative self, prompt, core, and ThoughtLoop modules must not be active extension points; reusable concepts belong under semantics, service runtime, or Subcortex modules.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
 - Replay Pipeline feeds adapter experiments that never touch production runtime
 - MarulhoBrain owns the runtime spine while package owner modules supply replay, grounding, policy, source, and interaction machinery behind explicit calls. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
-- CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The Retired LLM Path is not a CUDA-first claim or architectural requirement.
+- CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. External LLM paths are not CUDA-first claims or architectural requirements.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Sensory Encoder device reports must include both persistent encoder state devices and the last emitted spike tensor device/shape; a configured device alone is not CUDA evidence.
 - Multimodal Stream Loader tensors must resolve to the runtime device before encoding. Directory-loaded `.pt` visual/audio tensors and synthetic sensory tensors must not silently enter the Subcortex path through a CPU-only default.
 - Checkpoint restore must select the active runtime device for `torch.load`; CPU serialization is allowed for archival payloads, not as the live Subcortex placement rule.
-- Runtime Evidence Report and replay/export planning must read active Subcortex, Runtime Truth, spike-health, memory, and sleep-pressure evidence directly; they must not read `retired_runtime_path` as a source of record.
+- Runtime Evidence Report and replay/export planning must read active Subcortex, Runtime Truth, spike-health, memory, and sleep-pressure evidence directly.
 - Brain runtime snapshots must not expose `retired_runtime_path`, publish an active `cortex` sibling payload, or require `cortex_snapshot()` helpers.
 - Subcortex Spike Health is the first operational-stability slice inside Runtime Evidence Report: it can flag silent, saturated, stale routing, or windowed over-correlation risk, while full operational-manifold health remains a future benchmark-level claim.
 - Subcortex Self-Repair Candidates turn Spike Health into reviewable repair pressure for Living Loop and Policy Actuator sidecars. The Self-Repair Promotion Gate must keep action execution, fact promotion, and structural mutation false until a separate replay/deep-sleep/operator path approves the repair.

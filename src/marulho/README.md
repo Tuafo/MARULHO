@@ -5,8 +5,7 @@ Use this package map with [../../README.md](../../README.md) and
 
 `CONTEXT.md` is the domain vocabulary source of truth. The root `README.md`
 explains the project shape and current runtime spine. Each package README
-below records local ownership rules and the important guidance ported from the
-retired vault notes.
+below records local ownership rules and machinery-specific runtime rules.
 
 ## Machinery Folders
 
@@ -15,7 +14,7 @@ retired vault notes.
 - [data](data/README.md): source loaders and sparse encoder boundaries.
 - [semantics](semantics/README.md): grounded readout, concepts, and language evidence.
 - [training](training/README.md): trainer-owned CUDA, checkpoint, sequence, and replay execution.
-- [service](service/README.md): thin HTTP/UI adapter and transitional composition root.
+- [service](service/README.md): thin HTTP/UI adapter and composition root.
 - [consolidation](consolidation/README.md): CPU archival memory and replay records.
 - [retrieval](retrieval/README.md): exact tensor routing caches and candidate search.
 - [evaluation](evaluation/README.md): benchmarks, gates, and validation evidence.
@@ -25,7 +24,6 @@ retired vault notes.
 
 ## Documentation Rule
 
-Do not add a second generated documentation system. If a term changes, update
+Keep documentation close to the owning code. If a term changes, update
 `CONTEXT.md`. If ownership or local machinery changes, update the closest
-package README. Do not recreate vault, Graphify, goals, or ADR documentation
-layers.
+package README.
