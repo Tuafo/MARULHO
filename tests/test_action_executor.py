@@ -144,3 +144,50 @@ class ActionExecutorTests(unittest.TestCase):
             self.assertGreaterEqual(assist["response_episode_count"], 1)
             self.assertGreaterEqual(len(query_result["query_summary"]["memory_episodes"]), 1)
             self.assertEqual(query_result["query_summary"]["memory_episodes"][0]["action_origin"], "action-1")
+
+    def test_auto_workspace_search_uses_bounded_multi_clause_gap_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "facts.md").write_text(
+                "\n".join(
+                    [
+                        "Mercury is the closest planet to the sun.",
+                        "Volcanoes release ash and lava during eruptions.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            executor, _brain_events, _runtime_state = _build_action_executor(root)
+            query_result = {
+                "query_summary": {"memory_episodes": []},
+                "gap_plan": {
+                    "unsupported_terms": ["closest", "sun", "volcanoes", "release"],
+                    "grounded_fraction": 0.0,
+                    "retrieval_queries": ["closest sun", "volcanoes release"],
+                },
+            }
+            response = {
+                "response_mode": "quote",
+                "unsupported_terms": ["volcanoes", "release"],
+                "evidence_coverage": 0.5,
+            }
+
+            assist = executor.maybe_auto_action_assist(
+                query_text="What is closest to the sun and what do volcanoes release?",
+                query_result=query_result,
+                response=response,
+            )
+
+            self.assertIsNotNone(assist)
+            assert assist is not None
+            self.assertTrue(assist["executed"])
+            self.assertEqual(assist["reason"], "query_gap_auto_search")
+            self.assertEqual(assist["selection_budget"]["attempted_query_count"], 2)
+            self.assertEqual(assist["result_count"], 2)
+            self.assertGreaterEqual(assist["response_episode_count"], 2)
+            episode_text = " ".join(
+                item["text"].lower()
+                for item in query_result["query_summary"]["memory_episodes"]
+            )
+            self.assertIn("mercury", episode_text)
+            self.assertIn("volcanoes release ash", episode_text)

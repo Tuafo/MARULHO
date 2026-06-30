@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
@@ -194,6 +195,38 @@ def _supported_chunk_queries(
     return _dedupe_keep_order(queries)[: max(1, int(limit))]
 
 
+def _query_clause_retrieval_queries(
+    query_text: str,
+    *,
+    limit: int,
+) -> list[str]:
+    normalized = _normalize_text(query_text)
+    if not normalized:
+        return []
+
+    raw_clauses = [
+        item
+        for item in re.split(r"\b(?:and|or)\b|[.;!?]+", normalized, flags=re.IGNORECASE)
+        if item.strip()
+    ]
+    if len(raw_clauses) <= 1:
+        return []
+
+    queries: list[str] = []
+    for raw_clause in raw_clauses:
+        terms = [
+            term
+            for term in salient_query_terms(raw_clause)
+            if len(term) >= 3 or term.isdigit()
+        ]
+        if len(terms) < 2:
+            continue
+        queries.append(" ".join(terms[:4]))
+        if len(_dedupe_keep_order(queries)) >= max(1, int(limit)):
+            break
+    return _dedupe_keep_order(queries)[: max(1, int(limit))]
+
+
 def plan_query_gaps(
     *,
     query_text: str,
@@ -265,6 +298,10 @@ def plan_query_gaps(
                 query_text=query_text_norm,
                 query_terms=query_terms,
                 memory_matches=memory_matches,
+                limit=max_queries,
+            ),
+            *_query_clause_retrieval_queries(
+                query_text_norm,
                 limit=max_queries,
             ),
             " ".join(unsupported_terms[:3]).strip(),

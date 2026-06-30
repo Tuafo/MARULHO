@@ -1606,7 +1606,13 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(proposal["mutates_runtime_state"])
         self.assertEqual(proposal["promotion_gate"]["status"], "ready_for_operator_review")
         self.assertEqual(proposal["regeneration_design"]["candidate_count"], 1)
-        self.assertEqual(proposal["regeneration_design"]["candidate_synapses"][0]["synapse"], "3:4")
+        candidate = proposal["regeneration_design"]["candidate_synapses"][0]
+        self.assertEqual(candidate["synapse"], "3:4")
+        self.assertEqual(candidate["source_rollout_step_index"], 0)
+        self.assertEqual(candidate["target_rollout_step_index"], 1)
+        self.assertTrue(candidate["source_synapse_id"].startswith("sequence-mismatch:"))
+        self.assertTrue(candidate["source_active_indices_hash"])
+        self.assertTrue(candidate["target_active_indices_hash"])
 
     def test_spike_language_sequence_mismatch_probe_reports_prediction_error_without_learning(self) -> None:
         prediction = predict_spike_language_sequence(

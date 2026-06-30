@@ -19,6 +19,7 @@ DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT = 8
 DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
 DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
 SUPPORTED_ACTION_TYPES = ("workspace_search", "workspace_read", "web_fetch", "api_request")
+MAX_AUTO_WORKSPACE_SEARCH_QUERIES = 3
 
 
 class ActionExecutor:
@@ -961,18 +962,104 @@ class ActionExecutor:
             )
             assist_reason = "query_gap_auto_read"
         else:
-            action_result = self.execute_digital_action(
-                {
-                    "action_type": "workspace_search",
-                    "query_text": search_query,
-                    "predicted_outcome": (
-                        f"Auto action assist expects grounded workspace evidence relevant to: {query_text}."
-                    ),
-                },
-                trigger_reason="query_gap_auto_search",
-                trigger_query_text=query_text,
-            )
+            bounded_queries = [
+                item
+                for item in [*retrieval_queries, search_query]
+                if item
+            ]
+            bounded_queries = list(dict.fromkeys(bounded_queries))[
+                :MAX_AUTO_WORKSPACE_SEARCH_QUERIES
+            ]
+            if not bounded_queries:
+                bounded_queries = [query_text]
+            action_results = [
+                self.execute_digital_action(
+                    {
+                        "action_type": "workspace_search",
+                        "query_text": bounded_query,
+                        "predicted_outcome": (
+                            "Auto action assist expects grounded workspace evidence "
+                            f"relevant to: {query_text}."
+                        ),
+                    },
+                    trigger_reason="query_gap_auto_search",
+                    trigger_query_text=query_text,
+                )
+                for bounded_query in bounded_queries
+            ]
             assist_reason = "query_gap_auto_search"
+            accepted_results = [
+                result
+                for result in action_results
+                if bool(result.get("accepted", False))
+            ]
+            if not accepted_results:
+                first_result = action_results[0] if action_results else {}
+                return {
+                    "triggered": True,
+                    "executed": False,
+                    "reused_recent_action": False,
+                    "reason": "auto_action_execution_failed",
+                    "used_in_response": False,
+                    "error": self._normalize_action_text(
+                        first_result.get("reason", "execution_failed")
+                    ),
+                    "selection_budget": {
+                        "max_workspace_search_queries": MAX_AUTO_WORKSPACE_SEARCH_QUERIES,
+                        "attempted_query_count": int(len(action_results)),
+                    },
+                }
+            records = [
+                cast(dict[str, Any], result.get("result") or {})
+                for result in accepted_results
+                if isinstance(result.get("result"), Mapping)
+            ]
+            successful_records = [
+                record
+                for record in records
+                if bool(
+                    (
+                        record.get("verification")
+                        if isinstance(record.get("verification"), Mapping)
+                        else {}
+                    ).get("success", False)
+                )
+            ]
+            injected = 0
+            if successful_records:
+                injected = self._augment_query_result_with_action_records_locked(
+                    query_result,
+                    query_text=query_text,
+                    records=successful_records,
+                )
+            primary_record = successful_records[0] if successful_records else records[0]
+            primary_verification = (
+                primary_record.get("verification")
+                if isinstance(primary_record.get("verification"), Mapping)
+                else {}
+            )
+            assist = {
+                "triggered": True,
+                "executed": True,
+                "reused_recent_action": False,
+                "reason": assist_reason,
+                "used_in_response": bool(injected > 0),
+                "result": deepcopy(primary_record),
+                "results": deepcopy(records),
+                "result_count": int(len(records)),
+                "successful_result_count": int(len(successful_records)),
+                "response_episode_count": int(injected),
+                "selection_budget": {
+                    "max_workspace_search_queries": MAX_AUTO_WORKSPACE_SEARCH_QUERIES,
+                    "attempted_query_count": int(len(action_results)),
+                    "accepted_result_count": int(len(records)),
+                },
+            }
+            if bool(primary_verification.get("contradiction", False)):
+                assist["response_note"] = self._contradicted_action_note_locked(
+                    primary_record
+                )
+            return assist
 
         if not bool(action_result.get("accepted", False)):
             return {

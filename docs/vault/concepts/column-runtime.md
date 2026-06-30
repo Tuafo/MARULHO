@@ -104,6 +104,27 @@ gate processed `524288` tokens at `6518.530 tokens/sec` with bounded
 `12/65536` route rows, `65526` cached transition rows, flat RTX 3060 memory,
 no observed contention, and zero graph/native sequence failures.
 
+## Readout API Route Boundary
+
+The readout memory/consolidation/structural service edge is now single-path:
+generic `snn-language-memory-*`, `snn-language-consolidation-*`, and
+`snn-language-structural-plasticity-*` routes and schema fields are removed
+from the active API. The maintained route families are
+`snn-language-readout-memory-*`, `snn-language-readout-consolidation-*`, and
+`snn-language-readout-structural-plasticity-*`, with canonical readout request
+fields that call the same reviewed ledger/executor gates. This is control-plane
+cleanup only; it adds no live-tick recall, no every-token replay, no raw replay
+text reasoning, and no GPU-resident archival metadata.
+
+The paired long gate for this cleanup processed `524288` tokens at
+`5646.557 tokens/sec`, p95 tick `23.796 ms`, and
+`train_compute=0.141930 ms/token`. Runtime Truth kept route scoring bounded at
+`12/65536`, cached `65526` transition rows, kept
+`state_transition_runs_all_columns=false`, selected CUDA on the RTX 3060,
+observed no CPU/GPU contention, moved RTX memory `1689->1683 MiB`, and recorded
+zero graph/native sequence failures. Treat this as same-band live-tick
+protection under the current noisy baseline, not a new throughput ceiling.
+
 HF replay recall now re-caps inherited query-collection bucket scopes before
 local recall. `_bounded_replay_recall_evaluation(...)` trusts inherited
 `candidate_bucket_ids` only from `bounded_replay_query_anchor_bucket_source_window.v1`
@@ -2254,7 +2275,9 @@ The downstream newborn developmental chain now has one production name:
 `readout_newborn_*` counters/events for newborn integration,
 critical-period learning, and newborn-synapse pruning. The retired
 `thought_newborn` production names are documented only as retired paths, not
-live aliases.
+live aliases. The API mapper that translated readout payloads back into
+thought-era names is removed, and API readout-memory/consolidation/structural,
+capacity, and newborn routes now pass canonical readout payloads directly.
 
 This remains an explicit slow-path developmental/plasticity boundary. The live
 column tick does not run newborn integration, critical-period learning,
@@ -2284,6 +2307,44 @@ latency from `42.525 ms` to `33.718 ms`. The long no-profile check stayed in
 the noisy maintained band at `5935.802 tokens/sec` with route scoring bounded
 to `12/65536`, `65526` cached transition rows, CUDA active on the RTX 3060,
 and zero graph/native/sequence failures.
+
+## Respond Action Recall Boundary
+
+Respond-time action assistance is a selected slow-path recall operator, not a
+live column tick feature. `plan_query_gaps(...)` can split a multi-clause query
+into bounded retrieval clauses; `ActionExecutor.maybe_auto_action_assist(...)`
+dedupes those clauses with the fallback search and attempts at most three
+workspace searches. Only accepted, verified action records are converted into
+response evidence, and the response builder treats those complete-sentence
+snippets as synthesis-grade bounded evidence. The report carries
+`selection_budget.max_workspace_search_queries`, attempted/accepted counts, and
+the injected response-episode count.
+
+This is CPU workspace/source recall after an explicit respond request. It does
+not scan all memory, run in the live tick, write replay/consolidation state,
+perform every-token slow-memory admission, move archival metadata to CUDA, or
+reason through hidden replay text. Focused service tests prove the mixed-world
+query "closest to the sun and volcanoes release" retrieves both facts and
+answers through `grounded_synthesis` after the bounded action assist.
+
+## Replay-Regeneration Provenance Boundary
+
+Replay-backed structural regeneration now requires auditable local-edge
+provenance on each candidate synapse. The regeneration proposal no longer emits
+bare pre/post candidates: it attaches deterministic mismatch-edge lineage,
+source/target active-index hashes, and ordered local step fields. The
+ReplayController permit normalizer preserves those candidate fields instead of
+stripping them, and permit verification compares a bounded public permit view
+so source-window hashes and optional emission lineage survive the
+proposal/permit/application boundary.
+
+Source-window metadata is still CPU-resident provenance for replay context
+verification, but it is not emission lineage by itself. Emission lineage is
+present only when emission, readout-evidence, and prediction hashes are all
+available. The synapse provenance audit therefore blocks incomplete local-edge
+rows while avoiding false lineage failures for generic replay-context source
+windows. This keeps replay mutation authority on bounded evidence windows, not
+on text-shaped metadata or compatibility payloads.
 
 ## Sleep Recall Read-Only Row Boundary
 

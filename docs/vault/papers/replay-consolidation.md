@@ -218,6 +218,43 @@ capture windows; sparse replay argues for bounded candidate sets; modern
 Hopfield-style attention-like recall is treated here as a local associative
 memory operator, not as a transformer-like mind.
 
+The 2026-06-24 readout API cleanup keeps the same boundary at the service edge:
+readout-memory, readout-consolidation, readout-structural, capacity, and newborn
+routes now pass canonical readout payloads directly instead of translating them
+through thought-era names. That removal prevents replay/readout text from
+becoming hidden language reasoning through a compatibility mapper; any future
+external migration adapter would need explicit source budgets, checkpoint/reload
+coverage, and a fresh long-run protection gate.
+
+The 2026-06-30 follow-up finishes the service-edge cleanup rather than leaving
+generic readout route aliases around. Memory, consolidation, and structural
+plasticity API routes and schemas now expose only
+`snn-language-readout-memory-*`, `snn-language-readout-consolidation-*`, and
+`snn-language-readout-structural-plasticity-*` with readout-prefixed request
+fields. Focused service/API tests prove the canonical routes are registered and
+the generic routes are absent. The bounded replay quality run selected one
+bucket-indexed positive-pressure candidate, used no global fallback, and passed
+sleep recall with input-pattern distance `5.960464477539063e-08`; the stricter
+commit/update gate did not promote consolidation. The paired `524288`-token
+long run reached `5646.557 tokens/sec`, p95 tick `23.796 ms`,
+`train_compute=0.141930 ms/token`, `prepare_training=0.007484 ms/token`, and
+`finalize_total=0.007600 ms/token`, with CUDA on the RTX 3060, bounded
+`12/65536` route rows, no all-column transition, no observed contention, and
+zero graph/native sequence failures. This is live-tick protection and API
+single-path evidence, not a new speed ceiling or consolidation-promotion
+claim.
+
+The bounded action-recall and regeneration-provenance cleanup extends that
+boundary into selected respond/replay windows. Multi-clause respond assistance
+uses at most three deduped workspace searches from the gap planner and injects
+only verified snippets as evidence for grounded synthesis; it is not a live-tick
+memory operator. Replay-regeneration proposals now carry local mismatch-edge
+provenance through the permit/application chain, while source-window metadata is
+not treated as emission lineage unless emission, readout-evidence, and
+prediction hashes are complete. This matches sparse replay and synaptic
+tagging/capture: selected evidence can drive reviewable local updates, but bare
+associations or text-shaped metadata cannot promote to mutation authority.
+
 The 2026-06-23 maintained-only cleanup applies that paper boundary to the
 benchmark layer itself. The repo no longer carries executable full-retained
 emission-review or status replay comparators as side baselines; the active

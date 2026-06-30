@@ -507,6 +507,21 @@ class ReplayControllerTests(unittest.TestCase):
         ] = "tampered"
         self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
 
+    def test_snn_replay_context_source_window_metadata_is_not_emission_lineage(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+
+        lineage = controller._snn_replay_context_emission_lineage(
+            {
+                "source": "runtime_facade.snn_replay_evaluation_context",
+                "observed_slot_source_window": {
+                    "surface": "bounded_snn_replay_evaluation_context_observed_slot_window.v1"
+                },
+            }
+        )
+
+        self.assertEqual(lineage, {})
+
     def test_snn_replay_evaluation_context_verification_uses_id_index(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -2018,7 +2033,19 @@ class ReplayControllerTests(unittest.TestCase):
                 "initial_weight": 0.02,
                 "max_new_synapses": 8,
                 "mismatch_score": 0.9,
-                "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+                "candidate_synapses": [
+                    {
+                        "pre_index": 1,
+                        "post_index": 2,
+                        "initial_weight": 0.02,
+                        "source_synapse_id": "edge-1",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 0,
+                        "target_rollout_step_index": 1,
+                        "source_active_indices_hash": "source-active-hash",
+                        "target_active_indices_hash": "target-active-hash",
+                    }
+                ],
             },
             operator_id="operator-1",
             confirmation=True,
@@ -2030,11 +2057,29 @@ class ReplayControllerTests(unittest.TestCase):
                 "initial_weight": 0.02,
                 "max_new_synapses": 8,
                 "mismatch_score": 0.9,
-                "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+                "candidate_synapses": [
+                    {
+                        "pre_index": 1,
+                        "post_index": 2,
+                        "initial_weight": 0.02,
+                        "source_synapse_id": "edge-1",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 0,
+                        "target_rollout_step_index": 1,
+                        "source_active_indices_hash": "source-active-hash",
+                        "target_active_indices_hash": "target-active-hash",
+                    }
+                ],
             },
         }
 
         self.assertTrue(controller.verify_regeneration_permit(proposal))
+        public_proposal = {
+            "replay_evidence": controller._regeneration_permit_public_view(permit),
+            "regeneration_design": deepcopy(proposal["regeneration_design"]),
+        }
+        self.assertTrue(controller.verify_regeneration_permit(public_proposal))
+        self.assertTrue(public_proposal["replay_evidence"]["source_window_hash"])
         self.assertEqual(artifact["readout_evidence_hashes"], ["readout-hash-1"])
         self.assertEqual(permit["readout_evidence_hashes"], ["readout-hash-1"])
         self.assertTrue(permit["confirmation"])
@@ -2044,6 +2089,7 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 4)
         manager._runtime_state.state_revision += 1
         self.assertFalse(controller.verify_regeneration_permit(proposal))
+        self.assertFalse(controller.verify_regeneration_permit(public_proposal))
 
     def test_regeneration_permit_rejects_oversized_candidate_source_window_before_mutation(self) -> None:
         manager = _FakeReplayManager()

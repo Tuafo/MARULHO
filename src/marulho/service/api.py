@@ -80,10 +80,10 @@ from .schemas import (
     SNNLanguageAutonomousSNNLanguageDecodingExecutorRequest,
     SNNLanguageAutonomousSNNLanguageDecodingEventReviewRequest,
     SNNLanguageAutonomousSNNLanguageDecodingPreflightRequest,
-    SNNLanguageConsolidationDesignRequest,
-    SNNLanguageConsolidationEventReviewRequest,
-    SNNLanguageConsolidationExecutorRequest,
-    SNNLanguageConsolidationPreflightRequest,
+    SNNLanguageReadoutConsolidationDesignRequest,
+    SNNLanguageReadoutConsolidationEventReviewRequest,
+    SNNLanguageReadoutConsolidationExecutorRequest,
+    SNNLanguageReadoutConsolidationPreflightRequest,
     SNNLanguageReadoutCapacityMutationDesignRequest,
     SNNLanguageReadoutCapacityMutationEventReviewRequest,
     SNNLanguageReadoutCapacityMutationExecutorRequest,
@@ -101,14 +101,14 @@ from .schemas import (
     SNNLanguageReadoutNewbornSynapsePruningDesignRequest,
     SNNLanguageReadoutNewbornSynapsePruningExecutorRequest,
     SNNLanguageReadoutNewbornSynapsePruningPreflightRequest,
-    SNNLanguageStructuralPlasticityDesignRequest,
-    SNNLanguageStructuralPlasticityExecutorRequest,
-    SNNLanguageStructuralPlasticityEventReviewRequest,
-    SNNLanguageStructuralPlasticityPreflightRequest,
-    SNNLanguageMemoryDesignRequest,
-    SNNLanguageMemoryExecutorRequest,
-    SNNLanguageMemoryEventReviewRequest,
-    SNNLanguageMemoryPreflightRequest,
+    SNNLanguageReadoutStructuralPlasticityDesignRequest,
+    SNNLanguageReadoutStructuralPlasticityExecutorRequest,
+    SNNLanguageReadoutStructuralPlasticityEventReviewRequest,
+    SNNLanguageReadoutStructuralPlasticityPreflightRequest,
+    SNNLanguageReadoutMemoryDesignRequest,
+    SNNLanguageReadoutMemoryExecutorRequest,
+    SNNLanguageReadoutMemoryEventReviewRequest,
+    SNNLanguageReadoutMemoryPreflightRequest,
     SNNLanguageSurfaceDesignRequest,
     SNNLanguageSurfaceExecutorRequest,
     SNNLanguageSurfaceEventReviewRequest,
@@ -307,64 +307,6 @@ def _model_to_dict(model: object) -> dict:
     if hasattr(model, "model_dump"):
         return getattr(model, "model_dump")()
     return getattr(model, "dict")()
-
-
-_PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("terminus_snn_language_autonomous_snn_language_thought", "terminus_snn_language_readout"),
-    ("snn_language_autonomous_snn_language_thought", "snn_language_readout"),
-    ("autonomous_snn_language_thought", "snn_language_readout"),
-    ("language_thought", "language_readout"),
-    ("thought_trace", "readout_trace"),
-    ("thought_driven", "readout_driven"),
-    ("missing_thought", "missing_readout"),
-)
-_INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("readout_trace", "thought_trace"),
-    ("readout_driven", "thought_driven"),
-    ("missing_readout", "missing_thought"),
-)
-
-
-def _replace_snn_language_names(value: str, replacements: tuple[tuple[str, str], ...]) -> str:
-    result = value
-    for old, new in replacements:
-        result = result.replace(old, new)
-    return result
-
-
-def _map_snn_language_names(value: Any, replacements: tuple[tuple[str, str], ...]) -> Any:
-    if isinstance(value, dict):
-        mapped: dict[str, Any] = {}
-        for key, item in value.items():
-            next_key = _replace_snn_language_names(str(key), replacements)
-            next_value = _map_snn_language_names(item, replacements)
-            mapped[next_key] = next_value
-            if replacements is _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS and next_key.startswith(
-                "snn_language_autonomous_snn_language_thought"
-            ):
-                mapped[
-                    next_key.replace(
-                        "snn_language_autonomous_snn_language_thought",
-                        "autonomous_snn_language_thought",
-                        1,
-                    )
-                ] = next_value
-        return mapped
-    if isinstance(value, list):
-        return [_map_snn_language_names(item, replacements) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_map_snn_language_names(item, replacements) for item in value)
-    if isinstance(value, str):
-        return _replace_snn_language_names(value, replacements)
-    return value
-
-
-def _public_snn_language_payload(value: Any) -> Any:
-    return _map_snn_language_names(value, _PUBLIC_SNN_LANGUAGE_NAME_REPLACEMENTS)
-
-
-def _internal_snn_language_payload(value: Any) -> Any:
-    return _map_snn_language_names(value, _INTERNAL_SNN_LANGUAGE_NAME_REPLACEMENTS)
 
 
 def _report_root(manager: MarulhoServiceManager) -> Path:
@@ -1977,7 +1919,7 @@ def create_app(
         )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review")
-    def terminus_snn_language_surface_event_review(
+    def terminus_snn_language_readout_surface_event_review(
         request: SNNLanguageSurfaceEventReviewRequest,
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_surface_event_review(
@@ -1988,351 +1930,351 @@ def create_app(
             review_policy=request.review_policy,
         )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-memory-design")
-    def terminus_snn_language_memory_design(
-        request: SNNLanguageMemoryDesignRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-design")
+    def terminus_snn_language_readout_memory_design(
+        request: SNNLanguageReadoutMemoryDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_memory_design(
+        return runtime.snn_language_readout_memory_design(
             snn_language_readout_surface_event_review=(
-                request.snn_language_surface_event_review
+                request.snn_language_readout_surface_event_review
             ),
-            memory_policy=_internal_snn_language_payload(request.memory_policy),
-        ))
+            memory_policy=request.memory_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-memory-preflight")
-    def terminus_snn_language_memory_preflight(
-        request: SNNLanguageMemoryPreflightRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-preflight")
+    def terminus_snn_language_readout_memory_preflight(
+        request: SNNLanguageReadoutMemoryPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_memory_preflight(
+        return runtime.snn_language_readout_memory_preflight(
             snn_language_readout_memory_design=(
-                _internal_snn_language_payload(request.snn_language_memory_design)
+                request.snn_language_readout_memory_design
             ),
             expected_state_revision=request.expected_state_revision,
-            device_evidence=_internal_snn_language_payload(request.device_evidence),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-memory-executor")
-    def terminus_snn_language_memory_executor(
-        request: SNNLanguageMemoryExecutorRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-executor")
+    def terminus_snn_language_readout_memory_executor(
+        request: SNNLanguageReadoutMemoryExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_memory_executor(
+        return runtime.snn_language_readout_memory_executor(
             snn_language_readout_memory_preflight=(
-                _internal_snn_language_payload(request.snn_language_memory_preflight)
+                request.snn_language_readout_memory_preflight
             ),
             expected_state_revision=request.expected_state_revision,
-            execution_policy=_internal_snn_language_payload(request.execution_policy),
-        ))
+            execution_policy=request.execution_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-memory-event-review")
-    def terminus_snn_language_memory_event_review(
-        request: SNNLanguageMemoryEventReviewRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-event-review")
+    def terminus_snn_language_readout_memory_event_review(
+        request: SNNLanguageReadoutMemoryEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_memory_event_review(
+        return runtime.snn_language_readout_memory_event_review(
             snn_language_readout_memory_executor=(
-                _internal_snn_language_payload(request.snn_language_memory_executor)
+                request.snn_language_readout_memory_executor
             ),
             expected_state_revision=request.expected_state_revision,
-            review_policy=_internal_snn_language_payload(request.review_policy),
-        ))
+            review_policy=request.review_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-design")
-    def terminus_snn_language_consolidation_design(
-        request: SNNLanguageConsolidationDesignRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-design")
+    def terminus_snn_language_readout_consolidation_design(
+        request: SNNLanguageReadoutConsolidationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_design(
+        return runtime.snn_language_readout_consolidation_design(
             snn_language_readout_memory_event_review=(
-                _internal_snn_language_payload(request.snn_language_memory_event_review)
+                request.snn_language_readout_memory_event_review
             ),
-            consolidation_policy=_internal_snn_language_payload(request.consolidation_policy),
-        ))
+            consolidation_policy=request.consolidation_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-preflight")
-    def terminus_snn_language_consolidation_preflight(
-        request: SNNLanguageConsolidationPreflightRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-preflight")
+    def terminus_snn_language_readout_consolidation_preflight(
+        request: SNNLanguageReadoutConsolidationPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_preflight(
+        return runtime.snn_language_readout_consolidation_preflight(
             snn_language_readout_consolidation_design=(
-                _internal_snn_language_payload(request.snn_language_consolidation_design)
+                request.snn_language_readout_consolidation_design
             ),
             expected_state_revision=request.expected_state_revision,
-            device_evidence=_internal_snn_language_payload(request.device_evidence),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-executor")
-    def terminus_snn_language_consolidation_executor(
-        request: SNNLanguageConsolidationExecutorRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-executor")
+    def terminus_snn_language_readout_consolidation_executor(
+        request: SNNLanguageReadoutConsolidationExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_executor(
+        return runtime.snn_language_readout_consolidation_executor(
             snn_language_readout_consolidation_preflight=(
-                _internal_snn_language_payload(request.snn_language_consolidation_preflight)
+                request.snn_language_readout_consolidation_preflight
             ),
             expected_state_revision=request.expected_state_revision,
-            execution_policy=_internal_snn_language_payload(request.execution_policy),
-        ))
+            execution_policy=request.execution_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-event-review")
-    def terminus_snn_language_consolidation_event_review(
-        request: SNNLanguageConsolidationEventReviewRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-event-review")
+    def terminus_snn_language_readout_consolidation_event_review(
+        request: SNNLanguageReadoutConsolidationEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_consolidation_event_review(
+        return runtime.snn_language_readout_consolidation_event_review(
             snn_language_readout_consolidation_executor=(
-                _internal_snn_language_payload(request.snn_language_consolidation_executor)
+                request.snn_language_readout_consolidation_executor
             ),
             expected_state_revision=request.expected_state_revision,
-            review_policy=_internal_snn_language_payload(request.review_policy),
-        ))
+            review_policy=request.review_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-design")
-    def terminus_snn_language_structural_plasticity_design(
-        request: SNNLanguageStructuralPlasticityDesignRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-design")
+    def terminus_snn_language_readout_structural_plasticity_design(
+        request: SNNLanguageReadoutStructuralPlasticityDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_design(
+        return runtime.snn_language_readout_structural_plasticity_design(
             snn_language_readout_consolidation_event_review=(
-                _internal_snn_language_payload(request.snn_language_consolidation_event_review)
+                request.snn_language_readout_consolidation_event_review
             ),
-            structural_policy=_internal_snn_language_payload(request.structural_policy),
-        ))
+            structural_policy=request.structural_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-preflight")
-    def terminus_snn_language_structural_plasticity_preflight(
-        request: SNNLanguageStructuralPlasticityPreflightRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-preflight")
+    def terminus_snn_language_readout_structural_plasticity_preflight(
+        request: SNNLanguageReadoutStructuralPlasticityPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_preflight(
+        return runtime.snn_language_readout_structural_plasticity_preflight(
             snn_language_readout_structural_plasticity_design=(
-                _internal_snn_language_payload(request.snn_language_structural_plasticity_design)
+                request.snn_language_readout_structural_plasticity_design
             ),
             expected_state_revision=request.expected_state_revision,
-            device_evidence=_internal_snn_language_payload(request.device_evidence),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-executor")
-    def terminus_snn_language_structural_plasticity_executor(
-        request: SNNLanguageStructuralPlasticityExecutorRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-executor")
+    def terminus_snn_language_readout_structural_plasticity_executor(
+        request: SNNLanguageReadoutStructuralPlasticityExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_executor(
+        return runtime.snn_language_readout_structural_plasticity_executor(
             snn_language_readout_structural_plasticity_preflight=(
-                _internal_snn_language_payload(request.snn_language_structural_plasticity_preflight)
+                request.snn_language_readout_structural_plasticity_preflight
             ),
             expected_state_revision=request.expected_state_revision,
-            execution_policy=_internal_snn_language_payload(request.execution_policy),
-        ))
+            execution_policy=request.execution_policy,
+        )
 
-    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-event-review")
-    def terminus_snn_language_structural_plasticity_event_review(
-        request: SNNLanguageStructuralPlasticityEventReviewRequest,
+    @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-event-review")
+    def terminus_snn_language_readout_structural_plasticity_event_review(
+        request: SNNLanguageReadoutStructuralPlasticityEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_structural_plasticity_event_review(
+        return runtime.snn_language_readout_structural_plasticity_event_review(
             snn_language_readout_structural_plasticity_executor=(
-                _internal_snn_language_payload(request.snn_language_structural_plasticity_executor)
+                request.snn_language_readout_structural_plasticity_executor
             ),
             expected_state_revision=request.expected_state_revision,
-            review_policy=_internal_snn_language_payload(request.review_policy),
-        ))
+            review_policy=request.review_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design")
     def terminus_snn_language_readout_capacity_mutation_design(
         request: SNNLanguageReadoutCapacityMutationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_design(
+        return runtime.snn_language_readout_capacity_mutation_design(
             snn_language_readout_structural_plasticity_event_review=(
-                _internal_snn_language_payload(request.snn_language_structural_plasticity_event_review)
+                request.snn_language_readout_structural_plasticity_event_review
             ),
-            capacity_policy=_internal_snn_language_payload(request.capacity_policy),
-        ))
+            capacity_policy=request.capacity_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-preflight")
     def terminus_snn_language_readout_capacity_mutation_preflight(
         request: SNNLanguageReadoutCapacityMutationPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_preflight(
+        return runtime.snn_language_readout_capacity_mutation_preflight(
             snn_language_readout_capacity_mutation_design=(
-                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_design)
+                request.snn_language_readout_capacity_mutation_design
             ),
             expected_state_revision=request.expected_state_revision,
-            checkpoint_transaction=_internal_snn_language_payload(request.checkpoint_transaction),
-            device_evidence=_internal_snn_language_payload(request.device_evidence),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            checkpoint_transaction=request.checkpoint_transaction,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-executor")
     def terminus_snn_language_readout_capacity_mutation_executor(
         request: SNNLanguageReadoutCapacityMutationExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_executor(
+        return runtime.snn_language_readout_capacity_mutation_executor(
             snn_language_readout_capacity_mutation_preflight=(
-                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_preflight)
+                request.snn_language_readout_capacity_mutation_preflight
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_path=request.checkpoint_path,
             requested_device=request.requested_device,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-event-review")
     def terminus_snn_language_readout_capacity_mutation_event_review(
         request: SNNLanguageReadoutCapacityMutationEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_capacity_mutation_event_review(
+        return runtime.snn_language_readout_capacity_mutation_event_review(
             snn_language_readout_capacity_mutation_executor=(
-                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_executor)
+                request.snn_language_readout_capacity_mutation_executor
             ),
             expected_state_revision=request.expected_state_revision,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-design")
     def terminus_snn_language_readout_newborn_neuron_integration_design(
         request: SNNLanguageReadoutNewbornNeuronIntegrationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_integration_design(
+        return runtime.snn_language_readout_newborn_neuron_integration_design(
             snn_language_readout_capacity_mutation_event_review=(
-                _internal_snn_language_payload(request.snn_language_readout_capacity_mutation_event_review)
+                request.snn_language_readout_capacity_mutation_event_review
             ),
-            integration_policy=_internal_snn_language_payload(request.integration_policy),
-        ))
+            integration_policy=request.integration_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-preflight")
     def terminus_snn_language_readout_newborn_neuron_integration_preflight(
         request: SNNLanguageReadoutNewbornNeuronIntegrationPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_integration_preflight(
+        return runtime.snn_language_readout_newborn_neuron_integration_preflight(
             snn_language_readout_newborn_neuron_integration_design=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_integration_design)
+                request.snn_language_readout_newborn_neuron_integration_design
             ),
             expected_state_revision=request.expected_state_revision,
-            live_spike_evidence=_internal_snn_language_payload(request.live_spike_evidence),
-            checkpoint_transaction=_internal_snn_language_payload(request.checkpoint_transaction),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            live_spike_evidence=request.live_spike_evidence,
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-executor")
     def terminus_snn_language_readout_newborn_neuron_integration_executor(
         request: SNNLanguageReadoutNewbornNeuronIntegrationExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_integration_executor(
+        return runtime.snn_language_readout_newborn_neuron_integration_executor(
             snn_language_readout_newborn_neuron_integration_preflight=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_integration_preflight)
+                request.snn_language_readout_newborn_neuron_integration_preflight
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_path=request.checkpoint_path,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-integration-event-review")
     def terminus_snn_language_readout_newborn_neuron_integration_event_review(
         request: SNNLanguageReadoutNewbornNeuronIntegrationEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_integration_event_review(
+        return runtime.snn_language_readout_newborn_neuron_integration_event_review(
             snn_language_readout_newborn_neuron_integration_executor=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_integration_executor)
+                request.snn_language_readout_newborn_neuron_integration_executor
             ),
             expected_state_revision=request.expected_state_revision,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-design")
     def terminus_snn_language_readout_newborn_neuron_critical_period_learning_design(
         request: SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_critical_period_learning_design(
+        return runtime.snn_language_readout_newborn_neuron_critical_period_learning_design(
             snn_language_readout_newborn_neuron_integration_event_review=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_integration_event_review)
+                request.snn_language_readout_newborn_neuron_integration_event_review
             ),
-            learning_policy=_internal_snn_language_payload(request.learning_policy),
-        ))
+            learning_policy=request.learning_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-preflight")
     def terminus_snn_language_readout_newborn_neuron_critical_period_learning_preflight(
         request: SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
+        return runtime.snn_language_readout_newborn_neuron_critical_period_learning_preflight(
             snn_language_readout_newborn_neuron_critical_period_learning_design=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_critical_period_learning_design)
+                request.snn_language_readout_newborn_neuron_critical_period_learning_design
             ),
             expected_state_revision=request.expected_state_revision,
             critical_period_activity_evidence=(
-                _internal_snn_language_payload(request.critical_period_activity_evidence)
+                request.critical_period_activity_evidence
             ),
-            checkpoint_transaction=_internal_snn_language_payload(request.checkpoint_transaction),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-executor")
     def terminus_snn_language_readout_newborn_neuron_critical_period_learning_executor(
         request: SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_critical_period_learning_executor(
+        return runtime.snn_language_readout_newborn_neuron_critical_period_learning_executor(
             snn_language_readout_newborn_neuron_critical_period_learning_preflight=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_critical_period_learning_preflight)
+                request.snn_language_readout_newborn_neuron_critical_period_learning_preflight
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_path=request.checkpoint_path,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-event-review")
     def terminus_snn_language_readout_newborn_neuron_critical_period_learning_event_review(
         request: SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningEventReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
+        return runtime.snn_language_readout_newborn_neuron_critical_period_learning_event_review(
             snn_language_readout_newborn_neuron_critical_period_learning_executor=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_critical_period_learning_executor)
+                request.snn_language_readout_newborn_neuron_critical_period_learning_executor
             ),
             expected_state_revision=request.expected_state_revision,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-critical-period-learning-continuation-design")
     def terminus_snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
         request: SNNLanguageReadoutNewbornNeuronCriticalPeriodLearningContinuationDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
+        return runtime.snn_language_readout_newborn_neuron_critical_period_learning_continuation_design(
             snn_language_readout_newborn_neuron_critical_period_learning_event_review=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_critical_period_learning_event_review)
+                request.snn_language_readout_newborn_neuron_critical_period_learning_event_review
             )
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-neuron-maturation-outcome-review")
     def terminus_snn_language_readout_newborn_neuron_maturation_outcome_review(
         request: SNNLanguageReadoutNewbornNeuronMaturationOutcomeReviewRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_neuron_maturation_outcome_review(
+        return runtime.snn_language_readout_newborn_neuron_maturation_outcome_review(
             snn_language_readout_newborn_neuron_critical_period_learning_event_review=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_critical_period_learning_event_review)
+                request.snn_language_readout_newborn_neuron_critical_period_learning_event_review
             )
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-design")
     def terminus_snn_language_readout_newborn_synapse_pruning_design(
         request: SNNLanguageReadoutNewbornSynapsePruningDesignRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_synapse_pruning_design(
+        return runtime.snn_language_readout_newborn_synapse_pruning_design(
             snn_language_readout_newborn_neuron_maturation_outcome_review=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_neuron_maturation_outcome_review)
+                request.snn_language_readout_newborn_neuron_maturation_outcome_review
             )
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-preflight")
     def terminus_snn_language_readout_newborn_synapse_pruning_preflight(
         request: SNNLanguageReadoutNewbornSynapsePruningPreflightRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_synapse_pruning_preflight(
+        return runtime.snn_language_readout_newborn_synapse_pruning_preflight(
             snn_language_readout_newborn_synapse_pruning_design=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_synapse_pruning_design)
+                request.snn_language_readout_newborn_synapse_pruning_design
             ),
             expected_state_revision=request.expected_state_revision,
-            checkpoint_transaction=_internal_snn_language_payload(request.checkpoint_transaction),
-            executor_capabilities=_internal_snn_language_payload(request.executor_capabilities),
-        ))
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/snn-language-readout-newborn-synapse-pruning-executor")
     def terminus_snn_language_readout_newborn_synapse_pruning_executor(
         request: SNNLanguageReadoutNewbornSynapsePruningExecutorRequest,
     ) -> dict[str, Any]:
-        return _public_snn_language_payload(runtime.snn_language_readout_newborn_synapse_pruning_executor(
+        return runtime.snn_language_readout_newborn_synapse_pruning_executor(
             snn_language_readout_newborn_synapse_pruning_preflight=(
-                _internal_snn_language_payload(request.snn_language_readout_newborn_synapse_pruning_preflight)
+                request.snn_language_readout_newborn_synapse_pruning_preflight
             ),
             expected_state_revision=request.expected_state_revision,
             checkpoint_path=request.checkpoint_path,
-        ))
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation")
     def terminus_snn_language_readout_rehearsal_evaluation(

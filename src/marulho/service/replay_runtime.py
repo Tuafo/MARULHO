@@ -492,7 +492,14 @@ class ReplayController:
             key: metadata[key]
             for key in lineage_keys
             if metadata.get(key) not in (None, "")
-        }
+        } if all(
+            metadata.get(key) not in (None, "")
+            for key in (
+                "emission_hash",
+                "readout_evidence_hash",
+                "prediction_hash",
+            )
+        ) else {}
 
     @staticmethod
     def _snn_replay_context_id(context: Mapping[str, Any] | None) -> str:
@@ -5243,8 +5250,47 @@ class ReplayController:
                 == self._sha256_json(proposal_design)
                 and int(permit.get("regeneration_design_candidate_count", 0) or 0)
                 == len(proposal_design["candidate_synapses"])
-                and dict(replay) == permit
+                and self._regeneration_permit_public_view(replay)
+                == self._regeneration_permit_public_view(permit)
             )
+
+    @staticmethod
+    def _regeneration_permit_public_view(permit: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "available": bool(permit.get("available")),
+            "ready": bool(permit.get("ready")),
+            "source": permit.get("source"),
+            "artifact_kind": permit.get("artifact_kind"),
+            "surface": permit.get("surface"),
+            "owned_by_marulho": bool(permit.get("owned_by_marulho")),
+            "permit_id": permit.get("permit_id"),
+            "replay_window_id": permit.get("replay_window_id"),
+            "evidence_hash": permit.get("evidence_hash"),
+            "issued_at": permit.get("issued_at"),
+            "issued_state_revision": permit.get("issued_state_revision"),
+            "operator_id": permit.get("operator_id"),
+            "confirmation": permit.get("confirmation"),
+            "mismatch_hash": permit.get("mismatch_hash"),
+            "pressure_hash": permit.get("pressure_hash"),
+            "replay_window_hash": permit.get("replay_window_hash"),
+            "replay_window_size": permit.get("replay_window_size"),
+            "source_window_hash": permit.get("source_window_hash"),
+            "readout_evidence_hashes": list(
+                permit.get("readout_evidence_hashes") or []
+            ),
+            "replay_artifact_id": permit.get("replay_artifact_id"),
+            "replay_artifact_hash": permit.get("replay_artifact_hash"),
+            "source_metadata_hash": permit.get("source_metadata_hash"),
+            "emission_lineage": (
+                dict(permit.get("emission_lineage"))
+                if isinstance(permit.get("emission_lineage"), Mapping)
+                else {}
+            ),
+            "regeneration_design_hash": permit.get("regeneration_design_hash"),
+            "regeneration_design_candidate_count": permit.get(
+                "regeneration_design_candidate_count"
+            ),
+        }
 
     def _verified_snn_transition_memory_replay_artifact(
         self,
@@ -5427,6 +5473,12 @@ class ReplayController:
                     "synapse": f"{pre_index}:{post_index}",
                     "initial_weight": weight,
                     "locality_distance": distance,
+                    "source_synapse_id": item.get("source_synapse_id"),
+                    "source_trace_index": item.get("source_trace_index"),
+                    "source_rollout_step_index": item.get("source_rollout_step_index"),
+                    "target_rollout_step_index": item.get("target_rollout_step_index"),
+                    "source_active_indices_hash": item.get("source_active_indices_hash"),
+                    "target_active_indices_hash": item.get("target_active_indices_hash"),
                 }
             )
         candidates.sort(key=lambda item: (item["pre_index"], item["post_index"]))

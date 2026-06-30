@@ -27430,7 +27430,7 @@ class SNNLanguageReadoutEvidenceLedger:
         snn_language_readout_structural_plasticity_event_review: Mapping[str, Any],
         capacity_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Design bounded thought-driven capacity mutation without resizing tensors."""
+        """Design bounded readout-driven capacity mutation without resizing tensors."""
 
         review_artifact = dict(
             snn_language_readout_structural_plasticity_event_review
@@ -37542,7 +37542,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 if isinstance(provenance.get("emission_lineage"), Mapping)
                 else {}
             )
-            replay_artifact_lineage_available = bool(source_metadata_hash or emission_lineage)
+            replay_artifact_lineage_available = bool(emission_lineage)
             replay_artifact_lineage_complete = bool(
                 not replay_artifact_lineage_available
                 or (

@@ -79,7 +79,8 @@ def _empty_incremental_summary() -> dict[str, Any]:
         "summary_policy": "mutation_time_o1_digest",
         "selection_criteria": [
             "only provenance rows written with provenance_type=replay_regeneration",
-            "row must carry source_metadata_hash or emission_lineage",
+            "tracked rows may carry source metadata or emission lineage",
+            "complete lineage requires source metadata plus emission/readout/prediction hashes",
             "digest is updated when a synapse provenance row is written or removed",
         ],
         "memory_budget": "one CPU row hash and completion bit per replay-regenerated synapse",

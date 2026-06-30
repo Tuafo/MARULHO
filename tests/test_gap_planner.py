@@ -294,6 +294,16 @@ class GapPlannerTests(unittest.TestCase):
             any(query.startswith("submarine ballast control") for query in plan["retrieval_queries"])
         )
 
+    def test_plan_query_gaps_emits_clause_queries_for_multi_fact_question(self) -> None:
+        plan = plan_query_gaps(
+            query_text="What is closest to the sun and what do volcanoes release?",
+            query_summary={"memory_matches": []},
+            concept_summary={"concepts": []},
+        )
+
+        self.assertIn("closest sun", plan["retrieval_queries"])
+        self.assertIn("volcanoes release", plan["retrieval_queries"])
+
     def test_frontier_gap_plan_prioritizes_unstable_memory_with_report(self) -> None:
         plan = frontier_gap_plan(
             memory_store=_FakeMemoryStore(),

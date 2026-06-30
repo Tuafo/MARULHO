@@ -3372,7 +3372,7 @@ class StatusReadModel:
                 if isinstance(row.get("emission_lineage"), Mapping)
                 else {}
             )
-            lineage_available = bool(source_metadata_hash or emission_lineage)
+            lineage_available = bool(emission_lineage)
             lineage_complete = bool(
                 not lineage_available
                 or (

@@ -1008,15 +1008,15 @@ class SNNLanguageSurfaceEventReviewRequest(BaseModel):
     review_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageMemoryDesignRequest(BaseModel):
-    snn_language_surface_event_review: dict[str, Any] = Field(
+class SNNLanguageReadoutMemoryDesignRequest(BaseModel):
+    snn_language_readout_surface_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     memory_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageMemoryPreflightRequest(BaseModel):
-    snn_language_memory_design: dict[str, Any] = Field(
+class SNNLanguageReadoutMemoryPreflightRequest(BaseModel):
+    snn_language_readout_memory_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1024,31 +1024,31 @@ class SNNLanguageMemoryPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageMemoryExecutorRequest(BaseModel):
-    snn_language_memory_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutMemoryExecutorRequest(BaseModel):
+    snn_language_readout_memory_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     execution_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageMemoryEventReviewRequest(BaseModel):
-    snn_language_memory_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutMemoryEventReviewRequest(BaseModel):
+    snn_language_readout_memory_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     review_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageConsolidationDesignRequest(BaseModel):
-    snn_language_memory_event_review: dict[str, Any] = Field(
+class SNNLanguageReadoutConsolidationDesignRequest(BaseModel):
+    snn_language_readout_memory_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     consolidation_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageConsolidationPreflightRequest(BaseModel):
-    snn_language_consolidation_design: dict[str, Any] = Field(
+class SNNLanguageReadoutConsolidationPreflightRequest(BaseModel):
+    snn_language_readout_consolidation_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1056,31 +1056,31 @@ class SNNLanguageConsolidationPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageConsolidationExecutorRequest(BaseModel):
-    snn_language_consolidation_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutConsolidationExecutorRequest(BaseModel):
+    snn_language_readout_consolidation_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     execution_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageConsolidationEventReviewRequest(BaseModel):
-    snn_language_consolidation_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutConsolidationEventReviewRequest(BaseModel):
+    snn_language_readout_consolidation_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     review_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageStructuralPlasticityDesignRequest(BaseModel):
-    snn_language_consolidation_event_review: dict[str, Any] = Field(
+class SNNLanguageReadoutStructuralPlasticityDesignRequest(BaseModel):
+    snn_language_readout_consolidation_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     structural_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageStructuralPlasticityPreflightRequest(BaseModel):
-    snn_language_structural_plasticity_design: dict[str, Any] = Field(
+class SNNLanguageReadoutStructuralPlasticityPreflightRequest(BaseModel):
+    snn_language_readout_structural_plasticity_design: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1088,16 +1088,16 @@ class SNNLanguageStructuralPlasticityPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
-class SNNLanguageStructuralPlasticityExecutorRequest(BaseModel):
-    snn_language_structural_plasticity_preflight: dict[str, Any] = Field(
+class SNNLanguageReadoutStructuralPlasticityExecutorRequest(BaseModel):
+    snn_language_readout_structural_plasticity_preflight: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
     execution_policy: dict[str, Any] | None = None
 
 
-class SNNLanguageStructuralPlasticityEventReviewRequest(BaseModel):
-    snn_language_structural_plasticity_executor: dict[str, Any] = Field(
+class SNNLanguageReadoutStructuralPlasticityEventReviewRequest(BaseModel):
+    snn_language_readout_structural_plasticity_executor: dict[str, Any] = Field(
         ..., min_length=1
     )
     expected_state_revision: int = Field(..., ge=0)
@@ -1105,7 +1105,7 @@ class SNNLanguageStructuralPlasticityEventReviewRequest(BaseModel):
 
 
 class SNNLanguageReadoutCapacityMutationDesignRequest(BaseModel):
-    snn_language_structural_plasticity_event_review: dict[str, Any] = Field(
+    snn_language_readout_structural_plasticity_event_review: dict[str, Any] = Field(
         ..., min_length=1
     )
     capacity_policy: dict[str, Any] | None = None

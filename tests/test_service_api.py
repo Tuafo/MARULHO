@@ -25,8 +25,6 @@ from marulho.semantics import (
 )
 from marulho.service.api import (
     DEFAULT_WEB_DIST_DIR,
-    _internal_snn_language_payload,
-    _public_snn_language_payload,
     create_app,
 )
 from marulho.service.server import build_arg_parser
@@ -247,175 +245,51 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertNotIn("retired_readout_surface_events", saved_ledger_state)
 
-    def test_snn_language_surface_payload_stays_readout_vocabulary(self) -> None:
-        readout_surface_payload = {
-            "artifact_kind": "terminus_snn_language_readout_surface_design",
-            "surface": "snn_language_readout_surface_design.v1",
-            "snn_language_readout_surface_design": {
-                "readout_role": "bounded_readout_candidate",
-                "binding_mode": "hash_bound_readout_language",
-                "max_readout_fragments": 1,
-                "readout_surface_hash": "0" * 64,
-            },
-            "promotion_gate": {
-                "eligible_for_snn_language_readout_surface_preflight": True,
-                "next_gate": "snn_language_readout_surface_preflight",
-            },
-        }
+    def test_snn_language_api_exposes_only_canonical_readout_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(
+                    root,
+                    test_case="service_api_canonical_readout_routes",
+                ),
+                trace_dir=root / "traces",
+            )
+            routes = {getattr(route, "path", "") for route in app.routes}
+            app.state.marulho_manager.close()
 
-        public_payload = _public_snn_language_payload(readout_surface_payload)
-        public_text = json.dumps(public_payload, sort_keys=True)
+        prefix = "/terminus/snn-language-sequence/readout-ledger/"
+        for suffix in (
+            "snn-language-readout-memory-design",
+            "snn-language-readout-memory-preflight",
+            "snn-language-readout-memory-executor",
+            "snn-language-readout-memory-event-review",
+            "snn-language-readout-consolidation-design",
+            "snn-language-readout-consolidation-preflight",
+            "snn-language-readout-consolidation-executor",
+            "snn-language-readout-consolidation-event-review",
+            "snn-language-readout-structural-plasticity-design",
+            "snn-language-readout-structural-plasticity-preflight",
+            "snn-language-readout-structural-plasticity-executor",
+            "snn-language-readout-structural-plasticity-event-review",
+        ):
+            self.assertIn(prefix + suffix, routes)
 
-        self.assertNotIn("autonomous_snn_language_thought", public_text)
-        self.assertNotIn("snn_language_autonomous_snn_language_thought", public_text)
-        self.assertNotIn("thought_surface", public_text)
-        self.assertNotIn("thought_", public_text)
-        self.assertIn("snn_language_readout_surface_design", public_text)
-        self.assertIn("bounded_readout_candidate", public_text)
-        self.assertIn("hash_bound_readout_language", public_text)
-        internalized_payload = _internal_snn_language_payload(public_payload)
-        self.assertEqual(
-            internalized_payload["surface"],
-            "snn_language_readout_surface_design.v1",
-        )
-        self.assertIn(
-            "snn_language_readout_surface_design",
-            internalized_payload,
-        )
-        self.assertEqual(
-            internalized_payload["snn_language_readout_surface_design"]["readout_role"],
-            "bounded_readout_candidate",
-        )
-        readout_memory_payload = {
-            "artifact_kind": "terminus_snn_language_readout_memory_design",
-            "surface": "snn_language_readout_memory_design.v1",
-            "snn_language_readout_memory_design": {
-                "memory_scope": "working_trace",
-                "consolidation_route": "deferred_local_trace",
-                "language_readout_memory_design_hash": "1" * 64,
-            },
-            "promotion_gate": {
-                "eligible_for_snn_language_readout_memory_preflight": True,
-                "next_gate": "snn_language_readout_memory_preflight",
-            },
-        }
-
-        public_memory_payload = _public_snn_language_payload(readout_memory_payload)
-        public_memory_text = json.dumps(public_memory_payload, sort_keys=True)
-
-        self.assertNotIn("autonomous_snn_language_thought_memory", public_memory_text)
-        self.assertNotIn("thought_memory", public_memory_text)
-        self.assertIn("snn_language_readout_memory_design", public_memory_text)
-        internalized_memory_payload = _internal_snn_language_payload(public_memory_payload)
-        self.assertEqual(
-            internalized_memory_payload["surface"],
-            "snn_language_readout_memory_design.v1",
-        )
-        self.assertIn(
-            "snn_language_readout_memory_design",
-            internalized_memory_payload,
-        )
-        self.assertNotIn(
-            "snn_language_autonomous_snn_language_thought_memory_design",
-            internalized_memory_payload,
-        )
-        readout_consolidation_payload = {
-            "artifact_kind": "terminus_snn_language_readout_consolidation_design",
-            "surface": "snn_language_readout_consolidation_design.v1",
-            "snn_language_readout_consolidation_design": {
-                "consolidation_scope": "local_trace_update",
-                "consolidation_route": "readout_memory_to_local_update",
-                "readout_consolidation_design_hash": "3" * 64,
-                "snn_language_readout_memory_event_hash": "2" * 64,
-            },
-            "promotion_gate": {
-                "eligible_for_snn_language_readout_consolidation_preflight": True,
-                "next_gate": "snn_language_readout_consolidation_preflight",
-            },
-        }
-
-        public_consolidation_payload = _public_snn_language_payload(
-            readout_consolidation_payload
-        )
-        public_consolidation_text = json.dumps(
-            public_consolidation_payload,
-            sort_keys=True,
-        )
-
-        self.assertNotIn(
-            "autonomous_snn_language_thought_consolidation",
-            public_consolidation_text,
-        )
-        self.assertNotIn("thought_consolidation", public_consolidation_text)
-        self.assertIn(
-            "snn_language_readout_consolidation_design",
-            public_consolidation_text,
-        )
-        internalized_consolidation_payload = _internal_snn_language_payload(
-            public_consolidation_payload
-        )
-        self.assertEqual(
-            internalized_consolidation_payload["surface"],
-            "snn_language_readout_consolidation_design.v1",
-        )
-        self.assertIn(
-            "snn_language_readout_consolidation_design",
-            internalized_consolidation_payload,
-        )
-        self.assertNotIn(
-            "snn_language_autonomous_snn_language_thought_consolidation_design",
-            internalized_consolidation_payload,
-        )
-
-        readout_structural_payload = {
-            "artifact_kind": (
-                "terminus_snn_language_readout_structural_plasticity_design"
-            ),
-            "surface": "snn_language_readout_structural_plasticity_design.v1",
-            "snn_language_readout_structural_plasticity_design": {
-                "structural_scope": "readout_trace_sparse_capacity",
-                "structural_route": "reviewed_consolidation_to_growth_prune",
-                "readout_structural_plasticity_design_hash": "4" * 64,
-                "snn_language_readout_consolidation_event_hash": "3" * 64,
-            },
-            "promotion_gate": {
-                "eligible_for_snn_language_readout_structural_plasticity_preflight": True,
-                "next_gate": "snn_language_readout_structural_plasticity_preflight",
-            },
-        }
-
-        public_structural_payload = _public_snn_language_payload(
-            readout_structural_payload
-        )
-        public_structural_text = json.dumps(
-            public_structural_payload,
-            sort_keys=True,
-        )
-
-        self.assertNotIn(
-            "autonomous_snn_language_thought_structural_plasticity",
-            public_structural_text,
-        )
-        self.assertNotIn("thought_structural", public_structural_text)
-        self.assertIn(
-            "snn_language_readout_structural_plasticity_design",
-            public_structural_text,
-        )
-        internalized_structural_payload = _internal_snn_language_payload(
-            public_structural_payload
-        )
-        self.assertEqual(
-            internalized_structural_payload["surface"],
-            "snn_language_readout_structural_plasticity_design.v1",
-        )
-        self.assertIn(
-            "snn_language_readout_structural_plasticity_design",
-            internalized_structural_payload,
-        )
-        self.assertNotIn(
-            "snn_language_autonomous_snn_language_thought_structural_plasticity_design",
-            internalized_structural_payload,
-        )
+        for suffix in (
+            "snn-language-memory-design",
+            "snn-language-memory-preflight",
+            "snn-language-memory-executor",
+            "snn-language-memory-event-review",
+            "snn-language-consolidation-design",
+            "snn-language-consolidation-preflight",
+            "snn-language-consolidation-executor",
+            "snn-language-consolidation-event-review",
+            "snn-language-structural-plasticity-design",
+            "snn-language-structural-plasticity-preflight",
+            "snn-language-structural-plasticity-executor",
+            "snn-language-structural-plasticity-event-review",
+        ):
+            self.assertNotIn(prefix + suffix, routes)
 
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -449,7 +323,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 design_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design",
                     json={
-                        "snn_language_structural_plasticity_event_review": {
+                        "snn_language_readout_structural_plasticity_event_review": {
                             "surface": (
                                 "snn_language_readout_"
                                 "structural_plasticity_event_review.v1"
@@ -2492,9 +2366,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     )
                 )
                 snn_language_readout_memory_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-design",
                     json={
-                        "snn_language_surface_event_review": (
+                        "snn_language_readout_surface_event_review": (
                             snn_language_readout_surface_event_review_response.json()
                         ),
                         "memory_policy": {
@@ -2508,9 +2382,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_memory_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-preflight",
                         json={
-                            "snn_language_memory_design": (
+                            "snn_language_readout_memory_design": (
                                 snn_language_readout_memory_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2528,9 +2402,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_memory_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-executor",
                         json={
-                            "snn_language_memory_preflight": (
+                            "snn_language_readout_memory_preflight": (
                                 snn_language_readout_memory_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2541,9 +2415,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_memory_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-memory-event-review",
                         json={
-                            "snn_language_memory_executor": (
+                            "snn_language_readout_memory_executor": (
                                 snn_language_readout_memory_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2559,9 +2433,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_consolidation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-design",
                         json={
-                            "snn_language_memory_event_review": (
+                            "snn_language_readout_memory_event_review": (
                                 snn_language_readout_memory_event_review_response.json()
                             ),
                             "consolidation_policy": {
@@ -2577,9 +2451,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_consolidation_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-preflight",
                         json={
-                            "snn_language_consolidation_design": (
+                            "snn_language_readout_consolidation_design": (
                                 snn_language_readout_consolidation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2597,9 +2471,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_consolidation_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-executor",
                         json={
-                            "snn_language_consolidation_preflight": (
+                            "snn_language_readout_consolidation_preflight": (
                                 snn_language_readout_consolidation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2610,9 +2484,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_consolidation_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-consolidation-event-review",
                         json={
-                            "snn_language_consolidation_executor": (
+                            "snn_language_readout_consolidation_executor": (
                                 snn_language_readout_consolidation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2629,9 +2503,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_structural_plasticity_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-design",
                         json={
-                            "snn_language_consolidation_event_review": (
+                            "snn_language_readout_consolidation_event_review": (
                                 snn_language_readout_consolidation_event_review_response.json()
                             ),
                             "structural_policy": {
@@ -2648,9 +2522,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_structural_plasticity_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-preflight",
                         json={
-                            "snn_language_structural_plasticity_design": (
+                            "snn_language_readout_structural_plasticity_design": (
                                 snn_language_readout_structural_plasticity_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2668,9 +2542,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_structural_plasticity_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-executor",
                         json={
-                            "snn_language_structural_plasticity_preflight": (
+                            "snn_language_readout_structural_plasticity_preflight": (
                                 snn_language_readout_structural_plasticity_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2681,9 +2555,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 snn_language_readout_structural_plasticity_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-structural-plasticity-event-review",
                         json={
-                            "snn_language_structural_plasticity_executor": (
+                            "snn_language_readout_structural_plasticity_executor": (
                                 snn_language_readout_structural_plasticity_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2703,7 +2577,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     client.post(
                         "/terminus/snn-language-sequence/readout-ledger/snn-language-readout-capacity-mutation-design",
                         json={
-                            "snn_language_structural_plasticity_event_review": (
+                            "snn_language_readout_structural_plasticity_event_review": (
                                 snn_language_readout_structural_plasticity_event_review_response.json()
                             ),
                             "capacity_policy": {
@@ -3699,11 +3573,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             sort_keys=True,
         )
         self.assertNotIn("thought_surface", surface_chain_text)
-        self.assertNotIn(
-            "snn_language_readout_surface",
-            surface_chain_text,
-        )
-        self.assertNotIn(
+        self.assertIn(
             "snn_language_readout_surface",
             surface_chain_text,
         )
@@ -12253,6 +12123,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     }
                 ],
             }
+            language_capacity = manager._snn_language_readout_ledger._language_capacity_state(
+                {
+                    "language_capacity": {
+                        "surface": "snn_language_capacity_state.v1"
+                    }
+                }
+            )
             adapter_review_hash = "rollout-developmental-review-service-api"
             adapter_hash = manager._snn_language_readout_ledger._sha256_json(
                 {
@@ -12272,6 +12149,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 "executor_ready": False,
                 "rollout_developmental_plasticity_review_hash": adapter_review_hash,
                 "rollout_regeneration_proposal_adapter_hash": adapter_hash,
+                "language_capacity": language_capacity,
                 "regeneration_design": adapter_design,
                 "blocked_replay_evidence": {
                     "available": False,
@@ -15050,6 +14928,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "yield_seconds": 0.0,
                     "stop_check_boundary": "between_quanta",
                     "sequential_token_training": True,
+                    "execution_owner": "training_text_sequence",
+                    "service_dispatches_per_tick": 1,
                 },
             )
             self.assertEqual(status_response.json()["terminus_runtime"]["ingestion"]["queue_target_tokens"], 40)

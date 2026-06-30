@@ -4,6 +4,34 @@ This file records research anchors for current architecture work. It is not a pr
 
 ## Current Anchors
 
+- Readout API canonical-payload note, June 2026: bounded readout/replay text
+  must remain selected evidence, not a hidden thought-language substrate.
+  MARULHO therefore removes the service API mapper that translated canonical
+  readout payloads back into thought-era names for readout-memory,
+  readout-consolidation, structural-plasticity, capacity, and newborn routes.
+  The active route family now uses canonical readout route and request names
+  for memory, consolidation, structural plasticity, capacity, and newborn
+  surfaces, passes canonical readout payloads directly to the reviewed
+  ledger/executor gates, and returns canonical runtime payloads directly. This
+  is a slow-path/control-plane cleanup: it adds no live-tick recall, no
+  every-token replay, no raw replay text reasoning, and no GPU-resident
+  archival metadata.
+- Bounded action recall note, June 2026: mixed-clause operator questions can
+  use selected workspace evidence, but only inside the explicit respond slow
+  path. The gap planner now emits capped clause queries and ActionExecutor
+  attempts at most three deduped workspace searches, injects only verified
+  complete-sentence snippets as response evidence, and records the selection
+  budget. This is local associative recall over a selected evidence window:
+  CPU workspace/source rows, no live-tick scan, no every-token replay, no
+  hidden language reasoning, and no GPU-resident archival metadata.
+- Replay-regeneration provenance note, June 2026: sparse replay may propose
+  structural regrowth only when the synapse candidate carries auditable local
+  edge provenance. Bare pre/post regeneration candidates are retired: proposal
+  candidates now bind deterministic mismatch-edge lineage, the ReplayController
+  permit normalizer preserves those fields, and the public permit view keeps
+  bounded source/lineage hashes needed for verification. Source-window metadata
+  remains separate from emission lineage; emission lineage is only present when
+  emission, readout-evidence, and prediction hashes are complete.
 - Service advisory replay retirement note, June 2026: complementary learning
   systems, continual-learning replay, synaptic tagging/capture, sparse replay,
   and modern Hopfield-style associative recall justify selected local replay

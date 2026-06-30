@@ -320,7 +320,6 @@ class EvidenceResponder:
             concept_entries = self._concept_entries(concept_lookup, memory_indices)
             concept_labels = tuple(str(entry["label"]) for entry in concept_entries if entry.get("label"))
             concept_priority = max((float(entry.get("priority", 0.0)) for entry in concept_entries), default=0.0)
-            fragmentary = self._is_fragmentary_evidence(text, raw_window)
             complete_sentence = int(match.get("complete_sentence", int(text.endswith((".", "!", "?")))))
             expansion_chars = int(match.get("expansion_chars", max(0, len(text) - len(raw_window))))
             clipped_overlap = int(
@@ -328,6 +327,17 @@ class EvidenceResponder:
                     "clipped_overlap",
                     int(bool(raw_window and not complete_sentence and text.lower() == raw_window.lower())),
                 )
+            )
+            verified_action_evidence = bool(
+                match.get("action_origin")
+                and match.get("action_type")
+                and complete_sentence
+                and clipped_overlap <= 0
+            )
+            fragmentary = (
+                False
+                if verified_action_evidence
+                else self._is_fragmentary_evidence(text, raw_window)
             )
             metadata_scaffold = text.strip().lower().startswith(("terms:", "topics:"))
             score = similarity + 0.35 * overlap + 0.02 * min(5.0, importance) + 0.05 * concept_priority

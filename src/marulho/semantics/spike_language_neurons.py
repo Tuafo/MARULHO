@@ -3431,6 +3431,28 @@ def build_snn_language_transition_memory_regeneration_proposal(
         if isinstance(value, int)
         and 0 <= int(value) < neuron_count
     ]
+    matched_indices = [
+        int(value)
+        for value in list(delta.get("matched_indices") or [])
+        if isinstance(value, int)
+        and 0 <= int(value) < neuron_count
+    ]
+    predicted_active_hash = _sha256_json(
+        {
+            "mismatch_hash": mismatch_hash,
+            "language_neuron_count": neuron_count,
+            "predicted_only_indices": predicted_only,
+            "matched_indices": matched_indices,
+        }
+    )
+    observed_active_hash = _sha256_json(
+        {
+            "mismatch_hash": mismatch_hash,
+            "language_neuron_count": neuron_count,
+            "observed_only_indices": observed_only,
+            "matched_indices": matched_indices,
+        }
+    )
     candidates = []
     for pre_index in predicted_only:
         for post_index in observed_only:
@@ -3442,6 +3464,15 @@ def build_snn_language_transition_memory_regeneration_proposal(
                         "synapse": f"{pre_index}:{post_index}",
                         "initial_weight": weight,
                         "locality_distance": abs(post_index - pre_index),
+                        "source_synapse_id": (
+                            f"sequence-mismatch:{mismatch_hash[:16]}:"
+                            f"{pre_index}:{post_index}"
+                        ),
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 0,
+                        "target_rollout_step_index": 1,
+                        "source_active_indices_hash": predicted_active_hash,
+                        "target_active_indices_hash": observed_active_hash,
                     }
                 )
     candidates = candidates[:limit]
@@ -3480,9 +3511,16 @@ def build_snn_language_transition_memory_regeneration_proposal(
             "pressure_hash": replay.get("pressure_hash"),
             "replay_window_hash": replay.get("replay_window_hash"),
             "replay_window_size": replay.get("replay_window_size"),
+            "source_window_hash": replay.get("source_window_hash"),
             "readout_evidence_hashes": readout_evidence_hashes,
             "replay_artifact_id": replay.get("replay_artifact_id"),
             "replay_artifact_hash": replay.get("replay_artifact_hash"),
+            "source_metadata_hash": replay.get("source_metadata_hash"),
+            "emission_lineage": (
+                dict(replay.get("emission_lineage"))
+                if isinstance(replay.get("emission_lineage"), Mapping)
+                else {}
+            ),
             "regeneration_design_hash": replay.get("regeneration_design_hash"),
             "regeneration_design_candidate_count": replay.get(
                 "regeneration_design_candidate_count"

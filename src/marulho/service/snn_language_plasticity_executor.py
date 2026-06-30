@@ -3532,18 +3532,18 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_marulho": True,
                 "external_dependency": False,
-                "canonical_field_names": {
-                    "readout_capacity_mutation_count": "canonical_readout_capacity_mutation_count",
-                    "language_newborn_neuron_integration_count": (
-                        "canonical_alias_for_legacy_readout_newborn_neuron_integration_count"
-                    ),
-                    "language_newborn_neuron_critical_period_learning_cycle_count": (
-                        "canonical_alias_for_legacy_readout_newborn_neuron_critical_period_learning_cycle_count"
-                    ),
-                    "language_newborn_synapse_pruning_count": (
-                        "canonical_alias_for_legacy_readout_newborn_synapse_pruning_count"
-                    ),
-                },
+            "canonical_field_names": {
+                "readout_capacity_mutation_count": "canonical_readout_capacity_mutation_count",
+                "language_newborn_neuron_integration_count": (
+                    "canonical_language_newborn_neuron_integration_count"
+                ),
+                "language_newborn_neuron_critical_period_learning_cycle_count": (
+                    "canonical_language_newborn_neuron_critical_period_learning_cycle_count"
+                ),
+                "language_newborn_synapse_pruning_count": (
+                    "canonical_language_newborn_synapse_pruning_count"
+                ),
+            },
                 "language_capacity": deepcopy(capacity),
                 "dense_readout_layout": deepcopy(dense_layout),
                 "dense_readout_tensor": self._dense_tensor_summary(dense_tensor),
