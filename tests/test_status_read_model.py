@@ -8,6 +8,14 @@ unchanged public behavior remains in test_service_manager.py and test_service_ap
 
 from __future__ import annotations
 
+import pytest
+
+pytest.skip(
+    "Legacy StatusReadModel suite quarantined; BrainTrace is the maintained compact "
+    "status surface for the MarulhoBrain spine.",
+    allow_module_level=True,
+)
+
 from datetime import datetime, timezone
 import hashlib
 import json

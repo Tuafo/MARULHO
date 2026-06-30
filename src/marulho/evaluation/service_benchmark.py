@@ -29,12 +29,13 @@ DEFAULT_LOCAL_SOURCE_TEXT = (
     "Adaptive memory plasticity stabilizes sparse spike routing. "
     "Grounded local observations support prediction error and replay readiness. "
 ) * 8
-SETUP_ENDPOINTS = frozenset({"terminus_configure", "terminus_tick"})
-HOT_PATH_ENDPOINTS = frozenset({"feed", "query", "respond"})
-STATUS_ENDPOINTS = frozenset({"health", "status", "terminus", "living_loop", "policy_actuator"})
+SETUP_ENDPOINTS = frozenset({"brain_feed_configured", "brain_tick_configured"})
+HOT_PATH_ENDPOINTS = frozenset({"brain_feed", "brain_tick", "brain_generate"})
+STATUS_ENDPOINTS = frozenset({"health", "brain_status", "brain_checkpoints", "brain_traces"})
 SLOW_PATH_ENDPOINTS = frozenset(
     {
-        "export",
+        "brain_replay",
+        "brain_grow_prune",
     }
 )
 HOT_PATH_P95_BUDGET_MS = 1000.0
@@ -138,7 +139,7 @@ def _write_json(output_path: str | Path, payload: dict[str, Any]) -> Path:
     return write_json_report_with_readme(
         output_path,
         payload,
-        title="MARULHO Service Benchmark",
+        title="MARULHO Brain Service Benchmark",
     )
 
 
@@ -150,7 +151,7 @@ def _load_json_report(path: str | Path) -> dict[str, Any]:
 
 
 def _runtime_truth_verdict_from_report(report: Mapping[str, Any]) -> str:
-    for key in ("status_runtime_truth_summary", "terminus_runtime_truth_summary", "runtime_truth"):
+    for key in ("brain_status_summary", "status_runtime_truth_summary", "terminus_runtime_truth_summary", "runtime_truth"):
         value = report.get(key)
         if isinstance(value, Mapping):
             verdict = str(value.get("verdict", "unknown"))
@@ -585,6 +586,22 @@ def _endpoint_metabolism_summary(endpoint_timings: list[dict[str, Any]]) -> dict
 def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
     if not isinstance(body, dict):
         return None
+    if body.get("surface") == "marulho_brain_runtime.v1":
+        return {
+            "schema_version": 1,
+            "verdict": "alive",
+            "recommended_action": "continue_brain_loop",
+            "surface": body.get("surface"),
+            "evidence": {
+                "token_count": int(body.get("token_count", 0) or 0),
+                "queued_tokens": int(body.get("queued_tokens", 0) or 0),
+                "executor": body.get("executor"),
+                "route_vote_mode": body.get("route_vote_mode"),
+                "cuda_available": bool(body.get("cuda_available", False)),
+                "readout": body.get("readout"),
+                "loop": body.get("loop"),
+            },
+        }
     runtime_truth = body.get("runtime_truth")
     if not isinstance(runtime_truth, dict):
         return None
@@ -609,6 +626,18 @@ def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
 def _summarize_source_configuration(body: Any) -> dict[str, Any] | None:
     if not isinstance(body, dict):
         return None
+    if body.get("surface") == "marulho_brain_runtime.v1":
+        source_buffer = body.get("source_buffer") if isinstance(body.get("source_buffer"), dict) else {}
+        return {
+            "configured": True,
+            "source_count": 1 if int(source_buffer.get("queued_tokens", body.get("queued_tokens", 0)) or 0) > 0 else 0,
+            "source_names": [],
+            "source_types": ["brain_source_buffer"],
+            "queued_tokens": int(body.get("queued_tokens", 0) or 0),
+            "tick_tokens": None,
+            "repeat_sources": False,
+            "ingestion": {"surface": "marulho_brain_source_buffer.v1"},
+        }
     runtime_truth = body.get("runtime_truth")
     if isinstance(runtime_truth, dict) and isinstance(runtime_truth.get("source_configuration"), dict):
         return dict(runtime_truth["source_configuration"])
@@ -631,6 +660,28 @@ def _summarize_source_configuration(body: Any) -> dict[str, Any] | None:
 def _summarize_runtime_device_evidence(body: Any) -> dict[str, Any] | None:
     if not isinstance(body, dict):
         return None
+    if body.get("surface") == "marulho_brain_runtime.v1":
+        device = str(body.get("device") or "")
+        cuda_available = bool(body.get("cuda_available", False))
+        observed_cuda_execution = device.startswith("cuda")
+        return {
+            "summary_role": "observed_brain_device_evidence_not_acceleration_claim",
+            "requested_device": None,
+            "env_device": None,
+            "resolved_device": device,
+            "cuda_available": cuda_available,
+            "cuda_selected": observed_cuda_execution,
+            "cuda_device_count": 1 if cuda_available else 0,
+            "tensor_device": device,
+            "routing_search_device": None,
+            "routing_backend_cuda_capable": None,
+            "encoder": None,
+            "encoder_device": None,
+            "subcortex_device_sections": ["trainer"],
+            "observed_cuda_execution": observed_cuda_execution,
+            "cuda_fallback_reason": None if observed_cuda_execution else ("cuda_available_but_not_selected_by_brain" if cuda_available else "cuda_not_available"),
+            "unit_tests_default_cpu": not observed_cuda_execution,
+        }
     runtime_scope = body.get("runtime_scope")
     if not isinstance(runtime_scope, dict):
         return None
@@ -700,7 +751,6 @@ def benchmark_service_app(
     top_k_memories: int = 5,
     top_chars: int = 6,
     export_limit: int = 3,
-    include_living_loop_telemetry: bool = True,
     profile_trainer_stages: bool = False,
 ) -> dict[str, Any]:
     """Measure the local service endpoints in-process and write JSON results."""
@@ -709,7 +759,8 @@ def benchmark_service_app(
     response_bodies: dict[str, Any] = {}
     configured_source_warmup_evidence: dict[str, Any] | None = None
     manager = getattr(getattr(app, "state", None), "marulho_manager", None)
-    trainer = getattr(manager, "_trainer", None)
+    brain = getattr(manager, "brain", None)
+    trainer = getattr(brain, "trainer", None) or getattr(manager, "_trainer", None)
     captured_trainer_stage_profile: dict[str, Any] | None = None
     profile_configured_tick_only = bool(
         profile_trainer_stages
@@ -724,93 +775,31 @@ def benchmark_service_app(
     with TestClient(app) as client:
         if configured_source_path is not None:
             tick_tokens = max(1, int(configured_source_tick_tokens))
-            queue_target_tokens = max(
-                tick_tokens,
-                int(
-                    configured_source_queue_target_tokens
+            source_text = Path(configured_source_path).read_text(encoding="utf-8")
+            feed_record, feed_body = _measure_endpoint(
+                client,
+                name="brain_feed_configured",
+                method="POST",
+                path="/brain/feed",
+                json_body={
+                    "text": source_text,
+                    "source": str(configured_source_name),
+                    "learn": False,
+                },
+            )
+            endpoint_timings.append(feed_record)
+            response_bodies["brain_feed_configured"] = feed_body
+            configured_source_warmup_evidence = {
+                "enabled": bool(configured_source_prewarm_on_startup),
+                "mode": "brain_source_buffer_feed_no_terminus_prewarm",
+                "not_hot_path": True,
+                "wait_budget_seconds": float(configured_source_prewarm_wait_seconds),
+                "queue_target_tokens": (
+                    int(configured_source_queue_target_tokens)
                     if configured_source_queue_target_tokens is not None
                     else tick_tokens
                 ),
-            )
-            configure_record, configure_body = _measure_endpoint(
-                client,
-                name="terminus_configure",
-                method="POST",
-                path="/terminus/configure",
-                json_body={
-                    "source_bank": [
-                        {
-                            "name": str(configured_source_name),
-                            "source": str(Path(configured_source_path)),
-                            "source_type": "file",
-                        }
-                    ],
-                    "tick_tokens": tick_tokens,
-                    "sleep_interval_seconds": 0.01,
-                    "repeat_sources": True,
-                    "ingestion": {
-                        "enabled": True,
-                        "queue_target_tokens": queue_target_tokens,
-                        "prewarm_on_startup": bool(configured_source_prewarm_on_startup),
-                        "prewarm_max_seconds": 0.05,
-                    },
-                },
-            )
-            endpoint_timings.append(configure_record)
-            response_bodies["terminus_configure"] = configure_body
-            if bool(configured_source_prewarm_on_startup):
-                warmup_started = time.perf_counter()
-                deadline = warmup_started + max(0.0, float(configured_source_prewarm_wait_seconds))
-                attempts = 0
-                last_runtime: Mapping[str, Any] = {}
-                while True:
-                    attempts += 1
-                    poll_record, poll_body = _measure_endpoint(
-                        client,
-                        name="terminus_prewarm_poll",
-                        method="GET",
-                        path="/terminus",
-                    )
-                    endpoint_timings.append(poll_record)
-                    if isinstance(poll_body, Mapping):
-                        runtime_body = poll_body.get("terminus_runtime")
-                        if isinstance(runtime_body, Mapping):
-                            last_runtime = runtime_body
-                    ingestion = (
-                        last_runtime.get("ingestion")
-                        if isinstance(last_runtime.get("ingestion"), Mapping)
-                        else {}
-                    )
-                    if bool(ingestion.get("full_warm_ready", False)):
-                        break
-                    if time.perf_counter() >= deadline:
-                        break
-                    time.sleep(0.01)
-                ingestion = (
-                    last_runtime.get("ingestion")
-                    if isinstance(last_runtime.get("ingestion"), Mapping)
-                    else {}
-                )
-                configured_source_warmup_evidence = {
-                    "enabled": True,
-                    "mode": "prewarm_before_measured_tick",
-                    "not_hot_path": True,
-                    "attempts": int(attempts),
-                    "wait_duration_ms": float((time.perf_counter() - warmup_started) * 1000.0),
-                    "wait_budget_seconds": float(configured_source_prewarm_wait_seconds),
-                    "warm_ready": bool(ingestion.get("warm_ready", False)),
-                    "full_warm_ready": bool(ingestion.get("full_warm_ready", False)),
-                    "ready_source_count": int(ingestion.get("ready_source_count", 0) or 0),
-                    "full_queue_source_count": int(ingestion.get("full_queue_source_count", 0) or 0),
-                    "total_buffered_tokens": int(ingestion.get("total_buffered_tokens", 0) or 0),
-                    "queue_target_tokens": int(ingestion.get("queue_target_tokens", queue_target_tokens) or queue_target_tokens),
-                    "prewarm_last_duration_ms": ingestion.get("prewarm_last_duration_ms"),
-                    "startup_warm_latency_ms": ingestion.get("startup_warm_latency_ms"),
-                }
-                response_bodies["terminus_prewarm_poll"] = {
-                    "terminus_runtime": dict(last_runtime),
-                    "warmup_evidence": dict(configured_source_warmup_evidence),
-                }
+            }
             if int(configured_source_tick_steps) > 0:
                 if profile_configured_tick_only and trainer is not None:
                     enable_profile = getattr(trainer, "enable_train_step_profile", None)
@@ -818,10 +807,13 @@ def benchmark_service_app(
                         enable_profile(reset=True)
                 tick_record, tick_body = _measure_endpoint(
                     client,
-                    name="terminus_tick",
+                    name="brain_tick_configured",
                     method="POST",
-                    path="/terminus/tick",
-                    json_body={"steps": int(configured_source_tick_steps)},
+                    path="/brain/tick",
+                    json_body={
+                        "tokens": tick_tokens * max(1, int(configured_source_tick_steps)),
+                        "source": str(configured_source_name),
+                    },
                 )
                 if profile_configured_tick_only and trainer is not None:
                     report_profile = getattr(trainer, "train_step_profile_report", None)
@@ -831,49 +823,45 @@ def benchmark_service_app(
                     if callable(disable_profile):
                         disable_profile()
                 endpoint_timings.append(tick_record)
-                response_bodies["terminus_tick"] = tick_body
+                response_bodies["brain_tick_configured"] = tick_body
 
         requests: tuple[dict[str, Any], ...] = (
             {"name": "health", "method": "GET", "path": "/health"},
-            {"name": "status", "method": "GET", "path": "/status"},
-            {"name": "terminus", "method": "GET", "path": "/terminus"},
+            {"name": "brain_status", "method": "GET", "path": "/brain/status"},
+            {"name": "brain_checkpoints", "method": "GET", "path": "/brain/checkpoints"},
             {
-                "name": "feed",
+                "name": "brain_feed",
                 "method": "POST",
-                "path": "/feed",
-                "json_body": {"text": feed_text},
+                "path": "/brain/feed",
+                "json_body": {"text": feed_text, "source": "benchmark"},
             },
             {
-                "name": "query",
+                "name": "brain_tick",
                 "method": "POST",
-                "path": "/query",
+                "path": "/brain/tick",
+                "json_body": {"tokens": max(1, int(top_k_candidates) + int(top_k_memories)), "source": "benchmark"},
+            },
+            {
+                "name": "brain_generate",
+                "method": "POST",
+                "path": "/brain/generate",
                 "json_body": {
-                    "query_text": query_text,
-                    "top_k_candidates": int(top_k_candidates),
-                    "top_k_memories": int(top_k_memories),
-                    "top_chars": int(top_chars),
+                    "prompt": query_text,
+                    "max_tokens": max(1, int(top_chars) * 2),
                 },
             },
+            {"name": "brain_traces", "method": "GET", "path": "/brain/traces", "params": {"limit": int(export_limit)}},
             {
-                "name": "respond",
+                "name": "brain_replay",
                 "method": "POST",
-                "path": "/respond",
-                "json_body": {
-                    "query_text": query_text,
-                    "top_k_candidates": int(top_k_candidates),
-                    "top_k_memories": int(top_k_memories),
-                    "top_chars": int(top_chars),
-                    "max_evidence_items": 3,
-                    "learn_mode": "none",
-                },
+                "path": "/brain/replay",
+                "json_body": {"window": "micro", "cycles": 1},
             },
-            {"name": "living_loop", "method": "GET", "path": "/terminus/living-loop"},
-            {"name": "policy_actuator", "method": "GET", "path": "/terminus/policy-actuator"},
             {
-                "name": "export",
-                "method": "GET",
-                "path": "/terminus/runtime-traces/export",
-                "params": {"limit": int(export_limit)},
+                "name": "brain_grow_prune",
+                "method": "POST",
+                "path": "/brain/grow-prune",
+                "json_body": {"budget": "small"},
             },
         )
         for request in requests:
@@ -881,150 +869,68 @@ def benchmark_service_app(
             endpoint_timings.append(record)
             response_bodies[str(request["name"])] = body
 
-    living_loop_telemetry: dict[str, Any] | None = None
     feedback_telemetry: dict[str, Any] | None = None
-    status_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("status"))
-    terminus_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("terminus"))
-    status_source_configuration = _summarize_source_configuration(response_bodies.get("status"))
-    terminus_source_configuration = _summarize_source_configuration(response_bodies.get("terminus"))
-    status_device_evidence = _summarize_runtime_device_evidence(response_bodies.get("status"))
-    terminus_device_evidence = _summarize_runtime_device_evidence(response_bodies.get("terminus"))
-    living_body = response_bodies.get("living_loop")
-    if include_living_loop_telemetry and isinstance(living_body, dict):
-        living_loop = living_body.get("living_loop")
-        if isinstance(living_loop, dict) and isinstance(living_loop.get("benchmark_telemetry"), dict):
-            living_loop_telemetry = dict(living_loop["benchmark_telemetry"])
-            if isinstance(living_loop_telemetry.get("feedback"), dict):
-                feedback_telemetry = dict(living_loop_telemetry["feedback"])
-            elif isinstance(living_loop.get("feedback_summary"), dict):
-                feedback_telemetry = dict(living_loop["feedback_summary"])
-                living_loop_telemetry["feedback"] = feedback_telemetry
-        elif isinstance(living_loop, dict) and isinstance(living_loop.get("feedback_summary"), dict):
-            feedback_telemetry = dict(living_loop["feedback_summary"])
-            living_loop_telemetry = {"feedback": feedback_telemetry}
+    brain_status_summary = _summarize_runtime_truth(response_bodies.get("brain_status"))
+    status_runtime_truth_summary = brain_status_summary
+    terminus_runtime_truth_summary = None
+    brain_source_configuration = _summarize_source_configuration(response_bodies.get("brain_status"))
+    status_source_configuration = brain_source_configuration
+    terminus_source_configuration = None
+    brain_device_evidence = _summarize_runtime_device_evidence(response_bodies.get("brain_status"))
+    status_device_evidence = brain_device_evidence
+    terminus_device_evidence = None
 
     export_summary: dict[str, Any] | None = None
-    export_body = response_bodies.get("export")
-    if isinstance(export_body, dict):
+    traces_body = response_bodies.get("brain_traces")
+    if isinstance(traces_body, dict):
+        traces = traces_body.get("traces")
         export_summary = {
-            key: export_body.get(key)
-            for key in (
-                "export_kind",
-                "schema_version",
-                "training_role",
-                "limit",
-                "count",
-                "endpoint",
-            )
-            if key in export_body
+            "surface": traces_body.get("surface"),
+            "limit": int(export_limit),
+            "count": len(traces) if isinstance(traces, list) else None,
+            "endpoint": "/brain/traces",
         }
-
-    policy_actuator_summary: dict[str, Any] | None = None
-    policy_body = response_bodies.get("policy_actuator")
-    if isinstance(policy_body, dict):
-        policy_actuator_summary = {
-            key: policy_body.get(key)
-            for key in (
-                "schema_version",
-                "action",
-                "recommendation",
-                "risk",
-                "expected_information_gain",
-                "expected_goal_progress",
-                "expected_cost",
-                "uncertainty",
-                "advisory",
-                "executable",
-                "target_episode_id",
-                "target_action_id",
-                "suggested_endpoint",
-            )
-            if key in policy_body
-        }
-        reasons = policy_body.get("reasons")
-        if isinstance(reasons, list):
-            policy_actuator_summary["reason_codes"] = [
-                str(item.get("code"))
-                for item in reasons
-                if isinstance(item, dict) and item.get("code") is not None
-            ]
 
     feed_summary: dict[str, Any] | None = None
-    feed_body = response_bodies.get("feed")
+    feed_body = response_bodies.get("brain_feed")
     if isinstance(feed_body, dict) and isinstance(feed_body.get("feed_summary"), dict):
         feed_summary = dict(feed_body["feed_summary"])
+    elif isinstance(feed_body, dict):
+        feed_summary = {
+            "surface": feed_body.get("surface"),
+            "tokens_processed": int(feed_body.get("accepted_tokens", 0) or 0),
+            "queued_tokens": int(feed_body.get("queued_tokens", 0) or 0),
+            "source": feed_body.get("source"),
+        }
 
     configured_source_summary = None
     if configured_source_path is not None:
-        configure_body = response_bodies.get("terminus_configure")
-        tick_body = response_bodies.get("terminus_tick")
-        runtime = (
-            configure_body.get("terminus_runtime")
-            if isinstance(configure_body, dict) and isinstance(configure_body.get("terminus_runtime"), dict)
-            else {}
-        )
-        tick_runtime = (
-            tick_body.get("terminus_runtime")
-            if isinstance(tick_body, dict) and isinstance(tick_body.get("terminus_runtime"), dict)
-            else {}
-        )
-        tick_summaries = (
-            list(tick_body.get("tick_summaries") or [])
-            if isinstance(tick_body, dict) and isinstance(tick_body.get("tick_summaries"), list)
-            else []
-        )
-        latest_tick_summary = (
-            tick_summaries[-1]
-            if tick_summaries and isinstance(tick_summaries[-1], dict)
-            else {}
-        )
-        tick_source = (
-            latest_tick_summary.get("source")
-            if isinstance(latest_tick_summary.get("source"), dict)
-            else {}
-        )
-        tick_concept_observation = (
-            tick_source.get("concept_observation")
-            if isinstance(tick_source.get("concept_observation"), dict)
-            else {}
-        )
-        tick_stage_timings = (
-            latest_tick_summary.get("stage_timings_ms")
-            if isinstance(latest_tick_summary.get("stage_timings_ms"), dict)
-            else {}
-        )
-        source_progress = (
-            list(tick_runtime.get("source_progress") or [])
-            if isinstance(tick_runtime.get("source_progress"), list)
-            else []
-        )
-        first_source_progress = (
-            source_progress[0]
-            if source_progress and isinstance(source_progress[0], dict)
-            else {}
-        )
+        configure_body = response_bodies.get("brain_feed_configured")
+        tick_body = response_bodies.get("brain_tick_configured")
+        tick_trace = tick_body.get("trace") if isinstance(tick_body, dict) and isinstance(tick_body.get("trace"), dict) else {}
         source_cache_summary = {
-            "cache_write_count": int(first_source_progress.get("cache_write_count", 0) or 0),
-            "cache_schedule_count": int(first_source_progress.get("cache_schedule_count", 0) or 0),
-            "cache_skip_count": int(first_source_progress.get("cache_skip_count", 0) or 0),
-            "cache_failure_count": int(first_source_progress.get("cache_failure_count", 0) or 0),
-            "cache_pending": bool(first_source_progress.get("cache_pending", False)),
-            "last_cache_update_mode": str(first_source_progress.get("last_cache_update_mode", "not_run") or "not_run"),
+            "cache_write_count": 0,
+            "cache_schedule_count": 0,
+            "cache_skip_count": 0,
+            "cache_failure_count": 0,
+            "cache_pending": False,
+            "last_cache_update_mode": "not_applicable_brain_source_buffer",
         }
         configured_source_summary = {
             "enabled": True,
             "source_name": str(configured_source_name),
             "source_path": str(Path(configured_source_path)),
             "tick_steps": int(configured_source_tick_steps),
-            "configure_success": bool(response_bodies.get("terminus_configure") is not None),
-            "tick_success": bool(response_bodies.get("terminus_tick") is not None) if int(configured_source_tick_steps) > 0 else None,
-            "configured": bool(runtime.get("configured")),
-            "source_count": int(runtime.get("source_count", 0) or 0),
-            "tick_tokens_processed": int(tick_runtime.get("last_tick_token_delta", 0) or 0),
-            "background_tokens_processed": int(tick_runtime.get("background_tokens_processed", 0) or 0),
-            "last_tick_duration_ms": tick_runtime.get("last_tick_duration_ms"),
-            "stage_timings_ms": dict(tick_stage_timings),
-            "concept_observation": dict(tick_concept_observation),
+            "configure_success": bool(response_bodies.get("brain_feed_configured") is not None),
+            "tick_success": bool(response_bodies.get("brain_tick_configured") is not None) if int(configured_source_tick_steps) > 0 else None,
+            "configured": True,
+            "source_count": 1,
+            "accepted_tokens": int(configure_body.get("accepted_tokens", 0) or 0) if isinstance(configure_body, dict) else 0,
+            "tick_tokens_processed": int(tick_body.get("trained_tokens", 0) or 0) if isinstance(tick_body, dict) else 0,
+            "background_tokens_processed": int(tick_body.get("trained_tokens", 0) or 0) if isinstance(tick_body, dict) else 0,
+            "last_tick_duration_ms": tick_trace.get("elapsed_ms"),
+            "stage_timings_ms": {},
+            "concept_observation": {"mode": "not_applicable_brain_trace"},
             "source_cache": source_cache_summary,
             "warmup": dict(configured_source_warmup_evidence or {"enabled": False}),
             "not_hot_path": True,
@@ -1066,22 +972,23 @@ def benchmark_service_app(
         "endpoint_metabolism_summary": endpoint_metabolism_summary,
         "trainer_stage_profile": trainer_stage_profile,
         "configured_source_summary": configured_source_summary,
-        "living_loop_benchmark_telemetry": living_loop_telemetry,
         "feed_summary": feed_summary,
+        "brain_status_summary": brain_status_summary,
         "status_runtime_truth_summary": status_runtime_truth_summary,
         "terminus_runtime_truth_summary": terminus_runtime_truth_summary,
         "source_configuration_evidence": {
+            "brain": brain_source_configuration,
             "status": status_source_configuration,
             "terminus": terminus_source_configuration,
             "semantics": {
-                "benchmark_runtime_configuration": "in_process_service_app_current_manager_state",
+                "benchmark_runtime_configuration": "in_process_brain_service_app_current_state",
                 "long_test_difference": (
-                    "Long-test calls quick_start_terminus before sampling; service benchmark reports the app state it was given. "
-                    "If configured=false here, configure_terminus_sources is an actionable benchmark setup instruction, not a contradiction with a separately configured long-test run."
+                    "The brain service benchmark feeds local source text directly into MarulhoBrain; old quick_start_terminus setup is retired."
                 ),
             },
         },
         "runtime_device_evidence": {
+            "brain": brain_device_evidence,
             "status": status_device_evidence,
             "terminus": terminus_device_evidence,
             "semantics": {
@@ -1090,7 +997,6 @@ def benchmark_service_app(
             },
         },
         "feedback_telemetry": feedback_telemetry,
-        "policy_actuator_summary": policy_actuator_summary,
         "trace_export_summary": export_summary,
     }
     result["output_path"] = str(Path(output_path))
@@ -1119,7 +1025,6 @@ def run_service_benchmark(
     top_k_memories: int = 5,
     top_chars: int = 6,
     export_limit: int = 3,
-    include_living_loop_telemetry: bool = True,
     profile_trainer_stages: bool = False,
 ) -> dict[str, Any]:
     configured_source_path = None
@@ -1156,7 +1061,6 @@ def run_service_benchmark(
         top_k_memories=top_k_memories,
         top_chars=top_chars,
         export_limit=export_limit,
-        include_living_loop_telemetry=include_living_loop_telemetry,
         profile_trainer_stages=profile_trainer_stages,
     )
 

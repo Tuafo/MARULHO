@@ -126,7 +126,7 @@ def test_run_acceptance_harness_uses_subcortex_runtime_path() -> None:
     assert result["verdict"] == "passed"
     assert result["failed"] == 0
     check_names = {item["name"] for item in result["checks"]}
-    assert check_names == {"query_answer", "grounded_source_influence", "runtime_progress"}
+    assert check_names == {"brain_feed", "brain_generation", "runtime_progress"}
 
 
 def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
@@ -202,42 +202,49 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
 def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
     clock = {"now": 1_000.0}
 
-    class Manager:
+    class Brain:
         snapshot_status_calls = 0
 
-        def __init__(self, *args, **kwargs) -> None:
-            self.closed = False
+        def __init__(self) -> None:
+            self.stopped = False
 
         def status(self, *, fresh_wait_seconds: float | None = None) -> dict:
             if fresh_wait_seconds is not None:
-                Manager.snapshot_status_calls += 1
+                Brain.snapshot_status_calls += 1
                 clock["now"] += 130.0
             return {
+                "surface": "marulho_brain_runtime.v1",
                 "token_count": 200,
-                "memory_store": {"fill_fraction": 0.10, "size": 2, "capacity": 100},
-                "runtime_truth": {"verdict": "alive", "recommended_action": "continue_monitoring"},
-                "terminus_runtime": {
-                    "configured": True,
+                "queued_tokens": 0,
+                "readout": {"observed_transition_count": 4, "transition_state_count": 2},
+                "loop": {
                     "running": True,
-                    "background_tokens_processed": 100,
+                    "tick_tokens": 10,
                     "tick_count": 10,
                 },
+                "memory_store": {"fill_fraction": 0.10, "size": 2, "capacity": 100},
+                "runtime_truth": {"verdict": "alive", "recommended_action": "continue_monitoring"},
             }
 
-        def quick_start_terminus(self, *, preset: str) -> dict:
-            return {"status": "ok", "terminus_runtime": {"configured": True, "running": True}}
+        def feed(self, text: str, *, source: str, learn: bool = False) -> dict:
+            return {"accepted_tokens": len(text), "queued_tokens": len(text), "source": source}
 
-        def close(self) -> None:
-            self.closed = True
+        def start(self, **kwargs) -> dict:
+            return {"started": True, "loop": {"running": True}}
+
+        def stop(self, **kwargs) -> dict:
+            self.stopped = True
+            return {"stopped": True}
 
     def fake_sleep(seconds: float) -> None:
         clock["now"] += max(0.0, float(seconds))
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        brain = Brain()
         with patch("marulho.training.long_test_runner.run_acceptance_harness", return_value={"verdict": "passed"}), patch(
             "marulho.training.long_test_runner._build_checkpoint",
             return_value=Path(tmpdir) / "checkpoint.pt",
-        ), patch("marulho.service.manager.MarulhoServiceManager", Manager), patch(
+        ), patch("marulho.training.long_test_runner.MarulhoBrain.load", return_value=brain), patch(
             "marulho.training.long_test_runner.time.time", side_effect=lambda: clock["now"]
         ), patch("marulho.training.long_test_runner.time.sleep", side_effect=fake_sleep):
             report = run_long_test(
@@ -246,7 +253,8 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
                 output_dir=tmpdir,
             )
 
-    assert Manager.snapshot_status_calls == 1
+    assert Brain.snapshot_status_calls == 1
+    assert brain.stopped is True
     assert report.samples_collected == 1
     assert report.snapshots[0]["elapsed_s"] >= 180.0
 

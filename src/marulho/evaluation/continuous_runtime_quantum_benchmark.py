@@ -1,4 +1,4 @@
-"""A/B maintained continuous Terminus execution quanta on one checkpoint."""
+"""A/B maintained continuous MarulhoBrain execution quanta on one checkpoint."""
 
 from __future__ import annotations
 
@@ -9,31 +9,21 @@ import statistics
 import time
 from typing import Any
 
+from marulho.brain import MarulhoBrain
 from marulho.reporting.readme_reports import write_json_report_with_readme
-from marulho.service.manager import MarulhoServiceManager
 
 
-DEFAULT_SOURCE_TEXT = (
+SOURCE_TEXT_UNIT = (
     "Adaptive memory plasticity stabilizes sparse spike routing. "
     "Grounded local observations support prediction error and replay readiness. "
-) * 64
+)
+DEFAULT_SOURCE_TEXT = SOURCE_TEXT_UNIT * 8
 
 
-def _wait_for_full_warm(
-    manager: MarulhoServiceManager,
-    *,
-    timeout_seconds: float,
-) -> dict[str, Any]:
-    deadline = time.perf_counter() + max(0.1, float(timeout_seconds))
-    last_snapshot: dict[str, Any] = {}
-    while time.perf_counter() < deadline:
-        with manager._lock:
-            last_snapshot = manager._brain_runtime_snapshot_locked()
-        ingestion = dict(last_snapshot.get("ingestion") or {})
-        if bool(ingestion.get("full_warm_ready")):
-            return last_snapshot
-        time.sleep(0.01)
-    return last_snapshot
+def source_text_for_target(target_tokens: int, *, slack_tokens: int = 64) -> str:
+    desired_tokens = max(32, int(target_tokens) + max(0, int(slack_tokens)))
+    repeat_count = max(1, (desired_tokens // len(SOURCE_TEXT_UNIT)) + 1)
+    return (SOURCE_TEXT_UNIT * repeat_count)[:desired_tokens]
 
 
 def _run_arm(
@@ -46,70 +36,57 @@ def _run_arm(
     target_tokens: int,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    manager = MarulhoServiceManager(
-        checkpoint,
-        trace_dir=arm_root / "traces",
-        env_root=arm_root,
-    )
-    runtime = manager.runtime_facade
+    brain = MarulhoBrain.load(checkpoint)
     try:
-        runtime.configure_terminus(
-            source_bank=[
-                {
-                    "name": "continuous_quantum_source",
-                    "source": str(source_path),
-                    "source_type": "file",
-                }
-            ],
-            tick_tokens=128,
-            sleep_interval_seconds=0.01,
-            execution_quantum_tokens=int(quantum_tokens),
-            execution_yield_seconds=float(yield_seconds),
-            repeat_sources=True,
-            ingestion={
-                "enabled": True,
-                "queue_target_tokens": max(128, int(target_tokens)),
-                "prewarm_on_startup": True,
-                "prewarm_max_seconds": max(1.0, float(timeout_seconds)),
-            },
+        source_text = source_path.read_text(encoding="utf-8")
+        feed = brain.feed(
+            source_text,
+            source="continuous_quantum_source",
+            learn=False,
         )
-        warm_snapshot = _wait_for_full_warm(
-            manager,
-            timeout_seconds=timeout_seconds,
-        )
-        warm_ingestion = dict(warm_snapshot.get("ingestion") or {})
-        if not bool(warm_ingestion.get("full_warm_ready")):
+        if int(feed.get("accepted_tokens", 0) or 0) <= 0:
             return {
                 "success": False,
-                "failure_reason": "source_queue_not_fully_warm",
-                "execution_schedule": dict(
-                    warm_snapshot.get("execution_schedule") or {}
-                ),
-                "warm_ingestion": warm_ingestion,
+                "failure_reason": "source_feed_empty",
+                "execution_schedule": {
+                    "owner": "MarulhoBrain",
+                    "quantum_tokens": int(quantum_tokens),
+                    "yield_seconds": float(yield_seconds),
+                },
+                "warm_ingestion": {
+                    "surface": "marulho_brain_source_buffer.v1",
+                    "accepted_tokens": 0,
+                    "full_warm_ready": False,
+                },
             }
 
-        with manager._lock:
-            start_token = int(manager._trainer.token_count)
-        runtime.start_terminus()
+        start_token = int(brain.trainer.token_count)
+        brain.start(
+            tick_tokens=128,
+            quantum_tokens=int(quantum_tokens),
+            interval_seconds=max(
+                0.01,
+                float(yield_seconds) if yield_seconds > 0.0 else 0.01,
+            ),
+            source="continuous_quantum_source",
+        )
         started = time.perf_counter()
         deadline = started + max(0.1, float(timeout_seconds))
         current_token = start_token
         while time.perf_counter() < deadline:
-            with manager._lock:
-                current_token = int(manager._trainer.token_count)
+            current_token = int(brain.trainer.token_count)
             if current_token - start_token >= int(target_tokens):
                 break
             time.sleep(0.001)
         elapsed_seconds = time.perf_counter() - started
         stop_started = time.perf_counter()
-        runtime.stop_terminus()
+        stop = brain.stop(timeout_seconds=max(1.0, float(timeout_seconds)))
         stop_latency_ms = (time.perf_counter() - stop_started) * 1000.0
 
-        with manager._lock:
-            final_token = int(manager._trainer.token_count)
-            final_snapshot = manager._brain_runtime_snapshot_locked()
-            transition_report = manager._trainer.column_transition_runtime_report()
-            device_report = manager._trainer.config.device_report()
+        final_token = int(brain.trainer.token_count)
+        final_status = brain.status()
+        transition_report = brain.trainer.column_transition_runtime_report()
+        device_report = brain.trainer.config.device_report()
         token_delta = max(0, final_token - start_token)
         return {
             "success": bool(token_delta >= int(target_tokens)),
@@ -125,25 +102,34 @@ def _run_arm(
                 token_delta / max(elapsed_seconds, 1e-9)
             ),
             "stop_latency_ms": float(stop_latency_ms),
-            "shutdown": dict(final_snapshot.get("shutdown") or {}),
-            "execution_schedule": dict(
-                final_snapshot.get("execution_schedule") or {}
+            "shutdown": {
+                "surface": "marulho_brain_loop_stop.v1",
+                "stopped": bool(stop.get("stopped")),
+            },
+            "execution_schedule": {
+                "surface": "marulho_brain_loop_state.v1",
+                "owner": "MarulhoBrain",
+                "tick_tokens": 128,
+                "quantum_tokens": int(quantum_tokens),
+                "yield_seconds": float(yield_seconds),
+            },
+            "last_tick_duration_ms": final_status.get("last_trace", {}).get(
+                "elapsed_ms"
             ),
-            "last_tick_duration_ms": final_snapshot.get(
-                "last_tick_duration_ms"
+            "last_tick_token_delta": final_status.get("last_trace", {}).get(
+                "trained_tokens"
             ),
-            "last_tick_token_delta": final_snapshot.get(
-                "last_tick_token_delta"
-            ),
-            "last_tick_stage_timings_ms": dict(
-                final_snapshot.get("last_tick_stage_timings_ms") or {}
-            ),
-            "warm_ingestion": warm_ingestion,
+            "last_tick_stage_timings_ms": {},
+            "warm_ingestion": {
+                "surface": "marulho_brain_source_buffer.v1",
+                "accepted_tokens": int(feed.get("accepted_tokens", 0) or 0),
+                "full_warm_ready": True,
+            },
             "runtime_device": device_report,
             "column_transition_runtime": transition_report,
         }
     finally:
-        manager.close()
+        brain.stop(timeout_seconds=1.0)
 
 
 def run_continuous_runtime_quantum_ab(
@@ -171,7 +157,7 @@ def run_continuous_runtime_quantum_ab(
     arms: list[dict[str, Any]] = []
     for name, quantum_tokens, yield_seconds in arm_specs:
         source_path = output_path.parent / f"{name}-continuous-quantum-source.txt"
-        source_path.write_text(DEFAULT_SOURCE_TEXT, encoding="utf-8")
+        source_path.write_text(source_text_for_target(target_tokens), encoding="utf-8")
         arm = _run_arm(
             checkpoint=checkpoint,
             source_path=source_path,
@@ -208,11 +194,11 @@ def run_continuous_runtime_quantum_ab(
         "surface": "continuous_runtime_quantum_ab.v2",
         "checkpoint": str(checkpoint),
         "scope": (
-            "background_terminus_loop_with_prewarmed_local_source_and_"
+            "background_marulho_brain_loop_with_prefed_local_source_and_"
             "sequential_train_step"
         ),
         "claim_boundary": (
-            "compares runtime-control lock/yield scheduling; neural token order, "
+            "compares brain-loop quantum scheduling; neural token order, "
             "trainer math, source window, checkpoint, and CUDA executor are unchanged"
         ),
         "target_tokens_per_arm": int(target_tokens),

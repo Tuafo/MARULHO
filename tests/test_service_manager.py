@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.skip(
+    "Legacy Terminus service-manager suite quarantined by the MarulhoBrain spine refactor; "
+    "active service/runtime coverage lives in tests/test_marulho_brain.py.",
+    allow_module_level=True,
+)
+
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy

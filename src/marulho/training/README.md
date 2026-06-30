@@ -1,0 +1,42 @@
+# Training
+
+Use this with [../../../README.md](../../../README.md) and
+[../../../CONTEXT.md](../../../CONTEXT.md).
+
+`training` owns trainer execution, checkpointing, CUDA/native graph lifecycle,
+developmental and consolidation runners, query runners, and long-run evidence.
+
+## Owns
+
+- `MarulhoTrainer.train_text_sequence` and ordered SNN token mutation.
+- Persistent text-tick executor and CUDA graph route/transition lifecycle.
+- Conditional-WHILE q16 native sequence execution and exact fallback before
+  mutation.
+- Trainer-owned checkpoint state, route caches, strong-event rings, and burst
+  evidence.
+
+## Must Not Own
+
+- HTTP lifecycle or UI contracts.
+- Service-owned source selection and operator locks.
+- Structural mutation authority outside explicit checkpoint/review gates.
+
+## Ported Guidance
+
+- The persistent text tick executor is not the whole brain loop. Source I/O,
+  archival memory, replay review, service orchestration, and UI remain outside
+  graph capture.
+- The maintained service execution quantum is `16`. The promoted
+  conditional-WHILE executor consumes q16 as one ordered native sequence loop;
+  repeated-child native parent graphs are internal fallback only.
+- Boundary-aware text bursts must preserve exact token order and fail closed
+  before mutation on drift, telemetry, sleep, slow-memory, metrics, sensory, or
+  fallback boundaries.
+- Trainer-stage profiling is evaluation evidence only. Do not add profiler
+  synchronization to ordinary ticks.
+- Slow replay-memory admission and ConceptStore observation are cadenced
+  boundaries; they do not justify moving algorithms into service.
+- `long_test_runner.py` is now a `MarulhoBrain` health runner. It feeds local
+  preset text, starts/stops the brain loop, samples compact brain status, and
+  checks feed/readout/tick progress without constructing the legacy service
+  manager.

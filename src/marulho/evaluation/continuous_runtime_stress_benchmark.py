@@ -1,4 +1,4 @@
-"""Long full-warm stress gate for the continuous Terminus CUDA runtime."""
+"""Long warm stress gate for the continuous MarulhoBrain CUDA runtime."""
 
 from __future__ import annotations
 
@@ -14,13 +14,12 @@ import subprocess
 import time
 from typing import Any, Iterable, Mapping
 
+from marulho.brain import MarulhoBrain
+from marulho.brain.runtime import DEFAULT_BRAIN_QUANTUM_TOKENS
 from marulho.evaluation.continuous_runtime_quantum_benchmark import (
-    DEFAULT_SOURCE_TEXT,
-    _wait_for_full_warm,
+    source_text_for_target as _quantum_source_text_for_target,
 )
 from marulho.reporting.readme_reports import write_json_report_with_readme
-from marulho.service.brain_runtime import DEFAULT_EXECUTION_QUANTUM_TOKENS
-from marulho.service.manager import MarulhoServiceManager
 
 
 def _percentile(values: Iterable[float], percentile: float) -> float | None:
@@ -173,34 +172,47 @@ def _summarize_tick_events(events: Iterable[Mapping[str, Any]]) -> dict[str, Any
 
 
 def _source_text_for_target(target_tokens: int) -> str:
-    repeat_count = max(8, int(target_tokens // 8))
-    return DEFAULT_SOURCE_TEXT * repeat_count
+    return _quantum_source_text_for_target(
+        target_tokens,
+        slack_tokens=max(32, int(target_tokens) // 8),
+    )
 
 
-def _flush_source_cache_writes(manager: MarulhoServiceManager) -> dict[str, Any]:
-    flush = getattr(manager._runtime_sources, "flush_brain_runtime_cache_writes")
+def _flush_source_cache_writes(runtime: Any) -> dict[str, Any]:
+    flush = getattr(getattr(runtime, "_runtime_sources", None), "flush_brain_runtime_cache_writes", None)
     started = time.perf_counter()
-    flush()
+    if callable(flush):
+        flush()
     latency_ms = (time.perf_counter() - started) * 1000.0
-    with manager._lock:
-        snapshot = manager._brain_runtime_snapshot_locked()
+    snapshot: Mapping[str, Any] = {}
+    snapshot_fn = getattr(runtime, "_brain_runtime_snapshot_locked", None)
+    lock = getattr(runtime, "_lock", None)
+    if callable(snapshot_fn) and lock is not None:
+        with lock:
+            snapshot = snapshot_fn()
     return {
         "source_cache_flush_latency_ms": float(latency_ms),
+        "mode": "legacy_runtime_sources_flush" if callable(flush) else "not_applicable_brain_source_buffer",
         "ingestion_after_flush": dict(snapshot.get("ingestion") or {}),
     }
 
 
-def _runtime_event_history_limit(manager: MarulhoServiceManager) -> int:
-    history = getattr(manager._runtime_state, "_brain_event_history", None)
+def _runtime_event_history_limit(runtime: Any) -> int:
+    history = getattr(getattr(runtime, "_runtime_state", None), "_brain_event_history", None)
+    if history is None:
+        history = getattr(runtime, "_trace_history", None)
     maxlen = getattr(history, "maxlen", None)
     return max(1, int(maxlen or 1))
 
 
 def _ensure_runtime_event_history_capacity(
-    manager: MarulhoServiceManager,
+    runtime: Any,
     required_events: int,
 ) -> dict[str, Any]:
-    history = getattr(manager._runtime_state, "_brain_event_history", None)
+    runtime_state = getattr(runtime, "_runtime_state", None)
+    history = getattr(runtime_state, "_brain_event_history", None)
+    if history is None:
+        history = getattr(runtime, "_trace_history", None)
     before_limit = max(1, int(getattr(history, "maxlen", None) or 1))
     required_limit = max(1, int(required_events))
     if before_limit >= required_limit or not isinstance(history, deque):
@@ -210,16 +222,45 @@ def _ensure_runtime_event_history_capacity(
             "after_limit": int(before_limit),
             "required_events": int(required_limit),
         }
-    manager._runtime_state._brain_event_history = deque(
-        list(history),
-        maxlen=required_limit,
-    )
+    replacement = deque(list(history), maxlen=required_limit)
+    if runtime_state is not None and hasattr(runtime_state, "_brain_event_history"):
+        runtime_state._brain_event_history = replacement
+    elif hasattr(runtime, "_trace_history"):
+        runtime._trace_history = replacement
     return {
         "extended": True,
         "before_limit": int(before_limit),
         "after_limit": int(required_limit),
         "required_events": int(required_limit),
     }
+
+
+def _brain_trace_snapshot(brain: MarulhoBrain, *, limit: int) -> dict[str, Any]:
+    recent_events: list[dict[str, Any]] = []
+    for trace in brain.trace_history(limit=limit):
+        if trace.get("event") != "tick":
+            continue
+        token_delta = int(trace.get("trained_tokens", 0) or 0)
+        elapsed_ms = float(trace.get("elapsed_ms", 0.0) or 0.0)
+        recent_events.append(
+            {
+                "type": "tick",
+                "timestamp": trace.get("created_at"),
+                "token_delta": token_delta,
+                "tick_duration_ms": elapsed_ms,
+                "stage_timings_ms": {"trainer_step": elapsed_ms},
+                "source": {
+                    "concept_observation": {
+                        "mode": "brain_trace",
+                        "tick_due": token_delta > 0,
+                        "attempts": 0,
+                        "observations": 0,
+                        "skipped_attempts": 0,
+                    }
+                },
+            }
+        )
+    return {"recent_events": recent_events}
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -572,7 +613,7 @@ def run_continuous_runtime_stress(
     output_path: Path,
     target_tokens: int = 1024,
     tick_tokens: int = 128,
-    quantum_tokens: int = DEFAULT_EXECUTION_QUANTUM_TOKENS,
+    quantum_tokens: int = DEFAULT_BRAIN_QUANTUM_TOKENS,
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
     sample_interval_seconds: float = 0.02,
@@ -608,68 +649,45 @@ def run_continuous_runtime_stress(
         os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
             "1" if bool(native_burst_replay) else "0"
         )
-    manager = MarulhoServiceManager(
-        checkpoint,
-        trace_dir=run_root / "traces",
-        env_root=run_root,
-    )
-    runtime = manager.runtime_facade
+    brain = MarulhoBrain.load(checkpoint, trace_limit=max(64, int(target_tokens // max(1, tick_tokens)) + 32))
     seen_events: set[tuple[Any, ...]] = set()
     tick_events: list[dict[str, Any]] = []
     config_overrides: dict[str, Any] = {}
     try:
         if host_truth_sync_interval_tokens is not None:
-            with manager._lock:
-                previous_interval = int(
-                    manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
-                )
-                manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens = int(
-                    host_truth_sync_interval_tokens
-                )
+            previous_interval = int(
+                brain.trainer.config.cuda_graph_host_truth_sync_interval_tokens
+            )
+            brain.trainer.config.cuda_graph_host_truth_sync_interval_tokens = int(
+                host_truth_sync_interval_tokens
+            )
             config_overrides["cuda_graph_host_truth_sync_interval_tokens"] = {
                 "from": previous_interval,
                 "to": int(host_truth_sync_interval_tokens),
             }
         if native_burst_replay is not None:
-            with manager._lock:
-                previous_native_replay = bool(
-                    manager._trainer.config.cuda_graph_native_burst_replay
-                )
-                manager._trainer.config.cuda_graph_native_burst_replay = bool(
-                    native_burst_replay
-                )
+            previous_native_replay = bool(
+                brain.trainer.config.cuda_graph_native_burst_replay
+            )
+            brain.trainer.config.cuda_graph_native_burst_replay = bool(
+                native_burst_replay
+            )
             config_overrides["cuda_graph_native_burst_replay"] = {
                 "from": previous_native_replay,
                 "to": bool(native_burst_replay),
             }
-        runtime.configure_terminus(
-            source_bank=[
-                {
-                    "name": "continuous_runtime_stress_source",
-                    "source": str(source_path),
-                    "source_type": "file",
-                }
-            ],
-            tick_tokens=int(tick_tokens),
-            source_concept_observation_tick_interval=int(
-                source_concept_observation_tick_interval
-            ),
-            sleep_interval_seconds=0.01,
-            execution_quantum_tokens=int(quantum_tokens),
-            execution_yield_seconds=0.0,
-            repeat_sources=True,
-            ingestion={
-                "enabled": True,
-                "queue_target_tokens": max(int(tick_tokens), int(target_tokens)),
-                "prewarm_on_startup": True,
-                "prewarm_max_seconds": max(1.0, float(timeout_seconds)),
-            },
+        feed = brain.feed(
+            source_path.read_text(encoding="utf-8"),
+            source="continuous_runtime_stress_source",
+            learn=False,
         )
-        warm_snapshot = _wait_for_full_warm(
-            manager,
-            timeout_seconds=timeout_seconds,
-        )
-        warm_ingestion = dict(warm_snapshot.get("ingestion") or {})
+        warm_ingestion = {
+            "surface": "marulho_brain_source_buffer.v1",
+            "accepted_tokens": int(feed.get("accepted_tokens", 0) or 0),
+            "queued_tokens": int(feed.get("queued_tokens", 0) or 0),
+            "full_warm_ready": int(feed.get("accepted_tokens", 0) or 0) > 0,
+            "mode": "brain_feed_prefill",
+        }
         if not bool(warm_ingestion.get("full_warm_ready")):
             velocity_environment = _summarize_velocity_environment(
                 _collect_velocity_environment_snapshot(),
@@ -694,25 +712,25 @@ def run_continuous_runtime_stress(
                 "config_overrides": dict(config_overrides),
                 "trainer_config": {
                     "slow_memory_archive_interval_tokens": int(
-                        manager._trainer.config.slow_memory_archive_interval_tokens
+                        brain.trainer.config.slow_memory_archive_interval_tokens
                     ),
                     "trainer_telemetry_interval_tokens": int(
-                        manager._trainer.config.trainer_telemetry_interval_tokens
+                        brain.trainer.config.trainer_telemetry_interval_tokens
                     ),
                     "cuda_graph_host_truth_sync_interval_tokens": int(
-                        manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                        brain.trainer.config.cuda_graph_host_truth_sync_interval_tokens
                     ),
                     "cuda_graph_native_burst_replay": bool(
-                        manager._trainer.config.cuda_graph_native_burst_replay
+                        brain.trainer.config.cuda_graph_native_burst_replay
                     ),
                     "cuda_graph_native_burst_tokens": int(
-                        manager._trainer.config.cuda_graph_native_burst_tokens
+                        brain.trainer.config.cuda_graph_native_burst_tokens
                     ),
                     "cuda_graph_sequence_executor": str(
-                        manager._trainer.config.cuda_graph_sequence_executor
+                        brain.trainer.config.cuda_graph_sequence_executor
                     ),
                     "cuda_graph_sequence_loop_tokens": int(
-                        manager._trainer.config.cuda_graph_sequence_loop_tokens
+                        brain.trainer.config.cuda_graph_sequence_loop_tokens
                     ),
                 },
                 "timeout_seconds": float(timeout_seconds),
@@ -723,11 +741,9 @@ def run_continuous_runtime_stress(
             return report
 
         velocity_environment_before = _collect_velocity_environment_snapshot()
-        with manager._lock:
-            start_token = int(manager._trainer.token_count)
-            if bool(profile_trainer_stages):
-                manager._trainer.enable_train_step_profile(reset=True)
-        runtime.start_terminus()
+        start_token = int(brain.trainer.token_count)
+        if bool(profile_trainer_stages):
+            brain.trainer.enable_train_step_profile(reset=True)
         started = time.perf_counter()
         deadline = started + max(0.1, float(timeout_seconds))
         current_token = start_token
@@ -742,10 +758,10 @@ def run_continuous_runtime_stress(
             (int(target_tokens) + int(tick_tokens) - 1) // int(tick_tokens),
         )
         event_history_capacity = _ensure_runtime_event_history_capacity(
-            manager,
+            brain,
             expected_tick_count + 16,
         )
-        event_history_limit = _runtime_event_history_limit(manager)
+        event_history_limit = _runtime_event_history_limit(brain)
         poll_snapshots = expected_tick_count > event_history_limit
         poll_snapshot_count = 0
         while time.perf_counter() < deadline:
@@ -762,12 +778,20 @@ def run_continuous_runtime_stress(
                         0.001,
                         float(environment_sample_interval_seconds),
                     )
-            with manager._lock:
-                current_token = int(manager._trainer.token_count)
-                if poll_snapshots:
-                    snapshot = manager._brain_runtime_snapshot_locked()
-                else:
-                    snapshot = None
+            current_token = int(brain.trainer.token_count)
+            if current_token - start_token >= int(target_tokens):
+                break
+            remaining_tokens = max(1, int(target_tokens) - (current_token - start_token))
+            tick = brain.tick(
+                tokens=min(int(tick_tokens), remaining_tokens),
+                quantum_tokens=int(quantum_tokens),
+                source="continuous_runtime_stress_source",
+            )
+            snapshot = (
+                _brain_trace_snapshot(brain, limit=expected_tick_count + 16)
+                if poll_snapshots
+                else None
+            )
             if snapshot is not None:
                 poll_snapshot_count += 1
                 _collect_tick_events(
@@ -775,32 +799,32 @@ def run_continuous_runtime_stress(
                     seen_keys=seen_events,
                     events=tick_events,
                 )
-            if current_token - start_token >= int(target_tokens):
+            current_token = int(brain.trainer.token_count)
+            if int(tick.get("trained_tokens", 0) or 0) <= 0 and int(brain.status().get("queued_tokens", 0) or 0) <= 0:
                 break
             time.sleep(max(0.001, float(sample_interval_seconds)))
         elapsed_seconds = time.perf_counter() - started
-        stop_started = time.perf_counter()
-        runtime.stop_terminus()
-        stop_latency_ms = (time.perf_counter() - stop_started) * 1000.0
+        stop_latency_ms = 0.0
         velocity_environment_after = _collect_velocity_environment_snapshot()
-        with manager._lock:
-            final_token = int(manager._trainer.token_count)
-            final_snapshot = manager._brain_runtime_snapshot_locked()
-            _collect_tick_events(
-                final_snapshot,
-                seen_keys=seen_events,
-                events=tick_events,
-            )
-            transition_report = manager._trainer.column_transition_runtime_report()
-            device_report = manager._trainer.config.device_report()
-            trainer_stage_profile = (
-                manager._trainer.train_step_profile_report()
-                if bool(profile_trainer_stages)
-                else None
-            )
-            if bool(profile_trainer_stages):
-                manager._trainer.disable_train_step_profile()
-        cache_flush = _flush_source_cache_writes(manager)
+        final_token = int(brain.trainer.token_count)
+        final_snapshot = _brain_trace_snapshot(brain, limit=expected_tick_count + 16)
+        final_status = brain.status()
+        last_trace = brain.trace()
+        _collect_tick_events(
+            final_snapshot,
+            seen_keys=seen_events,
+            events=tick_events,
+        )
+        transition_report = brain.trainer.column_transition_runtime_report()
+        device_report = brain.trainer.config.device_report()
+        trainer_stage_profile = (
+            brain.trainer.train_step_profile_report()
+            if bool(profile_trainer_stages)
+            else None
+        )
+        if bool(profile_trainer_stages):
+            brain.trainer.disable_train_step_profile()
+        cache_flush = _flush_source_cache_writes(brain)
         token_delta = max(0, final_token - start_token)
         event_summary = _summarize_tick_events(tick_events)
         velocity_environment = _summarize_velocity_environment(
@@ -814,7 +838,7 @@ def run_continuous_runtime_stress(
             "run_root": str(run_root),
             "source_path": str(source_path),
             "scope": (
-                "background_terminus_loop_with_full_prewarmed_source_queue_"
+                "manual_marulho_brain_tick_loop_with_prefed_source_buffer_"
                 "and_training_owned_sequential_cuda_text_sequence"
             ),
             "claim_boundary": (
@@ -836,25 +860,25 @@ def run_continuous_runtime_stress(
             "config_overrides": dict(config_overrides),
             "trainer_config": {
                 "slow_memory_archive_interval_tokens": int(
-                    manager._trainer.config.slow_memory_archive_interval_tokens
+                    brain.trainer.config.slow_memory_archive_interval_tokens
                 ),
                 "trainer_telemetry_interval_tokens": int(
-                    manager._trainer.config.trainer_telemetry_interval_tokens
+                    brain.trainer.config.trainer_telemetry_interval_tokens
                 ),
                 "cuda_graph_host_truth_sync_interval_tokens": int(
-                    manager._trainer.config.cuda_graph_host_truth_sync_interval_tokens
+                    brain.trainer.config.cuda_graph_host_truth_sync_interval_tokens
                 ),
                 "cuda_graph_native_burst_replay": bool(
-                    manager._trainer.config.cuda_graph_native_burst_replay
+                    brain.trainer.config.cuda_graph_native_burst_replay
                 ),
                 "cuda_graph_native_burst_tokens": int(
-                    manager._trainer.config.cuda_graph_native_burst_tokens
+                    brain.trainer.config.cuda_graph_native_burst_tokens
                 ),
                 "cuda_graph_sequence_executor": str(
-                    manager._trainer.config.cuda_graph_sequence_executor
+                    brain.trainer.config.cuda_graph_sequence_executor
                 ),
                 "cuda_graph_sequence_loop_tokens": int(
-                    manager._trainer.config.cuda_graph_sequence_loop_tokens
+                    brain.trainer.config.cuda_graph_sequence_loop_tokens
                 ),
             },
             "timeout_seconds": float(timeout_seconds),
@@ -868,6 +892,7 @@ def run_continuous_runtime_stress(
                 "event_history_capacity": dict(event_history_capacity),
                 "poll_snapshots_during_measurement": bool(poll_snapshots),
                 "poll_snapshot_count": int(poll_snapshot_count),
+                "loop_owner": "MarulhoBrain.manual_tick_loop",
             },
             "trainer_stage_profile": trainer_stage_profile,
             "token_delta": int(token_delta),
@@ -876,13 +901,20 @@ def run_continuous_runtime_stress(
             "stop_latency_ms": float(stop_latency_ms),
             "warm_ingestion": warm_ingestion,
             "event_summary": event_summary,
-            "last_tick_duration_ms": final_snapshot.get("last_tick_duration_ms"),
-            "last_tick_token_delta": final_snapshot.get("last_tick_token_delta"),
-            "last_tick_stage_timings_ms": dict(
-                final_snapshot.get("last_tick_stage_timings_ms") or {}
-            ),
-            "execution_schedule": dict(final_snapshot.get("execution_schedule") or {}),
-            "shutdown": dict(final_snapshot.get("shutdown") or {}),
+            "last_tick_duration_ms": last_trace.get("elapsed_ms"),
+            "last_tick_token_delta": last_trace.get("trained_tokens"),
+            "last_tick_stage_timings_ms": {"trainer_step": last_trace.get("elapsed_ms")},
+            "execution_schedule": {
+                "surface": "marulho_brain_manual_tick_schedule.v1",
+                "owner": "MarulhoBrain",
+                "tick_tokens": int(tick_tokens),
+                "quantum_tokens": int(quantum_tokens),
+                "stop_boundary": "between_ticks",
+            },
+            "shutdown": {
+                "surface": "marulho_brain_manual_tick_shutdown.v1",
+                "running": False,
+            },
             "cache_flush": cache_flush,
             "velocity_environment": velocity_environment,
             "runtime_device": device_report,
@@ -891,7 +923,7 @@ def run_continuous_runtime_stress(
         write_json_report_with_readme(output_path, report)
         return report
     finally:
-        manager.close()
+        brain.stop(timeout_seconds=1.0)
         if native_burst_replay is not None:
             if previous_native_replay_env is None:
                 os.environ.pop("MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY", None)
@@ -899,6 +931,8 @@ def run_continuous_runtime_stress(
                 os.environ["MARULHO_CUDA_GRAPH_NATIVE_BURST_REPLAY"] = (
                     previous_native_replay_env
                 )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
@@ -908,7 +942,7 @@ def main() -> int:
     parser.add_argument(
         "--quantum-tokens",
         type=int,
-        default=DEFAULT_EXECUTION_QUANTUM_TOKENS,
+        default=DEFAULT_BRAIN_QUANTUM_TOKENS,
     )
     parser.add_argument("--source-concept-observation-tick-interval", type=int, default=4)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)

@@ -5,21 +5,20 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from marulho.brain import MarulhoBrain
 from marulho.reporting.readme_reports import write_json_report_with_readme
-from marulho.service.manager import MarulhoServiceManager
-from marulho.service.runtime_evidence import (
-    DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT,
-    MAX_RUNTIME_TRACE_EXPORT_LIMIT,
-)
 
 
-_EMPTY_EXPORT_REASON = "checkpoint_contains_no_persisted_runtime_episode_traces"
-_EMPTY_EXPORT_BEHAVIOR = "valid_empty_dataset_when_checkpoint_has_no_persisted_runtime_episode_traces"
+DEFAULT_BRAIN_TRACE_EXPORT_LIMIT = 20
+MAX_BRAIN_TRACE_EXPORT_LIMIT = 50
+BRAIN_TRACE_EXPORT_SCHEMA_VERSION = 1
+_EMPTY_EXPORT_REASON = "checkpoint_contains_no_persisted_brain_traces"
+_EMPTY_EXPORT_BEHAVIOR = "valid_empty_dataset_when_checkpoint_has_no_persisted_brain_traces"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Export sanitized Terminus runtime trace examples from a MARULHO checkpoint."
+        description="Export compact BrainTrace examples from a MARULHO checkpoint."
     )
     parser.add_argument("--checkpoint", type=Path, required=True, help="MARULHO checkpoint to load.")
     parser.add_argument(
@@ -31,8 +30,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--limit",
         type=int,
-        default=DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT,
-        help=f"Maximum examples to export (1-{MAX_RUNTIME_TRACE_EXPORT_LIMIT}).",
+        default=DEFAULT_BRAIN_TRACE_EXPORT_LIMIT,
+        help=f"Maximum examples to export (1-{MAX_BRAIN_TRACE_EXPORT_LIMIT}).",
     )
     parser.add_argument(
         "--endpoint",
@@ -40,7 +39,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="endpoint",
         type=str,
         default=None,
-        help="Optional operation/endpoint filter, e.g. respond or /respond.",
+        help="Optional BrainTrace event filter, e.g. tick, generate, replay, save.",
     )
     parser.add_argument(
         "--trace-dir",
@@ -61,40 +60,92 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def export_runtime_trace_dataset(
     checkpoint_path: str | Path,
     *,
-    limit: int = DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT,
+    limit: int = DEFAULT_BRAIN_TRACE_EXPORT_LIMIT,
     endpoint: str | None = None,
     trace_dir: str | Path | None = None,
     env_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    manager = MarulhoServiceManager(
-        checkpoint_path,
-        trace_history_limit=max(1, int(limit)),
-        trace_dir=trace_dir,
-        env_root=env_root,
-    )
-    try:
-        dataset = manager.runtime_facade.export_runtime_trace_examples(limit=limit, endpoint=endpoint)
-    finally:
-        manager.close()
+    del trace_dir, env_root
+    count = min(MAX_BRAIN_TRACE_EXPORT_LIMIT, max(1, int(limit)))
+    event_filter = _normalize_event_filter(endpoint)
+    brain = MarulhoBrain.load(checkpoint_path, trace_limit=max(MAX_BRAIN_TRACE_EXPORT_LIMIT, count))
+    traces = [
+        trace
+        for trace in brain.trace_history(limit=MAX_BRAIN_TRACE_EXPORT_LIMIT)
+        if event_filter is None or str(trace.get("event", "")).lower() == event_filter
+    ][:count]
+    dataset: dict[str, Any] = {
+        "export_kind": "marulho_brain_trace_dataset_preview",
+        "schema_version": BRAIN_TRACE_EXPORT_SCHEMA_VERSION,
+        "training_role": "brain_trace_dataset_preview_only_not_training",
+        "description": (
+            "Bounded compact BrainTrace events from the MarulhoBrain spine. "
+            "This export does not train a model or revive legacy service traces."
+        ),
+        "limit": count,
+        "max_limit": MAX_BRAIN_TRACE_EXPORT_LIMIT,
+        "event": event_filter,
+        "count": len(traces),
+        "examples": traces,
+        "source_window": {
+            "surface": "marulho_brain_trace_export_window.v1",
+            "selection_policy": "newest_brain_traces_first_bounded_window",
+            "source_trace_count_evaluated": len(traces),
+            "returned_count": len(traces),
+            "return_limit_reached": bool(len(traces) >= count),
+            "filter": event_filter,
+        },
+    }
 
     metadata: dict[str, Any] = {
-        "source": "checkpoint_runtime_episode_traces",
+        "source": "checkpoint_brain_state_trace_history",
         "generated_by": "marulho.service.trace_export_runner",
-        "sanitization": "RuntimeFacade.export_runtime_trace_examples",
+        "sanitization": "BrainTrace.to_dict compact telemetry only",
         "empty_export_behavior": _EMPTY_EXPORT_BEHAVIOR,
         "contains_examples": bool(dataset.get("count", 0)),
     }
-    if isinstance(dataset.get("policy_decision"), dict):
-        metadata["policy_decision"] = dict(dataset["policy_decision"])
     if not metadata["contains_examples"]:
         metadata["empty_reason"] = _EMPTY_EXPORT_REASON
 
     return {**dataset, "metadata": metadata}
 
 
+def _normalize_event_filter(endpoint: str | None) -> str | None:
+    if endpoint is None:
+        return None
+    value = str(endpoint).strip().lower()
+    if not value:
+        return None
+    value = value.lstrip("/")
+    aliases = {
+        "feed": "feed",
+        "brain/feed": "feed",
+        "tick": "tick",
+        "brain/tick": "tick",
+        "generate": "generate",
+        "brain/generate": "generate",
+        "replay": "replay",
+        "brain/replay": "replay",
+        "grow-prune": "grow_prune",
+        "grow_prune": "grow_prune",
+        "brain/grow-prune": "grow_prune",
+        "checkpoint/save": "save",
+        "brain/checkpoint/save": "save",
+        "save": "save",
+        "checkpoint/restore": "restore",
+        "brain/checkpoint/restore": "restore",
+        "restore": "restore",
+        "start": "start",
+        "brain/start": "start",
+        "stop": "stop",
+        "brain/stop": "stop",
+    }
+    return aliases.get(value, value)
+
+
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.limit < 1 or args.limit > MAX_RUNTIME_TRACE_EXPORT_LIMIT:
-        parser.error(f"--limit must be between 1 and {MAX_RUNTIME_TRACE_EXPORT_LIMIT}")
+    if args.limit < 1 or args.limit > MAX_BRAIN_TRACE_EXPORT_LIMIT:
+        parser.error(f"--limit must be between 1 and {MAX_BRAIN_TRACE_EXPORT_LIMIT}")
     if args.indent < 0:
         parser.error("--indent must be non-negative")
 

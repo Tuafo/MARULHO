@@ -1,9 +1,9 @@
-"""Long-Test Runner -- exercises the full Terminus runtime and classifies run health.
+"""Long-Test Runner -- exercises the MarulhoBrain runtime and classifies run health.
 
 Usage:
     python -m marulho.training.long_test_runner --duration 20 --output reports/long_test_report.md
 
-This runs Terminus with the curriculum preset for N minutes (default 20),
+This runs MarulhoBrain with the curriculum preset for N minutes (default 20),
 collects runtime metrics, executes a small deterministic acceptance harness,
 and outputs a JSON + markdown report.
 
@@ -28,6 +28,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+
+from marulho.brain import MarulhoBrain
+from marulho.brain.runtime import DEFAULT_BRAIN_QUANTUM_TOKENS, DEFAULT_BRAIN_TICK_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +189,9 @@ def _summarize_acceptance_checks(checks: list[dict[str, Any]]) -> tuple[str, int
 def _acceptance_failure_details(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     actions = {
         "grounded_source_influence": "verify_workspace_action_assist_and_preserved_source_evidence",
-        "runtime_progress": "check_terminus_source_configuration_and_tick_path",
+        "brain_feed": "check_marulho_brain_feed_source_text",
+        "brain_generation": "check_marulho_brain_local_readout_transitions",
+        "runtime_progress": "check_marulho_brain_source_buffer_and_tick_path",
     }
     failures: list[dict[str, Any]] = []
     for item in checks:
@@ -243,8 +248,80 @@ def _source_configuration_evidence(
         "sensory_source_names": [str(item.get("name", "")) for item in sensory_source_bank],
         "configuration_hash": hashlib.sha256(encoded).hexdigest(),
         "configuration_payload": payload,
-        "reproduction_hint": "Use the configuration_payload with /terminus/configure or quick_start_terminus using the recorded preset.",
+        "reproduction_hint": "Use the configuration_payload with MarulhoBrain.feed/start/tick using the recorded preset.",
     }
+
+
+def _brain_source_text(preset: str) -> str:
+    preset_name = str(preset or "curriculum").strip().lower() or "curriculum"
+    passages = {
+        "curriculum": (
+            "MARULHO learns from compact local source streams. "
+            "Sparse columns route prediction error into replay. "
+            "BrainTrace records tick, generation, replay, and checkpoint evidence. "
+        ),
+        "stress": (
+            "Adaptive memory plasticity stabilizes sparse spike routing. "
+            "Grounded local observations support prediction error and replay readiness. "
+        ),
+        "language": (
+            "Local transition readout emits bounded text from MARULHO-owned sparse state. "
+            "No external LLM, ThoughtLoop, or Cortex surface owns generation. "
+        ),
+    }
+    return passages.get(preset_name, passages["curriculum"]) * 32
+
+
+def _brain_source_configuration_evidence(
+    *,
+    preset: str,
+    source_name: str,
+    source_text: str,
+    tick_tokens: int,
+    quantum_tokens: int,
+    interval_seconds: float,
+) -> dict[str, Any]:
+    payload = {
+        "preset": str(preset),
+        "configuration_surface": "MarulhoBrain.feed/start",
+        "source_bank": [
+            {
+                "name": str(source_name),
+                "source_type": "inline_text",
+                "token_estimate": len(str(source_text)),
+            }
+        ],
+        "tick_tokens": int(tick_tokens),
+        "quantum_tokens": int(quantum_tokens),
+        "interval_seconds": float(interval_seconds),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return {
+        "configured": True,
+        "preset": str(preset),
+        "configuration_surface": "MarulhoBrain.feed/start",
+        "source_count": 1,
+        "source_names": [str(source_name)],
+        "source_types": ["inline_text"],
+        "sensory_source_count": 0,
+        "configuration_hash": hashlib.sha256(encoded).hexdigest(),
+        "configuration_payload": payload,
+        "reproduction_hint": "Load checkpoint, call MarulhoBrain.feed(...), then MarulhoBrain.start/tick with these token settings.",
+    }
+
+
+def _runtime_status(runtime: Any, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
+    status = getattr(runtime, "status", None)
+    if not callable(status):
+        return {}
+    try:
+        if fresh_wait_seconds is None:
+            result = status()
+        else:
+            result = status(fresh_wait_seconds=fresh_wait_seconds)
+    except TypeError:
+        result = status()
+    return dict(result) if isinstance(result, Mapping) else {}
 
 
 def _memory_pressure_band(fill_fraction: float) -> str:
@@ -361,10 +438,10 @@ def run_acceptance_harness(
     """Run a small deterministic acceptance harness on maintained runtime paths."""
 
     from marulho.config.runtime_env import load_runtime_env
-    from marulho.service.manager import MarulhoServiceManager
 
     env_anchor = Path(env_root) if env_root is not None else Path.cwd()
     load_runtime_env(anchor_paths=(env_anchor,))
+    del idle_wait_s
 
     acceptance_tmp_root = Path(output_dir) / ".acceptance_tmp"
     acceptance_tmp_root.mkdir(parents=True, exist_ok=True)
@@ -387,95 +464,79 @@ def run_acceptance_harness(
             memory_capacity=64,
         )
 
-        manager = MarulhoServiceManager(
-            checkpoint_path,
-            trace_dir=root / "traces",
-            env_root=root,
-        )
-        runtime = getattr(manager, "runtime_facade", manager)
+        brain = MarulhoBrain.load(checkpoint_path)
         try:
-            response_bundle = runtime.respond(
-                query_text="What does notes.md say cats chase at night?",
-                max_evidence_items=3,
-                learn_mode="none",
+            feed_text = (
+                notes_path.read_text(encoding="utf-8")
+                + "\n"
+                + stream_path.read_text(encoding="utf-8")
             )
-            response = response_bundle.get("response") if isinstance(response_bundle.get("response"), Mapping) else {}
-            query_result = response_bundle.get("query_result") if isinstance(response_bundle.get("query_result"), Mapping) else {}
-            action_assist = query_result.get("action_assist") if isinstance(query_result.get("action_assist"), Mapping) else {}
-            assist_result = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
-            verification = assist_result.get("verification") if isinstance(assist_result.get("verification"), Mapping) else {}
-            evidence = [
-                dict(item)
-                for item in list(verification.get("evidence") or [])
-                if isinstance(item, Mapping)
-            ]
-            response_text = str(response.get("response_text", ""))
-            query_answer_passed = bool(response_text.strip()) and "mice" in response_text.lower()
-            grounded_source_passed = (
-                str(assist_result.get("action_type", "")) == "workspace_read"
-                and str(verification.get("status", "")) == "verified"
-                and any(str(item.get("path", "")) == "notes.md" for item in evidence)
-            )
+            feed = brain.feed(feed_text, source="acceptance_stream", learn=False)
+            accepted_tokens = int(feed.get("accepted_tokens", 0) or 0)
             checks.append(
                 _acceptance_check(
-                    "query_answer",
-                    query_answer_passed,
-                    "Query response returned a grounded answer mentioning the expected fact." if query_answer_passed else "Query response did not return the expected grounded answer text.",
+                    "brain_feed",
+                    accepted_tokens > 0,
+                    "MarulhoBrain accepted local source text into the brain-owned buffer." if accepted_tokens > 0 else "MarulhoBrain did not accept source text.",
                     {
-                        "response_text": response_text,
-                        "action_reason": str(action_assist.get("reason", "")),
+                        "accepted_tokens": accepted_tokens,
+                        "queued_tokens": int(feed.get("queued_tokens", 0) or 0),
+                        "source": str(feed.get("source", "")),
                     },
                 )
             )
+            token_before = int(brain.trainer.token_count)
+            tick_result: dict[str, Any] = {}
+            for _ in range(max(1, int(tick_steps))):
+                tick_result = brain.tick(
+                    tokens=20,
+                    quantum_tokens=DEFAULT_BRAIN_QUANTUM_TOKENS,
+                    source="acceptance_stream",
+                )
+            generation = brain.generate(prompt="Cats", max_tokens=12)
+            readout = brain.status().get("readout")
+            readout_summary = dict(readout) if isinstance(readout, Mapping) else {}
+            generation_passed = (
+                bool(generation.get("owned_by_marulho"))
+                and not bool(generation.get("external_llm_used"))
+                and not bool(generation.get("thought_loop_used"))
+                and not bool(generation.get("cortex_used"))
+                and int(readout_summary.get("observed_transition_count", 0) or 0) > 0
+            )
             checks.append(
                 _acceptance_check(
-                    "grounded_source_influence",
-                    grounded_source_passed,
-                    "Grounded workspace evidence from notes.md influenced the query response." if grounded_source_passed else "Expected grounded workspace evidence from notes.md was not preserved through the response path.",
+                    "brain_generation",
+                    generation_passed,
+                    "Local readout used MARULHO-owned transition evidence." if generation_passed else "Local readout did not accumulate transition evidence.",
                     {
-                        "action_type": str(assist_result.get("action_type", "")),
-                        "verification_status": str(verification.get("status", "")),
-                        "evidence_paths": [str(item.get("path", "")) for item in evidence],
+                        "generation_text": str(generation.get("text", "")),
+                        "available": bool(generation.get("available")),
+                        "observed_transition_count": int(
+                            readout_summary.get("observed_transition_count", 0) or 0
+                        ),
+                        "transition_state_count": int(
+                            readout_summary.get("transition_state_count", 0) or 0
+                        ),
                     },
                 )
             )
-
-            config_result = runtime.configure_terminus(
-                source_bank=[
-                    {
-                        "name": "acceptance_stream",
-                        "source": str(stream_path),
-                        "source_type": "file",
-                    }
-                ],
-                tick_tokens=20,
-                sleep_interval_seconds=0.01,
-                repeat_sources=False,
-                ingestion={
-                    "enabled": True,
-                    "queue_target_tokens": 40,
-                    "prewarm_on_startup": False,
-                    "prewarm_max_seconds": 0.2,
-                },
-            )
-            token_before = int(config_result.get("token_count", 0) or 0)
-            tick_result = runtime.terminus_tick(steps=max(1, int(tick_steps)))
-            runtime = tick_result.get("terminus_runtime") if isinstance(tick_result.get("terminus_runtime"), Mapping) else {}
             runtime_progress_passed = (
-                int(tick_result.get("token_count", 0) or 0) > token_before
-                and int(runtime.get("background_tokens_processed", 0) or 0) > 0
-                and int(runtime.get("last_tick_token_delta", 0) or 0) > 0
+                int(brain.trainer.token_count) > token_before
+                and int(tick_result.get("trained_tokens", 0) or 0) > 0
             )
             checks.append(
                 _acceptance_check(
                     "runtime_progress",
                     runtime_progress_passed,
-                    "Configured Terminus runtime made observable training progress on the maintained tick path." if runtime_progress_passed else "Configured Terminus runtime did not make observable progress on the maintained tick path.",
+                    "MarulhoBrain made observable training progress on the maintained tick path." if runtime_progress_passed else "MarulhoBrain did not make observable progress on the maintained tick path.",
                     {
                         "token_before": token_before,
-                        "token_after": int(tick_result.get("token_count", 0) or 0),
-                        "background_tokens_processed": int(runtime.get("background_tokens_processed", 0) or 0),
-                        "last_tick_token_delta": int(runtime.get("last_tick_token_delta", 0) or 0),
+                        "token_after": int(brain.trainer.token_count),
+                        "background_tokens_processed": max(
+                            0,
+                            int(brain.trainer.token_count) - token_before,
+                        ),
+                        "last_tick_token_delta": int(tick_result.get("trained_tokens", 0) or 0),
                     },
                 )
             )
@@ -489,7 +550,7 @@ def run_acceptance_harness(
                 )
             )
         finally:
-            manager.close()
+            brain.stop(timeout_seconds=1.0)
 
     verdict, passed, failed, skipped = _summarize_acceptance_checks(checks)
     return {
@@ -568,21 +629,40 @@ def _collect_snapshot(
     all_topics: set[str],
     fresh_wait_seconds: float,
 ) -> MetricSnapshot:
-    status = runtime.status(fresh_wait_seconds=fresh_wait_seconds)
+    status = _runtime_status(runtime, fresh_wait_seconds=fresh_wait_seconds)
     snapshot = MetricSnapshot(timestamp=time.time())
     snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
+    brain_status = str(status.get("surface", "")) == "marulho_brain_runtime.v1"
+    loop = status.get("loop") if isinstance(status.get("loop"), Mapping) else {}
     terminus_runtime = status.get("terminus_runtime") if isinstance(status.get("terminus_runtime"), Mapping) else {}
     memory_store = status.get("memory_store") if isinstance(status.get("memory_store"), Mapping) else {}
+    if brain_status and not memory_store:
+        memory_store = _brain_memory_store_snapshot(runtime)
     action_loop = terminus_runtime.get("action_loop") if isinstance(terminus_runtime.get("action_loop"), Mapping) else {}
     ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
     runtime_truth = status.get("runtime_truth") if isinstance(status.get("runtime_truth"), Mapping) else {}
+    if brain_status and not runtime_truth:
+        runtime_truth = _brain_runtime_truth(status)
+    readout = status.get("readout") if isinstance(status.get("readout"), Mapping) else {}
 
     snapshot.token_count = int(status.get("token_count", 0) or 0)
-    snapshot.readouts_total = 0
+    snapshot.readouts_total = int(readout.get("observed_transition_count", 0) or 0)
     snapshot.readouts_delta = 0
-    snapshot.background_tokens_processed = int(terminus_runtime.get("background_tokens_processed", 0) or 0)
-    snapshot.tick_count = int(terminus_runtime.get("tick_count", 0) or 0)
-    snapshot.runtime_running = bool(terminus_runtime.get("running", False))
+    snapshot.background_tokens_processed = (
+        int(loop.get("tick_count", 0) or 0) * int(loop.get("tick_tokens", 0) or 0)
+        if brain_status
+        else int(terminus_runtime.get("background_tokens_processed", 0) or 0)
+    )
+    snapshot.tick_count = (
+        int(loop.get("tick_count", 0) or 0)
+        if brain_status
+        else int(terminus_runtime.get("tick_count", 0) or 0)
+    )
+    snapshot.runtime_running = (
+        bool(loop.get("running", False))
+        if brain_status
+        else bool(terminus_runtime.get("running", False))
+    )
     snapshot.memory_fill = float(memory_store.get("fill_fraction", 0.0) or 0.0)
     snapshot.memory_size = int(memory_store.get("size", 0) or 0)
     snapshot.consolidation_mean = float(memory_store.get("mean_consolidation_level", 0.0) or 0.0)
@@ -591,18 +671,69 @@ def _collect_snapshot(
     snapshot.embedder = {"kind": "subcortex_local_encoder", "available": False}
     snapshot.runtime_truth = dict(runtime_truth)
     snapshot.readout_lifecycle = {
-        "source": "subcortex_readout_surface",
-        "attempts": 0,
+        "source": "marulho_brain_local_transition_readout",
+        "attempts": int(readout.get("observed_transition_count", 0) or 0),
         "successful": snapshot.readouts_total,
         "blocked_ticks": 0,
     }
     snapshot.memory_pressure = _memory_pressure_snapshot(memory_store, runtime_truth)
-    snapshot.subcortex_workspace = {"source": "subcortex_runtime_state", "size": 0, "capacity": 0}
-    snapshot.ingestion_state = str(ingestion.get("startup_state", ""))
+    snapshot.subcortex_workspace = {"source": "marulho_brain_runtime_state", "size": 0, "capacity": 0}
+    snapshot.ingestion_state = (
+        "brain_source_buffer_ready"
+        if brain_status and int(status.get("queued_tokens", 0) or 0) > 0
+        else str(ingestion.get("startup_state", ""))
+    )
     snapshot.action_count = int(action_loop.get("actions_recorded", 0) or 0)
 
     snapshot.topic_diversity = int(len(all_topics))
     return snapshot
+
+
+def _brain_memory_store_snapshot(runtime: Any) -> dict[str, Any]:
+    trainer = getattr(runtime, "trainer", None)
+    model = getattr(trainer, "model", None)
+    store = getattr(model, "memory_store", None)
+    capacity = int(getattr(store, "capacity", 0) or 0)
+    try:
+        summary = store.live_summary_stats() if store is not None else {}
+    except Exception:
+        summary = {}
+    if not isinstance(summary, Mapping):
+        summary = {}
+    size = int(
+        summary.get("size", getattr(store, "size", 0) if store is not None else 0)
+        or 0
+    )
+    fill_fraction = float(size / max(1, capacity)) if capacity else 0.0
+    return {
+        "fill_fraction": float(summary.get("fill_fraction", fill_fraction) or fill_fraction),
+        "size": size,
+        "capacity": capacity,
+        "mean_consolidation_level": float(summary.get("mean_consolidation_level", 0.0) or 0.0),
+        "mean_fragility": float(summary.get("mean_fragility", 0.0) or 0.0),
+        "max_fragility": float(summary.get("max_fragility", 0.0) or 0.0),
+        "ripple_tagged": int(summary.get("ripple_tagged", 0) or 0),
+        "n_seen": int(summary.get("n_seen", size) or 0),
+    }
+
+
+def _brain_runtime_truth(status: Mapping[str, Any]) -> dict[str, Any]:
+    loop = status.get("loop") if isinstance(status.get("loop"), Mapping) else {}
+    queued_tokens = int(status.get("queued_tokens", 0) or 0)
+    token_count = int(status.get("token_count", 0) or 0)
+    running = bool(loop.get("running", False))
+    verdict = "alive" if running or token_count > 0 else "partial" if queued_tokens > 0 else "degraded"
+    return {
+        "surface": "marulho_brain_runtime_truth.v1",
+        "verdict": verdict,
+        "recommended_action": "continue_monitoring" if verdict == "alive" else "feed_and_tick_brain",
+        "owner": "MarulhoBrain",
+        "source_configuration": {
+            "queued_tokens": queued_tokens,
+            "loop": dict(loop),
+        },
+        "retired_brain_surfaces": dict(status.get("retired_brain_surfaces") or {}),
+    }
 
 
 def run_long_test(
@@ -612,10 +743,9 @@ def run_long_test(
     output_dir: str = "reports",
     memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY,
 ) -> TestReport:
-    """Run a full Terminus brain test for the specified duration."""
+    """Run a full MarulhoBrain test for the specified duration."""
 
     from marulho.config.runtime_env import load_runtime_env
-    from marulho.service.manager import MarulhoServiceManager
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -647,39 +777,47 @@ def run_long_test(
         memory_capacity=report.memory_capacity,
     )
 
-    manager: Any | None = None
+    brain: MarulhoBrain | None = None
     snapshots: list[MetricSnapshot] = []
     latencies: list[float] = []
     all_topics: set[str] = set()
     long_run_error: str | None = None
 
     try:
-        manager = MarulhoServiceManager(
-            checkpoint_path,
-            trace_dir=tmpdir / "traces",
-            env_root=Path.cwd(),
-        )
-        runtime = getattr(manager, "runtime_facade", manager)
+        brain = MarulhoBrain.load(checkpoint_path)
+        runtime = brain
         initial_status = runtime.status()
         report.initial_token_count = int(initial_status.get("token_count", 0) or 0)
 
         try:
-            config_result = runtime.quick_start_terminus(preset=preset)
-            logger.info("Quick start result: %s", config_result.get("status"))
+            source_name = f"long_test_{preset}"
+            source_text = _brain_source_text(preset)
+            feed = brain.feed(source_text, source=source_name, learn=False)
+            if int(feed.get("accepted_tokens", 0) or 0) <= 0:
+                raise RuntimeError("MarulhoBrain accepted no long-test source tokens")
+            start_result = brain.start(
+                tick_tokens=DEFAULT_BRAIN_TICK_TOKENS,
+                quantum_tokens=DEFAULT_BRAIN_QUANTUM_TOKENS,
+                interval_seconds=0.01,
+                source=source_name,
+            )
+            logger.info("Brain start result: %s", start_result.get("started"))
         except Exception as exc:
-            long_run_error = f"Quick start failed: {exc}"
+            long_run_error = f"MarulhoBrain start failed: {exc}"
             logger.error(long_run_error)
         else:
-            terminus_runtime = config_result.get("terminus_runtime") if isinstance(config_result.get("terminus_runtime"), Mapping) else {}
-            report.terminus_configured = bool(terminus_runtime.get("configured", False))
-            report.terminus_running = bool(terminus_runtime.get("running", False))
-            report.source_configuration = _source_configuration_evidence(
-                terminus_runtime,
+            report.terminus_configured = True
+            report.terminus_running = bool(brain.status().get("loop", {}).get("running", False))
+            report.source_configuration = _brain_source_configuration_evidence(
                 preset=preset,
-                configuration_surface="quick_start_terminus",
+                source_name=source_name,
+                source_text=source_text,
+                tick_tokens=DEFAULT_BRAIN_TICK_TOKENS,
+                quantum_tokens=DEFAULT_BRAIN_QUANTUM_TOKENS,
+                interval_seconds=0.01,
             )
 
-        time.sleep(2.0)
+        time.sleep(min(0.25, max(0.0, float(sample_interval_s))))
         can_sample = long_run_error is None
         if not can_sample:
             if long_run_error is not None:
@@ -733,8 +871,8 @@ def run_long_test(
     except KeyboardInterrupt:
         logger.info("Test interrupted by user")
     finally:
-        if manager is not None:
-            manager.close()
+        if brain is not None:
+            brain.stop(timeout_seconds=2.0)
 
     report.end_time = datetime.now(timezone.utc).isoformat()
     report.samples_collected = int(len(snapshots))
@@ -766,9 +904,9 @@ def run_long_test(
                 **dict(report.source_configuration),
                 "final_runtime_truth_source_configuration": dict(final_source_config),
                 "benchmark_semantics_note": (
-                    "Long-test configures and starts Terminus with quick_start_terminus. "
-                    "Service benchmark reports whatever source configuration the benchmark app has at /status and /terminus; "
-                    "a partial configure_terminus_sources action is expected only when the benchmark app was not quick-started."
+                    "Long-test configures MarulhoBrain directly through feed/start. "
+                    "The active service is only a /brain adapter, so no /status, /terminus, "
+                    "or service-owned source configuration is part of this result."
                 ),
             }
     report.action_count = int(snapshots[-1].action_count) if snapshots else 0
@@ -920,8 +1058,8 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Terminus configured | {report.terminus_configured} |",
-            f"| Final runtime running | {report.terminus_running} |",
+            f"| Brain configured | {report.terminus_configured} |",
+            f"| Final brain loop running | {report.terminus_running} |",
             f"| Samples collected | {report.samples_collected} |",
             f"| Initial token count | {report.initial_token_count} |",
             f"| Final token count | {report.final_token_count} |",
@@ -1044,10 +1182,10 @@ def health_exit_code(report: TestReport) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a long Terminus brain test")
+    parser = argparse.ArgumentParser(description="Run a long MarulhoBrain test")
     parser.add_argument("--duration", type=float, default=20.0, help="Test duration in minutes (default: 20)")
     parser.add_argument("--interval", type=float, default=30.0, help="Sampling interval in seconds (default: 30)")
-    parser.add_argument("--preset", type=str, default="curriculum", help="Terminus preset to use (default: curriculum)")
+    parser.add_argument("--preset", type=str, default="curriculum", help="MarulhoBrain preset to use (default: curriculum)")
     parser.add_argument("--output", type=str, default="reports", help="Output directory for report (default: reports)")
     parser.add_argument(
         "--memory-capacity",

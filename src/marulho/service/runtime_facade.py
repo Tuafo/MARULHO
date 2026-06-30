@@ -80,11 +80,11 @@ def _source_window_flags_explicit_false(
 
 
 class RuntimeFacade:
-    """Operator-facing runtime interface over Service Manager deep modules.
+    """Legacy operator-facing runtime interface over Service Manager modules.
 
-    MarulhoServiceManager is the composition root. This facade is the runtime
-    interface used by HTTP routes, runners, and integration tests that need the
-    stable operator surface without depending on manager pass-through methods.
+    MarulhoServiceManager is the quarantined legacy composition root. Active
+    HTTP routes use MarulhoBrainRuntimeFacade from brain_manager.py; this facade
+    remains for old runners and tests that still exercise Terminus-era modules.
     """
 
     def __init__(self, composition_root: Any) -> None:
@@ -2291,6 +2291,36 @@ class RuntimeFacade:
 
     def recent_traces(self, limit: int = 20) -> list[dict[str, Any]]:
         return self._root._runtime_persistence.recent_traces(limit=limit)
+
+    def brain_status(self) -> dict[str, Any]:
+        return self._root._marulho_brain.status()
+
+    def brain_feed(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.feed(**kwargs)
+
+    def brain_tick(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.tick(**kwargs)
+
+    def brain_generate(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.generate(**kwargs)
+
+    def brain_replay(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.replay(**kwargs)
+
+    def brain_grow_prune(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.grow_prune(**kwargs)
+
+    def brain_traces(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self._root._marulho_brain.trace_history(limit=limit)
+
+    def brain_start(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.start(**kwargs)
+
+    def brain_stop(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._marulho_brain.stop(**kwargs)
+
+    def save_brain_checkpoint(self, path: str | None = None) -> dict[str, Any]:
+        return self._root._marulho_brain.save(path)
 
     def save_checkpoint(self, path: str | None = None) -> dict[str, Any]:
         return self._root._runtime_persistence.save_checkpoint(path)

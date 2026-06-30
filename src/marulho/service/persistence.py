@@ -73,6 +73,7 @@ class RuntimePersistenceDependencies:
     replay_controller: Callable[[], Any]
     set_state: Callable[[str, Any], None]
     brain_persisted_state: Callable[[], Mapping[str, Any]]
+    marulho_brain_state: Callable[[], Mapping[str, Any]]
     brain_runtime_snapshot: Callable[..., Mapping[str, Any]]
     join_brain_thread: Callable[..., Any]
     lock: Any
@@ -245,6 +246,7 @@ class RuntimePersistence:
             )
             metadata.update(
                 {
+                    "brain_state": dict(self._dependencies.marulho_brain_state()),
                     "saved_by": "marulho.service",
                     "state_revision": int(self._runtime_state.state_revision),
                     "saved_at": datetime.now(timezone.utc).isoformat(),

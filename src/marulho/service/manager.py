@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import torch
 
+from marulho.brain import MarulhoBrain
 from marulho.config.presets import get_autonomy_acquisition_preset
 from marulho.config.model_config import MarulhoConfig
 from marulho.config.runtime_env import load_runtime_env
@@ -86,11 +87,13 @@ class _TimedCallFailure:
 
 
 class MarulhoServiceManager:
-    """Main service orchestrator for MARULHO/Terminus (ADR 0003 composition root).
+    """Quarantined legacy Terminus service composition root.
 
-    Thin composition root that wires deep modules and exposes the public
-    MarulhoServiceManager / FastAPI contract. All runtime behaviour is owned by
-    explicit constructor-injected modules; no mixin inheritance remains.
+    The active FastAPI/UI path now uses MarulhoBrainServiceManager over
+    MarulhoBrain. This class remains for old offline runners and transitional
+    tests only; it must not be treated as the maintained runtime spine.
+    All runtime behaviour is still owned by explicit constructor-injected
+    modules; no mixin inheritance remains.
 
     Deep modules:
       _runtime_state        - mutation truth and brain event history
@@ -131,6 +134,11 @@ class MarulhoServiceManager:
         self._trace_dir.mkdir(parents=True, exist_ok=True)
         self._trainer, self._metadata = load_trainer_checkpoint(self._checkpoint_path)
         self._encoder = self._trainer.encoder
+        self._marulho_brain = MarulhoBrain.from_trainer(
+            self._trainer,
+            metadata=self._metadata,
+            checkpoint_path=self._checkpoint_path,
+        )
         self._responder = EvidenceResponder()
         self._runtime_config = RuntimeConfig(
             provider_query_family_priority=lambda family_entry: TerminusAutonomyCore._provider_query_family_priority_locked(self, family_entry),
@@ -181,6 +189,7 @@ class MarulhoServiceManager:
                 replay_controller=lambda: self._replay_controller,
                 set_state=lambda name, value: setattr(self, name, value),
                 brain_persisted_state=lambda: self._brain_runtime._brain_persisted_state_locked(),
+                marulho_brain_state=lambda: self._marulho_brain.export_state(),
                 brain_runtime_snapshot=self._brain_runtime_snapshot_locked,
                 join_brain_thread=lambda *args, **kwargs: self._runtime_control._join_brain_thread(*args, **kwargs),
                 lock=self._lock,
@@ -592,6 +601,11 @@ class MarulhoServiceManager:
         )
 
     def _refresh_root_captures_locked(self) -> None:
+        self._marulho_brain.rebind_runtime(
+            self._trainer,
+            metadata=self._metadata,
+            checkpoint_path=self._checkpoint_path,
+        )
         self._brain_runtime.rebind_runtime(self._trainer, self._encoder)
         self._interaction_pipeline.rebind_runtime(self._trainer, self._encoder)
         self._status_read_model.rebind_runtime(

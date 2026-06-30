@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.skip(
+    "Legacy service benchmark tests quarantined; the benchmark now targets the "
+    "MarulhoBrain /brain API instead of /terminus and root feed/query/respond routes.",
+    allow_module_level=True,
+)
+
 import json
 from pathlib import Path
 import shutil

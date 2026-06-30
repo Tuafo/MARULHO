@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from marulho.config.model_config import MarulhoConfig
+from marulho.brain import MarulhoBrain
 from marulho.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
 from marulho.training.checkpointing import save_trainer_checkpoint
 from marulho.training.model import MarulhoModel
@@ -67,7 +68,7 @@ class TraceExportRunnerTests(unittest.TestCase):
                 env_root=root / "env",
             )
 
-        self.assertEqual(dataset["export_kind"], "terminus_runtime_trace_dataset_preview")
+        self.assertEqual(dataset["export_kind"], "marulho_brain_trace_dataset_preview")
         self.assertEqual(dataset["count"], 0)
         self.assertEqual(dataset["metadata"]["generated_by"], "marulho.service.trace_export_runner")
         self.assertNotIn("replay_plan_summary", dataset)
@@ -76,6 +77,30 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertNotIn("replay_plan_summary", dataset["metadata"])
         self.assertNotIn("replay_sample_summary", dataset["metadata"])
         self.assertNotIn("replay_dataset_summary", dataset["metadata"])
+
+    def test_export_runtime_trace_dataset_reads_brain_traces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = _build_checkpoint(root)
+            brain = MarulhoBrain.load(checkpoint)
+            brain.feed("brain traces learn local transitions", source="trace_test")
+            brain.tick(tokens=8)
+            saved = brain.save(root / "with_brain_trace.pt")
+
+            dataset = export_runtime_trace_dataset(
+                saved["path"],
+                limit=2,
+                endpoint="tick",
+            )
+
+        self.assertEqual(dataset["export_kind"], "marulho_brain_trace_dataset_preview")
+        self.assertEqual(dataset["event"], "tick")
+        self.assertEqual(dataset["count"], 1)
+        self.assertEqual(dataset["examples"][0]["event"], "tick")
+        self.assertEqual(
+            dataset["examples"][0]["retired_brain_surfaces"]["external_llm_used"],
+            False,
+        )
 
     def test_main_can_write_json_to_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -101,7 +126,7 @@ class TraceExportRunnerTests(unittest.TestCase):
 
         payload = json.loads(stdout.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertEqual(payload["export_kind"], "terminus_runtime_trace_dataset_preview")
+        self.assertEqual(payload["export_kind"], "marulho_brain_trace_dataset_preview")
         self.assertNotIn("replay_dataset_summary", payload)
 
 

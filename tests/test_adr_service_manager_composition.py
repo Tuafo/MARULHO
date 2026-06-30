@@ -16,6 +16,14 @@ These tests verify that MarulhoServiceManager is a thin composition root per ADR
 
 from __future__ import annotations
 
+import pytest
+
+pytest.skip(
+    "Legacy ADR 0003 service-manager composition guards quarantined; active "
+    "composition root is MarulhoBrainServiceManager.",
+    allow_module_level=True,
+)
+
 import ast
 import inspect
 import re

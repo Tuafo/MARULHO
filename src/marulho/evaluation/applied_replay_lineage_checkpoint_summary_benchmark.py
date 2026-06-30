@@ -3,7 +3,7 @@
 Production checkpoint save/restore must read the mutation-maintained CPU
 summary and must not scan ``synapse_provenance_by_key`` to derive replay
 lineage. The retired full-provenance scan is intentionally absent from this
-benchmark; older broad-scan results live only in reports and retired-path docs.
+benchmark; older broad-scan results live only in historical local reports.
 """
 
 from __future__ import annotations

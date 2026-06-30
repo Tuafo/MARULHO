@@ -1,8 +1,9 @@
-"""MARULHO Service layer -- REST API, Terminus brain loop, and autonomy.
+"""MARULHO Service layer -- REST API adapter and retired Terminus machinery.
 
 Module structure:
-- manager.py: MarulhoServiceManager composition root and lifecycle cleanup
-- runtime_facade.py: Operator-facing runtime interface over the deep modules
+- brain_manager.py: active MarulhoBrain HTTP/UI composition root
+- manager.py: quarantined legacy MarulhoServiceManager composition root
+- runtime_facade.py: legacy operator-facing runtime interface over deep modules
 - runtime_state.py: Shared dirty-state, revision, and brain event container
 - status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cognitive-signal snapshots
 - runtime_evidence.py: Sanitized traces, feedback summaries, and evidence exports
@@ -28,12 +29,12 @@ Module structure:
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources
 - terminus_sensory.py: Real Hugging Face multimodal stream adapters
 - terminus_autonomy.py: Autonomy focus, provider curriculum, and shortlist helpers
-- api.py: FastAPI route definitions
-- schemas.py: Request/response Pydantic models
+- api.py: FastAPI /brain route definitions
+- api_schemas.py: Active checkpoint request/response models for the /brain API adapter
 - server.py: CLI entry point (uvicorn launcher)
 """
 
-from .manager import MarulhoServiceManager
+from .brain_manager import MarulhoBrainServiceManager
 
 
 def create_app(*args, **kwargs):
@@ -41,4 +42,4 @@ def create_app(*args, **kwargs):
     return _create_app(*args, **kwargs)
 
 
-__all__ = ["create_app", "MarulhoServiceManager"]
+__all__ = ["create_app", "MarulhoBrainServiceManager"]

@@ -12,34 +12,51 @@ The project goal is to grow a local, observable cognitive substrate that can:
 
 - encode text, visual, audio, and multimodal observations into sparse runtime evidence;
 - route evidence through competitive columns, context, binding, abstraction, surprise, and memory layers;
-- expose Runtime Truth instead of hiding capability claims behind fluent text;
-- evaluate SNN-native language readout through grounded labels, sparse transition memory, replay, and plasticity gates;
+- expose compact `BrainTrace` telemetry instead of hiding capability claims behind fluent text;
+- generate early SNN-native language readout through local sparse transition state, replay, and plasticity evidence;
 - keep mutation paths checkpoint-backed, operator-reviewable, and rollback-aware.
 
 The current direction intentionally avoids an external LLM or mock "thought loop" as the cognition substrate. External SNN and neuromorphic papers can inform design, but runtime behavior should be owned by MARULHO code, MARULHO checkpoints, and MARULHO evidence ledgers.
+
+## Current Spine
+
+`MarulhoBrain` is the main runtime entry point. The intended hot path is:
+
+```python
+brain = MarulhoBrain.load(checkpoint_path)
+brain.feed(text_or_source)
+trace = brain.tick(tokens=128)
+sample = brain.generate(prompt=None, max_tokens=64)
+brain.replay(window="recent_surprise")
+brain.grow_prune(budget="small")
+brain.save(checkpoint_path)
+```
+
+The service and UI are adapters over that spine. CUDA/Triton/native graph execution stays in `MarulhoTrainer`; checkpoint serialization stays in `marulho.training.checkpointing`; the brain layer owns source buffering, tick orchestration, local readout, replay/growth hooks, compact trace telemetry, and checkpoint metadata continuity.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     Sources["Grounded sources<br/>text, audio, visual, multimodal"] --> Encoders["Sparse encoders"]
-    Encoders --> Subcortex["Subcortex runtime<br/>columns, context, binding, surprise"]
+    Encoders --> Brain["MarulhoBrain<br/>feed, tick, generate, replay"]
+    Brain --> Subcortex["Trainer/Subcortex runtime<br/>columns, context, binding, surprise"]
     Subcortex --> Memory["Concept memory<br/>transition memory<br/>replay records"]
-    Memory --> Gates["Evaluation gates<br/>readout, replay, plasticity, mutation"]
-    Gates --> Truth["Runtime Truth<br/>status and evidence"]
-    Truth --> Surface["Bounded language/status surface"]
-    Gates --> Checkpoints["Checkpoint-backed executors"]
+    Memory --> Trace["BrainTrace<br/>compact status and evidence"]
+    Trace --> Surface["Service/UI adapter<br/>status, feed, tick, generate"]
+    Brain --> Checkpoints["Checkpoint-backed save/restore"]
     Checkpoints --> Memory
 ```
 
-The Python package is `marulho`. The main runtime service is built around `MarulhoServiceManager`, a composition root that wires the runtime modules without a monolithic manager inheritance chain.
+The Python package is `marulho`. `MarulhoBrain` is the runtime spine; `MarulhoBrainServiceManager` is the active service adapter for `/brain/*`. New runtime work should target `src/marulho/brain` first and expose only thin service/UI projections.
 
 Key areas:
 
 - `src/marulho/core`: local SNN mechanisms such as columns, binding, context, topography, plasticity, sparsity, and surprise.
 - `src/marulho/data`: source loaders and encoders for text, semantic features, event camera style input, audio, and multimodal streams.
 - `src/marulho/semantics`: grounded language/readout contracts, cognitive signal surfaces, decoder probes, and concept evidence.
-- `src/marulho/service`: FastAPI service, Runtime Truth, persistence, replay, action ledgers, status projections, and gated executor paths.
+- `src/marulho/service`: thin FastAPI adapter over `MarulhoBrain`; old service-owned route families are retired from the active app.
+- `src/marulho/brain`: the main runtime spine, compact trace, local generation/readout, source buffer, replay/growth hooks, and checkpoint metadata continuity.
 - `src/marulho/training`: bootstrap, developmental, autonomy, consolidation, query, and long-run evaluation runners.
 - `src/marulho/evaluation`: promotion gates, benchmarks, readiness checks, and validation harnesses.
 - `MARULHO_UI`: the control-room UI submodule.
@@ -56,7 +73,7 @@ sequenceDiagram
     participant E as Executor
     participant C as Checkpoint
 
-    O->>R: feed/query/inspect
+    O->>R: feed/generate/inspect
     R->>G: produce evidence artifact
     G-->>O: readiness, hashes, device truth, rollback requirements
     O->>E: confirm bounded application
@@ -75,8 +92,7 @@ Current strengths:
 
 - broad test coverage over runtime gates and service behavior;
 - explicit domain language in `CONTEXT.md`;
-- research anchors in `docs/research-living-brain.md`;
-- ADRs for important architecture boundaries in `docs/adr`;
+- package-local machinery docs in `src/marulho/*/README.md`;
 - local runtime and UI surfaces for inspecting evidence.
 
 Known limitations:
@@ -85,6 +101,16 @@ Known limitations:
 - many language/readout paths are intentionally bounded or read-only;
 - generated reports and checkpoints are local artifacts, not part of the public source tree;
 - CUDA/GPU claims should be treated as valid only when supported by observed runtime evidence.
+
+Current refactor validation note, 2026-06-30: the brain spine compile/test/UI
+checks pass, and the active service loads `MarulhoBrainServiceManager` without
+importing the legacy manager/status/control modules. A short promoted-checkpoint
+stress smoke completed through the CUDA conditional-WHILE backend with zero
+graph/native failures. Two short sequence-input staging smokes failed their
+speedup comparison, but the longer default 64-sequence gate passed with
+`5632.644` sequence tokens/sec versus `4878.951` per-quantum tokens/sec
+(`1.154x`) on the same conditional-WHILE backend with zero graph/native
+failures.
 
 ## Setup
 
@@ -122,16 +148,19 @@ Launch the local FastAPI service with an existing checkpoint:
 python -m marulho.service.server --checkpoint checkpoints/terminus/model.pt --port 8000
 ```
 
+The maintained HTTP contract is `/brain/*` for status, status stream, feed, tick, generate, replay, grow/prune, and checkpoint actions. Legacy root-level and `/terminus/*` route families are retired from the active API.
+
 For a clean public checkout, generate checkpoints locally before launching the service. Runtime checkpoints and validation reports are intentionally ignored by git.
 
 ## Documentation Map
 
 - `CONTEXT.md`: project vocabulary and current domain model.
-- `docs/research-living-brain.md`: research references that inform the architecture.
-- `docs/adr`: architecture decisions and boundaries.
-- `docs/vault`: Obsidian-compatible Markdown knowledge vault with curated maps, concepts, module notes, generated Graphify summaries, and update/validation commands.
-- `TERMINUS_Tutorial.md`: operator workflow notes for the Terminus runtime surface.
+- `src/marulho/README.md`: package-level machinery map.
+- `src/marulho/*/README.md`: local ownership rules, hot-path boundaries, and evidence notes for each machinery folder.
 - `tests`: executable behavior expectations.
+
+The former vault, Graphify outputs, goals folder, ADR docs, research monolith,
+and Terminus tutorial are retired from the maintained documentation surface.
 
 ## Repository Hygiene
 

@@ -1,17 +1,18 @@
 # Domain docs
 
-This repo uses a **single-context** layout.
+This repo uses a **single-context plus package-local machinery docs** layout.
 
 ## Layout
 
 | File | Purpose |
 |------|---------|
 | `CONTEXT.md` | Project domain language, key concepts, and terminology |
-| `docs/adr/` | Architecture Decision Records (ADRs) |
+| `src/marulho/README.md` | Package-level machinery map |
+| `src/marulho/*/README.md` | Local ownership rules and evidence boundaries |
 
 ## Consumer rules
 
 1. **Read `CONTEXT.md` first** — before modifying any domain logic, read this file to learn the project's vocabulary and mental model.
-2. **Read ADRs before changing architecture** — check `docs/adr/` for past decisions that may be relevant. Do not contradict a past ADR without writing a new one that supersedes it.
+2. **Read the nearest package README** — package-local docs carry the machinery-specific ownership rules.
 3. **Update `CONTEXT.md` when terminology evolves** — if a concept is renamed or introduced, update the file so future agents stay aligned.
-4. **Write ADRs for significant decisions** — any non-trivial architectural choice should be recorded as an ADR in `docs/adr/`.
+4. **Update package READMEs when machinery ownership changes** — do not recreate vault, Graphify, goals, or ADR documentation layers.

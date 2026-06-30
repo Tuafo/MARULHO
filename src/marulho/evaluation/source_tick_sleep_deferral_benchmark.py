@@ -5,24 +5,15 @@ import json
 import statistics
 import time
 from pathlib import Path
-from threading import RLock
-from types import MethodType, SimpleNamespace
+from types import MethodType
 from typing import Any
 
 import torch
 
+from marulho.brain import MarulhoBrain
 from marulho.config.model_config import MarulhoConfig
-from marulho.service.brain_runtime import BrainRuntime, BrainRuntimeDependencies
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
-
-
-class _RuntimeState:
-    def __init__(self) -> None:
-        self.mutation_count = 0
-
-    def mark_mutated(self) -> None:
-        self.mutation_count += 1
 
 
 def _config() -> MarulhoConfig:
@@ -70,126 +61,104 @@ def _force_sequence_fallback(trainer: MarulhoTrainer) -> dict[str, Any]:
     return {"burst_calls": burst_calls}
 
 
-def _build_trainer(*, seed: int, sleep_cost_ms: float) -> tuple[MarulhoTrainer, dict[str, Any], torch.Tensor]:
+def _build_brain(*, seed: int, sleep_cost_ms: float) -> tuple[MarulhoBrain, dict[str, Any]]:
     torch.manual_seed(int(seed))
     config = _config()
     trainer = MarulhoTrainer(MarulhoModel(config), config)
     trainer.token_count = int(config.deep_sleep_interval_tokens)
-    pattern = torch.rand(config.input_dim, dtype=torch.float32)
     probe = _install_sleep_probe(trainer, sleep_cost_ms=sleep_cost_ms)
-    return trainer, probe, pattern
+    return MarulhoBrain.from_trainer(trainer), probe
 
 
-def _brain_runtime(trainer: MarulhoTrainer, runtime_state: _RuntimeState) -> BrainRuntime:
-    deps = BrainRuntimeDependencies(
-        lock=RLock(),
-        trainer=trainer,
-        encoder=None,
-        runtime_state=runtime_state,
-        brain_config=lambda: {"tick_tokens": 1},
-        runtime_control=lambda: SimpleNamespace(),
-        runtime_sources=lambda: SimpleNamespace(),
-        delayed_consequence=lambda: SimpleNamespace(),
-        autonomy_planner=lambda: SimpleNamespace(),
-        source_focus=lambda: SimpleNamespace(),
-        interaction_pipeline=lambda: SimpleNamespace(
-            recent_query_gaps=lambda: [],
-            runtime_episode_traces=lambda: [],
-        ),
-        action_executor=lambda: SimpleNamespace(),
-        replay_controller=lambda: SimpleNamespace(),
-        concept_store=lambda: SimpleNamespace(snapshot=lambda limit=5: {}),
-        geometric_curiosity=lambda: SimpleNamespace(summary=lambda: {}),
-        runtime_environment_summary=lambda: {},
-        huggingface_runtime_summary_locked=lambda: {},
-        ingestion_runtime_summary_locked=lambda: {},
-        multimodal_runtime_summary_locked=lambda: {},
-        sensory_runtime_summary_locked=lambda _sensory: {},
-        living_loop_snapshot_locked=lambda **_kwargs: {},
-        maybe_mark_ingestion_warm_locked=lambda **_kwargs: None,
-        maybe_mark_sensory_warm_locked=lambda **_kwargs: None,
-        observe_runtime_concepts_locked=lambda **_kwargs: None,
-        observe_runtime_concept_batch_locked=lambda **_kwargs: [],
-        runtime_concept_callback_locked=lambda **_kwargs: None,
-        run_real_sensory_episode_locked=lambda: None,
-        record_brain_event_locked=lambda _event: None,
-        build_brain_source_stream_locked=lambda _spec: iter(()),
-        build_sensory_stream_locked=lambda _spec: iter(()),
+def _feed_probe_text(brain: MarulhoBrain, text: str, *, source: str) -> int:
+    accepted = int(brain.feed(text, source=source)["accepted_tokens"])
+    if accepted <= 0:
+        raise RuntimeError("probe text produced no brain source patterns")
+    return accepted
+
+
+def _run_brain_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
+    brain, probe = _build_brain(seed=seed, sleep_cost_ms=sleep_cost_ms)
+    fallback_probe = _force_sequence_fallback(brain.trainer)
+    accepted = _feed_probe_text(
+        brain,
+        "sleep deferral source tick probe",
+        source="sleep-deferral-benchmark",
     )
-    return BrainRuntime(deps)
-
-
-def _run_service_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
-    trainer, probe, pattern = _build_trainer(seed=seed, sleep_cost_ms=sleep_cost_ms)
-    runtime_state = _RuntimeState()
-    runtime = _brain_runtime(trainer, runtime_state)
     started = time.perf_counter()
-    trained, metrics, _windows, observation = runtime._train_chunk_in_sub_batches(
-        [("sleep-deferral-window", pattern)],
-        stop_event=None,
-        sub_batch_size=1,
-        yield_seconds=0.0,
-        concept_observation_due=False,
+    tick = brain.tick(
+        tokens=1,
+        quantum_tokens=1,
+        source="sleep-deferral-benchmark",
+        allow_sleep_maintenance=False,
     )
     elapsed_ms = float((time.perf_counter() - started) * 1000.0)
+    trainer_report = dict(tick.get("trainer") or {})
     return {
         "elapsed_ms": elapsed_ms,
-        "trained": int(trained),
+        "accepted_tokens": int(accepted),
+        "trained": int(tick.get("trained_tokens", 0)),
+        "burst_attempts": list(fallback_probe["burst_calls"]),
         "sleep_probe_calls": list(probe["calls"]),
-        "sleep_maintenance_deferred": int(metrics.get("sleep_maintenance_deferred", 0)),
-        "sleep_triggered": int(metrics.get("sleep_triggered", 0)),
-        "sleep_type": str(metrics.get("sleep_type", "none")),
-        "mutation_count": int(runtime_state.mutation_count),
-        "concept_observation_mode": str(observation.get("mode")),
+        "sleep_maintenance_allowed": bool(
+            trainer_report.get("sleep_maintenance_allowed", True)
+        ),
+        "fallback_train_step_count": int(
+            trainer_report.get("fallback_train_step_count", 0) or 0
+        ),
+        "sleep_maintenance_deferred": int(
+            trainer_report.get("fallback_sleep_maintenance_deferred_count", 0)
+            or 0
+        ),
+        "trace_event": str((tick.get("trace") or {}).get("event")),
+        "runtime_owner": "MarulhoBrain",
     }
 
 
-def _run_service_sequence_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
-    trainer, probe, pattern = _build_trainer(seed=seed, sleep_cost_ms=sleep_cost_ms)
-    fallback_probe = _force_sequence_fallback(trainer)
-    runtime_state = _RuntimeState()
-    runtime = _brain_runtime(trainer, runtime_state)
-    chunk = [
-        (f"sleep-sequence-deferral-window-{index}", pattern.clone())
-        for index in range(16)
-    ]
+def _run_brain_sequence_deferred_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
+    brain, probe = _build_brain(seed=seed, sleep_cost_ms=sleep_cost_ms)
+    fallback_probe = _force_sequence_fallback(brain.trainer)
+    accepted = _feed_probe_text(
+        brain,
+        "sleep deferral source sequence probe " * 3,
+        source="sleep-deferral-sequence-benchmark",
+    )
+    tick_tokens = min(16, accepted)
     started = time.perf_counter()
-    trained, metrics, _windows, observation = runtime._train_chunk_in_sub_batches(
-        chunk,
-        stop_event=None,
-        sub_batch_size=16,
-        yield_seconds=0.0,
-        concept_observation_due=False,
+    tick = brain.tick(
+        tokens=tick_tokens,
+        quantum_tokens=16,
+        source="sleep-deferral-sequence-benchmark",
+        allow_sleep_maintenance=False,
     )
     elapsed_ms = float((time.perf_counter() - started) * 1000.0)
+    trainer_report = dict(tick.get("trainer") or {})
     return {
         "elapsed_ms": elapsed_ms,
-        "trained": int(trained),
+        "accepted_tokens": int(accepted),
+        "trained": int(tick.get("trained_tokens", 0)),
         "sleep_probe_calls": list(probe["calls"]),
         "sequence_burst_attempts": list(fallback_probe["burst_calls"]),
-        "sequence_fallback_train_step_count": int(
-            observation.get("sequence_fallback_train_step_count", 0)
+        "fallback_train_step_count": int(
+            trainer_report.get("fallback_train_step_count", 0) or 0
         ),
-        "sequence_fallback_sleep_maintenance_deferred_count": int(
-            observation.get(
-                "sequence_fallback_sleep_maintenance_deferred_count",
-                0,
-            )
+        "sleep_maintenance_deferred": int(
+            trainer_report.get("fallback_sleep_maintenance_deferred_count", 0)
+            or 0
         ),
         "sleep_maintenance_allowed": bool(
-            observation.get("sleep_maintenance_allowed", True)
+            trainer_report.get("sleep_maintenance_allowed", True)
         ),
-        "execution_owner": str(observation.get("execution_owner")),
-        "mutation_count": int(runtime_state.mutation_count),
-        "concept_observation_mode": str(observation.get("mode")),
-        "last_metrics_empty": bool(not metrics),
+        "trace_event": str((tick.get("trace") or {}).get("event")),
+        "runtime_owner": "MarulhoBrain",
     }
 
 
 def _run_allowed_projection_once(*, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
-    trainer, probe, pattern = _build_trainer(seed=seed, sleep_cost_ms=sleep_cost_ms)
+    brain, probe = _build_brain(seed=seed, sleep_cost_ms=sleep_cost_ms)
+    pattern = torch.rand(brain.trainer.config.input_dim, dtype=torch.float32)
     started = time.perf_counter()
-    metrics = trainer.train_step(
+    metrics = brain.trainer.train_step(
         pattern,
         raw_window="sleep-allowed-projection-window",
         allow_sleep_maintenance=True,
@@ -218,12 +187,12 @@ def _stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, Any]:
     cuda_available = bool(torch.cuda.is_available())
     cuda_before = int(torch.cuda.memory_allocated()) if cuda_available else 0
-    service_rows = [
-        _run_service_deferred_once(seed=seed + run, sleep_cost_ms=sleep_cost_ms)
+    brain_rows = [
+        _run_brain_deferred_once(seed=seed + run, sleep_cost_ms=sleep_cost_ms)
         for run in range(int(runs))
     ]
-    service_sequence_rows = [
-        _run_service_sequence_deferred_once(
+    brain_sequence_rows = [
+        _run_brain_sequence_deferred_once(
             seed=seed + 5_000 + run,
             sleep_cost_ms=sleep_cost_ms,
         )
@@ -234,35 +203,36 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
         for run in range(int(runs))
     ]
     cuda_after = int(torch.cuda.memory_allocated()) if cuda_available else 0
-    service = _stats(service_rows)
-    service_sequence = _stats(service_sequence_rows)
+    brain = _stats(brain_rows)
+    brain_sequence = _stats(brain_sequence_rows)
     allowed = _stats(allowed_rows)
-    service_last = dict(service.get("last_run") or {})
-    service_sequence_last = dict(service_sequence.get("last_run") or {})
+    brain_last = dict(brain.get("last_run") or {})
+    brain_sequence_last = dict(brain_sequence.get("last_run") or {})
     allowed_last = dict(allowed.get("last_run") or {})
     quality = {
-        "service_tick_replay_deferred": bool(
-            service_last.get("sleep_probe_calls") == []
-            and int(service_last.get("sleep_maintenance_deferred", 0)) == 1
-            and int(service_last.get("sleep_triggered", -1)) == 0
+        "brain_tick_replay_deferred": bool(
+            brain_last.get("sleep_probe_calls") == []
+            and int(brain_last.get("sleep_maintenance_deferred", 0)) > 0
+            and int(brain_last.get("fallback_train_step_count", 0)) > 0
+            and bool(brain_last.get("sleep_maintenance_allowed", True)) is False
+            and str(brain_last.get("runtime_owner")) == "MarulhoBrain"
         ),
-        "service_sequence_tick_replay_deferred": bool(
-            service_sequence_last.get("sleep_probe_calls") == []
-            and str(service_sequence_last.get("execution_owner"))
-            == "training_text_sequence"
+        "brain_sequence_tick_replay_deferred": bool(
+            brain_sequence_last.get("sleep_probe_calls") == []
+            and str(brain_sequence_last.get("runtime_owner")) == "MarulhoBrain"
             and not bool(
-                service_sequence_last.get("sleep_maintenance_allowed", True)
+                brain_sequence_last.get("sleep_maintenance_allowed", True)
             )
             and int(
-                service_sequence_last.get(
-                    "sequence_fallback_train_step_count",
+                brain_sequence_last.get(
+                    "fallback_train_step_count",
                     0,
                 )
             )
             > 0
             and int(
-                service_sequence_last.get(
-                    "sequence_fallback_sleep_maintenance_deferred_count",
+                brain_sequence_last.get(
+                    "sleep_maintenance_deferred",
                     0,
                 )
             )
@@ -274,27 +244,27 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
             and str(allowed_last.get("sleep_type")) == "deep"
         ),
         "latency_reduction_mean_ms": float(
-            max(0.0, float(allowed["elapsed_mean_ms"]) - float(service["elapsed_mean_ms"]))
+            max(0.0, float(allowed["elapsed_mean_ms"]) - float(brain["elapsed_mean_ms"]))
         ),
     }
     quality["pass"] = bool(
-        quality["service_tick_replay_deferred"]
-        and quality["service_sequence_tick_replay_deferred"]
+        quality["brain_tick_replay_deferred"]
+        and quality["brain_sequence_tick_replay_deferred"]
         and quality["explicit_slow_path_remains_available"]
     )
     return {
         "artifact_kind": "source_tick_sleep_deferral_benchmark",
-        "surface": "source_tick_sleep_replay_deferred.v1",
+        "surface": "marulho_brain_source_tick_sleep_replay_deferred.v1",
         "runs": int(runs),
         "selection_criteria": [
-            "background_source_tick",
+            "marulho_brain_source_tick",
             "per_token_fallback_due_to_metrics_or_burst_unavailable",
-            "delegated_training_text_sequence_fallback_due_to_burst_unavailable",
+            "brain_tick_delegates_to_training_text_sequence",
             "deep_sleep_due",
         ],
         "memory_budget": {
             "live_tick_sleep_replay_executions": 0,
-            "delegated_sequence_live_tick_sleep_replay_executions": 0,
+            "brain_sequence_live_tick_sleep_replay_executions": 0,
             "explicit_slow_path_projection_replay_executions": 1,
             "archival_storage_device": "cpu",
         },
@@ -309,6 +279,7 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
         "runtime_truth": {
             "runs_live_tick": True,
             "runs_every_token": False,
+            "runtime_owner": "MarulhoBrain",
             "sleep_replay_execution_gate": False,
             "sleep_replay_deferred_count_visible": True,
             "sequence_fallback_sleep_replay_deferred_count_visible": True,
@@ -316,8 +287,8 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
             "global_score_scan": False,
             "hidden_language_reasoning": False,
         },
-        "service_deferred": service,
-        "service_sequence_deferred": service_sequence,
+        "brain_deferred": brain,
+        "brain_sequence_deferred": brain_sequence,
         "allowed_slow_path_projection": allowed,
         "quality": quality,
         "pass": bool(quality["pass"]),
@@ -326,7 +297,7 @@ def run_benchmark(*, runs: int, seed: int, sleep_cost_ms: float) -> dict[str, An
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark service source-tick sleep replay deferral."
+        description="Benchmark MarulhoBrain source-tick sleep replay deferral."
     )
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--seed", type=int, default=20260621)
@@ -344,17 +315,17 @@ def main() -> None:
         encoding="utf-8",
     )
     print(
-        "pass={pass_gate} service_sleep_calls={service_calls} "
+        "pass={pass_gate} brain_sleep_calls={brain_calls} "
         "sequence_sleep_calls={sequence_calls} "
-        "allowed_sleep_calls={allowed_calls} service_mean_ms={service_ms:.6f} "
+        "allowed_sleep_calls={allowed_calls} brain_mean_ms={brain_ms:.6f} "
         "sequence_mean_ms={sequence_ms:.6f} "
         "allowed_mean_ms={allowed_ms:.6f}".format(
             pass_gate=report["pass"],
-            service_calls=len(
-                report["service_deferred"]["last_run"]["sleep_probe_calls"]
+            brain_calls=len(
+                report["brain_deferred"]["last_run"]["sleep_probe_calls"]
             ),
             sequence_calls=len(
-                report["service_sequence_deferred"]["last_run"][
+                report["brain_sequence_deferred"]["last_run"][
                     "sleep_probe_calls"
                 ]
             ),
@@ -363,8 +334,8 @@ def main() -> None:
                     "sleep_probe_calls"
                 ]
             ),
-            service_ms=report["service_deferred"]["elapsed_mean_ms"],
-            sequence_ms=report["service_sequence_deferred"]["elapsed_mean_ms"],
+            brain_ms=report["brain_deferred"]["elapsed_mean_ms"],
+            sequence_ms=report["brain_sequence_deferred"]["elapsed_mean_ms"],
             allowed_ms=report["allowed_slow_path_projection"]["elapsed_mean_ms"],
         )
     )

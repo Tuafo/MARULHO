@@ -14,4 +14,4 @@ Single-context layout. See `docs/agents/domain.md`.
 
 ### MARULHO-specific grilling
 
-Use `$marulho-grill-with-docs` when stress-testing or implementing MARULHO plans against `CONTEXT.md`, ADRs, `docs/vault/`, Graphify, Runtime Truth, evidence gates, benchmarks, and retired paths.
+Use `$marulho-grill-with-docs` when stress-testing or implementing MARULHO plans against `CONTEXT.md`, package-local `src/marulho/*/README.md` docs, Runtime Truth, evidence gates, and benchmarks.
