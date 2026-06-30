@@ -318,7 +318,7 @@ The promoted conditional-WHILE sequence executor is fixed for eligible CUDA text
 sequences; repeated-child native8 replay is retained only as internal
 pre-mutation fallback when conditional construction is unavailable.
 `cuda_graph_native_burst_tokens` is fixed at `8` for the maintained
-repeated-child capacity; old checkpoint values are migrated back to `8`.
+repeated-child capacity; current checkpoint loading rejects non-promoted values.
 `cuda_graph_sequence_loop_tokens` is fixed at `16` for the promoted conditional
 sequence capacity. Repeated-child `16`/`32`, conditional-WHILE q8/q32, and the
 old sequence-executor selector are retired historical benchmarks; a separate

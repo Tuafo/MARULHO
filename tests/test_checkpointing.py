@@ -699,133 +699,7 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             )
             self.assertFalse(report["no_mutation_proof"]["mutates_runtime_state"])
 
-    def test_legacy_checkpoint_migrates_retired_slow_memory_archive_cadence(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-                slow_memory_archive_interval_tokens=8,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy.pt", trainer)
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["cuda_graph_host_truth_sync_interval_tokens"] = 8
-            payload["config"]["cuda_graph_native_burst_tokens"] = 16
-            payload["config"]["cuda_graph_sequence_executor"] = "native_repeated_child_graph"
-            payload["config"]["cuda_graph_sequence_loop_tokens"] = 8
-            payload["metadata"].pop("hot_path_config_defaults_revision", None)
-            torch.save(payload, checkpoint)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 256)
-            self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
-            self.assertEqual(restored.config.cuda_graph_sequence_executor, "conditional_while")
-            self.assertEqual(restored.config.cuda_graph_sequence_loop_tokens, 16)
-            self.assertEqual(restored.config.cuda_graph_native_burst_tokens, 8)
-            self.assertEqual(
-                metadata["config_migrations"][-1]["reason"],
-                "retired_host_truth_sync_interval_cadence",
-            )
-            self.assertEqual(
-                [item["reason"] for item in metadata["config_migrations"][-5:]],
-                [
-                    "retired_native_burst_capacity_prototype",
-                    "retired_sequence_loop_capacity_prototype",
-                    "retired_sequence_executor_selector",
-                    "retired_hot_path_memory_archive_cadence",
-                    "retired_host_truth_sync_interval_cadence",
-                ],
-            )
-
-    def test_legacy_checkpoint_migrates_retired_host_truth_interval(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-                cuda_graph_host_truth_sync_interval_tokens=16,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "legacy_truth.pt", trainer)
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["cuda_graph_sequence_executor"] = "native_repeated_child_graph"
-            payload["config"].pop("cuda_graph_sequence_loop_tokens", None)
-            payload["metadata"].pop("hot_path_config_defaults_revision", None)
-            torch.save(payload, checkpoint)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertEqual(restored.config.cuda_graph_host_truth_sync_interval_tokens, 32)
-            self.assertEqual(restored.config.cuda_graph_sequence_executor, "conditional_while")
-            self.assertEqual(
-                [item["reason"] for item in metadata["config_migrations"][-2:]],
-                [
-                    "retired_sequence_executor_selector",
-                    "retired_host_truth_sync_interval_cadence",
-                ],
-            )
-
-    def test_legacy_checkpoint_migrates_retired_predictive_transition_modes(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        for mode in ("compiled", "fused_eager", "legacy"):
-            with self.subTest(mode=mode), TemporaryDirectory() as tmpdir:
-                cfg = MarulhoConfig(
-                    n_columns=8,
-                    column_latent_dim=4,
-                    bootstrap_tokens=0,
-                    memory_capacity=16,
-                )
-                trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-                checkpoint = save_trainer_checkpoint(
-                    Path(tmpdir) / f"{mode}_predictive.pt",
-                    trainer,
-                )
-                payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-                payload["config"]["predictive_dense_transition_mode"] = mode
-                payload["metadata"].pop("hot_path_config_defaults_revision", None)
-                torch.save(payload, checkpoint)
-
-                with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                    restored, metadata = load_trainer_checkpoint(checkpoint)
-
-                self.assertEqual(
-                    restored.config.predictive_dense_transition_mode,
-                    "inplace_triton",
-                )
-                self.assertIn(
-                    {
-                        "field": "predictive_dense_transition_mode",
-                        "from": mode,
-                        "to": "inplace_triton",
-                        "reason": "promoted_inplace_triton_scheduler_boundary",
-                    },
-                    metadata["config_migrations"],
-                )
-
-    def test_revision_stamped_checkpoint_retired_predictive_transition_migrates(self) -> None:
+    def test_checkpoint_loader_rejects_unsupported_config_fields(self) -> None:
         from tempfile import TemporaryDirectory
 
         from marulho.config.model_config import MarulhoConfig
@@ -841,239 +715,50 @@ class CheckpointDevicePlacementTests(unittest.TestCase):
             )
             trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint = save_trainer_checkpoint(
-                Path(tmpdir) / "retired-predictive-transition.pt",
+                Path(tmpdir) / "unsupported-config.pt",
                 trainer,
             )
             payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["predictive_dense_transition_mode"] = "fused_eager"
-            torch.save(payload, checkpoint)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertEqual(
-                restored.config.predictive_dense_transition_mode,
-                "inplace_triton",
-            )
-            self.assertIn(
-                {
-                    "field": "predictive_dense_transition_mode",
-                    "from": "fused_eager",
-                    "to": "inplace_triton",
-                    "reason": "promoted_inplace_triton_scheduler_boundary",
-                },
-                metadata["config_migrations"],
-            )
-
-    def test_legacy_checkpoint_route_vote_default_promotes_cuda_graph_text(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        for old_value in ("missing", "tensor", "fused_triton_text"):
-            with self.subTest(old_value=old_value), TemporaryDirectory() as tmpdir:
-                cfg = MarulhoConfig(
-                    n_columns=8,
-                    column_latent_dim=4,
-                    bootstrap_tokens=0,
-                    memory_capacity=16,
-                )
-                trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-                checkpoint = save_trainer_checkpoint(
-                    Path(tmpdir) / f"{old_value}_route_vote.pt",
-                    trainer,
-                )
-                payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-                if old_value == "missing":
-                    payload["config"].pop("predictive_route_vote_mode", None)
-                else:
-                    payload["config"]["predictive_route_vote_mode"] = old_value
-                payload["metadata"].pop("hot_path_config_defaults_revision", None)
-                torch.save(payload, checkpoint)
-
-                with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                    restored, metadata = load_trainer_checkpoint(checkpoint)
-
-                self.assertEqual(
-                    restored.config.predictive_route_vote_mode,
-                    "cuda_graph_text",
-                )
-                self.assertIn(
-                    {
-                        "field": "predictive_route_vote_mode",
-                        "from": old_value,
-                        "to": "cuda_graph_text",
-                        "reason": (
-                            "missing_route_vote_mode_promoted"
-                            if old_value == "missing"
-                            else "retired_route_vote_mode_selector"
-                        ),
-                    },
-                    metadata["config_migrations"],
-                )
-
-    def test_revision_stamped_checkpoint_retired_route_vote_selector_migrates(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(
-                Path(tmpdir) / "retired-route-vote-selector.pt",
-                trainer,
-            )
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["predictive_route_vote_mode"] = "fused_triton_text"
-            torch.save(payload, checkpoint)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertEqual(
-                restored.config.predictive_route_vote_mode,
-                "cuda_graph_text",
-            )
-            self.assertIn(
-                {
-                    "field": "predictive_route_vote_mode",
-                    "from": "fused_triton_text",
-                    "to": "cuda_graph_text",
-                    "reason": "retired_route_vote_mode_selector",
-                },
-                metadata["config_migrations"],
-            )
-
-    def test_revision_stamped_checkpoint_preserves_explicit_archive_cadence(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-                slow_memory_archive_interval_tokens=64,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(Path(tmpdir) / "current.pt", trainer)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertEqual(restored.config.slow_memory_archive_interval_tokens, 64)
-            self.assertNotIn("config_migrations", metadata)
-
-    def test_checkpoint_loader_drops_retired_shard_merge_switch(self) -> None:
-        from dataclasses import fields
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=8,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                memory_capacity=16,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(
-                Path(tmpdir) / "retired-merge-shards.pt",
-                trainer,
-            )
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            payload["config"]["merge_torch_routing_shards"] = False
             payload["config"]["routing_index_mode"] = "faiss_hnsw"
-            torch.save(payload, checkpoint)
-
-            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
-
-            self.assertNotIn(
-                "merge_torch_routing_shards",
-                {field.name for field in fields(restored.config)},
-            )
-            self.assertNotIn(
-                "routing_index_mode",
-                {field.name for field in fields(restored.config)},
-            )
-            self.assertIn(
-                {
-                    "field": "merge_torch_routing_shards",
-                    "from": False,
-                    "to": "merged_torch_route_cache_required",
-                    "reason": "retired_non_promoted_sharded_route_cache_switch",
-                },
-                metadata["config_migrations"],
-            )
-            self.assertIn(
-                {
-                    "field": "routing_index_mode",
-                    "from": "faiss_hnsw",
-                    "to": "torch_topk_fixed_retrieval_surface",
-                    "reason": "retired_routing_backend_config_surface",
-                },
-                metadata["config_migrations"],
-            )
-
-    def test_checkpoint_loader_drops_retired_route_candidate_bank_size_selector(self) -> None:
-        from dataclasses import fields
-        from tempfile import TemporaryDirectory
-
-        from marulho.config.model_config import MarulhoConfig
-        from marulho.training.model import MarulhoModel
-        from marulho.training.trainer import MarulhoTrainer
-
-        with TemporaryDirectory() as tmpdir:
-            cfg = MarulhoConfig(
-                n_columns=16,
-                column_latent_dim=4,
-                bootstrap_tokens=0,
-                k_routing=4,
-                memory_capacity=16,
-            )
-            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
-            checkpoint = save_trainer_checkpoint(
-                Path(tmpdir) / "retired-route-bank-size.pt",
-                trainer,
-            )
-            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
             payload["config"]["route_candidate_bank_size"] = 8
             torch.save(payload, checkpoint)
 
             with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
-                restored, metadata = load_trainer_checkpoint(checkpoint)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "unsupported fields: route_candidate_bank_size, routing_index_mode",
+                ):
+                    load_trainer_checkpoint(checkpoint)
 
-            self.assertNotIn(
-                "route_candidate_bank_size",
-                {field.name for field in fields(restored.config)},
+    def test_checkpoint_loader_rejects_non_promoted_fixed_values(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
+
+        with TemporaryDirectory() as tmpdir:
+            cfg = MarulhoConfig(
+                n_columns=8,
+                column_latent_dim=4,
+                bootstrap_tokens=0,
+                memory_capacity=16,
             )
-            self.assertIn(
-                {
-                    "field": "route_candidate_bank_size",
-                    "from": 8,
-                    "to": "k_routing_promoted_route_bank",
-                    "reason": "retired_route_candidate_bank_size_selector",
-                },
-                metadata["config_migrations"],
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
+            checkpoint = save_trainer_checkpoint(
+                Path(tmpdir) / "non-promoted-config.pt",
+                trainer,
             )
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            payload["config"]["predictive_route_vote_mode"] = "tensor"
+            torch.save(payload, checkpoint)
+
+            with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}, clear=False):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "predictive_route_vote_mode must be 'cuda_graph_text'",
+                ):
+                    load_trainer_checkpoint(checkpoint)
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
     def test_checkpoint_cuda_graph_capture_happens_after_state_restore(self) -> None:

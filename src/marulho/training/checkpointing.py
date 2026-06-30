@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, fields
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -15,7 +15,6 @@ from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
 
-HOT_PATH_CONFIG_DEFAULTS_REVISION = 2026061606
 PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS = 256
 PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS = 32
 PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS = 8
@@ -23,23 +22,6 @@ PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR = "conditional_while"
 PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = 16
 PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE = "inplace_triton"
 PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE = "cuda_graph_text"
-_RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS = {8, 64}
-_RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS = {8, 16}
-_RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS = {16, 32}
-_RETIRED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS = {8, 32}
-_RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS = {
-    "native_repeated_child_graph",
-    "repeated_child",
-    "native8",
-    "default",
-    "cuda_graph_conditional_while",
-}
-_RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES = {
-    "compiled",
-    "fused_eager",
-    "legacy",
-}
-_RETIRED_PREDICTIVE_ROUTE_VOTE_MODES = {"tensor", "fused_triton_text"}
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -235,10 +217,6 @@ def save_trainer_checkpoint(path: str | Path, trainer: MarulhoTrainer, metadata:
     config_snapshot = asdict(trainer.config)
     config_snapshot.pop("input_dim", None)
     metadata_snapshot = dict(metadata or {})
-    metadata_snapshot.setdefault(
-        "hot_path_config_defaults_revision",
-        HOT_PATH_CONFIG_DEFAULTS_REVISION,
-    )
     payload = {
         "config": config_snapshot,
         "model": _model_snapshot(trainer),
@@ -306,213 +284,39 @@ def _checkpoint_load_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def _migrate_loaded_config_snapshot(
-    config_snapshot: dict[str, Any],
-    metadata: dict[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    migrated = dict(config_snapshot)
-    migrations: list[dict[str, Any]] = []
-    try:
-        revision = int(metadata.get("hot_path_config_defaults_revision", 0) or 0)
-    except (TypeError, ValueError):
-        revision = 0
-    if "merge_torch_routing_shards" in migrated:
-        retired_value = bool(migrated.pop("merge_torch_routing_shards"))
-        migrations.append(
-            {
-                "field": "merge_torch_routing_shards",
-                "from": retired_value,
-                "to": "merged_torch_route_cache_required",
-                "reason": "retired_non_promoted_sharded_route_cache_switch",
-            }
+def _validate_loaded_config_snapshot(config_snapshot: dict[str, Any]) -> dict[str, Any]:
+    validated = dict(config_snapshot)
+    config_fields = {field.name for field in fields(MarulhoConfig) if field.init}
+    unsupported = sorted(set(validated) - config_fields)
+    if unsupported:
+        raise ValueError(
+            "Checkpoint config contains unsupported fields: "
+            + ", ".join(unsupported)
         )
-    if "routing_index_mode" in migrated:
-        retired_value = str(migrated.pop("routing_index_mode"))
-        migrations.append(
-            {
-                "field": "routing_index_mode",
-                "from": retired_value,
-                "to": "torch_topk_fixed_retrieval_surface",
-                "reason": "retired_routing_backend_config_surface",
-            }
-        )
-    if "route_candidate_bank_size" in migrated:
-        retired_value = int(migrated.pop("route_candidate_bank_size") or 0)
-        migrations.append(
-            {
-                "field": "route_candidate_bank_size",
-                "from": retired_value,
-                "to": "k_routing_promoted_route_bank",
-                "reason": "retired_route_candidate_bank_size_selector",
-            }
-        )
-    if "cuda_graph_native_burst_tokens" in migrated:
-        current_native_burst_tokens = int(migrated["cuda_graph_native_burst_tokens"])
-        if (
-            current_native_burst_tokens
-            in _RETIRED_CUDA_GRAPH_NATIVE_BURST_TOKENS
-            or current_native_burst_tokens != PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS
-        ):
-            migrated["cuda_graph_native_burst_tokens"] = (
-                PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS
-            )
-            migrations.append(
-                {
-                    "field": "cuda_graph_native_burst_tokens",
-                    "from": current_native_burst_tokens,
-                    "to": PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS,
-                    "reason": "retired_native_burst_capacity_prototype",
-                }
-            )
-    if "cuda_graph_sequence_loop_tokens" in migrated:
-        current_sequence_loop_tokens = int(
-            migrated["cuda_graph_sequence_loop_tokens"]
-        )
-        if (
-            current_sequence_loop_tokens
-            in _RETIRED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
-            or current_sequence_loop_tokens != PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
-        ):
-            migrated["cuda_graph_sequence_loop_tokens"] = (
-                PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS
-            )
-            migrations.append(
-                {
-                    "field": "cuda_graph_sequence_loop_tokens",
-                    "from": current_sequence_loop_tokens,
-                    "to": PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
-                    "reason": "retired_sequence_loop_capacity_prototype",
-                }
-            )
-    if "cuda_graph_sequence_executor" in migrated:
-        current_sequence_executor = str(migrated["cuda_graph_sequence_executor"])
-        if (
-            current_sequence_executor
-            in _RETIRED_CUDA_GRAPH_SEQUENCE_EXECUTORS
-            or current_sequence_executor != PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
-        ):
-            migrated["cuda_graph_sequence_executor"] = (
-                PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR
-            )
-            migrations.append(
-                {
-                    "field": "cuda_graph_sequence_executor",
-                    "from": current_sequence_executor,
-                    "to": PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
-                    "reason": "retired_sequence_executor_selector",
-                }
-            )
-    current_route_vote_mode = str(
-        migrated.get("predictive_route_vote_mode", "missing")
-    )
-    if (
-        "predictive_route_vote_mode" not in migrated
-        or current_route_vote_mode != PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
-    ):
-        route_vote_reason = (
-            "retired_route_vote_mode_selector"
-            if current_route_vote_mode in _RETIRED_PREDICTIVE_ROUTE_VOTE_MODES
-            else "missing_route_vote_mode_promoted"
-            if current_route_vote_mode == "missing"
-            else "unsupported_route_vote_mode_migrated"
-        )
-        migrated["predictive_route_vote_mode"] = PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE
-        migrations.append(
-            {
-                "field": "predictive_route_vote_mode",
-                "from": current_route_vote_mode,
-                "to": PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE,
-                "reason": route_vote_reason,
-            }
-        )
-    current_predictive_transition = str(
-        migrated.get("predictive_dense_transition_mode", "missing")
-    )
-    if (
-        "predictive_dense_transition_mode" not in migrated
-        or current_predictive_transition != PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE
-    ):
-        predictive_transition_reason = (
-            "promoted_inplace_triton_scheduler_boundary"
-            if current_predictive_transition in _RETIRED_PREDICTIVE_DENSE_TRANSITION_MODES
-            else "missing_predictive_dense_transition_promoted"
-            if current_predictive_transition == "missing"
-            else "unsupported_predictive_dense_transition_migrated"
-        )
-        migrated["predictive_dense_transition_mode"] = (
-            PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE
-        )
-        migrations.append(
-            {
-                "field": "predictive_dense_transition_mode",
-                "from": current_predictive_transition,
-                "to": PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
-                "reason": predictive_transition_reason,
-            }
-        )
-    if revision >= HOT_PATH_CONFIG_DEFAULTS_REVISION:
-        return migrated, migrations
 
-    current_interval = int(
-        migrated.get(
-            "slow_memory_archive_interval_tokens",
-            PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS,
-        )
-    )
-    if current_interval in _RETIRED_SLOW_MEMORY_ARCHIVE_INTERVALS:
-        migrated["slow_memory_archive_interval_tokens"] = (
-            PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS
-        )
-        migrations.append(
-            {
-                "field": "slow_memory_archive_interval_tokens",
-                "from": current_interval,
-                "to": PROMOTED_SLOW_MEMORY_ARCHIVE_INTERVAL_TOKENS,
-                "reason": "retired_hot_path_memory_archive_cadence",
-            }
-        )
-    current_truth_interval = int(
-        migrated.get(
-            "cuda_graph_host_truth_sync_interval_tokens",
-            PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS,
-        )
-    )
-    if current_truth_interval in _RETIRED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVALS:
-        migrated["cuda_graph_host_truth_sync_interval_tokens"] = (
-            PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS
-        )
-        migrations.append(
-            {
-                "field": "cuda_graph_host_truth_sync_interval_tokens",
-                "from": current_truth_interval,
-                "to": PROMOTED_CUDA_GRAPH_HOST_TRUTH_SYNC_INTERVAL_TOKENS,
-                "reason": "retired_host_truth_sync_interval_cadence",
-            }
-        )
-    migrated.setdefault(
-        "cuda_graph_sequence_executor",
-        PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
-    )
-    migrated.setdefault(
-        "cuda_graph_sequence_loop_tokens",
-        PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
-    )
-    return migrated, migrations
+    fixed_values = {
+        "cuda_graph_native_burst_tokens": PROMOTED_CUDA_GRAPH_NATIVE_BURST_TOKENS,
+        "cuda_graph_sequence_executor": PROMOTED_CUDA_GRAPH_SEQUENCE_EXECUTOR,
+        "cuda_graph_sequence_loop_tokens": PROMOTED_CUDA_GRAPH_SEQUENCE_LOOP_TOKENS,
+        "predictive_dense_transition_mode": PROMOTED_PREDICTIVE_DENSE_TRANSITION_MODE,
+        "predictive_route_vote_mode": PROMOTED_PREDICTIVE_ROUTE_VOTE_MODE,
+    }
+    for key, expected in fixed_values.items():
+        if key not in validated:
+            continue
+        value = validated[key]
+        if value != expected:
+            raise ValueError(
+                f"Checkpoint config {key} must be {expected!r}; got {value!r}"
+            )
+    return validated
 
 
 def load_trainer_checkpoint(path: str | Path) -> tuple[MarulhoTrainer, dict[str, Any]]:
     checkpoint_path = Path(path)
     payload = torch.load(checkpoint_path, map_location=_checkpoint_load_device())
     metadata = dict(payload.get("metadata", {}))
-    config_snapshot, config_migrations = _migrate_loaded_config_snapshot(
-        dict(payload["config"]),
-        metadata,
-    )
-    if config_migrations:
-        metadata["config_migrations"] = [
-            *list(metadata.get("config_migrations") or []),
-            *config_migrations,
-        ]
+    config_snapshot = _validate_loaded_config_snapshot(dict(payload["config"]))
     cfg = MarulhoConfig(**config_snapshot)
     requested_route_vote_mode = cfg.predictive_route_vote_mode
     defer_cuda_graph_capture = requested_route_vote_mode == "cuda_graph_text"

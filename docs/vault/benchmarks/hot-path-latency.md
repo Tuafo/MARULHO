@@ -1160,7 +1160,7 @@ Same-checkpoint CUDA evidence cloned `reports/host_truth_interval_16_20260613/ru
 
 The longer 4096-token continuous stress surface showed the old checkpoint still carried the retired interval-8 value, which made the current main path slower than the documented production cadence. `reports/continuous_runtime_stress_20260614/stress-4096-cadence-profile-current.json` processed 4096 full-warm tokens at `668.976 tokens/sec` with active `inplace_triton`, 4096 graph replays, and zero graph failures. Cloned config-only comparisons measured interval-64 at `742.767 tokens/sec` and interval-256 at `832.915 tokens/sec`, with the same full-warm source shape, 32 retained tick events, CUDA selected on RTX 3060, and zero graph failures. Interval-512 reached `873.997 tokens/sec`, but it halves replay archival density again, so it remains unpromoted until replay/consolidation quality evidence supports it.
 
-The implementation now migrates unstamped legacy checkpoints carrying retired interval values `8` or `64` to interval `256` on load and records the migration in checkpoint metadata. The same original checkpoint, without editing the `.pt` file, then reported interval-256 execution and migration evidence in `reports/continuous_runtime_stress_20260614/stress-32768-checkpoint-migrated-memory-256-clean-complete-final.json`: `1779.859 tokens/sec`, 32768 graph replays, 32768 fused reconstruction updates, zero graph failures, all 256 tick events captured, no measurement polling, `slow_memory_archive_interval_tokens=256`, and migration metadata from `8` to `256`. Shorter same-checkpoint runs were noisy (`4096` tokens at `886.115`, `518.713`, and `701.090`; `8192` tokens at `1279.174`), so the durable claim is that the clean longer full-warm path now crosses 1k tokens/sec while the next target remains repeated long-run stability and further reduction of `train_compute`/`trainer_step`.
+The historical implementation temporarily migrated unstamped checkpoints carrying interval values `8` or `64` to interval `256` on load. That migration path is now deleted; current checkpoints must already use current config fields and promoted fixed values, and loader validation rejects unsupported keys or non-promoted executor/route selectors. The historical migrated run `reports/continuous_runtime_stress_20260614/stress-32768-checkpoint-migrated-memory-256-clean-complete-final.json` remains evidence for why interval `256` became the maintained cadence: `1779.859 tokens/sec`, 32768 graph replays, 32768 fused reconstruction updates, zero graph failures, all 256 tick events captured, no measurement polling, and `slow_memory_archive_interval_tokens=256`. Shorter same-checkpoint runs were noisy (`4096` tokens at `886.115`, `518.713`, and `701.090`; `8192` tokens at `1279.174`), so the durable claim is that the clean longer full-warm path crossed 1k tokens/sec while the next target remains repeated long-run stability and further reduction of `train_compute`/`trainer_step`.
 
 The continuous stress benchmark now enlarges its local runtime event-history ring for long runs instead of polling Runtime Truth snapshots during the measured window. The contaminated 32768-token run with 652 measurement polls fell to `739.383 tokens/sec` and showed `train_lock_wait=0.4516 ms/token`; the clean rerun with `poll_snapshot_count=0` reached `1779.859 tokens/sec` and `train_lock_wait=0.000745 ms/token`. This is an evidence-tool correction, not a production runtime change.
 
@@ -1597,8 +1597,8 @@ clean `velocity_environment.v1=not_observed` long run; the contended profile
 pair is only diagnostic.
 
 The 2026-06-16 cleanup removed this repeated-child capacity as a live option:
-`cuda_graph_native_burst_tokens` is fixed at `8`, checkpoint load migrates old
-`16`/`32` values to `8`, and the stress benchmark no longer accepts native burst
+`cuda_graph_native_burst_tokens` is fixed at `8`, checkpoint load now rejects
+non-promoted values, and the stress benchmark no longer accepts native burst
 capacity overrides. Native16 remains historical rejection evidence only.
 
 The profile pair at
@@ -2010,8 +2010,8 @@ and `bounded_route_scoring=false`.
 The routing backend selector cleanup then removed the last retrieval-local
 backend constructor argument and the private benchmark compatibility branch that
 checked `_uses_merged_torch_search`. The follow-up removed `routing_index_mode`
-from live config entirely; checkpoint load now drops old keys with
-`retired_routing_backend_config_surface` migration evidence, and benchmark
+from live config entirely; checkpoint load now rejects old keys instead of
+preserving migration support, and benchmark
 helpers consume the public `routing_tensor_cache()` surface. This did not change
 the promoted route-bank algorithm. The matching 8192-column 131072-token stress
 report at
@@ -2028,8 +2028,8 @@ reached `6126.128 tokens/sec`, `train_compute=0.129371 ms/token`,
 `prepare_training=0.006485 ms/token`, `finalize_total=0.005973 ms/token`, and
 `tick_duration_ms.p95=21.830` with the same `10/8192` route rows, `10` active
 state-transition columns, `8182` cached columns, zero graph/sequence/native
-failures, and checkpoint migrations for both `merge_torch_routing_shards` and
-`routing_index_mode`.
+failures. Current checkpoint loading now rejects removed routing config fields
+instead of keeping migration support.
 
 The route-scoring truth cleanup adds `route_vote_scoring` to the training-owned
 transition report and projects it through Runtime Truth without changing the
@@ -2451,8 +2451,8 @@ and no observed contention.
 The predictive dense-transition selector cleanup removed `fused_eager` as a
 production config value while keeping dense eager tensor semantics as the
 explicit internal fallback when the promoted in-place runtime cannot start.
-Focused tests now reject `fused_eager` in new config and migrate old
-revision-stamped checkpoints to `inplace_triton`. The longer real-path check at
+Focused tests now reject non-promoted dense-transition config values instead of
+accepting old selector checkpoints. The longer real-path check at
 `reports/column_scheduler_20260616/predictive-dense-mode-selector-cleanup-8192-131072-i32.json`
 processed `131072` tokens at `6174.224 tokens/sec`,
 `train_compute=0.131907 ms/token`, `prepare_training=0.006647 ms/token`,
@@ -2499,8 +2499,7 @@ a new route-quality claim.
 The route-bank size selector cleanup removed `route_candidate_bank_size` from
 production config so the promoted runtime has one live bank-capacity path:
 `ColumnTransitionRuntime` derives the route bank from `k_routing`, old
-checkpoints drop the retired key with `retired_route_candidate_bank_size_selector`
-migration evidence, and wider-bank work remains explicit evaluation-only
+checkpoints are rejected if they still carry the removed selector, and wider-bank work remains explicit evaluation-only
 input. The longer real-path check at
 `reports/column_scheduler_20260616/route-bank-size-selector-removal-8192-131072-i32.json`
 processed `131072` tokens at `6281.314 tokens/sec`,
@@ -2509,8 +2508,8 @@ processed `131072` tokens at `6281.314 tokens/sec`,
 `route_input_rows_scored=12/8192`, `route_output_candidate_count=10`,
 `state_transition_cached_count=8182`,
 `state_transition_runs_all_columns=false`, zero graph/native/sequence failures,
-no observed contention, and checkpoint migration evidence for the retired
-selector. This is one-path cleanup evidence, not a new quality or throughput
+no observed contention. Historical checkpoint compatibility support for the retired
+selector is now deleted; this remains one-path cleanup evidence, not a new quality or throughput
 claim.
 
 The promoted scheduler checkpoint builder makes larger-column scale gates

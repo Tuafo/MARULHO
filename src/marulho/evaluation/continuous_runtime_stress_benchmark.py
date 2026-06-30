@@ -715,14 +715,6 @@ def run_continuous_runtime_stress(
                         manager._trainer.config.cuda_graph_sequence_loop_tokens
                     ),
                 },
-                "checkpoint_metadata": {
-                    "config_migrations": list(
-                        manager._metadata.get("config_migrations") or []
-                    ),
-                    "hot_path_config_defaults_revision": manager._metadata.get(
-                        "hot_path_config_defaults_revision"
-                    ),
-                },
                 "timeout_seconds": float(timeout_seconds),
                 "warm_ingestion": warm_ingestion,
                 "velocity_environment": velocity_environment,
@@ -863,14 +855,6 @@ def run_continuous_runtime_stress(
                 ),
                 "cuda_graph_sequence_loop_tokens": int(
                     manager._trainer.config.cuda_graph_sequence_loop_tokens
-                ),
-            },
-            "checkpoint_metadata": {
-                "config_migrations": list(
-                    manager._metadata.get("config_migrations") or []
-                ),
-                "hot_path_config_defaults_revision": manager._metadata.get(
-                    "hot_path_config_defaults_revision"
                 ),
             },
             "timeout_seconds": float(timeout_seconds),
