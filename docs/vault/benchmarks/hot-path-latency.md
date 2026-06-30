@@ -544,6 +544,13 @@ reported `56 passed`, and
 `python -m pytest tests\test_column_runtime.py tests\test_adr_runtime_state_ownership.py tests\test_column_scheduler_benchmark.py -q`
 reported `17 passed`.
 
+The active `column_scheduler_benchmark` report is now maintained-only:
+`column_scheduler_benchmark.v2` no longer executes the old forced all-column
+comparator arm or emits `all_column_vote`, winner-parity, delta-percent, or
+neutral-or-better fields. Historical A/B reports remain documentation evidence;
+repo-local executable benchmark code now reports bounded scoped scheduler work
+directly.
+
 The CPU A/B at
 `reports/column_scheduler_20260615/cpu-8192-age-gate-single-materialization-completed-cache.json`
 preserved exact winners and kept scoped predictive vote, predictive update,

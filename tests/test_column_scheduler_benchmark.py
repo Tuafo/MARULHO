@@ -15,11 +15,14 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
     )
 
     scoped = report["scoped_cached_vote"]
-    all_vote = report["all_column_vote"]
 
-    assert report["surface"] == "column_scheduler_benchmark.v1"
-    assert report["scope"] == "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_ab"
-    assert report["winner_sequence_equal"] is True
+    assert report["surface"] == "column_scheduler_benchmark.v2"
+    assert report["scope"] == "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_maintained_only"
+    assert "all_column_vote" not in report
+    assert "winner_sequence_equal" not in report
+    assert "median_delta_percent" not in report
+    assert "mean_delta_percent" not in report
+    assert "neutral_or_better_complete_tick" not in report
     assert report["awake_count_bounded"] is True
     assert report["column_wake_plan_bounded"] is True
     assert report["predictive_vote_bounded"] is True
@@ -64,12 +67,6 @@ def test_column_scheduler_benchmark_reports_bounded_predictive_vote() -> None:
         "retrieved_candidate_before_deep_sleep_age_gate"
     )
     assert scoped["runs_all_columns"] is False
-    assert all_vote["predictive_vote_updated_columns"] == 16
-    assert all_vote["predictive_vote_runs_all_columns"] is True
-    assert all_vote["predictive_update_updated_columns"] == 16
-    assert all_vote["predictive_update_runs_all_columns"] is True
-    assert all_vote["predictive_location_runs_all_columns"] is True
-    assert all_vote["runs_all_columns"] is True
 
 
 def test_column_scheduler_benchmark_can_queue_reviewed_structural_tickets() -> None:
@@ -128,8 +125,11 @@ def test_column_scheduler_scaling_benchmark_keeps_awake_work_constant() -> None:
     assert report["column_counts"] == [16, 32]
     assert report["awake_count_remains_bounded"] is True
     assert report["scoped_never_runs_all_columns"] is True
+    assert "all_winner_sequences_equal" not in report
+    assert "neutral_or_better_all_sizes" not in report
     assert len(report["runs"]) == 2
-    assert all("winner_sequence_equal" in row for row in report["runs"])
+    assert not any("winner_sequence_equal" in row for row in report["runs"])
+    assert not any("neutral_or_better_complete_tick" in row for row in report["runs"])
     assert {row["candidate_sleep_filter_output_candidates"] for row in report["runs"]} == {4}
     assert {row["candidate_sleep_filter_memory_pressure_filtered"] for row in report["runs"]} == {0}
     assert {row["candidate_sleep_filter_low_usefulness_filtered"] for row in report["runs"]} == {0}

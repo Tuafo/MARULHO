@@ -1287,7 +1287,7 @@ _Avoid_: action behavior in `ActionRuntimeMixin`, standalone action-assist mixin
 - **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history. Uses an explicit dependency object instead of owner-forwarded manager fields.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
-- **Replay Controller** — bounded SNN replay artifact, regeneration permit, sleep-plasticity review ticket, scheduler ticket, and transition-memory replay-artifact owner. It no longer owns service replay-plan/sample/dataset packaging surfaces.
+- **Replay Controller** — bounded SNN replay artifact, regeneration permit, sleep-plasticity review ticket, scheduler ticket, and transition-memory replay-artifact owner. It marks controller-local writes as dirty-without-revision through Runtime State while preserving the shared `state_revision` counter as the durable command/checkpoint boundary. It no longer owns service replay-plan/sample/dataset packaging surfaces.
 
 **Autonomy Ladder** — levels 0–5 of measured autonomy: observe → propose → execute approved → recurring constrained → evaluated policy → bounded self-improvement.
 

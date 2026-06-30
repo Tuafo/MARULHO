@@ -176,7 +176,6 @@ def _run_arm(
     cfg: MarulhoConfig,
     patterns: list[torch.Tensor],
     raw_prefix: str,
-    force_all_column_vote: bool,
     force_structural_review_evidence: bool,
     seed: int,
     warmup_steps: int,
@@ -184,18 +183,6 @@ def _run_arm(
     torch.manual_seed(int(seed))
     trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
     trainer.memory_warm_started = False
-
-    if force_all_column_vote:
-        original_vote = trainer.model.predictive.vote
-
-        def all_column_vote(
-            winners: list[int],
-            top_k_activations: torch.Tensor,
-            candidate_indices: torch.Tensor | None = None,
-        ) -> torch.Tensor:
-            return original_vote(winners, top_k_activations, candidate_indices=None)
-
-        trainer.model.predictive.vote = all_column_vote  # type: ignore[method-assign]
 
     if cfg.resolve_device().type == "cuda":
         torch.cuda.synchronize()
@@ -247,7 +234,7 @@ def _run_arm(
     elapsed_ms = sum(timings)
     samples = len(timings)
     return SchedulerBenchmarkArm(
-        mode="legacy_all_column_vote" if force_all_column_vote else "scoped_cached_vote",
+        mode="scoped_cached_vote",
         samples=samples,
         median_ms=statistics.median(timings),
         p95_ms=_percentile(timings, 0.95),
@@ -455,15 +442,6 @@ def run_benchmark(
     if k_routing <= 0 or k_routing > n_columns:
         raise ValueError("k_routing must be in [1, n_columns]")
 
-    all_column_cfg = _make_config(
-        n_columns=n_columns,
-        column_latent_dim=column_latent_dim,
-        k_routing=k_routing,
-        device=device,
-        candidate_homeostasis_start_tokens=max(samples + warmup_steps + 1, 10**9),
-        candidate_predictive_update_start_tokens=max(samples + warmup_steps + 1, 10**9),
-        candidate_deep_sleep_filter_start_tokens=max(samples + warmup_steps + 1, 10**9),
-    )
     scoped_cfg = _make_config(
         n_columns=n_columns,
         column_latent_dim=column_latent_dim,
@@ -483,33 +461,17 @@ def run_benchmark(
         for _ in range(samples + warmup_steps)
     ]
 
-    all_vote = _run_arm(
-        cfg=all_column_cfg,
-        patterns=patterns,
-        raw_prefix="all-column vote and prediction update",
-        force_all_column_vote=True,
-        force_structural_review_evidence=bool(force_structural_review_evidence),
-        seed=seed,
-        warmup_steps=warmup_steps,
-    )
     scoped = _run_arm(
         cfg=scoped_cfg,
         patterns=patterns,
         raw_prefix="scoped cached vote and prediction update",
-        force_all_column_vote=False,
         force_structural_review_evidence=bool(force_structural_review_evidence),
         seed=seed,
         warmup_steps=warmup_steps,
     )
-    median_delta_percent = (
-        (all_vote.median_ms - scoped.median_ms) / max(all_vote.median_ms, 1e-9)
-    ) * 100.0
-    mean_delta_percent = (
-        (all_vote.mean_ms - scoped.mean_ms) / max(all_vote.mean_ms, 1e-9)
-    ) * 100.0
     return {
-        "surface": "column_scheduler_benchmark.v1",
-        "scope": "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_ab",
+        "surface": "column_scheduler_benchmark.v2",
+        "scope": "complete_train_step_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_awake_mask_maintained_only",
         "torch": torch.__version__,
         "device": str(resolved_device),
         "cuda_device_name": (
@@ -529,9 +491,7 @@ def run_benchmark(
             if force_structural_review_evidence
             else None
         ),
-        "all_column_vote": asdict(all_vote),
         "scoped_cached_vote": asdict(scoped),
-        "winner_sequence_equal": all_vote.winner_ids == scoped.winner_ids,
         "awake_count_bounded": scoped.awake_count <= int(k_routing),
         "column_wake_plan_bounded": bool(
             scoped.column_wake_plan_bounded
@@ -578,11 +538,8 @@ def run_benchmark(
             and not scoped.runs_all_columns
         ),
         "scoped_runs_all_columns": bool(scoped.runs_all_columns),
-        "median_delta_percent": median_delta_percent,
-        "mean_delta_percent": mean_delta_percent,
-        "neutral_or_better_complete_tick": scoped.mean_ms <= all_vote.mean_ms * 1.02,
         "claim_boundary": (
-            "complete_train_step_ab_for_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_not_service_runtime_or_structural_mutation_claim"
+            "complete_train_step_maintained_only_for_candidate_deep_sleep_pressure_usefulness_filter_predictive_update_vote_and_structural_review_queue_not_service_runtime_or_structural_mutation_claim"
         ),
     }
 
@@ -614,7 +571,6 @@ def run_scaling_benchmark(
     scoped_rows = [
         {
             "n_columns": int(report["n_columns"]),
-            "winner_sequence_equal": bool(report["winner_sequence_equal"]),
             "awake_budget": int(report["k_routing"]),
             "scoped_runs_all_columns": bool(report["scoped_runs_all_columns"]),
             "predictive_update_updated_columns": int(
@@ -697,9 +653,6 @@ def run_scaling_benchmark(
             "tokens_per_second": float(
                 report["scoped_cached_vote"]["tokens_per_second"]
             ),
-            "neutral_or_better_complete_tick": bool(
-                report["neutral_or_better_complete_tick"]
-            ),
         }
         for report in reports
     ]
@@ -721,9 +674,6 @@ def run_scaling_benchmark(
         ),
         "seed": int(seed),
         "runs": scoped_rows,
-        "all_winner_sequences_equal": all(
-            bool(report["winner_sequence_equal"]) for report in reports
-        ),
         "awake_count_remains_bounded": all(
             int(row["predictive_update_updated_columns"]) <= int(k_routing)
             and int(row["predictive_vote_updated_columns"]) <= int(k_routing)
@@ -738,9 +688,6 @@ def run_scaling_benchmark(
         ),
         "scoped_never_runs_all_columns": all(
             not bool(row["scoped_runs_all_columns"]) for row in scoped_rows
-        ),
-        "neutral_or_better_all_sizes": all(
-            bool(row["neutral_or_better_complete_tick"]) for row in scoped_rows
         ),
         "claim_boundary": (
             "scaling_sweep_for_constant_k_scheduler_and_structural_review_queue_evidence_not_structural_mutation_or_cuda_claim"
