@@ -16430,7 +16430,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 self.assertIn("description", preset)
                 self.assertIn("source_count", preset)
                 self.assertIn("default", preset)
-                self.assertIn("legacy", preset)
+                self.assertNotIn("legacy", preset)
 
     def test_quick_start_configures_and_starts_terminus(self) -> None:
         """POST /terminus/quick-start uses the recommended curriculum preset by default."""

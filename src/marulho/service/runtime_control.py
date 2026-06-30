@@ -272,11 +272,10 @@ class RuntimeControl(RuntimePrewarmer):
                 "description": val["description"],
                 "source_count": len(val["source_bank"]),
                 "default": bool(val.get("default", False)),
-                "legacy": bool(val.get("legacy", False)),
             }
             for key, val in TERMINUS_QUICK_START_PRESETS.items()
         ]
-        presets.sort(key=lambda item: (not item["default"], item["legacy"], item["label"]))
+        presets.sort(key=lambda item: (not item["default"], item["label"]))
         return presets
 
     def terminus_tick(self, *, steps: int = 1) -> dict[str, Any]:

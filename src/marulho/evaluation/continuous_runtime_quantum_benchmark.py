@@ -1,4 +1,4 @@
-"""A/B the continuous Terminus execution quantum on one checkpoint."""
+"""A/B maintained continuous Terminus execution quanta on one checkpoint."""
 
 from __future__ import annotations
 
@@ -163,12 +163,10 @@ def run_continuous_runtime_quantum_ab(
         raise ValueError("candidate_quantum_tokens must be positive")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     arm_specs = (
-        ("legacy_a", 1, 0.005),
         ("baseline_quantum_a", int(baseline_quantum_tokens), 0.0),
         ("candidate_quantum_a", int(candidate_quantum_tokens), 0.0),
         ("candidate_quantum_b", int(candidate_quantum_tokens), 0.0),
         ("baseline_quantum_b", int(baseline_quantum_tokens), 0.0),
-        ("legacy_b", 1, 0.005),
     )
     arms: list[dict[str, Any]] = []
     for name, quantum_tokens, yield_seconds in arm_specs:
@@ -186,11 +184,6 @@ def run_continuous_runtime_quantum_ab(
         arm["name"] = name
         arms.append(arm)
 
-    legacy_values = [
-        float(arm["tokens_per_second"])
-        for arm in arms
-        if str(arm["name"]).startswith("legacy") and arm.get("success")
-    ]
     baseline_quantum_values = [
         float(arm["tokens_per_second"])
         for arm in arms
@@ -201,9 +194,6 @@ def run_continuous_runtime_quantum_ab(
         for arm in arms
         if str(arm["name"]).startswith("candidate_quantum") and arm.get("success")
     ]
-    legacy_mean = (
-        float(statistics.fmean(legacy_values)) if legacy_values else 0.0
-    )
     baseline_quantum_mean = (
         float(statistics.fmean(baseline_quantum_values))
         if baseline_quantum_values
@@ -215,7 +205,7 @@ def run_continuous_runtime_quantum_ab(
         else 0.0
     )
     report = {
-        "surface": "continuous_runtime_quantum_ab.v1",
+        "surface": "continuous_runtime_quantum_ab.v2",
         "checkpoint": str(checkpoint),
         "scope": (
             "background_terminus_loop_with_prewarmed_local_source_and_"
@@ -230,24 +220,14 @@ def run_continuous_runtime_quantum_ab(
         "baseline_quantum_tokens": int(baseline_quantum_tokens),
         "candidate_quantum_tokens": int(candidate_quantum_tokens),
         "arms": arms,
-        "legacy_mean_tokens_per_second": legacy_mean,
         "baseline_quantum_mean_tokens_per_second": baseline_quantum_mean,
         "candidate_quantum_mean_tokens_per_second": candidate_quantum_mean,
-        "legacy_to_candidate_speedup": (
-            candidate_quantum_mean / max(legacy_mean, 1e-9)
-        ),
         "candidate_over_baseline_quantum_speedup": (
             candidate_quantum_mean / max(baseline_quantum_mean, 1e-9)
         ),
-        # Backward-compatible summary keys keep old report consumers pointed at
-        # the candidate quantum arm while the explicit fields separate claims.
-        "quantum_mean_tokens_per_second": candidate_quantum_mean,
-        "speedup": candidate_quantum_mean / max(legacy_mean, 1e-9),
         "success": bool(
-            len(legacy_values) == 2
-            and len(baseline_quantum_values) == 2
+            len(baseline_quantum_values) == 2
             and len(candidate_quantum_values) == 2
-            and candidate_quantum_mean > legacy_mean
             and candidate_quantum_mean >= baseline_quantum_mean
         ),
     }
