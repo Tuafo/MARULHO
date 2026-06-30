@@ -3,7 +3,6 @@ type: retired-path
 status: retired
 related_code:
   - ../../../src/marulho/training/trainer.py
-  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
 related_docs:
   - ../../retired-paths.md
@@ -54,6 +53,10 @@ writes, defers `16` cadence hits, averages `1326.868180 ms`, and uses
 records with `16` selected strong archives, skips `239` refractory writes,
 projects `239` removed every-strong writes, averages `1335.328410 ms`, and
 uses `0.0 MiB` CUDA allocation/reservation.
+
+On 2026-06-30, the executable fixed-cadence retirement benchmark was deleted
+from `src/marulho/evaluation`; the JSON reports above are historical evidence,
+not runnable legacy code.
 
 The accepted `524288`-token protection rerun stayed in the maintained band at
 `6043.321 tokens/sec`, with bounded `12/65536` route rows, `65526` cached

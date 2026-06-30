@@ -18,7 +18,6 @@ related_code:
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
-  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/service/snn_language_readout_ledger.py

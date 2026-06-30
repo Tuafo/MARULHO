@@ -38,10 +38,10 @@ tools no longer import replay approval code.
 
 ## Evidence
 
-`tests/test_replay_adapter_stack_retired.py` asserts the adapter/approval/plan
-modules are no longer importable, the service report allowlist no longer exposes
-the adapter report kinds, and `artifact_io` preserves JSON object loading and
-canonical SHA-256 hashing for active evaluation utilities.
+Historical reports record the adapter stack deletion and service report-kind
+removal. Current repo tests keep only active `artifact_io` JSON object loading
+and canonical SHA-256 hashing coverage for evaluation utilities; no
+retirement-only adapter absence test remains.
 
 ## Revisit Condition
 

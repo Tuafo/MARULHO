@@ -4,7 +4,6 @@ status: active
 related_code:
   - ../../../src/marulho/evaluation/snn_emission_review_replay_policy_source_window_benchmark.py
   - ../../../src/marulho/evaluation/status_replay_path_source_window_benchmark.py
-  - ../../../tests/test_replay_window_benchmark_retirement.py
 related_docs:
   - ../../retired-paths.md
   - ../benchmarks/replay-cost.md
@@ -33,8 +32,8 @@ Active benchmark reports assert the maintained bounded source-window paths:
   seeded latest-hash quality, and
   `retired_full_retained_status_projection_absence`.
 
-The focused guard test scans for deleted helper names and old report fields so
-these comparators cannot return as hidden side paths.
+The full-retained comparators remain documented as retired history only; no
+repo-local retirement-only guard test remains.
 
 ## Evidence
 

@@ -23,7 +23,6 @@ related_code:
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
-  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
@@ -32,7 +31,6 @@ related_code:
   - ../../../src/marulho/evaluation/status_transition_memory_source_window_benchmark.py
   - ../../../src/marulho/evaluation/plasticity_runtime_state_source_window_benchmark.py
   - ../../../src/marulho/evaluation/applied_replay_lineage_checkpoint_summary_benchmark.py
-  - ../../../src/marulho/evaluation/query_recent_fallback_retirement_benchmark.py
   - ../../../src/marulho/service/status_read_model.py
   - ../../../src/marulho/service/transition_memory_source_window.py
 related_docs:
@@ -1456,8 +1454,8 @@ did not mutate the runtime, but it made replay adaptation look service-visible:
 `REPORT_SUMMARY_KINDS` exposed adapter report kinds and the plan included a
 stale executable-looking adapter command. MARULHO now deletes those modules and
 old tests, moves generic JSON/hash helpers to `marulho.evaluation.artifact_io`,
-and adds `tests/test_replay_adapter_stack_retired.py` to keep the old modules
-and service report kinds absent. Future adapter experiments must begin as
+and keeps only active artifact I/O coverage instead of a retirement-only
+absence guard. Future adapter experiments must begin as
 bounded offline proposals with explicit quality evidence, no hidden replay-text
 reasoning, no live/every-token work, no runtime mutation, and hot-path
 protection evidence before any active exposure. The paired protection run
@@ -1943,6 +1941,10 @@ processed `524288` tokens at `5957.637 tokens/sec`, p95 `21.679 ms`,
 cached rows, `2048` deferred cadence hits, native sequence-loop and burst-replay
 failure counts `0`, no observed before/after contention (`cpu max=22%`,
 `gpu max=12%`), and RTX 3060 memory `2047->2046 MiB`.
+
+The executable fixed-cadence retirement benchmark and query recent-fallback
+retirement benchmark are now deleted from `src/marulho/evaluation`; those JSON
+reports remain historical evidence only.
 
 Source tick sleep replay is also deferred out of the live service fallback.
 BrainRuntime still owns source selection and tick orchestration, but it no

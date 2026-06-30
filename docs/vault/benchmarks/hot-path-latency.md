@@ -18,7 +18,6 @@ related_code:
   - ../../../src/marulho/evaluation/readout_replay_target_window_benchmark.py
   - ../../../src/marulho/evaluation/language_plasticity_replay_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
-  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
@@ -4597,7 +4596,7 @@ promotion run.
 
 Maintained-only admission-projection cleanup:
 
-`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
+`..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
 
 `python -m marulho.evaluation.strong_capture_admission_cadence_benchmark --tokens 256 --min-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\strong-capture-admission-projection-removed.json`
 
@@ -6066,11 +6065,10 @@ allow `terminus_replay_adapter_promotion_gate` or
 `terminus_replay_adaptation_experiment_1`.
 
 Focused verification:
-`python -m pytest tests/test_replay_adapter_stack_retired.py tests/test_approved_action_level2.py tests/test_autonomy_ladder.py tests/test_live_long_run_validation.py tests/test_multi_hour_live_validation.py tests/test_self_improvement_readiness.py`
-passed `23` tests. The new retirement guard asserts the deleted adapter modules
-are not importable, the service allowlist no longer exposes their report kinds,
-and the neutral artifact helper preserves JSON object loading plus canonical
-SHA-256 hashing for active evaluation utilities.
+`python -m pytest tests/test_artifact_io.py tests/test_approved_action_level2.py tests/test_autonomy_ladder.py tests/test_live_long_run_validation.py tests/test_multi_hour_live_validation.py tests/test_self_improvement_readiness.py`
+passed `23` tests. Current coverage keeps the neutral artifact helper's JSON
+object loading plus canonical SHA-256 hashing behavior for active evaluation
+utilities; the retirement-only adapter absence guard is no longer kept.
 
 The paired protection run
 `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json`

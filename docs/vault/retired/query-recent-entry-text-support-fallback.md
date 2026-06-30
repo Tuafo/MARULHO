@@ -4,7 +4,6 @@ status: retired
 related_code:
   - ../../../src/marulho/training/query_runner.py
   - ../../../src/marulho/consolidation/memory_store.py
-  - ../../../src/marulho/evaluation/query_recent_fallback_retirement_benchmark.py
 related_docs:
   - ../concepts/column-runtime.md
   - ../benchmarks/replay-cost.md
@@ -31,7 +30,9 @@ Replacement:
 
 Evidence:
 
-- `query-recent-fallback-retired-bucket-only.json`: `pass=true` on a
+- The executable retirement benchmark is deleted from `src/marulho/evaluation`;
+  the historical report `query-recent-fallback-retired-bucket-only.json`
+  recorded `pass=true` on a
   `65536`-capacity store, recent collector not called, returned indices `[0]`,
   raw text loaded only for candidate `[0]`, no global candidate/score scan, no
   live tick, no hidden language reasoning, CPU archival placement, CUDA

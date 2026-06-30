@@ -23,7 +23,6 @@ related_code:
   - ../../../src/marulho/evaluation/dense_readout_training_transition_window_benchmark.py
   - ../../../src/marulho/evaluation/readout_ledger_rollout_candidate_window_benchmark.py
   - ../../../src/marulho/evaluation/strong_capture_admission_cadence_benchmark.py
-  - ../../../src/marulho/evaluation/slow_memory_fixed_cadence_retirement_benchmark.py
   - ../../../src/marulho/evaluation/source_tick_sleep_deferral_benchmark.py
   - ../../../src/marulho/evaluation/live_memory_summary_projection_benchmark.py
   - ../../../src/marulho/evaluation/sleep_replay_routing_index_refresh_benchmark.py
@@ -1569,10 +1568,10 @@ from runtime mutation, but it kept an active-looking replay adaptation branch in
 `src` and exposed adapter report kinds through service validation summaries.
 Active evaluation modules now import JSON/hash helpers from
 `marulho.evaluation.artifact_io`; the replay approval/plan/adapter/promotion
-modules and their old tests are removed. The retained evidence is the absence
-guard in `tests/test_replay_adapter_stack_retired.py`: deleted modules are no
-longer importable, service report kinds are absent, and neutral artifact I/O
-still preserves JSON object loading plus canonical SHA-256 hashing.
+modules and their old tests are removed. Retained evidence lives in the
+historical reports, service report kinds stay absent from active surfaces, and
+neutral artifact I/O still has active JSON object loading plus canonical
+SHA-256 hashing coverage. No retirement-only adapter absence test remains.
 The paired protection run
 `reports/bounded_replay_window_20260622/hotpath-active-pressure-65536-524288-i32-replay-adapter-stack-retired.json`
 processed `524288` tokens at `6167.298 tokens/sec`, kept route scoring bounded
@@ -2190,7 +2189,7 @@ bounded strong-capture admission remain the only live archive writes.
 
 The focused benchmark was:
 
-`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --output reports\bounded_replay_window_20260620\slow-memory-fixed-cadence-admission-retired.json`
+`reports\bounded_replay_window_20260620\slow-memory-fixed-cadence-admission-retired.json`
 
 It passed with `1` bounded archive versus `17` retired fixed-cadence writes
 over `256` tokens, a `17x` archival-write reduction. First-token retention was
@@ -2240,7 +2239,7 @@ protection evidence rather than a clean speed-ceiling claim.
 
 Maintained-only projection cleanup:
 
-`python -m marulho.evaluation.slow_memory_fixed_cadence_retirement_benchmark --tokens 256 --archive-interval-tokens 16 --runs 10 --device cpu --output ..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
+`..\..\MARULHO_reports\bounded_replay_window_20260624\slow-memory-fixed-cadence-projection-removed.json`
 
 The current fixed-cadence report no longer emits
 `retired_fixed_cadence_projection`. It records
@@ -3123,7 +3122,7 @@ buckets.
 
 Focused retirement report:
 
-`python -m marulho.evaluation.query_recent_fallback_retirement_benchmark --output reports\bounded_replay_window_20260622\query-recent-fallback-retired-bucket-only.json --capacity 65536 --candidate-limit 64 --top-k 1 --iterations 11`
+`reports\bounded_replay_window_20260622\query-recent-fallback-retired-bucket-only.json`
 
 Result: `pass=true`; capacity `65536`, candidate indices `[0]`, returned
 indices `[0]`, recent collector not called, recent fallback fields absent, raw
