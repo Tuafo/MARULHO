@@ -21,28 +21,29 @@ Use this with [../../../README.md](../../../README.md) and
 ## Active Contract
 
 The active API surface is `/health`, `/`, and `/brain/*`. `create_app()` builds
-`MarulhoBrainServiceManager`, not the legacy `MarulhoServiceManager`. Legacy `/status`,
-`/feed`, `/query`, `/respond`, root checkpoint aliases, `/terminus/*`, `/traces`,
-`/stream/status`, and `/datasets` are retired from active FastAPI routing.
+`MarulhoBrainServiceManager`; the old `MarulhoServiceManager` file is deleted.
+Legacy `/status`, `/feed`, `/query`, `/respond`, root checkpoint aliases,
+`/terminus/*`, `/traces`, `/stream/status`, and `/datasets` are retired from
+active FastAPI routing.
 
 `/brain/start` and `/brain/stop` call the brain-owned lifecycle loop. They must
 not return or depend on legacy Terminus runtime-control payloads.
 
 `api_schemas.py` contains only the active checkpoint request/response models.
-The old giant service schema module is deleted. The legacy manager remains
-quarantined for old offline tests and runners, but it is not the HTTP/UI spine.
-It is also not exported from `marulho.service`; callers must use `create_app`
-or `MarulhoBrainServiceManager` for active service integration.
-`tests/test_service_manager.py` is module-skipped during the spine refactor;
-port only still-useful machinery assertions into package-local brain/core/data
-tests instead of reactivating the whole Terminus service suite.
+The old giant service schema module, legacy manager, legacy facade,
+StatusReadModel, Terminus runtime-control file, and old BrainRuntime file are
+deleted. Callers must use `create_app` or `MarulhoBrainServiceManager` for
+active service integration. Skipped legacy suites that only protected those
+surfaces were removed; port still-useful machinery assertions into
+package-local brain/core/data/service owner tests instead of rebuilding the
+Terminus service suite.
 
 Large owner modules such as replay runtime, SNN readout ledger, action
 execution, runtime sources, and plasticity still physically live in this
 package while migration continues. They are machinery owners, not the service
-spine. Move them only with focused tests; do not route the active app back
-through `manager.py`, `brain_runtime.py`, `runtime_control.py`,
-`runtime_facade.py`, or `status_read_model.py`.
+spine. Move them only with focused tests; do not recreate `manager.py`,
+`brain_runtime.py`, `runtime_control.py`, `runtime_facade.py`, or
+`status_read_model.py` as compatibility surfaces.
 
 ## Ported Guidance
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import time
 
@@ -207,3 +208,14 @@ def test_brain_service_contract(tmp_path: Path) -> None:
             "/stream/status",
         ):
             assert client.get(legacy_path).status_code == 404
+
+
+def test_deleted_legacy_service_surfaces_are_not_importable() -> None:
+    for module_name in (
+        "marulho.service.manager",
+        "marulho.service.brain_runtime",
+        "marulho.service.runtime_control",
+        "marulho.service.runtime_facade",
+        "marulho.service.status_read_model",
+    ):
+        assert importlib.util.find_spec(module_name) is None

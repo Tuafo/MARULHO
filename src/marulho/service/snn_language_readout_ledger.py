@@ -21,6 +21,110 @@ from marulho.service.transition_memory_source_window import (
 )
 
 
+_ROLLOUT_REGENERATION_SOURCE_WINDOW_FALSE_FLAGS = (
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "hidden_language_reasoning",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+    "gpu_used",
+    "gpu_resident_archival_metadata",
+)
+_READOUT_REPLAY_PAYLOAD_SOURCE_WINDOW_FALSE_FLAGS = (
+    "global_candidate_scan",
+    "global_score_scan",
+    "raw_text_payload_loaded",
+    "language_reasoning",
+    "runs_live_tick",
+    "runs_every_token",
+    "mutates_runtime_state",
+    "applies_plasticity",
+    "gpu_resident_archival_metadata",
+    "gpu_used_for_archival_metadata",
+)
+
+
+def _source_window_int(source_window: Mapping[str, Any], key: str) -> int | None:
+    try:
+        return int(source_window.get(key, -1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_window_counts_bounded(
+    source_window: Mapping[str, Any],
+    *,
+    max_limit: int | None = None,
+    require_mapping_count: bool = False,
+) -> bool:
+    source_window_count = _source_window_int(source_window, "source_window_count")
+    source_window_limit = _source_window_int(source_window, "source_window_limit")
+    if source_window_count is None or source_window_limit is None:
+        return False
+    if source_window_limit <= 0 or source_window_count < 0:
+        return False
+    if source_window_count > source_window_limit:
+        return False
+    if max_limit is not None and source_window_limit > int(max_limit):
+        return False
+    if require_mapping_count:
+        source_mapping_count = _source_window_int(source_window, "source_mapping_count")
+        if source_mapping_count is None or source_mapping_count != source_window_count:
+            return False
+    return True
+
+
+def _source_window_flags_explicit_false(
+    source_window: Mapping[str, Any],
+    flags: tuple[str, ...],
+) -> bool:
+    return all(source_window.get(flag) is False for flag in flags)
+
+
+def rollout_regeneration_candidate_window_bounded(
+    source_window: Mapping[str, Any],
+    *,
+    surface: str,
+) -> bool:
+    return (
+        source_window.get("surface") == surface
+        and _source_window_counts_bounded(
+            source_window,
+            max_limit=SNN_LANGUAGE_APPLICATION_SYNAPSE_WINDOW_LIMIT,
+            require_mapping_count=True,
+        )
+        and _source_window_flags_explicit_false(
+            source_window,
+            _ROLLOUT_REGENERATION_SOURCE_WINDOW_FALSE_FLAGS,
+        )
+        and source_window.get("archival_storage_device") == "cpu"
+        and source_window.get("source_window_selection_device") == "cpu"
+    )
+
+
+def readout_replay_payload_window_bounded(
+    source_window: Mapping[str, Any],
+    *,
+    surface: str,
+) -> bool:
+    return (
+        source_window.get("surface") == surface
+        and _source_window_counts_bounded(
+            source_window,
+            require_mapping_count=True,
+        )
+        and _source_window_flags_explicit_false(
+            source_window,
+            _READOUT_REPLAY_PAYLOAD_SOURCE_WINDOW_FALSE_FLAGS,
+        )
+        and source_window.get("archival_storage_device") == "cpu"
+    )
+
+
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
 SNN_LANGUAGE_READOUT_LEDGER_SNAPSHOT_SOURCE_WINDOW_POLICY = (
     "recent_ledger_snapshot_event_field_source_window_v1"

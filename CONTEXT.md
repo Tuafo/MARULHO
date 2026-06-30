@@ -18,8 +18,8 @@ _Avoid_: rebuilding the brain as service/status/schema ceremony, hiding an exter
 **Brain-Owned Lifecycle Loop** — the `/brain/start` and `/brain/stop` contract is a `MarulhoBrain` loop over queued source ticks. It reports `marulho_brain_loop_state.v1`, owner `MarulhoBrain`, configured tick width, interval, tick count, uptime, and the explicit fact that legacy Terminus runtime control is not the owner.
 _Avoid_: routing the maintained brain lifecycle through old `/terminus` start/stop, hiding service-owned schedulers behind `/brain/start`, or using lifecycle status as evidence of cognition by itself.
 
-**Brain Service Adapter** — the active FastAPI composition root is `MarulhoBrainServiceManager`, a small adapter that loads one checkpoint into `MarulhoBrain`, exposes `/brain/*`, lists/saves/restores checkpoints, and stops the brain loop on shutdown. It must not construct the legacy `MarulhoServiceManager`, `StatusReadModel`, `RuntimeControl`, readiness schemas, or SNN ledger executors for the active HTTP/UI path.
-_Avoid_: keeping the old service manager as the hidden owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating legacy manager compatibility as the maintained runtime spine.
+**Brain Service Adapter** — the active FastAPI composition root is `MarulhoBrainServiceManager`, a small adapter that loads one checkpoint into `MarulhoBrain`, exposes `/brain/*`, lists/saves/restores checkpoints, and stops the brain loop on shutdown. The legacy service manager, status read model, runtime control, runtime facade, and BrainRuntime files are deleted; the active HTTP/UI path must not recreate them as compatibility shells.
+_Avoid_: keeping a hidden service owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating legacy compatibility as the maintained runtime spine.
 
 **BrainTrace** — compact telemetry emitted by `MarulhoBrain` for status, generation before/after evidence, tick throughput, checkpoint path, replay/growth events, device/executor names, and retired-surface booleans. It replaces broad Runtime Truth as the default spine status surface, while deeper gates remain explicit validation tools.
 _Avoid_: re-expanding status into a giant schema court system, treating trace text as proof of cognition, or using status reads as replay/consolidation work.
@@ -28,10 +28,12 @@ _Avoid_: re-expanding status into a giant schema court system, treating trace te
 `origin/archive/pre-refactor-2026-06-30` at
 `1b2861c19d5f48cb9895f6fe600e21f36b9cc714`. The active FastAPI surface is
 `/health`, `/`, and `/brain/*`; legacy root-level and `/terminus/*` route
-families are retired, and `marulho.service` no longer exports
-`MarulhoServiceManager` as a compatibility convenience. Current validation:
-`python -m compileall -q src tests`, focused pytest (`35 passed, 1 skipped`),
-and the UI build pass. A promoted-checkpoint `MarulhoBrain` stress smoke over
+families are retired, and the old service manager/facade/status/control/runtime
+files plus skipped legacy suites are deleted. Current validation:
+`python -m compileall -q src tests`, active brain/service/readout/replay pytest
+(`153 passed`), runtime benchmark/CUDA pytest (`76 passed`), API import probe
+with no deleted legacy modules loaded, and the UI build pass. A
+promoted-checkpoint `MarulhoBrain` stress smoke over
 `256` tokens completed through backend `cuda_graph_conditional_while` with zero
 graph/native failures, bounded `12/65536` route rows, and `97.815` tokens/sec;
 that short run is compile/capture dominated and is not a sustained speed claim.
@@ -107,7 +109,7 @@ _Avoid_: treating fixed-interval slow-memory writes as required spike cognition,
 _Avoid_: restoring one-token lock/yield cycles as the default, claiming the quantum executes tokens in parallel, widening Python burst groups as a launch-reduction claim, allowing unbounded quanta to freeze stop/status responsiveness, or moving trainer algorithms into Runtime Control.
 
 **Source Tick Sleep Deferral** — the `MarulhoBrain.tick` rule that a live/background source tick must not run deep, micro, or repair sleep replay from the per-token `train_step` fallback. When a brain tick needs per-token fallback for metrics or unsupported burst execution, it delegates to training with `allow_sleep_maintenance=False` so due sleep is counted as deferred maintenance and replay remains available only through explicit slow-path sleep/replay windows. This protects source-tick latency while preserving trainer-owned sleep replay quality gates.
-_Avoid_: letting service or legacy BrainRuntime become a sleep scheduler, hiding due sleep replay, running sleep replay because a source tick needed full metrics, or treating deferred sleep as completed consolidation.
+_Avoid_: letting service or a recreated service BrainRuntime become a sleep scheduler, hiding due sleep replay, running sleep replay because a source tick needed full metrics, or treating deferred sleep as completed consolidation.
 
 **Bounded Live Memory Summary Projection** — the read-only memory-store status surface for trainer telemetry, service status, living-loop snapshots, and brain-runtime summaries. It reports scalar fill/counter/report fields through `DualMemoryStore.live_summary_stats()` without advancing STC decay, constructing tensors over retained slow entries, or scanning archival metadata. Full `summary_stats()` remains available only for explicit offline consolidation and quality windows that can pay for a complete memory scan.
 _Avoid_: calling full memory summary from a live tick or status endpoint, letting display telemetry decay STC tags, using status as replay selection, or hiding a full archive scan behind a compact Runtime Truth memory field.
@@ -463,7 +465,7 @@ _Avoid_: promoting graph-walk top-1 recovery as scheduler completion, adding a P
 **Route Candidate Discovery Probe** — the retired cheap bounded-discovery probe for fixed farthest-landmark buckets and random-projection buckets. On the 8192-column default-text gate, landmark256/top8/bucket128 at q16 scored `926.544` route rows on average but matched exact top-1 only `0.77734375` and winner only `0.4296875`; per-token landmark256/top8 improved to top-1 `0.884765625` and winner `0.525390625` while paying `256` selector rows per tick; landmark512/top16/bucket128 reached exact top-1 `1.0` but still only winner `0.91015625` while scoring `1642.932` route rows plus `512` selector rows per tick. Random-projection512/top32/bucket64 q16 scored `1790.795` rows and matched exact top-1 only `0.255859375`. The probe implementation and tests are deleted after rejection; the 32768-column cleanup validation kept the promoted route-bank path in-band at `6128.457 tokens/sec` with `route_input_rows_scored=12/32768`. The retained evidence points back to a fused/GPU-owned graph/ANN discovery boundary that must pass winner quality and the 131072-token 6k-ish gate before promotion.
 _Avoid_: restoring landmark/projection bucket code as an evaluation convenience, treating top-1 recall alone as winner-quality proof, or calling offline all-cache index construction a hot-path scheduler.
 
-**Column Runtime Truth Projection** — the shared service-side read-only projection of training/core-owned Column Runtime evidence. `StatusReadModel` and `RuntimeStatusCore` now both delegate to `service.column_runtime_projection.build_column_runtime_evidence`, so route-bank probe rows, score rows, probe cursor, probe refresh count, wake-plan mode, cached transition count, predictive cached-vote fraction, fallback reasons, and `runs_all_columns` truth cannot diverge between active status surfaces. This helper must not decide wake/sleep, route candidates, cached-vote use, memory pressure, or state-transition scope; it only normalizes the Runtime Truth packet already emitted by training/core.
+**Column Runtime Truth Projection** — the shared read-only projection of training/core-owned Column Runtime evidence. Active status helpers delegate to `service.column_runtime_projection.build_column_runtime_evidence`, so route-bank probe rows, score rows, probe cursor, probe refresh count, wake-plan mode, cached transition count, predictive cached-vote fraction, fallback reasons, and `runs_all_columns` truth stay normalized without reviving the deleted `StatusReadModel`. This helper must not decide wake/sleep, route candidates, cached-vote use, memory pressure, or state-transition scope; it only normalizes the Runtime Truth packet already emitted by training/core.
 _Avoid_: duplicating Column Runtime projection logic in service modules, omitting probe-lane or cached-state fields from one status surface, or treating projection helpers as scheduler ownership.
 
 **TurboQuant Routing Removal** — the removed legacy `turboquant_plus` retrieval backend. Google Research TurboQuant is a vector-quantization/inner-product approximation technique, not a capacity scheduler; MARULHO's old backend was narrower and stale: it used per-prototype min/max scalar codes, kept FP32 prototypes, scored every row, and could not provide `routing_tensor_cache()` for the promoted CUDA route/vote graph. The 2026-06-15 CUDA audit rejected it as a scheduler boundary at 1024 and 8192 columns, so the implementation, config option, and tests were deleted. Exact `torch_topk` remains the retrieval cache and seed oracle; steady CUDA route/vote rows are now bounded by the training-owned route candidate bank after that explicit seed.
@@ -1298,9 +1300,11 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 - **Operational Self-Model** (`living_loop_self_model.py`) — OperationalSelfModel, build_runtime_benchmark_telemetry, and telemetry helpers (Layer C). Maps to **Runtime Truth / Living Loop self-model** in domain vocabulary. Depends on Helpers, Records, and Policy only.
 - The original `living_loop.py` compatibility shim is deleted. Active code imports directly from the owning Living Loop depth module instead of using an aggregator namespace.
 
-**Legacy Service Manager** — the pre-spine Terminus composition root retained only for old offline tests and runners while deletion continues. It must not be constructed by the active FastAPI app or treated as the owner of source ticks, readout, replay, growth/prune, checkpoint orchestration, or lifecycle control. The maintained runtime spine is `MarulhoBrain`; the maintained HTTP adapter is `MarulhoBrainServiceManager`.
+**Deleted Legacy Service Surfaces** — the pre-spine Terminus service manager, runtime facade, status read model, runtime-control file, and service BrainRuntime file are removed from the active tree. The maintained runtime spine is `MarulhoBrain`; the maintained HTTP adapter is `MarulhoBrainServiceManager`.
+_Avoid_: restoring compatibility shells for removed service/status/schema/readiness surfaces or routing source ticks, readout, replay, growth/prune, checkpoint orchestration, or lifecycle control through service-owned files.
 
-**Runtime Facade** — the legacy operator-facing facade for the old service manager split. The maintained HTTP runtime facade is `MarulhoBrainRuntimeFacade` in `service.brain_manager`, and active FastAPI routes call `/brain/*` over `MarulhoBrain`. Do not use the legacy facade to reintroduce service-owned runtime behavior.
+**Brain Runtime Facade** — `MarulhoBrainRuntimeFacade` in `service.brain_manager` is the only maintained runtime facade. It is a small HTTP/UI adapter over `MarulhoBrain`; active FastAPI routes call `/brain/*` through it.
+_Avoid_: reintroducing the deleted operator-facing legacy facade as a second runtime surface.
 
 **Runtime Sources** — the owner of text/sensory stream construction, live-remote wrapping, runtime cache paths, stream readiness reads, and stream shutdown. Brain Runtime, Runtime Prewarmer, Sensory Runtime, and tests must patch or call Runtime Sources directly instead of using Service Manager stream-builder wrappers.
 
@@ -1309,10 +1313,10 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 **Owner Callback** — a constructor-injected callback that points directly at the module that owns the behavior or state, such as Delayed Consequence Tracker, Source Focus Scorer, Runtime Evidence Reporter, or Autonomy Planner. It must not be implemented as a Service Manager wrapper when the owner is already available in the composition root.
 _Avoid_: manager-private callback wrappers, owner behavior hidden behind `self._...` manager methods
 
-**Operator Interaction Runtime** — the domain-named service module for operator acquisition and interaction callbacks that do not belong on the Service Manager. It supplies query/feed/respond collaborator functions to Interaction Pipeline and owns the public acquisition flow behind Runtime Facade.
+**Operator Interaction Runtime** — the domain-named service module for operator acquisition and interaction callbacks that do not belong on the Service Manager. It supplies query/feed/respond collaborator functions to Interaction Pipeline and owns the public acquisition flow for owner-module callers.
 _Avoid_: resurrecting `InteractionRuntimeMixin`, manager-private interaction wrappers, or compatibility imports as active runtime surfaces
 
-**Action Executor** — the domain-named owner for digital action execution, action history, action feedback routing, action-assist reuse, and Subcortex Action Ledger summaries. Runtime Facade delegates action execution and history reads to this module; delayed-consequence and interaction callbacks wire to it directly. The old `action_runtime.py` mixin module, standalone action-assist mixin module, and manager-private action delegate wrappers are deleted.
+**Action Executor** — the domain-named owner for digital action execution, action history, action feedback routing, action-assist reuse, and Subcortex Action Ledger summaries. Delayed-consequence and interaction callbacks wire to it directly. The old `action_runtime.py` mixin module, standalone action-assist mixin module, and manager-private action delegate wrappers are deleted.
 _Avoid_: action behavior in `ActionRuntimeMixin`, standalone action-assist mixin modules, manager-private action wrappers, retired-loop mirroring, or manager-owned action history
 
 - **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter (`state_revision`), brain event history, and the externally visible `last_event` / `recent_events` payloads. Every other deep module receives it as a dependency.
@@ -1464,7 +1468,7 @@ _Avoid_: using Runtime Truth as the self-repair evaluator, exposing repair case 
 - The `marulho.cortex` package is deleted. Cortex-owned drives, episodic memory, working memory, narrative self, prompt, core, and ThoughtLoop modules must not be active extension points; reusable concepts belong under semantics, service runtime, or Subcortex modules.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
 - Replay Pipeline feeds adapter experiments that never touch production runtime
-- Service Manager wires the Runtime Facade and deep modules. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
+- MarulhoBrain owns the runtime spine while package owner modules supply replay, grounding, policy, source, and interaction machinery behind explicit calls. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
 - CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The Retired LLM Path is not a CUDA-first claim or architectural requirement.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Sensory Encoder device reports must include both persistent encoder state devices and the last emitted spike tensor device/shape; a configured device alone is not CUDA evidence.

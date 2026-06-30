@@ -1,24 +1,19 @@
-"""MARULHO Service layer -- REST API adapter and retired Terminus machinery.
+"""MARULHO Service layer -- thin REST/UI adapter over MarulhoBrain.
 
 Module structure:
 - brain_manager.py: active MarulhoBrain HTTP/UI composition root
-- manager.py: quarantined legacy MarulhoServiceManager composition root
-- runtime_facade.py: legacy operator-facing runtime interface over deep modules
 - runtime_state.py: Shared dirty-state, revision, and brain event container
-- status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cognitive-signal snapshots
 - runtime_evidence.py: Sanitized traces, feedback summaries, and evidence exports
 - feedback_applier.py: Operator feedback normalization and application
 - action_executor.py: Digital action execution, audit summaries, and action assist
-- brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
-- reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
+- reporting.py: Grounding-probe evaluation helper
 - replay_runtime.py: SNN replay artifact, permit, and sleep-plasticity review helpers
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
 - operator_interaction.py: Query/feed/respond/acquire operator interaction flow helpers
-- living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
+- living_status.py: Living-loop and policy-actuator read-only status helpers
 - runtime_config.py: Operator runtime/source configuration normalization with explicit priority callbacks
-- runtime_control.py: Terminus configure/start/stop/tick runtime control with explicit dependency access
 - runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
 - runtime_sources.py: Runtime source streams, live-remote wrapping, and caches with explicit dependencies
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection

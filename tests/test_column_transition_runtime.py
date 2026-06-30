@@ -1084,7 +1084,7 @@ def test_cuda_graph_route_transition_matches_fused_sequential_state() -> None:
     assert final_report["route_vote_prepared_graph_reuse_count"] == 15
     assert final_report["graph_consolidation_lookup_skip_count"] == 15
     assert final_report["graph_empty_revival_tensor_reuse_count"] == 15
-    assert consolidation_lookup_count == 1
+    assert consolidation_lookup_count == 0
     assert graph.model.competitive.last_revived_indices is empty_revival_tensor
     assert graph_metrics["routing_index_device_update_count"] == 16
     assert graph_metrics["routing_index_buffer_skip_count"] == 16
