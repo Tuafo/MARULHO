@@ -1,3 +1,11 @@
+"""Legacy Terminus service composition root.
+
+The maintained HTTP/UI runtime is ``MarulhoBrainServiceManager`` in
+``service.brain_manager``. This module remains importable only for quarantined
+offline tests and owner-migration work; new runtime code must not construct it
+or route active source/tick/generate/replay/checkpoint behavior through it.
+"""
+
 from __future__ import annotations
 
 import base64

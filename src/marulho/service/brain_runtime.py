@@ -1,9 +1,9 @@
-"""Brain runtime orchestration helpers for Terminus.
+"""Legacy Terminus brain-runtime orchestration helpers.
 
-This runtime owns source rebuilding, tick collection/training, grounded source
-observation injection, source utility state/mutation, autonomy scheduling,
-animation snapshots, and runtime status snapshots. Delayed-consequence
-learning remains isolated in its own tracker.
+The maintained runtime spine is ``marulho.brain.MarulhoBrain``. This module is
+kept only for quarantined offline tests and machinery migration; active service
+startup must not construct ``BrainRuntime`` or use it as source/tick/replay
+owner.
 """
 
 from __future__ import annotations

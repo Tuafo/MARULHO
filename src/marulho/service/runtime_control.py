@@ -1,3 +1,10 @@
+"""Legacy Terminus runtime-control loop.
+
+The active lifecycle loop is ``MarulhoBrain.start/stop`` exposed through
+``/brain/start`` and ``/brain/stop``. This module remains only for quarantined
+offline tests and migration of still-useful source/prewarm machinery.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

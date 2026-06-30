@@ -1,3 +1,11 @@
+"""Legacy Terminus runtime facade.
+
+Active FastAPI routes use ``MarulhoBrainRuntimeFacade`` from
+``service.brain_manager``. This facade remains only as a quarantine boundary
+for still-tested SNN/readout migration work and must not become the brain
+runtime spine again.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy

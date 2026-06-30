@@ -37,6 +37,13 @@ or `MarulhoBrainServiceManager` for active service integration.
 port only still-useful machinery assertions into package-local brain/core/data
 tests instead of reactivating the whole Terminus service suite.
 
+Large owner modules such as replay runtime, SNN readout ledger, action
+execution, runtime sources, and plasticity still physically live in this
+package while migration continues. They are machinery owners, not the service
+spine. Move them only with focused tests; do not route the active app back
+through `manager.py`, `brain_runtime.py`, `runtime_control.py`,
+`runtime_facade.py`, or `status_read_model.py`.
+
 ## Ported Guidance
 
 - Status and Runtime Truth reads must remain read-only.

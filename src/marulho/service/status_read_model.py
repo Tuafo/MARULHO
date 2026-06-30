@@ -1,15 +1,13 @@
-"""Status Read Model — read-only projection of runtime state into status, terminus, telemetry, living-loop, policy-actuator, and cognitive-signal snapshots.
+"""Legacy Terminus status read model.
 
-This module owns the ``status()``, ``terminus_status()``, ``telemetry_snapshot()``,
-``living_loop_status()``, ``policy_actuator_status()``, and ``cognitive_signal_state()``
-public surfaces and their associated cache state. It
-is the first real object-style extraction from ADR 0003: the Service Manager
-delegates to it, and direct object-level tests exercise the seam through
-injected adapter callbacks instead of requiring the full manager composition
-root.
+The active service status surface is ``MarulhoBrain.status()`` plus compact
+``BrainTrace`` history exposed through ``/brain/*``. This module remains only
+for quarantined Terminus/status tests and migration of still-useful readout or
+owner machinery into package-local modules.
 
-The read model is strictly read-only: it never mutates RuntimeState, never
-records brain events, and never advances the revision counter.
+While it remains importable, the read model must stay read-only: it never
+mutates RuntimeState, never records brain events, and never advances the
+revision counter.
 """
 
 from __future__ import annotations
