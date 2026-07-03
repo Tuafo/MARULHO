@@ -65,9 +65,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   selective-state recurrence inside the per-token loop. `step` remains the
   streaming path for one-token CUDA graph generation.
 - The state block can use `language_plif_triton.py` for no-grad PLIF forward
-  updates when CUDA row-count policy allows it. Gradient-enabled training keeps
-  the existing straight-through surrogate PyTorch update, so PLIF forward
-  parity does not claim PLIF backward surrogate promotion.
+  updates when CUDA row-count policy allows it. Gradient-enabled `float32`
+  training can use the same module's Triton surrogate backward path, which
+  preserves the hard-spike forward value and sigmoid surrogate derivative used
+  by the PyTorch update. Half-precision backward stays on PyTorch until
+  separate gradient parity evidence exists.
 - `RMSNorm` now routes CUDA tensors through the language RMSNorm Triton
   primitive only for batched row counts where the kernel is measured useful.
   Streaming one-token LM generation keeps the faster CUDA graph/PyTorch

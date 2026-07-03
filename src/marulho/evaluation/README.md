@@ -166,13 +166,29 @@ harnesses.
   six CUDA shape/dtype parity cases for `language_plif_forward` (`float32` and
   `float16`) on the RTX 3060 with geometric microbenchmark speedup `3.145x`
   over the PyTorch PLIF forward reference. The kernel covers no-grad membrane,
-  spike, selective-state, eligibility-trace, and mixed-state updates only;
-  gradient-enabled training still uses the PyTorch straight-through surrogate
-  path. `language-suite-plif-forward-kernel.json` records both
+  spike, selective-state, eligibility-trace, and mixed-state updates.
+  `language-suite-plif-forward-kernel.json` records both
   `rmsnorm_triton_parity=true` and `plif_triton_forward_parity=true`, keeps
   long-run throughput available through the current `524288` LM sustained
-  report, and leaves PLIF backward surrogate, selective-scan, expert-dispatch,
+  report, and left PLIF backward surrogate, selective-scan, expert-dispatch,
   sampled-vocab cross-entropy, and generation coherence as blockers.
+- Current 2026-07-03 PLIF surrogate-backward Triton evidence in
+  `reports/language_kernel_evidence/plif-surrogate-triton-20260703.json` passed
+  three CUDA `float32` shape sweeps for `language_plif_surrogate_backward` with
+  geometric forward+backward microbenchmark speedup `1.662x`. `float16`
+  backward is explicitly unsupported until gradient parity is proven. The
+  same state-block training scale in
+  `reports/language_training_experiments/cuda-plif-surrogate-8192.json`
+  trained `63744` tokens at `2596.380 train tokens/sec`, used `3840` Triton
+  PLIF forward calls and `3840` Triton backward calls with zero failures,
+  improved heldout loss from `5.8299` to `0.1907`, and sustained `8192` tokens
+  at `6158.059 tokens/sec`. The paired house-scale report
+  `cuda-plif-surrogate-524288-sustained.json` reached `524288/524288` at
+  `7578.052 tokens/sec`, CUDA graph burst, zero graph failures, and no
+  external LLM. `language-suite-plif-surrogate-impact.json` records RMSNorm,
+  PLIF forward, and PLIF surrogate-backward parity while keeping promotion
+  blocked on generation coherence plus selective-scan, expert-dispatch, and
+  sampled-vocab cross-entropy evidence.
 - Current 2026-07-03 vectorized state-block evidence precomputes the
   token-independent LM state-block projections across `[batch,time]` while
   preserving the causal recurrent membrane/spike/selective-state loop. The
@@ -189,7 +205,8 @@ harnesses.
   observed contention. `language-suite-vectorized-state.json` keeps promotion
   blocked on generation coherence and the then-remaining PLIF/scan/expert/
   vocab kernel parity evidence; the later PLIF-forward report covers only the
-  forward slice and does not close PLIF backward surrogate or scan evidence.
+  forward slice, while the later PLIF surrogate-backward report closes the
+  float32 backward blocker but does not close selective-scan evidence.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks

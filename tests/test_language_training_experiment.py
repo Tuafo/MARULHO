@@ -47,6 +47,11 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     assert report["training"]["max_tokens_per_optimizer_step"] > 12
     assert report["training"]["loss_start"] is not None
     assert report["training"]["loss_end"] is not None
+    assert report["training"]["language_plif_triton"]["triton_available"] in {
+        True,
+        False,
+    }
+    assert report["training"]["plif_surrogate_triton_used"] is False
     assert report["eval_before"]["heldout_perplexity"] > 0.0
     assert report["eval_after"]["heldout_perplexity"] > 0.0
     assert len(report["generation_after"]) == 2

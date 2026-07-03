@@ -58,9 +58,11 @@ KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
+PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SUPPORTED_GPU_KERNEL_NAMES = {
     RMSNORM_KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
+    PLIF_SURROGATE_KERNEL_NAME,
 }
 
 
@@ -315,14 +317,23 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    plif_surrogate_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == PLIF_SURROGATE_KERNEL_NAME
+        ),
+        None,
+    )
     missing = []
     if rmsnorm_report is None:
         missing.append("rmsnorm_triton_parity")
     if plif_forward_report is None:
         missing.append("plif_triton_forward_parity")
+    if plif_surrogate_report is None:
+        missing.append("plif_triton_backward_surrogate_parity")
     missing.extend(
         [
-            "plif_triton_backward_surrogate_parity",
             "selective_scan_triton_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
@@ -347,6 +358,12 @@ def _language_gpu_kernel_evidence(
             None
             if plif_forward_report is None
             else _gpu_kernel_report_summary(plif_forward_report)
+        ),
+        "plif_triton_backward_surrogate_parity": plif_surrogate_report is not None,
+        "plif_surrogate_report": (
+            None
+            if plif_surrogate_report is None
+            else _gpu_kernel_report_summary(plif_surrogate_report)
         ),
         "lm_triton_kernel_used": bool(valid_reports),
         "pytorch_fallback_available": True,

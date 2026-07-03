@@ -16,6 +16,7 @@ from torch.nn import functional as F
 
 from marulho.core.language_plif_triton import (
     language_plif_forward,
+    language_plif_surrogate_update,
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
 )
@@ -54,12 +55,6 @@ class LanguageSplit:
     train: tuple[LanguageBatch, ...]
     eval: tuple[LanguageBatch, ...]
     report: dict[str, Any]
-
-
-def _surrogate_spike(voltage_delta: torch.Tensor, slope: float) -> torch.Tensor:
-    soft = torch.sigmoid(float(slope) * voltage_delta)
-    hard = (voltage_delta >= 0).to(voltage_delta.dtype)
-    return hard.detach() - soft.detach() + soft
 
 
 def _tensor_hash(tensor: torch.Tensor) -> str:
@@ -204,7 +199,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         drive = self.input_proj(token_input) + current + self.recurrent_proj(spikes)
         plif_stats_before = (
             language_plif_triton_stats()
-            if bool(collect_telemetry) and not torch.is_grad_enabled()
+            if bool(collect_telemetry)
             else None
         )
         mixed_state: torch.Tensor
@@ -229,11 +224,25 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                     state_output=state_output,
                 )
             else:
-                membrane = leak * membrane + (1.0 - leak) * drive - spikes * threshold
-                spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
-                selective_state = state_decay * selective_state + state_input * spikes
-                eligibility_trace = 0.95 * eligibility_trace + spikes
-                mixed_state = state_output * selective_state + spikes
+                (
+                    membrane,
+                    spikes,
+                    selective_state,
+                    eligibility_trace,
+                    mixed_state,
+                ) = language_plif_surrogate_update(
+                    membrane=membrane,
+                    spikes=spikes,
+                    selective_state=selective_state,
+                    eligibility_trace=eligibility_trace,
+                    leak=leak,
+                    threshold=threshold,
+                    drive=drive,
+                    state_decay=state_decay,
+                    state_input=state_input,
+                    state_output=state_output,
+                    spike_slope=self.spike_slope,
+                )
         residual = self.residual_proj(token_input)
         hidden = self.output_norm(residual + self.state_output_proj(mixed_state))
         if bool(collect_telemetry):
@@ -271,11 +280,19 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "trainable_current_terms": True,
                 "surrogate_gradient": "straight_through_sigmoid",
                 "plif_forward_backend": (
-                    "triton_forward_no_grad"
+                    (
+                        "triton_surrogate_forward_backward"
+                        if torch.is_grad_enabled()
+                        else "triton_forward_no_grad"
+                    )
                     if plif_delta is not None
                     and bool(plif_delta.get("triton_kernel_used", False))
                     else (
-                        "torch_forward_no_grad_fallback"
+                        (
+                            "torch_surrogate_forward"
+                            if torch.is_grad_enabled()
+                            else "torch_forward_no_grad_fallback"
+                        )
                         if plif_delta is not None
                         else "torch_surrogate_forward"
                     )
@@ -357,7 +374,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         residual_all = self.residual_proj(normalized_inputs)
         plif_stats_before = (
             language_plif_triton_stats()
-            if bool(collect_telemetry) and not torch.is_grad_enabled()
+            if bool(collect_telemetry)
             else None
         )
 
@@ -397,14 +414,25 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                         state_output=state_output_all[:, step, :],
                     )
                 else:
-                    membrane = leak * membrane + (1.0 - leak) * drive - spikes * threshold
-                    spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
-                    selective_state = (
-                        state_decay_all[:, step, :] * selective_state
-                        + state_input_all[:, step, :] * spikes
+                    (
+                        membrane,
+                        spikes,
+                        selective_state,
+                        eligibility_trace,
+                        mixed_state,
+                    ) = language_plif_surrogate_update(
+                        membrane=membrane,
+                        spikes=spikes,
+                        selective_state=selective_state,
+                        eligibility_trace=eligibility_trace,
+                        leak=leak,
+                        threshold=threshold,
+                        drive=drive,
+                        state_decay=state_decay_all[:, step, :],
+                        state_input=state_input_all[:, step, :],
+                        state_output=state_output_all[:, step, :],
+                        spike_slope=self.spike_slope,
                     )
-                    eligibility_trace = 0.95 * eligibility_trace + spikes
-                    mixed_state = state_output_all[:, step, :] * selective_state + spikes
             outputs.append(residual_all[:, step, :] + self.state_output_proj(mixed_state))
             if bool(collect_telemetry):
                 spike_sum = spike_sum + spikes.sum()
@@ -450,11 +478,19 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "surrogate_gradient": "straight_through_sigmoid",
                 "state_block_projection_mode": "batched_token_projection_recurrent_loop",
                 "plif_forward_backend": (
-                    "triton_forward_no_grad"
+                    (
+                        "triton_surrogate_forward_backward"
+                        if torch.is_grad_enabled()
+                        else "triton_forward_no_grad"
+                    )
                     if plif_delta is not None
                     and bool(plif_delta.get("triton_kernel_used", False))
                     else (
-                        "torch_forward_no_grad_fallback"
+                        (
+                            "torch_surrogate_forward"
+                            if torch.is_grad_enabled()
+                            else "torch_forward_no_grad_fallback"
+                        )
                         if plif_delta is not None
                         else "torch_surrogate_forward"
                     )

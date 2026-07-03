@@ -12,7 +12,10 @@ from torch.nn import functional as F
 
 from marulho.core.language_plif_triton import (
     can_use_language_plif_triton,
+    can_use_language_plif_surrogate_triton,
     language_plif_forward,
+    language_plif_surrogate_torch_reference,
+    language_plif_surrogate_update,
     language_plif_torch_reference,
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
@@ -31,6 +34,7 @@ SURFACE = "marulho_language_triton_kernel_report.v1"
 ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
+PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 KERNEL_NAME = RMSNORM_KERNEL_NAME
 
 
@@ -312,6 +316,189 @@ def _plif_shape_kernel_result(
         }
 
 
+def _requires_grad_inputs(
+    inputs: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    return {
+        key: value.detach().clone().requires_grad_(True)
+        for key, value in inputs.items()
+    }
+
+
+def _plif_grad_outputs(
+    outputs: tuple[torch.Tensor, ...],
+) -> tuple[torch.Tensor, ...]:
+    return tuple(torch.randn_like(output) for output in outputs)
+
+
+def _plif_surrogate_backward_pass(
+    inputs: dict[str, torch.Tensor],
+    grad_outputs: tuple[torch.Tensor, ...],
+    *,
+    force_triton: bool,
+) -> tuple[tuple[torch.Tensor, ...], dict[str, torch.Tensor]]:
+    runtime_inputs = _requires_grad_inputs(inputs)
+    if force_triton:
+        outputs = language_plif_surrogate_update(
+            **runtime_inputs,
+            prefer_triton=True,
+            force_triton=True,
+        )
+    else:
+        outputs = language_plif_surrogate_torch_reference(**runtime_inputs)
+    torch.autograd.backward(outputs, grad_outputs)
+    grads = {
+        key: value.grad.detach().clone()
+        for key, value in runtime_inputs.items()
+        if value.grad is not None
+    }
+    return tuple(output.detach() for output in outputs), grads
+
+
+def _max_grad_error(
+    left: dict[str, torch.Tensor],
+    right: dict[str, torch.Tensor],
+) -> tuple[float, float]:
+    max_abs_error = 0.0
+    max_rel_error = 0.0
+    for key, left_value in left.items():
+        right_value = right[key]
+        diff = (left_value.float() - right_value.float()).abs()
+        denominator = right_value.float().abs().clamp_min(1e-8)
+        max_abs_error = max(max_abs_error, float(diff.max().detach().cpu().item()))
+        max_rel_error = max(
+            max_rel_error,
+            float((diff / denominator).max().detach().cpu().item()),
+        )
+    return max_abs_error, max_rel_error
+
+
+def _plif_backward_benchmark_fn(
+    inputs: dict[str, torch.Tensor],
+    grad_outputs: tuple[torch.Tensor, ...],
+    *,
+    force_triton: bool,
+) -> Callable[[], tuple[torch.Tensor, ...]]:
+    def _run() -> tuple[torch.Tensor, ...]:
+        runtime_inputs = _requires_grad_inputs(inputs)
+        outputs = (
+            language_plif_surrogate_update(
+                **runtime_inputs,
+                prefer_triton=True,
+                force_triton=True,
+            )
+            if force_triton
+            else language_plif_surrogate_torch_reference(**runtime_inputs)
+        )
+        torch.autograd.backward(outputs, grad_outputs)
+        return tuple(
+            value.grad.detach()
+            for value in runtime_inputs.values()
+            if value.grad is not None
+        )
+
+    return _run
+
+
+def _plif_surrogate_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is not torch.float32:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": PLIF_SURROGATE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_for_surrogate_backward",
+            "parity_passed": False,
+        }
+
+    inputs = _plif_inputs(rows=rows, cols=cols, dtype=dtype)
+    supported = can_use_language_plif_surrogate_triton(**inputs)
+    before_stats = language_plif_triton_stats()
+    try:
+        reference_seed = language_plif_surrogate_torch_reference(
+            **_requires_grad_inputs(inputs)
+        )
+        grad_outputs = _plif_grad_outputs(reference_seed)
+        triton_outputs, triton_grads = _plif_surrogate_backward_pass(
+            inputs,
+            grad_outputs,
+            force_triton=True,
+        )
+        reference_outputs, reference_grads = _plif_surrogate_backward_pass(
+            inputs,
+            grad_outputs,
+            force_triton=False,
+        )
+        torch.cuda.synchronize()
+        max_abs_error, max_rel_error = _max_tuple_error(
+            triton_outputs,
+            reference_outputs,
+        )
+        max_grad_abs_error, max_grad_rel_error = _max_grad_error(
+            triton_grads,
+            reference_grads,
+        )
+        tolerance = 5e-2 if dtype in {torch.float16, torch.bfloat16} else 1e-4
+        parity_passed = bool(
+            supported
+            and (max_abs_error <= tolerance or max_rel_error <= tolerance)
+            and (max_grad_abs_error <= tolerance or max_grad_rel_error <= tolerance)
+        )
+        torch_ms = _benchmark_cuda(
+            _plif_backward_benchmark_fn(inputs, grad_outputs, force_triton=False),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            _plif_backward_benchmark_fn(inputs, grad_outputs, force_triton=True),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_plif_triton_stats()
+        stats_delta = language_plif_triton_stats_delta(before_stats, after_stats)
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": PLIF_SURROGATE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed),
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "max_grad_abs_error": max_grad_abs_error,
+            "max_grad_rel_error": max_grad_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_plif_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": PLIF_SURROGATE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": bool(supported),
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_plif_triton_stats_delta(before_stats, after_stats),
+        }
+
+
 def run_language_triton_kernel_report(
     *,
     output_path: str | Path,
@@ -346,6 +533,17 @@ def run_language_triton_kernel_report(
         selected_triton_available = bool(
             language_plif_triton_stats()["triton_available"]
         )
+    elif normalized_kernel in {
+        "plif-surrogate",
+        "plif-backward",
+        "plif-surrogate-backward",
+        "language-plif-surrogate-backward",
+    }:
+        kernel_name = PLIF_SURROGATE_KERNEL_NAME
+        kernel_backlog_item = "plif_adaptive_lif_backward_surrogate"
+        selected_triton_available = bool(
+            language_plif_triton_stats()["triton_available"]
+        )
     else:
         raise ValueError(f"unsupported kernel: {kernel}")
     cuda_available = bool(torch.cuda.is_available())
@@ -365,9 +563,19 @@ def run_language_triton_kernel_report(
                             repeats=int(repeats),
                         )
                     )
-                else:
+                elif kernel_name == PLIF_FORWARD_KERNEL_NAME:
                     shape_results.append(
                         _plif_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
+                else:
+                    shape_results.append(
+                        _plif_surrogate_shape_kernel_result(
                             rows=rows,
                             cols=cols,
                             dtype=dtype,
@@ -381,7 +589,8 @@ def run_language_triton_kernel_report(
     failed_results = [
         item
         for item in shape_results
-        if item.get("status") not in {"pass", "unsupported_dtype_on_device"}
+        if item.get("status")
+        not in {"pass", "unsupported_dtype_on_device", "unsupported_dtype_for_surrogate_backward"}
     ]
     parity_passed = (
         bool(shape_results)
@@ -423,7 +632,31 @@ def run_language_triton_kernel_report(
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
+        if kernel_name == PLIF_FORWARD_KERNEL_NAME
+        else [
+            "selective_scan_triton_parity",
+            "block_sparse_expert_dispatch_parity",
+            "sampled_vocab_cross_entropy_parity",
+        ]
     )
+    if not parity_passed and kernel_name == PLIF_FORWARD_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "plif_triton_forward_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "plif_triton_forward_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == PLIF_SURROGATE_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "plif_triton_backward_surrogate_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "plif_triton_backward_surrogate_parity"
+            ],
+        ]
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
@@ -478,7 +711,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--kernel",
-        choices=("rmsnorm-forward", "plif-forward"),
+        choices=("rmsnorm-forward", "plif-forward", "plif-surrogate"),
         default="rmsnorm-forward",
         help="Kernel evidence target.",
     )

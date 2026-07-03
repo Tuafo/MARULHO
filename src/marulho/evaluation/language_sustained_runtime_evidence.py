@@ -154,6 +154,8 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
             "triton_available": False,
             "triton_forward_calls": 0,
             "triton_forward_elements": 0,
+            "triton_backward_calls": 0,
+            "triton_backward_elements": 0,
             "torch_fallback_calls": 0,
             "torch_fallback_elements": 0,
             "triton_failure_count": 0,

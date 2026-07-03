@@ -36,8 +36,9 @@ The block now uses RMSNorm, input-dependent leak and threshold terms, trainable
 current terms, selective recurrent state, an eligibility trace cache, adaptive
 timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
 telemetry. It now has partial CUDA/Triton evidence for RMSNorm forward and
-no-grad PLIF forward, but this is not hot-path promotion; PLIF backward,
-selective scan, fallback, and complete-runtime impact reports remain required.
+PLIF forward plus `float32` PLIF surrogate backward, but this is not full
+hot-path promotion; selective scan, expert dispatch, sampled-vocab CE,
+fallback, and complete-runtime impact reports remain required.
 
 Iteration 6 has a first bounded online-learning window for the LM head. The
 training-owned executor snapshots model weights, applies new-domain gradient
@@ -492,7 +493,7 @@ Kernel promotion starts with correctness and complete-runtime evidence.
 | Priority | Kernel | Owner | Promotion evidence |
 | --- | --- | --- | --- |
 | 1 | PLIF/adaptive-LIF forward | `core`/`training` | forward parity exists; spike-rate telemetry and complete tick impact remain |
-| 2 | PLIF/adaptive-LIF backward | `core`/`training` | surrogate parity, finite gradients, loss impact |
+| 2 | PLIF/adaptive-LIF backward | `core`/`training` | `float32` surrogate parity and training impact exist; half precision remains open |
 | 3 | selective recurrent state scan | `training` | cache correctness, streaming restore, long-context impact |
 | 4 | route/vote top-k selection | `core`/`retrieval` | bounded rows, no all-column scan, route latency |
 | 5 | block-sparse column transition | `core`/`training` | active params/token, dense fallback truth |
@@ -517,14 +518,25 @@ generation throughput, so the maintained policy uses Triton for batched rows
 and reports PyTorch/CUDA fallback for streaming rows until a narrower streaming
 kernel wins complete-runtime evidence.
 
-The second LM-head kernel evidence slice covers PLIF/adaptive-LIF forward only.
-`language_plif_triton.py` provides the Triton kernel, PyTorch fallback, no-grad
+The second LM-head kernel evidence slice covers PLIF/adaptive-LIF forward.
+`language_plif_triton.py` provides the Triton kernel, PyTorch fallback,
 runtime-use counters, and a hard-spike forward reference for membrane, spike,
 selective-state, eligibility-trace, and mixed-state updates. The 2026-07-03
 report `reports/language_kernel_evidence/plif-forward-triton-20260703.json`
 passed `float32`/`float16` shape sweeps with geometric microbenchmark speedup
-`3.145x`. Gradient-enabled training still uses the PyTorch
-straight-through-surrogate update until PLIF backward surrogate parity exists.
+`3.145x`.
+
+The third LM-head kernel evidence slice covers `float32` PLIF/adaptive-LIF
+surrogate backward. `language_plif_triton.py` now has a custom autograd path
+whose Triton backward matches the current hard-spike forward and sigmoid
+surrogate derivative. The 2026-07-03 report
+`reports/language_kernel_evidence/plif-surrogate-triton-20260703.json` passed
+three CUDA `float32` shape sweeps with geometric forward+backward microbenchmark
+speedup `1.662x` and marks `float16` backward unsupported. The complete
+training-impact report `reports/language_training_experiments/cuda-plif-surrogate-8192.json`
+trained `63744` tokens at `2596.380 train tokens/sec` with `3840` Triton
+forward and `3840` Triton backward calls, and the paired house-scale sustained
+report reached `524288` tokens at `7578.052 tokens/sec`.
 
 ## Evaluation Gates
 
@@ -634,6 +646,14 @@ kernel reports with the current sustained LM reports. It records
 `plif_triton_forward_parity=true`, while keeping promotion blocked on
 generation coherence plus PLIF backward surrogate, selective-scan,
 block-sparse expert, and sampled-vocab kernel evidence.
+
+`language-suite-plif-surrogate-impact.json` ingests RMSNorm, PLIF-forward, and
+PLIF-surrogate-backward kernel reports with the new PLIF-surrogate sustained
+reports. It records `long_run_throughput=pass`,
+`plif_triton_backward_surrogate_parity=true`, and the 524288-token house-scale
+LM report at `7578.052 tokens/sec`, while keeping promotion blocked on
+generation coherence plus selective-scan, block-sparse expert, and sampled-vocab
+kernel evidence.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

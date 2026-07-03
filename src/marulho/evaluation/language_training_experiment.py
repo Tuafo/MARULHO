@@ -10,6 +10,10 @@ from typing import Any, Sequence
 
 import torch
 
+from marulho.core.language_plif_triton import (
+    language_plif_triton_stats,
+    language_plif_triton_stats_delta,
+)
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_sustained_runtime_evidence import (
     run_language_sustained_runtime_evidence,
@@ -301,6 +305,7 @@ def _train_language_model(
     token_count = 0
     losses: list[float] = []
     grad_norms: list[float] = []
+    plif_stats_before = language_plif_triton_stats()
     started = time.perf_counter()
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
@@ -322,6 +327,10 @@ def _train_language_model(
             losses.append(float(loss.detach().cpu().item()))
             grad_norms.append(float(grad_norm.detach().cpu().item()))
     elapsed = max(0.0, time.perf_counter() - started)
+    plif_stats_delta = language_plif_triton_stats_delta(
+        plif_stats_before,
+        language_plif_triton_stats(),
+    )
     return {
         "surface": "marulho_language_training_experiment_update.v1",
         "train_batch_count": len(batches),
@@ -343,6 +352,10 @@ def _train_language_model(
         "mean_loss_last_8": _mean(losses[-8:]),
         "max_gradient_norm": max(grad_norms) if grad_norms else 0.0,
         "device": str(model.device),
+        "language_plif_triton": plif_stats_delta,
+        "plif_surrogate_triton_used": bool(
+            int(plif_stats_delta.get("triton_backward_calls", 0) or 0) > 0
+        ),
     }
 
 
