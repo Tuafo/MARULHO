@@ -22,6 +22,10 @@ below records local ownership rules and machinery-specific runtime rules.
 - [reporting](reporting/README.md): human-readable summaries over evidence.
 - [config](config/README.md): model/runtime presets and configuration boundaries.
 
+## Cross-Cutting Design
+
+- [Autonomous continual language runtime](../../docs/autonomous-continual-language-runtime.md): maintained architecture lock for the MARULHO-owned next-token language model target, including ownership, Runtime Truth, tokenizer, selective spiking state, GPU/Triton-first execution, routed columns, replay, structural plasticity, checkpoint mutation, Triton kernels, evaluation gates, and scale ladder.
+
 ## Documentation Rule
 
 Keep documentation close to the owning code. If a term changes, update

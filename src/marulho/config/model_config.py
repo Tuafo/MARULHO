@@ -67,6 +67,7 @@ class MarulhoConfig:
     semantic_n_buckets: int = 10_000
     semantic_embed_dim: int = 64
     semantic_top_k_sparse: int = 8
+    semantic_initialize_from_glove: bool = False
     semantic_glove_source: str = "glove-wiki-gigaword-300"
     semantic_glove_vocab_limit: int = 50_000
     semantic_ridge_alpha: float = 1.0

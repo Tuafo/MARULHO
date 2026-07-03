@@ -25,6 +25,63 @@ def _force_route_vote_mode_for_evaluation(
     trainer._column_transition_runtime = ColumnTransitionRuntime(trainer)
 
 
+def _assert_sequence_graph_executor(
+    graph_report: dict[str, object],
+    *,
+    success_count: int,
+    token_count: int,
+    fallback_count: int = 0,
+    python_loop_token_count: int = 0,
+) -> str:
+    assert graph_report["native_sequence_executor_requested"] == (
+        "cuda_graph_conditional_while"
+    )
+    if graph_report["native_sequence_loop_loaded"] is True:
+        assert graph_report["native_burst_replay_enabled"] is True
+        assert graph_report["native_sequence_loop_parent_graph_count"] == 2
+        assert graph_report["native_sequence_loop_parent_graph_token_counts"] == [16]
+        assert graph_report["native_sequence_loop_success_count"] == success_count
+        assert graph_report["native_sequence_loop_token_count"] == token_count
+        assert graph_report["native_sequence_loop_fallback_count"] == fallback_count
+        assert graph_report["native_sequence_loop_failure_count"] == 0
+        assert graph_report["native_burst_replay_success_count"] == success_count
+        assert graph_report["native_burst_replay_token_count"] == token_count
+        assert graph_report["native_burst_replay_fallback_count"] == fallback_count
+        assert (
+            graph_report["native_burst_replay_python_loop_token_count"]
+            == python_loop_token_count
+        )
+        assert graph_report["native_burst_replay_failure_count"] == 0
+        assert graph_report["torch_sequence_graph_success_count"] == 0
+        assert graph_report["torch_sequence_graph_token_count"] == 0
+        return "native"
+
+    assert graph_report["native_burst_replay_enabled"] is False
+    assert graph_report["native_sequence_loop_loaded"] is False
+    assert graph_report["native_sequence_loop_parent_graph_count"] == 0
+    assert graph_report["native_sequence_loop_parent_graph_token_counts"] == []
+    assert graph_report["native_sequence_loop_success_count"] == 0
+    assert graph_report["native_sequence_loop_token_count"] == 0
+    assert graph_report["native_sequence_loop_failure_count"] == 0
+    assert graph_report["native_sequence_loop_last_error"] is not None
+    assert graph_report["native_burst_replay_success_count"] == 0
+    assert graph_report["native_burst_replay_token_count"] == 0
+    assert graph_report["native_burst_replay_fallback_count"] == fallback_count
+    assert (
+        graph_report["native_burst_replay_python_loop_token_count"]
+        == python_loop_token_count
+    )
+    assert graph_report["native_burst_replay_failure_count"] == 0
+    assert graph_report["torch_sequence_graph_loaded"] is True
+    assert graph_report["torch_sequence_graph_count"] == 2
+    assert graph_report["torch_sequence_graph_token_counts"] == [16]
+    assert graph_report["torch_sequence_graph_success_count"] == success_count
+    assert graph_report["torch_sequence_graph_token_count"] == token_count
+    assert graph_report["torch_sequence_graph_fallback_count"] == fallback_count
+    assert graph_report["torch_sequence_graph_failure_count"] == 0
+    return "torch"
+
+
 def test_inplace_transition_falls_back_before_mutation_on_cpu() -> None:
     config = MarulhoConfig(
         n_columns=16,
@@ -2274,28 +2331,20 @@ def test_training_owned_wide_quantum_uses_exact_device_bursts() -> None:
     assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["persistent_executor_sequence_loop_capacity_fixed"] is True
     assert graph_report["native_burst_replay_configured"] is True
-    assert graph_report["native_burst_replay_enabled"] is True
     assert graph_report["native_partial_burst_replay_enabled"] is False
-    assert graph_report["native_burst_replay_backend"] == (
-        "cuda_graph_conditional_while"
-    )
     assert graph_report["native_burst_replay_parent_graph_count"] == 0
     assert graph_report["native_burst_replay_parent_graph_token_counts"] == []
-    assert graph_report["native_burst_replay_success_count"] == 2
-    assert graph_report["native_burst_replay_token_count"] == 32
     assert graph_report["native_burst_replay_lazy_compile_count"] == 0
-    assert graph_report["native_burst_replay_python_loop_token_count"] == 0
-    assert graph_report["native_burst_replay_fallback_count"] == 0
-    assert graph_report["native_burst_replay_failure_count"] == 0
-    assert graph_report["native_sequence_executor_requested"] == (
-        "cuda_graph_conditional_while"
+    sequence_executor = _assert_sequence_graph_executor(
+        graph_report,
+        success_count=2,
+        token_count=32,
     )
-    assert graph_report["native_sequence_loop_parent_graph_count"] == 2
-    assert graph_report["native_sequence_loop_parent_graph_token_counts"] == [16]
-    assert graph_report["native_sequence_loop_success_count"] == 2
-    assert graph_report["native_sequence_loop_token_count"] == 32
-    assert graph_report["native_sequence_loop_fallback_count"] == 0
-    assert graph_report["native_sequence_loop_failure_count"] == 0
+    assert graph_report["native_burst_replay_backend"] == (
+        "cuda_graph_conditional_while"
+        if sequence_executor == "native"
+        else "torch_cuda_graph_sequence"
+    )
     assert graph_report["burst_replay_count"] == 2
     assert graph_report["burst_event_drain_count"] == 1
     assert graph_report["burst_event_drained_token_count"] == 32
@@ -2412,41 +2461,54 @@ def test_training_owned_sequence_can_use_conditional_while_executor() -> None:
     assert report["text_burst_execution_count"] == 2
     assert report["text_burst_token_count"] == 32
     assert report["text_burst_fallback_count"] == 0
-    assert graph_report["native_burst_replay_backend"] == (
-        "cuda_graph_conditional_while"
-    )
     assert graph_report["persistent_executor_burst_tokens"] == 16
     assert graph_report["persistent_executor_repeated_child_burst_tokens"] == 8
     assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["native_burst_replay_parent_graph_count"] == 0
-    assert graph_report["native_sequence_executor_requested"] == (
+    sequence_executor = _assert_sequence_graph_executor(
+        graph_report,
+        success_count=2,
+        token_count=32,
+    )
+    if sequence_executor == "native":
+        assert (
+            graph_report[
+                "native_sequence_loop_sequential_state_parity_gate_status"
+            ]
+            == "passed_focused_cuda_state_parity"
+        )
+        assert (
+            graph_report[
+                "native_sequence_loop_sequential_state_parity_gate_passed"
+            ]
+            is True
+        )
+        assert (
+            graph_report["native_sequence_loop_bounded_quality_gate_status"]
+            == "passed_retained_one_tick_graph_body_quality_boundary"
+        )
+        assert (
+            graph_report["native_sequence_loop_bounded_quality_gate_passed"]
+            is True
+        )
+        assert graph_report["native_sequence_loop_backend"] == (
+            "cuda_graph_conditional_while"
+        )
+    else:
+        assert (
+            graph_report[
+                "native_sequence_loop_sequential_state_parity_gate_status"
+            ]
+            == "not_exercised_fallback_before_mutation"
+        )
+        assert graph_report["torch_sequence_graph_backend"] == (
+            "torch_cuda_graph_sequence"
+        )
+    assert graph_report["native_burst_replay_backend"] == (
         "cuda_graph_conditional_while"
+        if sequence_executor == "native"
+        else "torch_cuda_graph_sequence"
     )
-    assert (
-        graph_report[
-            "native_sequence_loop_sequential_state_parity_gate_status"
-        ]
-        == "passed_focused_cuda_state_parity"
-    )
-    assert (
-        graph_report["native_sequence_loop_sequential_state_parity_gate_passed"]
-        is True
-    )
-    assert (
-        graph_report["native_sequence_loop_bounded_quality_gate_status"]
-        == "passed_retained_one_tick_graph_body_quality_boundary"
-    )
-    assert graph_report["native_sequence_loop_bounded_quality_gate_passed"] is True
-    assert graph_report["native_sequence_loop_loaded"] is True
-    assert graph_report["native_sequence_loop_backend"] == (
-        "cuda_graph_conditional_while"
-    )
-    assert graph_report["native_sequence_loop_parent_graph_count"] == 2
-    assert graph_report["native_sequence_loop_parent_graph_token_counts"] == [16]
-    assert graph_report["native_sequence_loop_success_count"] == 2
-    assert graph_report["native_sequence_loop_token_count"] == 32
-    assert graph_report["native_sequence_loop_fallback_count"] == 0
-    assert graph_report["native_sequence_loop_failure_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -2555,43 +2617,22 @@ def test_conditional_while_unavailable_falls_back_before_mutation(
         assert torch.equal(sequential_tensor, sequence_tensor)
     report = sequence.column_transition_runtime_report()
     graph_report = report["cuda_graph_route_transition"]
-    assert report["text_burst_execution_count"] == 2
+    assert report["text_burst_execution_count"] == 1
     assert report["text_burst_token_count"] == 16
     assert report["text_burst_fallback_count"] == 0
-    assert graph_report["native_sequence_executor_requested"] == (
-        "cuda_graph_conditional_while"
+    sequence_executor = _assert_sequence_graph_executor(
+        graph_report,
+        success_count=1,
+        token_count=16,
     )
-    assert graph_report["native_sequence_loop_loaded"] is False
-    assert (
-        graph_report[
-            "native_sequence_loop_sequential_state_parity_gate_status"
-        ]
-        == "not_exercised_fallback_before_mutation"
-    )
-    assert (
-        graph_report["native_sequence_loop_sequential_state_parity_gate_passed"]
-        is False
-    )
-    assert (
-        graph_report["native_sequence_loop_bounded_quality_gate_status"]
-        == "not_exercised_fallback_before_mutation"
-    )
-    assert graph_report["native_sequence_loop_bounded_quality_gate_passed"] is False
-    assert graph_report["native_sequence_loop_success_count"] == 0
-    assert graph_report["native_sequence_loop_token_count"] == 0
+    assert sequence_executor == "torch"
     assert graph_report["native_sequence_loop_fallback_count"] == 1
-    assert graph_report["native_sequence_loop_failure_count"] == 0
-    assert graph_report["native_sequence_loop_parent_graph_count"] == 0
-    assert graph_report["persistent_executor_burst_tokens"] == 8
+    assert graph_report["persistent_executor_burst_tokens"] == 16
     assert graph_report["persistent_executor_repeated_child_burst_tokens"] == 8
     assert graph_report["persistent_executor_sequence_loop_tokens"] == 16
     assert graph_report["native_burst_replay_backend"] == (
-        "native_repeated_child_graph"
+        "torch_cuda_graph_sequence"
     )
-    assert graph_report["native_burst_replay_success_count"] == 2
-    assert graph_report["native_burst_replay_token_count"] == 16
-    assert graph_report["native_burst_replay_fallback_count"] == 0
-    assert graph_report["native_burst_replay_failure_count"] == 0
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -2699,25 +2740,21 @@ def test_training_owned_partial_sequence_uses_retired_python_loop_fallback(
     assert report["text_burst_token_count"] == 18
     assert report["text_burst_fallback_count"] == 0
     assert graph_report["native_partial_burst_replay_enabled"] is False
-    assert graph_report["native_burst_replay_backend"] == "python_loop_partial_disabled"
     assert graph_report["native_burst_replay_parent_graph_count"] == 0
     assert graph_report["native_burst_replay_parent_graph_token_counts"] == []
-    assert graph_report["native_burst_replay_success_count"] == 1
-    assert graph_report["native_burst_replay_token_count"] == 16
     assert graph_report["native_burst_replay_lazy_compile_count"] == 0
-    assert graph_report["native_burst_replay_lazy_compile_failure_count"] == 0
-    assert graph_report["native_burst_replay_fallback_count"] == 1
-    assert graph_report["native_burst_replay_python_loop_token_count"] == 2
-    assert graph_report["native_burst_replay_failure_count"] == 0
-    assert graph_report["native_sequence_executor_requested"] == (
-        "cuda_graph_conditional_while"
+    sequence_executor = _assert_sequence_graph_executor(
+        graph_report,
+        success_count=1,
+        token_count=16,
+        fallback_count=1,
+        python_loop_token_count=2,
     )
-    assert graph_report["native_sequence_loop_parent_graph_count"] == 2
-    assert graph_report["native_sequence_loop_parent_graph_token_counts"] == [16]
-    assert graph_report["native_sequence_loop_success_count"] == 1
-    assert graph_report["native_sequence_loop_token_count"] == 16
-    assert graph_report["native_sequence_loop_fallback_count"] == 1
-    assert graph_report["native_sequence_loop_failure_count"] == 0
+    assert graph_report["native_burst_replay_backend"] == (
+        "python_loop_partial_disabled"
+        if sequence_executor == "native"
+        else "python_loop_after_native_unavailable"
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
@@ -2772,14 +2809,13 @@ def test_training_owned_sequence_input_staging_segments_around_host_truth_phase(
     assert report["text_burst_execution_count"] == 12
     assert report["text_burst_token_count"] == 128
     assert report["text_burst_fallback_reasons"] == {}
-    assert graph_report["native_sequence_executor_requested"] == (
-        "cuda_graph_conditional_while"
+    _assert_sequence_graph_executor(
+        graph_report,
+        success_count=4,
+        token_count=64,
+        fallback_count=8,
+        python_loop_token_count=64,
     )
-    assert graph_report["native_sequence_loop_parent_graph_token_counts"] == [16]
-    assert graph_report["native_sequence_loop_success_count"] == 4
-    assert graph_report["native_sequence_loop_token_count"] == 64
-    assert graph_report["native_sequence_loop_fallback_count"] == 8
-    assert graph_report["native_sequence_loop_failure_count"] == 0
     assert graph_report["quantum_input_stage_count"] == 1
     assert graph_report["quantum_input_staged_token_count"] == 128
     assert graph_report["quantum_input_reuse_count"] == 128

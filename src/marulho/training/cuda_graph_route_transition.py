@@ -111,6 +111,14 @@ class CudaGraphRouteTransition:
         self.native_sequence_loop_compile_latency_ms = 0.0
         self.native_sequence_loop_backend = "disabled"
         self.native_sequence_loop_last_error: str | None = None
+        self.torch_sequence_graph_enabled = False
+        self.torch_sequence_graph_attempt_count = 0
+        self.torch_sequence_graph_success_count = 0
+        self.torch_sequence_graph_token_count = 0
+        self.torch_sequence_graph_fallback_count = 0
+        self.torch_sequence_graph_failure_count = 0
+        self.torch_sequence_graph_backend = "disabled"
+        self.torch_sequence_graph_last_error: str | None = None
         self._native_burst_token_capacity = self._resolve_native_burst_token_capacity()
         self._sequence_loop_token_capacity = self._resolve_sequence_loop_token_capacity()
         self._burst_token_capacity = (
@@ -122,6 +130,8 @@ class CudaGraphRouteTransition:
         self._graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._burst_graphs: dict[str, torch.cuda.CUDAGraph] = {}
         self._burst_graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
+        self._torch_sequence_graphs: dict[str, torch.cuda.CUDAGraph] = {}
+        self._torch_sequence_graph_outputs: dict[str, dict[str, torch.Tensor]] = {}
         self._native_burst_graph_execs: dict[tuple[str, int], Any] = {}
         self._native_sequence_graph_execs: dict[tuple[str, int], Any] = {}
         self._route_vectors: torch.Tensor | None = None
@@ -158,6 +168,7 @@ class CudaGraphRouteTransition:
         self._burst_slot: torch.Tensor | None = None
         self._burst_pending_event_count = 0
         self._last_graph_name: str | None = None
+        self._last_burst_outputs: dict[str, torch.Tensor] | None = None
         self._last_result: tuple[float, ...] | None = None
         self._last_result_from_host_sync = False
         self._surprise_update_pending = False
@@ -636,16 +647,44 @@ class CudaGraphRouteTransition:
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
-                burst_graph = torch.cuda.CUDAGraph(keep_graph=True)
+                burst_graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(burst_graph, stream=stream):
                     burst_outputs = self._burst_tick_ops(
                         candidates,
                         use_candidate_predictive_transition=use_candidate_predictive,
                     )
                 torch.cuda.synchronize(device)
-                burst_graph.instantiate()
+                instantiate = getattr(burst_graph, "instantiate", None)
+                if callable(instantiate):
+                    instantiate()
                 self._burst_graphs[name] = burst_graph
                 self._burst_graph_outputs[name] = burst_outputs
+                self.capture_count += 1
+                for tensor, snapshot in zip(mutable, snapshots):
+                    tensor.copy_(snapshot)
+                torch.cuda.synchronize(device)
+                for _ in range(self._sequence_loop_token_capacity):
+                    self._burst_tick_ops(
+                        candidates,
+                        use_candidate_predictive_transition=use_candidate_predictive,
+                    )
+                torch.cuda.synchronize(device)
+                for tensor, snapshot in zip(mutable, snapshots):
+                    tensor.copy_(snapshot)
+                torch.cuda.synchronize(device)
+                sequence_graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(sequence_graph, stream=stream):
+                    sequence_outputs: dict[str, torch.Tensor] | None = None
+                    for _ in range(self._sequence_loop_token_capacity):
+                        sequence_outputs = self._burst_tick_ops(
+                            candidates,
+                            use_candidate_predictive_transition=use_candidate_predictive,
+                        )
+                torch.cuda.synchronize(device)
+                if sequence_outputs is None:
+                    raise RuntimeError("cuda_graph_sequence_capture_empty")
+                self._torch_sequence_graphs[name] = sequence_graph
+                self._torch_sequence_graph_outputs[name] = sequence_outputs
                 self.capture_count += 1
             for tensor, snapshot in zip(mutable, snapshots):
                 tensor.copy_(snapshot)
@@ -661,6 +700,8 @@ class CudaGraphRouteTransition:
             self._graph_outputs.clear()
             self._burst_graphs.clear()
             self._burst_graph_outputs.clear()
+            self._torch_sequence_graphs.clear()
+            self._torch_sequence_graph_outputs.clear()
             self._native_burst_graph_execs.clear()
             self._native_sequence_graph_execs.clear()
         finally:
@@ -730,6 +771,7 @@ class CudaGraphRouteTransition:
 
     def _replay_burst_graph(self, graph_name: str, token_count: int) -> None:
         graph = self._burst_graphs[graph_name]
+        self._last_burst_outputs = self._burst_graph_outputs[graph_name]
         if not self._native_burst_replay_requested():
             self.native_burst_replay_backend = "python_loop_disabled"
             for _ in range(token_count):
@@ -744,6 +786,12 @@ class CudaGraphRouteTransition:
         ):
             return
 
+        if (
+            self.torch_sequence_graph_enabled
+            and self._replay_torch_sequence_graph(graph_name, token_count)
+        ):
+            return
+
         if not self.native_burst_replay_enabled:
             started = time.perf_counter_ns()
             load_error = native_cuda_graph_replay_error()
@@ -752,6 +800,7 @@ class CudaGraphRouteTransition:
             ) / 1e6
             if load_error is not None:
                 self.native_burst_replay_fallback_count += 1
+                self.native_burst_replay_python_loop_token_count += token_count
                 self.native_burst_replay_last_error = load_error
                 self.native_burst_replay_backend = (
                     "python_loop_after_native_unavailable"
@@ -836,6 +885,42 @@ class CudaGraphRouteTransition:
         self.native_sequence_loop_success_count += 1
         self.native_sequence_loop_token_count += token_count
         self.native_sequence_loop_last_error = None
+        return True
+
+    def _replay_torch_sequence_graph(
+        self,
+        graph_name: str,
+        token_count: int,
+    ) -> bool:
+        self.torch_sequence_graph_attempt_count += 1
+        if token_count != self._sequence_loop_token_capacity:
+            self.torch_sequence_graph_fallback_count += 1
+            self.torch_sequence_graph_backend = "python_loop_partial_disabled"
+            self.torch_sequence_graph_last_error = (
+                "torch_sequence_graph_requires_full_sequence_capacity"
+            )
+            return False
+        graph = self._torch_sequence_graphs.get(graph_name)
+        outputs = self._torch_sequence_graph_outputs.get(graph_name)
+        if graph is None or outputs is None:
+            self.torch_sequence_graph_fallback_count += 1
+            self.torch_sequence_graph_backend = "python_loop_no_sequence_graph"
+            self.torch_sequence_graph_last_error = "torch_sequence_graph_missing"
+            return False
+        try:
+            graph.replay()
+            self.native_burst_replay_backend = "torch_cuda_graph_sequence"
+            self.torch_sequence_graph_backend = "torch_cuda_graph_sequence"
+        except Exception as exc:
+            self.torch_sequence_graph_failure_count += 1
+            self.torch_sequence_graph_last_error = f"{type(exc).__name__}: {exc}"
+            self.native_burst_replay_backend = "torch_cuda_graph_sequence_failed"
+            self.torch_sequence_graph_backend = "torch_cuda_graph_sequence_failed"
+            raise
+        self.torch_sequence_graph_success_count += 1
+        self.torch_sequence_graph_token_count += token_count
+        self.torch_sequence_graph_last_error = None
+        self._last_burst_outputs = outputs
         return True
 
     def _ensure_native_burst_graph_exec(
@@ -946,17 +1031,37 @@ class CudaGraphRouteTransition:
         self._native_burst_graph_execs.clear()
         self._native_sequence_graph_execs.clear()
         self.native_sequence_loop_enabled = False
+        self.torch_sequence_graph_enabled = False
         if not self._native_burst_replay_requested():
             self.native_burst_replay_backend = "python_loop_disabled"
             self.native_sequence_loop_backend = "disabled"
+            self.torch_sequence_graph_backend = "disabled"
             return
         if (
             self._native_sequence_loop_requested()
             and self._warm_native_sequence_loop()
         ):
             return
+        if (
+            self._native_sequence_loop_requested()
+            and self._warm_torch_sequence_graph()
+        ):
+            return
         self._burst_token_capacity = self._native_burst_token_capacity
         self._warm_repeated_child_burst_replay()
+
+    def _warm_torch_sequence_graph(self) -> bool:
+        if not self._torch_sequence_graphs:
+            self.torch_sequence_graph_enabled = False
+            self.torch_sequence_graph_backend = "unavailable"
+            self.torch_sequence_graph_last_error = "torch_sequence_graph_missing"
+            return False
+        self._burst_token_capacity = self._sequence_loop_token_capacity
+        self.torch_sequence_graph_enabled = True
+        self.torch_sequence_graph_backend = "torch_cuda_graph_sequence_ready"
+        self.torch_sequence_graph_last_error = None
+        self.native_burst_replay_backend = "torch_cuda_graph_sequence_ready"
+        return True
 
     def _warm_repeated_child_burst_replay(self) -> None:
         started = time.perf_counter_ns()
@@ -1685,7 +1790,7 @@ class CudaGraphRouteTransition:
         self.recent_spike_row_device_owned_count += token_count
         self._burst_pending_event_count += token_count
         self._last_graph_name = graph_name
-        outputs = self._burst_graph_outputs[graph_name]
+        outputs = self._last_burst_outputs or self._burst_graph_outputs[graph_name]
         trainer._prev_routing_key = self._previous_routing_key
         comp.last_input_pattern = outputs["normalized_input"]
         comp.last_projected_input = outputs["projected_input"]
@@ -2274,6 +2379,34 @@ class CudaGraphRouteTransition:
                 self.native_sequence_loop_compile_latency_ms
             ),
             "native_sequence_loop_last_error": self.native_sequence_loop_last_error,
+            "torch_sequence_graph_loaded": bool(
+                self.torch_sequence_graph_enabled
+            ),
+            "torch_sequence_graph_backend": self.torch_sequence_graph_backend,
+            "torch_sequence_graph_count": int(
+                len(self._torch_sequence_graphs)
+            ),
+            "torch_sequence_graph_token_counts": [
+                int(self._sequence_loop_token_capacity)
+            ]
+            if self._torch_sequence_graphs
+            else [],
+            "torch_sequence_graph_attempt_count": int(
+                self.torch_sequence_graph_attempt_count
+            ),
+            "torch_sequence_graph_success_count": int(
+                self.torch_sequence_graph_success_count
+            ),
+            "torch_sequence_graph_token_count": int(
+                self.torch_sequence_graph_token_count
+            ),
+            "torch_sequence_graph_fallback_count": int(
+                self.torch_sequence_graph_fallback_count
+            ),
+            "torch_sequence_graph_failure_count": int(
+                self.torch_sequence_graph_failure_count
+            ),
+            "torch_sequence_graph_last_error": self.torch_sequence_graph_last_error,
             "burst_replay_count": int(self.burst_replay_count),
             "burst_replayed_token_count": int(
                 self.burst_replayed_token_count

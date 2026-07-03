@@ -31,3 +31,6 @@ audio, event-camera style input, and multimodal streams.
   memory writes every few tokens.
 - Cross-modal text-only background ticks should use specialist sleep semantics
   rather than decaying dormant sensory traces every token.
+- Semantic encoder construction is offline/deterministic by default. GloVe
+  bucket initialization is an explicit `semantic_initialize_from_glove=True`
+  setup step because it may touch cache, downloader, PCA, and ridge-solve work.

@@ -27,6 +27,9 @@ _Avoid_: re-expanding status into a giant schema court system, treating trace te
 **Subcortex** — the grounded predictive spiking substrate. Owns sparse routing, multimodal grounding, predictive error, neuromodulation, replay, and curiosity pressure. Does not reason in language.
 _Avoid_: SSN, raw SNN side
 
+**Autonomous Continual Language Runtime** — the target MARULHO-owned next-token language model architecture described in `docs/autonomous-continual-language-runtime.md`. It keeps tokenizer/vocabulary state, selective spiking recurrence, routed columns/experts, replay, structural plasticity, LM head checkpoints, Triton kernels, and evaluation gates inside MARULHO ownership. Current local transition readout remains bounded evidence until the checkpointed LM path has loss/perplexity, online-learning, rollback, and long-run Runtime Evidence.
+_Avoid_: treating a design lock as implemented language-model capability, hiding an external LLM/Cortex/ThoughtLoop behind generation, moving cognition into `service`, or promoting short/toy runs as scale-ready evidence.
+
 **External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 

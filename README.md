@@ -129,6 +129,21 @@ python -m venv .venv
 pip install -e .[dev]
 ```
 
+For CUDA/Triton/native-graph validation on Windows, install the CUDA extra in
+the same environment:
+
+```bash
+pip install -e .[cuda]
+```
+
+Native parent CUDA graph promotion also requires a PyTorch build that exposes
+`torch.cuda.CUDAGraph.raw_cuda_graph()`. When that raw child-graph handle is not
+available, MARULHO reports
+`torch_cudagraph_raw_handle_unavailable` and must not promote conditional native
+sequence executor claims from fallback execution. In that environment, full
+sequence quanta may still use the separately reported `torch_sequence_graph_*`
+executor, which is CUDA graph evidence but not native conditional-WHILE evidence.
+
 Run tests:
 
 ```bash
@@ -156,6 +171,7 @@ For a clean checkout, generate checkpoints locally before launching the service.
 The maintained documentation set is small:
 
 - `CONTEXT.md`: project vocabulary and domain model.
+- `docs/autonomous-continual-language-runtime.md`: architecture lock for the MARULHO-owned continual language model target. This is design guidance, not implementation evidence.
 - `src/marulho/README.md`: package-level machinery map.
 - `src/marulho/*/README.md`: local ownership rules, hot-path boundaries, and evidence notes for each machinery folder.
 - `tests`: executable behavior expectations.

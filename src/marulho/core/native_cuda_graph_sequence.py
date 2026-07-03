@@ -15,6 +15,17 @@ _MODULE: Any | None = None
 _LOAD_ERROR: str | None = None
 
 
+def _raw_cuda_graph_handle_error() -> str | None:
+    if hasattr(torch.cuda.CUDAGraph, "raw_cuda_graph"):
+        return None
+    return (
+        "torch_cudagraph_raw_handle_unavailable: "
+        f"torch {torch.__version__} torch.cuda.CUDAGraph does not expose "
+        "raw_cuda_graph(); native CUDA graph parent executors require a raw "
+        "child cudaGraph_t handle"
+    )
+
+
 def _prepend_path(path: str | None) -> None:
     if not path:
         return
@@ -130,6 +141,9 @@ def native_cuda_graph_sequence_available() -> bool:
 
 def native_cuda_graph_sequence_error() -> str | None:
     global _LOAD_ERROR
+    raw_handle_error = _raw_cuda_graph_handle_error()
+    if raw_handle_error is not None:
+        return raw_handle_error
     if _MODULE is not None:
         return None
     if _LOAD_ERROR is not None:
@@ -196,9 +210,15 @@ def make_conditional_loop_cuda_graph_exec(
 ) -> Any:
     if count <= 0:
         raise ValueError("count must be positive")
+    raw_cuda_graph = getattr(graph, "raw_cuda_graph", None)
+    if not callable(raw_cuda_graph):
+        raise RuntimeError(
+            _raw_cuda_graph_handle_error()
+            or "torch_cudagraph_raw_handle_unavailable"
+        )
     module = _load_extension()
     return module.make_conditional_loop_graph_exec(
-        int(graph.raw_cuda_graph()),
+        int(raw_cuda_graph()),
         int(count),
     )
 

@@ -621,6 +621,15 @@ def _extract_failure_fallback_counters(
         "native_sequence_loop_last_error": graph_report.get(
             "native_sequence_loop_last_error"
         ),
+        "torch_sequence_graph_fallback_count": graph_report.get(
+            "torch_sequence_graph_fallback_count"
+        ),
+        "torch_sequence_graph_failure_count": graph_report.get(
+            "torch_sequence_graph_failure_count"
+        ),
+        "torch_sequence_graph_last_error": graph_report.get(
+            "torch_sequence_graph_last_error"
+        ),
         "burst_replay_failure_count": graph_report.get(
             "burst_replay_failure_count"
         ),
@@ -664,6 +673,24 @@ def _executor_evidence(
             ),
             "native_sequence_loop_backend": graph_report.get(
                 "native_sequence_loop_backend"
+            ),
+            "torch_sequence_graph_loaded": graph_report.get(
+                "torch_sequence_graph_loaded"
+            ),
+            "torch_sequence_graph_backend": graph_report.get(
+                "torch_sequence_graph_backend"
+            ),
+            "torch_sequence_graph_success_count": graph_report.get(
+                "torch_sequence_graph_success_count"
+            ),
+            "torch_sequence_graph_token_count": graph_report.get(
+                "torch_sequence_graph_token_count"
+            ),
+            "torch_sequence_graph_fallback_count": graph_report.get(
+                "torch_sequence_graph_fallback_count"
+            ),
+            "torch_sequence_graph_failure_count": graph_report.get(
+                "torch_sequence_graph_failure_count"
             ),
         },
     }

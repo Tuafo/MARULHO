@@ -29,7 +29,8 @@ harnesses.
 - Hot-window reports may profile trainer stages, but profiling is evidence and
   must not become ordinary runtime work.
 - CUDA claims need observed backend/device evidence, fallback counts, and
-  failure counts.
+  failure counts. Treat `torch_sequence_graph_*` evidence as distinct from
+  native conditional-WHILE evidence; do not merge the counters.
 - Regressions should preserve exact failing repros and rejected reports rather
   than only reporting the winning run.
 
@@ -46,6 +47,9 @@ harnesses.
   sequence tokens/sec versus `6507.41` per-quantum tokens/sec. It used
   `cuda_graph_route_transition_burst`, backend `cuda_graph_conditional_while`,
   device `cuda:0`, and zero graph/native/burst failures.
+  On PyTorch builds without `torch.cuda.CUDAGraph.raw_cuda_graph()`, current
+  runs must report `torch_sequence_graph_*` separately instead of claiming this
+  native backend.
 - Continuous stress reports at `256`, `1024`, and `4096` tokens are smoke/debug
   history only. They passed through the same conditional-WHILE CUDA backend
   with zero graph/native/burst failures, but they are not promotion evidence.

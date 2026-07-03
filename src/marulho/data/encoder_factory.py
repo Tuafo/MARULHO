@@ -24,12 +24,18 @@ def build_encoder(config: "MarulhoConfig", device: torch.device | str | None = N
         from marulho.data.semantic_encoder import SemanticEncoder
 
         encoder = SemanticEncoder.from_config(config, device=resolved_device)
-        result = encoder.initialize_from_glove(
-            source=config.semantic_glove_source,
-            vocab_limit=config.semantic_glove_vocab_limit,
-            ridge_alpha=config.semantic_ridge_alpha,
-        )
-        logger.info("Semantic encoder initialized: %s", result.get("source", "unknown"))
+        if bool(getattr(config, "semantic_initialize_from_glove", False)):
+            result = encoder.initialize_from_glove(
+                source=config.semantic_glove_source,
+                vocab_limit=config.semantic_glove_vocab_limit,
+                ridge_alpha=config.semantic_ridge_alpha,
+            )
+            logger.info(
+                "Semantic encoder initialized: %s",
+                result.get("source", "unknown"),
+            )
+        else:
+            logger.info("Semantic encoder using deterministic random bucket init")
         return encoder
 
     from marulho.data.rtf_encoder import RTFEncoder

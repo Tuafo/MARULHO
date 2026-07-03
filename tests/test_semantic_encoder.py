@@ -316,6 +316,48 @@ class TestEncoderFactory:
         assert isinstance(enc, SemanticEncoder)
         assert enc.device_report()["bucket_embeddings_device"] == "cpu"
 
+    def test_factory_does_not_initialize_glove_by_default(self, monkeypatch):
+        calls = []
+
+        def fail_initializer(self, **kwargs):
+            calls.append(kwargs)
+            raise AssertionError("GloVe initialization must be explicit")
+
+        monkeypatch.setattr(SemanticEncoder, "initialize_from_glove", fail_initializer)
+        cfg = MarulhoConfig(input_representation="semantic", semantic_n_buckets=128)
+
+        enc = build_encoder(cfg, device=torch.device("cpu"))
+
+        assert isinstance(enc, SemanticEncoder)
+        assert calls == []
+
+    def test_factory_initializes_glove_when_enabled(self, monkeypatch):
+        calls = []
+
+        def fake_initializer(self, **kwargs):
+            calls.append(kwargs)
+            return {"source": "fixture"}
+
+        monkeypatch.setattr(SemanticEncoder, "initialize_from_glove", fake_initializer)
+        cfg = MarulhoConfig(
+            input_representation="semantic",
+            semantic_initialize_from_glove=True,
+            semantic_glove_source="fixture-glove",
+            semantic_glove_vocab_limit=17,
+            semantic_ridge_alpha=0.25,
+        )
+
+        enc = build_encoder(cfg, device=torch.device("cpu"))
+
+        assert isinstance(enc, SemanticEncoder)
+        assert calls == [
+            {
+                "source": "fixture-glove",
+                "vocab_limit": 17,
+                "ridge_alpha": 0.25,
+            }
+        ]
+
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
     def test_semantic_encoder_can_keep_outputs_and_chunking_on_cuda(self):
         enc = SemanticEncoder(n_buckets=128, enable_learned_chunking=True, device="cuda")
