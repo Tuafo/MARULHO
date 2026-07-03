@@ -72,6 +72,12 @@ harnesses.
   fallback counts, environment contention, and promotion gates. It is component
   evidence only; the current PyTorch LM path remains `promotes_hot_path=false`
   until Triton/CUDA parity and complete-runtime impact evidence exist.
+- `language_training_experiment.py` is the fast mutable LM experiment runner.
+  It trains a configurable MARULHO-owned routed selective-spiking LM on local
+  text, records training throughput, heldout loss/perplexity before and after
+  training, owned generation samples, a checkpoint, and a paired sustained
+  inference report. It is meant to accelerate model experiments, not create a
+  new promotion gate.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and
@@ -129,6 +135,12 @@ LM-head component evidence:
 
 ```bash
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint checkpoints/marulho/language.pt --output reports/language_runtime_evidence/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600
+```
+
+LM training experiment:
+
+```bash
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/local-run.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192
 ```
 
 LM scale ladder inventory:

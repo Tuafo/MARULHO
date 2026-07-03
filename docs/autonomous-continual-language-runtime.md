@@ -87,6 +87,14 @@ health, fallback counts, environment contention, and promotion gates. The runner
 is component evidence for the LM head; it does not promote the PyTorch path as a
 Triton/CUDA hot path or replace the full `MarulhoBrain` sustained runtime gate.
 
+`marulho.evaluation.language_training_experiment` is now the fast mutable LM
+science loop. It trains a configurable routed selective-spiking LM on local
+text, records training throughput plus heldout loss/perplexity before and after
+the update, emits MARULHO-owned generation samples, saves a checkpoint, and runs
+paired sustained inference. Its job is to accelerate bigger experiment cycles;
+it records generated text and metrics honestly rather than turning every run
+into a new gate.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;
