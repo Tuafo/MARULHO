@@ -36,6 +36,9 @@ _Avoid_: calling the PyTorch fallback a promoted hot path, dropping the recurren
 **LM Continual Learning Window** — the training-owned bounded update surface for the MARULHO LM head. It snapshots language-model weights, applies gradient updates on new batches with replay protection, measures old-domain forgetting, new-domain improvement, replay retention, spike-rate delta, update throughput, and rollback hashes, and records the report through `MarulhoBrain` when installed. It is online-learning evidence, not a service-owned cognition loop or long-run promotion by itself.
 _Avoid_: triggering language learning from status reads, accepting improvement without old-domain/replay measurements, or hiding rollback/forgetting evidence.
 
+**LM Routed Expert Layer** — the training-owned sparse expert foundation behind the MARULHO LM head. It uses a bounded candidate plan to score a subset of expert columns, wakes top-k experts, reports active columns, candidate rows, output candidates, active parameters per token, route device, latency, and fallback truth when all experts are scored. It is PyTorch routing evidence, not a promoted Triton block-sparse dispatcher.
+_Avoid_: counting configured experts as active work, hiding all-column route scoring, or claiming sparse execution without active-parameter and fallback evidence.
+
 **External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 

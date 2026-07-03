@@ -46,6 +46,14 @@ hashes, then records the report in `MarulhoBrain` when the LM runtime is
 installed. This is review evidence for continual learning, not long-run
 promotion.
 
+Iteration 4 has a first LM routed-expert foundation in
+`RoutedLanguageExpertLayer`. The PyTorch path builds bounded token-hash route
+candidates, scores only candidate rows, wakes top-k experts, reports total and
+active columns, output candidate count, active parameters per token, route
+device, latency, and whether all columns were scored. This is routing evidence
+for the LM path; block-sparse CUDA/Triton dispatch and complete-runtime impact
+reports remain future gates.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

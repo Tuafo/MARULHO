@@ -143,6 +143,44 @@ def test_selective_state_cache_matches_full_sequence_suffix() -> None:
     )
 
 
+def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() -> None:
+    torch.manual_seed(13)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=6,
+            active_expert_count=2,
+            route_candidate_count=3,
+            expert_hidden_dim=24,
+        )
+    )
+
+    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    result["loss"].backward()
+    routing = result["telemetry"]["routing"]
+
+    assert routing["surface"] == "marulho_routed_language_experts.v1"
+    assert routing["enabled"] is True
+    assert routing["route_plan_source"] == "token_hash_candidate_bank"
+    assert routing["total_columns"] == 6
+    assert 1 <= routing["active_columns"] <= 6
+    assert routing["active_expert_count_per_token"] == 2
+    assert routing["route_candidate_count"] == 3
+    assert routing["candidate_rows_scored"] == split.train[0].input_ids.numel() * 3
+    assert routing["output_candidate_count"] == 2
+    assert routing["runs_all_columns"] is False
+    assert routing["fallback_reason"] is None
+    assert routing["route_device"] == "cpu"
+    assert routing["route_latency_ms"] >= 0.0
+    assert routing["active_parameters_per_token"] > 0
+    assert model.routed_experts.route_keys.grad is not None
+    assert torch.isfinite(model.routed_experts.route_keys.grad).all()
+
+
 def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
     torch.manual_seed(11)
     tokenizer = ByteLevelLanguageTokenizer()

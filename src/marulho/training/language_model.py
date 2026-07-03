@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import time
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
@@ -23,6 +24,10 @@ class LanguageModelConfig:
     state_dim: int = 128
     spike_slope: float = 5.0
     adaptive_timestep_budget: int = 1
+    expert_count: int = 0
+    active_expert_count: int = 1
+    route_candidate_count: int = 0
+    expert_hidden_dim: int = 0
     active_language_path: str = "marulho_lm_head"
 
 
@@ -245,6 +250,175 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         )
 
 
+class RoutedLanguageExpertLayer(nn.Module):
+    """Sparse routed expert layer for MARULHO LM hidden states."""
+
+    surface = "marulho_routed_language_experts.v1"
+
+    def __init__(
+        self,
+        state_dim: int,
+        *,
+        expert_count: int,
+        active_expert_count: int,
+        route_candidate_count: int,
+        expert_hidden_dim: int = 0,
+    ) -> None:
+        super().__init__()
+        self.state_dim = int(state_dim)
+        self.expert_count = max(0, int(expert_count))
+        self.active_expert_count = max(1, int(active_expert_count))
+        self.route_candidate_count = max(0, int(route_candidate_count))
+        hidden_dim = int(expert_hidden_dim) if int(expert_hidden_dim) > 0 else self.state_dim * 2
+        self.expert_hidden_dim = hidden_dim
+        if self.expert_count > 0:
+            self.route_keys = nn.Parameter(torch.empty(self.expert_count, self.state_dim))
+            self.route_bias = nn.Parameter(torch.zeros(self.expert_count))
+            nn.init.normal_(self.route_keys, mean=0.0, std=self.state_dim**-0.5)
+        else:
+            self.register_parameter("route_keys", None)
+            self.register_parameter("route_bias", None)
+        self.experts = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(self.state_dim, hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(hidden_dim, self.state_dim),
+                )
+                for _ in range(self.expert_count)
+            ]
+        )
+
+    @property
+    def enabled(self) -> bool:
+        return self.expert_count > 0
+
+    def candidate_count(self) -> int:
+        if not self.enabled:
+            return 0
+        if self.route_candidate_count <= 0:
+            return self.expert_count
+        return min(self.expert_count, self.route_candidate_count)
+
+    def _expert_parameter_count(self) -> int:
+        if not self.experts:
+            return 0
+        return sum(int(parameter.numel()) for parameter in self.experts[0].parameters())
+
+    def _dense_candidate_ids(
+        self,
+        *,
+        batch_size: int,
+        time_steps: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        return torch.arange(self.expert_count, device=device, dtype=torch.long).view(
+            1,
+            1,
+            self.expert_count,
+        ).expand(batch_size, time_steps, self.expert_count)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        candidate_ids: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        if hidden.ndim != 3:
+            raise ValueError("Routed language experts expect [batch, time, state_dim]")
+        batch_size, time_steps, _state_dim = hidden.shape
+        if not self.enabled:
+            return hidden, {
+                "surface": self.surface,
+                "enabled": False,
+                "total_columns": 0,
+                "active_columns": 0,
+                "candidate_rows_scored": 0,
+                "output_candidate_count": 0,
+                "runs_all_columns": False,
+                "fallback_reason": "language_expert_routing_disabled",
+                "route_device": str(hidden.device),
+                "route_latency_ms": 0.0,
+                "active_parameters_per_token": 0,
+            }
+
+        started = time.perf_counter()
+        if candidate_ids is None:
+            candidate_ids = self._dense_candidate_ids(
+                batch_size=batch_size,
+                time_steps=time_steps,
+                device=hidden.device,
+            )
+            runs_all_columns = True
+            fallback_reason: str | None = "route_candidate_plan_missing_dense_score"
+            route_plan_source = "dense_all_experts"
+        else:
+            if candidate_ids.ndim == 1:
+                candidate_ids = candidate_ids.view(1, 1, -1).expand(
+                    batch_size,
+                    time_steps,
+                    int(candidate_ids.numel()),
+                )
+            if candidate_ids.ndim != 3:
+                raise ValueError("candidate_ids must be [batch, time, candidate]")
+            candidate_ids = candidate_ids.to(device=hidden.device, dtype=torch.long)
+            runs_all_columns = int(candidate_ids.shape[-1]) >= self.expert_count
+            fallback_reason = "route_candidate_plan_unbounded" if runs_all_columns else None
+            route_plan_source = "token_hash_candidate_bank"
+
+        candidate_ids = candidate_ids.remainder(self.expert_count)
+        candidate_count = int(candidate_ids.shape[-1])
+        active_count = min(self.active_expert_count, candidate_count)
+        route_keys = self.route_keys[candidate_ids]
+        route_bias = self.route_bias[candidate_ids]
+        route_logits = (hidden.unsqueeze(-2) * route_keys).sum(dim=-1) + route_bias
+        top_scores, top_positions = torch.topk(route_logits, k=active_count, dim=-1)
+        top_weights = torch.softmax(top_scores, dim=-1)
+        selected_expert_ids = candidate_ids.gather(dim=-1, index=top_positions)
+
+        flat_hidden = hidden.reshape(-1, self.state_dim)
+        flat_ids = selected_expert_ids.reshape(-1, active_count)
+        flat_weights = top_weights.reshape(-1, active_count)
+        expert_delta = hidden.new_zeros(flat_hidden.shape)
+        unique_experts = torch.unique(flat_ids.detach()).tolist()
+        for raw_expert_id in unique_experts:
+            expert_id = int(raw_expert_id)
+            selection_mask = flat_ids == expert_id
+            if not bool(selection_mask.any().item()):
+                continue
+            selected_positions = selection_mask.nonzero(as_tuple=False)
+            token_positions = selected_positions[:, 0]
+            slot_positions = selected_positions[:, 1]
+            expert_input = flat_hidden.index_select(0, token_positions)
+            expert_output = self.experts[expert_id](expert_input)
+            weights = flat_weights[token_positions, slot_positions].unsqueeze(-1)
+            expert_delta[token_positions] = (
+                expert_delta[token_positions] + expert_output * weights
+            )
+
+        routed = hidden + expert_delta.reshape_as(hidden)
+        route_latency_ms = (time.perf_counter() - started) * 1000.0
+        active_columns = len({int(value) for value in unique_experts})
+        expert_parameters = self._expert_parameter_count()
+        active_parameters_per_token = int(active_count * expert_parameters)
+        return routed, {
+            "surface": self.surface,
+            "enabled": True,
+            "route_plan_source": route_plan_source,
+            "total_columns": int(self.expert_count),
+            "active_columns": int(active_columns),
+            "active_expert_count_per_token": int(active_count),
+            "candidate_rows_scored": int(batch_size * time_steps * candidate_count),
+            "route_candidate_count": int(candidate_count),
+            "output_candidate_count": int(active_count),
+            "runs_all_columns": bool(runs_all_columns),
+            "fallback_reason": fallback_reason,
+            "route_device": str(hidden.device),
+            "route_latency_ms": float(route_latency_ms),
+            "active_parameters_per_token": active_parameters_per_token,
+            "expert_parameters_per_column": int(expert_parameters),
+        }
+
+
 class MarulhoLanguageModel(nn.Module):
     """MARULHO-owned next-token language model foundation."""
 
@@ -257,6 +431,13 @@ class MarulhoLanguageModel(nn.Module):
             config.state_dim,
             spike_slope=config.spike_slope,
             adaptive_timestep_budget=config.adaptive_timestep_budget,
+        )
+        self.routed_experts = RoutedLanguageExpertLayer(
+            config.state_dim,
+            expert_count=config.expert_count,
+            active_expert_count=config.active_expert_count,
+            route_candidate_count=config.route_candidate_count,
+            expert_hidden_dim=config.expert_hidden_dim,
         )
         self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
 
@@ -273,6 +454,8 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("Language model expects input_ids shaped [batch, time]")
         embeddings = self.token_embedding(input_ids.to(self.device))
         hidden, next_state, telemetry = self.state_block(embeddings, state)
+        route_candidates = self._language_route_candidates(input_ids.to(self.device))
+        hidden, routing_telemetry = self.routed_experts(hidden, route_candidates)
         logits = self.lm_head(hidden)
         telemetry = {
             **telemetry,
@@ -280,12 +463,24 @@ class MarulhoLanguageModel(nn.Module):
             "external_llm_used": False,
             "owned_by_marulho": True,
             "vocab_size": self.config.vocab_size,
+            "routing": routing_telemetry,
         }
         return {
             "logits": logits,
             "state": next_state,
             "telemetry": telemetry,
         }
+
+    def _language_route_candidates(self, input_ids: torch.Tensor) -> torch.Tensor | None:
+        if not self.routed_experts.enabled:
+            return None
+        candidate_count = self.routed_experts.candidate_count()
+        if candidate_count <= 0 or candidate_count >= self.routed_experts.expert_count:
+            return None
+        offsets = torch.arange(candidate_count, device=input_ids.device, dtype=torch.long)
+        return (input_ids.to(torch.long).unsqueeze(-1) + offsets) % int(
+            self.routed_experts.expert_count
+        )
 
     def next_token_loss(
         self,

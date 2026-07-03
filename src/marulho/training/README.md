@@ -62,3 +62,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   old/new heldout loss and replay retention, records spike-rate and throughput
   deltas, and keeps rollback snapshot hashes before accepting the update as
   review evidence.
+- `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
+  head. It narrows token-hidden states through a bounded candidate plan, wakes
+  only top-k experts, reports total/active columns, candidate rows scored,
+  active parameters per token, route device, route latency, and explicit
+  all-column fallback truth. It is PyTorch correctness evidence, not a promoted
+  block-sparse Triton dispatch path.
