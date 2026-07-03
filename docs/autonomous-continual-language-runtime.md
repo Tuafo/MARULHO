@@ -63,6 +63,15 @@ accepts the candidate. This covers expert growth; prune, merge, split, synapse
 bundle, memory expansion, and route-bank expansion remain future transaction
 types.
 
+Iteration 8 has a first controlled checkpoint-evolution evaluator in
+`marulho.training.language_checkpoint_evolution`. It writes an immutable parent
+checkpoint, forks an isolated child checkpoint, runs child-only
+learning/replay/optional structural growth, compares parent and child heldout
+evidence, verifies rollback to the parent hash, and records lineage metadata in
+`MarulhoBrain` without replacing the installed parent model. This is controlled
+internal evolution evidence, not self-copying, deployment, or automatic
+promotion.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

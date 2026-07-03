@@ -14,6 +14,10 @@ from .language_continual_learning import (
     LanguageContinualLearningConfig,
     run_language_continual_learning_window,
 )
+from .language_checkpoint_evolution import (
+    LanguageCheckpointEvolutionConfig,
+    run_language_checkpoint_evolution,
+)
 from .language_model import (
     LanguageBatch,
     LanguageModelConfig,
@@ -36,6 +40,7 @@ from .trainer import MarulhoTrainer
 
 __all__ = [
     "LanguageBatch",
+    "LanguageCheckpointEvolutionConfig",
     "LanguageContinualLearningConfig",
     "LanguageModelConfig",
     "LanguageSplit",
@@ -51,6 +56,7 @@ __all__ = [
     "apply_language_structural_plasticity_transaction",
     "build_language_structural_plasticity_proposal",
     "load_language_model_checkpoint",
+    "run_language_checkpoint_evolution",
     "run_language_continual_learning_window",
     "save_language_model_checkpoint",
 ]

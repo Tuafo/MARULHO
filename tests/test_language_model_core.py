@@ -6,6 +6,10 @@ from pathlib import Path
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.training.language_checkpoint_evolution import (
+    LanguageCheckpointEvolutionConfig,
+    run_language_checkpoint_evolution,
+)
 from marulho.training.language_continual_learning import (
     LanguageContinualLearningConfig,
     run_language_continual_learning_window,
@@ -240,6 +244,83 @@ def test_language_structural_plasticity_expands_experts_with_checkpoint(tmp_path
     assert grown_model.config.expert_count == report["mutation"]["target_expert_count"]
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is True
+
+
+def test_language_checkpoint_evolution_forks_child_without_mutating_parent(tmp_path) -> None:
+    torch.manual_seed(29)
+    tokenizer = ByteLevelLanguageTokenizer()
+    parent_split = build_language_model_splits(
+        ["parent checkpoint evidence protects old language state. " * 7],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    child_split = build_language_model_splits(
+        ["child evolution learns a separate replay protected domain. " * 7],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    model.train()
+
+    child, report = run_language_checkpoint_evolution(
+        model,
+        tokenizer,
+        eval_batches=parent_split.eval,
+        child_train_batches=child_split.train[:2],
+        child_new_eval_batches=child_split.train[:2],
+        replay_batches=parent_split.train[:1],
+        checkpoint_dir=tmp_path,
+        config=LanguageCheckpointEvolutionConfig(
+            max_child_loss_delta=100.0,
+            max_old_domain_forgetting=100.0,
+            require_child_learning=False,
+            allow_structural_growth=True,
+        ),
+        learning_config=LanguageContinualLearningConfig(
+            learning_rate=2e-2,
+            max_steps=2,
+            replay_loss_weight=0.25,
+            forgetting_tolerance=100.0,
+            replay_retention_tolerance=100.0,
+            rollback_on_forgetting=False,
+        ),
+        structural_config=LanguageStructuralPlasticityConfig(
+            route_saturation_threshold=0.0,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+
+    lineage = report["lineage"]
+    gate = report["promotion_gate"]
+    assert report["surface"] == "marulho_language_checkpoint_evolution.v1"
+    assert report["mutates_parent_runtime"] is False
+    assert report["external_llm_used"] is False
+    assert model.training is True
+    assert lineage["parent_state_hash_before"] == lineage["parent_state_hash_after"]
+    assert lineage["parent_training_mode_before"] is True
+    assert lineage["parent_training_mode_after"] is True
+    assert lineage["parent_state_hash_before"] != lineage["child_state_hash_final"]
+    assert Path(lineage["parent_checkpoint"]).exists()
+    assert Path(lineage["child_initial_checkpoint"]).exists()
+    assert Path(lineage["child_final_checkpoint"]).exists()
+    assert report["comparison"]["parent_rollback_verified"] is True
+    assert report["comparison"]["parent_training_mode_unchanged"] is True
+    assert gate["parent_runtime_unchanged"] is True
+    assert gate["rollback_to_parent_verified"] is True
+    assert gate["child_checkpoint_available"] is True
+    assert report["structural_transaction"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert child.config.expert_count >= model.config.expert_count
 
 
 def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:

@@ -19,6 +19,7 @@ from marulho.brain.sources import BrainPattern, BrainSourceBuffer
 from marulho.brain.trace import BrainTrace
 from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.training.language_checkpoint_evolution import LanguageCheckpointEvolutionConfig
 from marulho.training.language_continual_learning import LanguageContinualLearningConfig
 from marulho.training.language_model import LanguageBatch, MarulhoLanguageModel
 from marulho.training.language_structural_plasticity import LanguageStructuralPlasticityConfig
@@ -246,6 +247,57 @@ class MarulhoBrain:
         )
         return {
             "surface": "marulho_brain_language_structural_transaction.v1",
+            "active_language_path": self._active_language_path(),
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "report": report,
+            "trace": trace,
+        }
+
+    def evolve_language_checkpoint(
+        self,
+        *,
+        eval_batches: Sequence[LanguageBatch],
+        child_train_batches: Sequence[LanguageBatch],
+        child_new_eval_batches: Sequence[LanguageBatch],
+        checkpoint_dir: str | Path,
+        replay_batches: Sequence[LanguageBatch] = (),
+        config: LanguageCheckpointEvolutionConfig | None = None,
+        learning_config: LanguageContinualLearningConfig | None = None,
+        structural_config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        report = self._language_runtime.evolve_checkpoint(
+            eval_batches=eval_batches,
+            child_train_batches=child_train_batches,
+            child_new_eval_batches=child_new_eval_batches,
+            replay_batches=replay_batches,
+            checkpoint_dir=str(checkpoint_dir),
+            config=config,
+            learning_config=learning_config,
+            structural_config=structural_config,
+        )
+        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_checkpoint_evolution",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=str(gate.get("status") or report.get("status") or ""),
+            )
+        )
+        return {
+            "surface": "marulho_brain_language_checkpoint_evolution.v1",
             "active_language_path": self._active_language_path(),
             "owned_by_marulho": True,
             "external_llm_used": False,

@@ -6,6 +6,10 @@ from typing import Any, Mapping, Sequence
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.training.language_checkpoint_evolution import (
+    LanguageCheckpointEvolutionConfig,
+    run_language_checkpoint_evolution,
+)
 from marulho.training.language_continual_learning import (
     LanguageContinualLearningConfig,
     run_language_continual_learning_window,
@@ -35,6 +39,7 @@ class BrainLanguageModelRuntime:
         evaluation_report: Mapping[str, Any] | None = None,
         learning_reports: Sequence[Mapping[str, Any]] = (),
         structural_reports: Sequence[Mapping[str, Any]] = (),
+        checkpoint_evolution_reports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         if int(model.config.vocab_size) != int(tokenizer.vocab_size):
             raise ValueError("Language model vocab size must match tokenizer state")
@@ -43,6 +48,9 @@ class BrainLanguageModelRuntime:
         self.evaluation_report = dict(evaluation_report or {})
         self.learning_reports = [dict(report) for report in learning_reports][-16:]
         self.structural_reports = [dict(report) for report in structural_reports][-16:]
+        self.checkpoint_evolution_reports = [
+            dict(report) for report in checkpoint_evolution_reports
+        ][-16:]
         self.model.eval()
 
     @property
@@ -133,6 +141,12 @@ class BrainLanguageModelRuntime:
             "last_structural_transaction": (
                 dict(self.structural_reports[-1]) if self.structural_reports else None
             ),
+            "checkpoint_evolution_count": len(self.checkpoint_evolution_reports),
+            "last_checkpoint_evolution": (
+                dict(self.checkpoint_evolution_reports[-1])
+                if self.checkpoint_evolution_reports
+                else None
+            ),
         }
 
     @classmethod
@@ -162,6 +176,9 @@ class BrainLanguageModelRuntime:
             "evaluation_report": dict(self.evaluation_report),
             "learning_reports": [dict(report) for report in self.learning_reports],
             "structural_reports": [dict(report) for report in self.structural_reports],
+            "checkpoint_evolution_reports": [
+                dict(report) for report in self.checkpoint_evolution_reports
+            ],
             "owned_by_marulho": True,
             "external_llm_used": False,
             "loads_external_checkpoint": False,
@@ -228,6 +245,34 @@ class BrainLanguageModelRuntime:
         self.structural_reports = self.structural_reports[-16:]
         return report
 
+    def evolve_checkpoint(
+        self,
+        *,
+        eval_batches: Sequence[LanguageBatch],
+        child_train_batches: Sequence[LanguageBatch],
+        child_new_eval_batches: Sequence[LanguageBatch],
+        checkpoint_dir: str,
+        replay_batches: Sequence[LanguageBatch] = (),
+        config: LanguageCheckpointEvolutionConfig | None = None,
+        learning_config: LanguageContinualLearningConfig | None = None,
+        structural_config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        _child, report = run_language_checkpoint_evolution(
+            self.model,
+            self.tokenizer,
+            eval_batches=eval_batches,
+            child_train_batches=child_train_batches,
+            child_new_eval_batches=child_new_eval_batches,
+            replay_batches=replay_batches,
+            checkpoint_dir=checkpoint_dir,
+            config=config,
+            learning_config=learning_config,
+            structural_config=structural_config,
+        )
+        self.checkpoint_evolution_reports.append(dict(report))
+        self.checkpoint_evolution_reports = self.checkpoint_evolution_reports[-16:]
+        return report
+
     @classmethod
     def from_state(
         cls,
@@ -255,6 +300,11 @@ class BrainLanguageModelRuntime:
             structural_reports=[
                 item
                 for item in list(state.get("structural_reports") or [])
+                if isinstance(item, Mapping)
+            ],
+            checkpoint_evolution_reports=[
+                item
+                for item in list(state.get("checkpoint_evolution_reports") or [])
                 if isinstance(item, Mapping)
             ],
         )

@@ -54,6 +54,12 @@ operator approval, writes a baseline checkpoint, verifies heldout
 non-regression, records rollback evidence, and emits a `language_structure`
 trace. These methods are runtime-owned helpers, not service/status mutation.
 
+`MarulhoBrain.evolve_language_checkpoint()` exposes the training-owned controlled
+checkpoint-evolution evaluator. It records parent/child checkpoint lineage,
+child-only learning/replay/growth evidence, parent rollback verification, and a
+`language_checkpoint_evolution` trace, but it does not replace the installed
+parent language model. Promotion remains a separate operator-reviewed gate.
+
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend
 `cuda_graph_conditional_while`, device `cuda:0`, and zero graph/native/burst

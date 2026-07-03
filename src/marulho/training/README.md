@@ -73,3 +73,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
   route/learning pressure, requires operator approval, writes a baseline
   checkpoint snapshot, expands expert columns under heldout non-regression, and
   records rollback hashes before accepting the candidate.
+- `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
+  for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
+  an isolated child checkpoint, runs child-only learning/replay/optional growth,
+  compares parent and child heldout evidence, verifies rollback to the parent
+  hash, and emits lineage metadata for later operator promotion review.

@@ -42,6 +42,9 @@ _Avoid_: counting configured experts as active work, hiding all-column route sco
 **LM Structural Plasticity Transaction** — the training-owned checkpoint-backed mutation boundary for MARULHO LM expert growth. It creates a non-mutating expert-spawn proposal from routing/learning pressure, requires operator approval, writes a baseline checkpoint, expands expert columns in a candidate model, checks heldout non-regression, and records rollback hashes before `MarulhoBrain` accepts the candidate. It is expert-growth evidence, not a general self-modification permit.
 _Avoid_: applying growth from status, skipping proposal/approval, hiding checkpoint restore evidence, or treating expert spawn as proof that prune/merge/synapse-growth are implemented.
 
+**LM Checkpoint Evolution Window** — the training-owned controlled evaluation boundary for MARULHO LM checkpoint evolution. It writes a parent checkpoint, forks an isolated child checkpoint, runs child-only learning/replay/optional growth, compares parent and child heldout evidence, verifies the parent hash and checkpoint restore path, and records lineage through `MarulhoBrain` without replacing the installed parent model. It is promotion-review evidence, not self-copying, deployment, or automatic runtime mutation.
+_Avoid_: mutating the parent during child evaluation, promoting a child without operator review, hiding lineage hashes, or treating a checkpoint fork as uncontrolled replication.
+
 **External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 

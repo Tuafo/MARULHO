@@ -12,6 +12,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.service.api import create_app
 from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.language_checkpoint_evolution import LanguageCheckpointEvolutionConfig
 from marulho.training.language_continual_learning import LanguageContinualLearningConfig
 from marulho.training.language_model import (
     LanguageModelConfig,
@@ -310,6 +311,74 @@ def test_marulho_brain_language_structural_transaction_is_checkpointed(tmp_path:
     assert restored_status["language_model"]["structural_transaction_count"] == 1
     assert restored_status["language_model"]["last_structural_transaction"]["promotion_gate"][
         "checkpoint_backed"
+    ] is True
+
+
+def test_marulho_brain_language_checkpoint_evolution_keeps_parent_installed(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    parent_split = build_language_model_splits(
+        ["parent brain checkpoint lineage stays installed. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    child_split = build_language_model_splits(
+        ["child fork trains separately before promotion review. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, parent_split.eval),
+    )
+
+    evolution = brain.evolve_language_checkpoint(
+        eval_batches=parent_split.eval,
+        child_train_batches=child_split.train[:2],
+        child_new_eval_batches=child_split.train[:2],
+        replay_batches=parent_split.train[:1],
+        checkpoint_dir=tmp_path / "language-evolution",
+        config=LanguageCheckpointEvolutionConfig(
+            max_child_loss_delta=100.0,
+            max_old_domain_forgetting=100.0,
+            require_child_learning=False,
+            allow_structural_growth=False,
+        ),
+        learning_config=LanguageContinualLearningConfig(
+            learning_rate=2e-2,
+            max_steps=2,
+            forgetting_tolerance=100.0,
+            replay_retention_tolerance=100.0,
+            rollback_on_forgetting=False,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-evolution.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_status = restored.status()
+
+    assert evolution["surface"] == "marulho_brain_language_checkpoint_evolution.v1"
+    assert evolution["report"]["mutates_parent_runtime"] is False
+    assert evolution["report"]["promotion_gate"]["parent_runtime_unchanged"] is True
+    assert evolution["trace"]["event"] == "language_checkpoint_evolution"
+    assert status["active_language_path"] == "marulho_lm_head"
+    assert status["language_model"]["checkpoint_evolution_count"] == 1
+    assert status["language_model"]["last_checkpoint_evolution"]["surface"] == (
+        "marulho_language_checkpoint_evolution.v1"
+    )
+    assert restored_status["language_model"]["checkpoint_evolution_count"] == 1
+    assert restored_status["language_model"]["last_checkpoint_evolution"]["promotion_gate"][
+        "rollback_to_parent_verified"
     ] is True
 
 
