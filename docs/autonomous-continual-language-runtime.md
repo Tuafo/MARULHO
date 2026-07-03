@@ -72,6 +72,16 @@ evidence, verifies rollback to the parent hash, and records lineage metadata in
 internal evolution evidence, not self-copying, deployment, or automatic
 promotion.
 
+Iteration 9 now has a first LM-head sustained evidence runner in
+`marulho.evaluation.language_sustained_runtime_evidence`. It streams the
+checkpointed MARULHO LM head with recurrent cache state and writes JSON plus
+README evidence for final, timeout, manual-stop partial, interrupt, and
+exception outcomes. Reports include checkpoint metadata, token delta,
+tokens/sec, active language path, device/backend, active routed columns, spike
+health, fallback counts, environment contention, and promotion gates. The runner
+is component evidence for the LM head; it does not promote the PyTorch path as a
+Triton/CUDA hot path or replace the full `MarulhoBrain` sustained runtime gate.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;
@@ -508,6 +518,11 @@ language path, tick tokens, quantum tokens, last trace, device/backend, CUDA
 graph/native/burst/sequence failures, fallback counts, active columns, total
 columns, active parameters per token, spike rate, replay/consolidation events,
 growth/prune proposals, environment contention, and report status.
+
+`language_sustained_runtime_evidence.py` is the first component-level LM-head
+runner for this contract. It must keep short runs marked as smoke/debug only and
+must keep `promotes_hot_path=false` until a Triton/CUDA language hot path has
+parity, fallback, and complete-runtime impact evidence.
 
 ## Scale Ladder
 

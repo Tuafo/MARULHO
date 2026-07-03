@@ -54,6 +54,12 @@ from .snn_language_readout_corpus import (
     evaluate_snn_language_readout_corpus,
     evaluate_snn_language_readout_corpus_file,
 )
+from .language_sustained_runtime_evidence import (
+    ARTIFACT_KIND as LANGUAGE_SUSTAINED_RUNTIME_ARTIFACT_KIND,
+    SURFACE as LANGUAGE_SUSTAINED_RUNTIME_SURFACE,
+    run_language_sustained_runtime_evidence,
+    run_language_sustained_runtime_evidence_from_checkpoint,
+)
 
 __all__ = [
     "GROUNDING_PROBE_TRIPLES_50",
@@ -104,4 +110,8 @@ __all__ = [
     "build_snn_language_readout_corpus_checkpoint_review",
     "evaluate_snn_language_readout_corpus",
     "evaluate_snn_language_readout_corpus_file",
+    "LANGUAGE_SUSTAINED_RUNTIME_ARTIFACT_KIND",
+    "LANGUAGE_SUSTAINED_RUNTIME_SURFACE",
+    "run_language_sustained_runtime_evidence",
+    "run_language_sustained_runtime_evidence_from_checkpoint",
 ]

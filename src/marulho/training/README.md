@@ -78,3 +78,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
   an isolated child checkpoint, runs child-only learning/replay/optional growth,
   compares parent and child heldout evidence, verifies rollback to the parent
   hash, and emits lineage metadata for later operator promotion review.
+- LM-head sustained report writing lives in
+  `marulho.evaluation.language_sustained_runtime_evidence`, not in status or
+  service code. It can stream this package's checkpointed LM state for
+  final/partial evidence, but it must report the current PyTorch path as
+  unpromoted until CUDA/Triton parity and complete-runtime impact gates exist.

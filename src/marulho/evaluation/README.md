@@ -64,6 +64,14 @@ harnesses.
   `BrainTrace`, device report, CUDA/backend/executor evidence, graph/native/
   burst/sequence failure and fallback counters, event summary, and environment
   contention summary.
+- `language_sustained_runtime_evidence.py` applies the same final/partial JSON
+  discipline to the checkpointed `marulho_lm_head` component. It streams the LM
+  recurrent cache, writes JSON plus README mirrors for final, timeout,
+  manual-stop partial, interrupt, and exception outcomes, and reports
+  checkpoint metadata, active routed columns, spike health, device/backend,
+  fallback counts, environment contention, and promotion gates. It is component
+  evidence only; the current PyTorch LM path remains `promotes_hot_path=false`
+  until Triton/CUDA parity and complete-runtime impact evidence exist.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -97,4 +105,10 @@ harnesses.
 python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --sample-interval-seconds 0.001
 python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/long-gate-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 7200 --sample-interval-seconds 0.001
 python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/house-scale-524288.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 21600 --sample-interval-seconds 0.001
+```
+
+LM-head component evidence:
+
+```bash
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint checkpoints/marulho/language.pt --output reports/language_runtime_evidence/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600
 ```
