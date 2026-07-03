@@ -559,6 +559,17 @@ Python launch bottleneck for fixed-shape checkpoint streaming, but it is not a
 Triton block-sparse expert kernel and does not prove generated language quality
 by itself.
 
+The batched training `forward` path now precomputes token-independent
+state-block projections across `[batch,time]` before the causal recurrent loop.
+This preserves streaming `step` parity while cutting the measured CUDA training
+shape (`batch=16`, `seq=64`, `state_dim=128`) from `823.405 ms` to
+`443.763 ms` per full optimizer step in the local stage profile. The
+`cuda-vectorized-state-8192.json` training report reached `2293.991 train
+tokens/sec` for `63744` train tokens and the paired `524288` sustained report
+reached `7264.683 tokens/sec`. This is a PyTorch/CUDA projection-vectorization
+speed slice; PLIF forward/backward and selective-scan Triton kernels remain
+separate promotion blockers.
+
 ## Scale Ladder
 
 The implementation must support tiny test fixtures without becoming a toy-only
@@ -600,6 +611,11 @@ the updated sustained LM reports. It records `long_run_throughput=pass`,
 `rmsnorm_triton_parity=true`, and keeps promotion blocked on generation
 coherence plus the remaining PLIF, selective-scan, block-sparse expert, and
 sampled-vocab kernel parity evidence.
+
+`language-suite-vectorized-state.json` records the same blocker posture after
+the vectorized state-block training slice: long-run throughput remains passing,
+RMSNorm parity remains covered, and generation coherence plus PLIF/selective-
+scan/expert/vocab kernel parity remain open.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

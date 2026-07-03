@@ -161,6 +161,22 @@ harnesses.
   `language-suite-rmsnorm-kernel.json` now records `long_run_throughput=pass`
   and `rmsnorm_triton_parity=true` while keeping generation coherence and the
   remaining PLIF/scan/expert/vocab kernel parity blockers open.
+- Current 2026-07-03 vectorized state-block evidence precomputes the
+  token-independent LM state-block projections across `[batch,time]` while
+  preserving the causal recurrent membrane/spike/selective-state loop. The
+  CUDA profile for `batch=16`, `seq=64`, `state_dim=128`, `16` experts, and
+  `4` active experts moved state-block forward from `266.571 ms` to
+  `149.390 ms`, full forward loss from `293.187 ms` to `170.986 ms`, and full
+  train step from `823.405 ms` to `443.763 ms`. End-to-end
+  `reports/language_training_experiments/cuda-vectorized-state-8192.json`
+  trained `63744` tokens at `2293.991 train tokens/sec`, improved heldout loss
+  from `5.6832` to `0.1788`, and wrote an 8192-token sustained smoke at
+  `5638.687 tokens/sec`. The same checkpoint's house-scale report
+  `cuda-vectorized-state-524288-sustained.json` reached `524288/524288` at
+  `7264.683 tokens/sec`, CUDA graph burst, zero graph failures, and no
+  observed contention. `language-suite-vectorized-state.json` keeps promotion
+  blocked on generation coherence and the remaining PLIF/scan/expert/vocab
+  kernel parity evidence.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
@@ -188,6 +204,8 @@ LM training experiment:
 
 ```bash
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/local-run.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-vectorized-state-8192.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192 --sustained-timeout-seconds 600 --device cuda
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-vectorized-state-8192-checkpoint.pt --output reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
 ```
 
 LM scale ladder inventory:
@@ -203,4 +221,5 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8 --sustained-evidence reports/language_runtime_evidence/diagnostic-8192.json --sustained-evidence reports/language_runtime_evidence/long-gate-131072.json
 python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 ```

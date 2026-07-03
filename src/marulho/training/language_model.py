@@ -292,43 +292,53 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         active_neuron_counts = (
             inputs.new_zeros(self.state_dim) if bool(collect_telemetry) else None
         )
+        normalized_inputs = self.input_norm(inputs)
+        select_logits_all = self.select_proj(normalized_inputs)
+        state_decay_all, state_input_all, state_output_all = select_logits_all.chunk(
+            3,
+            dim=-1,
+        )
+        state_decay_all = torch.sigmoid(state_decay_all)
+        state_input_all = torch.sigmoid(state_input_all)
+        state_output_all = torch.sigmoid(state_output_all)
+        beta_input_all = self.beta_input_proj(normalized_inputs)
+        threshold_input_all = self.threshold_input_proj(normalized_inputs)
+        current_all = current_gain.view(1, 1, -1) * self.current_proj(normalized_inputs)
+        input_drive_all = self.input_proj(normalized_inputs)
+        residual_all = self.residual_proj(normalized_inputs)
 
         for step in range(time_steps):
-            token_input = self.input_norm(inputs[:, step, :])
-            select_logits = self.select_proj(token_input)
-            state_decay_logits, state_input_logits, state_output_logits = select_logits.chunk(
-                3,
-                dim=-1,
-            )
-            state_decay = torch.sigmoid(state_decay_logits)
-            state_input = torch.sigmoid(state_input_logits)
-            state_output = torch.sigmoid(state_output_logits)
             leak = torch.sigmoid(
                 raw_leak
-                + self.beta_input_proj(token_input)
+                + beta_input_all[:, step, :]
                 + self.beta_state_proj(selective_state)
             )
             threshold = F.softplus(
-                base_threshold + self.threshold_input_proj(token_input)
+                base_threshold + threshold_input_all[:, step, :]
             )
-            current = current_gain * self.current_proj(token_input)
-            drive = self.input_proj(token_input) + current + self.recurrent_proj(spikes)
+            drive = (
+                input_drive_all[:, step, :]
+                + current_all[:, step, :]
+                + self.recurrent_proj(spikes)
+            )
             for _substep in range(self.adaptive_timestep_budget):
                 membrane = leak * membrane + (1.0 - leak) * drive - spikes * threshold
                 spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
-                selective_state = state_decay * selective_state + state_input * spikes
+                selective_state = (
+                    state_decay_all[:, step, :] * selective_state
+                    + state_input_all[:, step, :] * spikes
+                )
                 eligibility_trace = (
                     0.95 * eligibility_trace + spikes
                 )
-            residual = self.residual_proj(token_input)
-            mixed_state = state_output * selective_state + spikes
-            outputs.append(self.output_norm(residual + self.state_output_proj(mixed_state)))
+            mixed_state = state_output_all[:, step, :] * selective_state + spikes
+            outputs.append(residual_all[:, step, :] + self.state_output_proj(mixed_state))
             if bool(collect_telemetry):
                 spike_sum = spike_sum + spikes.sum()
                 assert active_neuron_counts is not None
                 active_neuron_counts = active_neuron_counts + (spikes > 0).sum(dim=0)
 
-        hidden = torch.stack(outputs, dim=1)
+        hidden = self.output_norm(torch.stack(outputs, dim=1))
         if bool(collect_telemetry):
             denominator = max(1, batch_size * time_steps * self.state_dim)
             per_neuron_denominator = max(1, batch_size * time_steps)
@@ -357,12 +367,14 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "input_dependent_threshold": True,
                 "trainable_current_terms": True,
                 "surrogate_gradient": "straight_through_sigmoid",
+                "state_block_projection_mode": "batched_token_projection_recurrent_loop",
                 "device": str(inputs.device),
             }
         else:
             telemetry = {
                 "surface": "marulho_selective_spiking_state_block.v1",
                 "telemetry_collected": False,
+                "state_block_projection_mode": "batched_token_projection_recurrent_loop",
                 "device": str(inputs.device),
             }
         return (

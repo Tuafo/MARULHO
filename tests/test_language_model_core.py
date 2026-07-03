@@ -17,6 +17,7 @@ from marulho.training.language_continual_learning import (
 from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
+    MarulhoSelectiveSpikingStateBlock,
     build_language_model_splits,
     evaluate_language_model,
     load_language_model_checkpoint,
@@ -173,6 +174,37 @@ def test_selective_state_cache_matches_full_sequence_suffix() -> None:
         suffix["logits"],
         rtol=1e-5,
         atol=1e-5,
+    )
+
+
+def test_selective_state_block_vectorized_forward_matches_step_loop() -> None:
+    torch.manual_seed(11)
+    block = MarulhoSelectiveSpikingStateBlock(
+        input_dim=12,
+        state_dim=20,
+        adaptive_timestep_budget=2,
+    )
+    inputs = torch.randn(3, 7, 12)
+
+    with torch.no_grad():
+        full_hidden, full_state, full_telemetry = block(inputs)
+        state = None
+        step_outputs = []
+        for offset in range(inputs.shape[1]):
+            hidden, state, _telemetry = block.step(
+                inputs[:, offset, :],
+                state,
+                collect_telemetry=False,
+            )
+            step_outputs.append(hidden)
+        stepped_hidden = torch.stack(step_outputs, dim=1)
+
+    torch.testing.assert_close(full_hidden, stepped_hidden, rtol=1e-6, atol=1e-6)
+    assert state is not None
+    for key, value in full_state.items():
+        torch.testing.assert_close(value, state[key], rtol=1e-6, atol=1e-6)
+    assert full_telemetry["state_block_projection_mode"] == (
+        "batched_token_projection_recurrent_loop"
     )
 
 

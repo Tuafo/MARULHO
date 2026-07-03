@@ -58,7 +58,12 @@ developmental and consolidation runners, query runners, and long-run evidence.
   foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
   current terms, selective recurrent state, eligibility trace cache, adaptive
   timestep budget, and spike/dead/over-firing telemetry. CUDA/Triton parity and
-  complete-runtime impact evidence are still required before promotion.
+  complete-runtime impact evidence are still required before promotion. The
+  batched training `forward` path precomputes token-independent RMSNorm,
+  select, leak-input, threshold-input, current, input-drive, and residual
+  projections across `[batch,time]`, then keeps only the causal membrane/spike/
+  selective-state recurrence inside the per-token loop. `step` remains the
+  streaming path for one-token CUDA graph generation.
 - `RMSNorm` now routes CUDA tensors through the language RMSNorm Triton
   primitive only for batched row counts where the kernel is measured useful.
   Streaming one-token LM generation keeps the faster CUDA graph/PyTorch
