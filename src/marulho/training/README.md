@@ -57,3 +57,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
   current terms, selective recurrent state, eligibility trace cache, adaptive
   timestep budget, and spike/dead/over-firing telemetry. CUDA/Triton parity and
   complete-runtime impact evidence are still required before promotion.
+- `language_continual_learning.py` is the first Iteration 6 foundation for the
+  LM head. It applies bounded online updates, mixes replay batches, measures
+  old/new heldout loss and replay retention, records spike-rate and throughput
+  deltas, and keeps rollback snapshot hashes before accepting the update as
+  review evidence.

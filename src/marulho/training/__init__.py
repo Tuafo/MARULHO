@@ -10,6 +10,10 @@ Module structure:
 """
 
 from .bootstrap import PredictiveBootstrap
+from .language_continual_learning import (
+    LanguageContinualLearningConfig,
+    run_language_continual_learning_window,
+)
 from .language_model import (
     LanguageBatch,
     LanguageModelConfig,
@@ -26,6 +30,7 @@ from .trainer import MarulhoTrainer
 
 __all__ = [
     "LanguageBatch",
+    "LanguageContinualLearningConfig",
     "LanguageModelConfig",
     "LanguageSplit",
     "MarulhoLanguageModel",
@@ -36,5 +41,6 @@ __all__ = [
     "build_language_model_splits",
     "evaluate_language_model",
     "load_language_model_checkpoint",
+    "run_language_continual_learning_window",
     "save_language_model_checkpoint",
 ]

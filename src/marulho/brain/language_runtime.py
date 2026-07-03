@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
-from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
+from marulho.training.language_continual_learning import (
+    LanguageContinualLearningConfig,
+    run_language_continual_learning_window,
+)
+from marulho.training.language_model import (
+    LanguageBatch,
+    LanguageModelConfig,
+    MarulhoLanguageModel,
+)
 
 
 class BrainLanguageModelRuntime:
@@ -20,12 +28,14 @@ class BrainLanguageModelRuntime:
         tokenizer: ByteLevelLanguageTokenizer,
         *,
         evaluation_report: Mapping[str, Any] | None = None,
+        learning_reports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         if int(model.config.vocab_size) != int(tokenizer.vocab_size):
             raise ValueError("Language model vocab size must match tokenizer state")
         self.model = model
         self.tokenizer = tokenizer
         self.evaluation_report = dict(evaluation_report or {})
+        self.learning_reports = [dict(report) for report in learning_reports][-16:]
         self.model.eval()
 
     @property
@@ -108,6 +118,10 @@ class BrainLanguageModelRuntime:
             "heldout_evaluation_available": bool(self.evaluation_report),
             "heldout_loss": self.evaluation_report.get("heldout_loss"),
             "heldout_perplexity": self.evaluation_report.get("heldout_perplexity"),
+            "continual_learning_window_count": len(self.learning_reports),
+            "last_continual_learning": (
+                dict(self.learning_reports[-1]) if self.learning_reports else None
+            ),
         }
 
     @classmethod
@@ -135,10 +149,33 @@ class BrainLanguageModelRuntime:
                 for key, value in self.model.state_dict().items()
             },
             "evaluation_report": dict(self.evaluation_report),
+            "learning_reports": [dict(report) for report in self.learning_reports],
             "owned_by_marulho": True,
             "external_llm_used": False,
             "loads_external_checkpoint": False,
         }
+
+    def learn_continual_window(
+        self,
+        *,
+        new_batches: Sequence[LanguageBatch],
+        old_eval_batches: Sequence[LanguageBatch],
+        new_eval_batches: Sequence[LanguageBatch],
+        replay_batches: Sequence[LanguageBatch] = (),
+        config: LanguageContinualLearningConfig | None = None,
+    ) -> dict[str, Any]:
+        report = run_language_continual_learning_window(
+            self.model,
+            new_batches=new_batches,
+            old_eval_batches=old_eval_batches,
+            new_eval_batches=new_eval_batches,
+            replay_batches=replay_batches,
+            config=config,
+        )
+        self.evaluation_report = dict(report["new_domain_after"])
+        self.learning_reports.append(dict(report))
+        self.learning_reports = self.learning_reports[-16:]
+        return report
 
     @classmethod
     def from_state(
@@ -159,6 +196,11 @@ class BrainLanguageModelRuntime:
                 if isinstance(state.get("evaluation_report"), Mapping)
                 else None
             ),
+            learning_reports=[
+                item
+                for item in list(state.get("learning_reports") or [])
+                if isinstance(item, Mapping)
+            ],
         )
         runtime.to_device(device)
         return runtime

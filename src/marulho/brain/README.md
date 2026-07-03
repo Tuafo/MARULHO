@@ -42,6 +42,11 @@ The Iteration 2 LM-head path is now brain-selectable through
 yet promoted as the live long-run language capability until online learning,
 rollback, throughput, and sustained Runtime Evidence gates pass.
 
+`MarulhoBrain.learn_language_window()` delegates to the training-owned continual
+LM update window. It can mutate checkpointed language-model weights, records
+old/new loss, replay retention, rollback evidence, and a `language_learn` trace,
+but service/status endpoints still do not own or trigger cognition.
+
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend
 `cuda_graph_conditional_while`, device `cuda:0`, and zero graph/native/burst

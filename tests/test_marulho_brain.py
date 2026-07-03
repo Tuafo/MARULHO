@@ -12,6 +12,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.service.api import create_app
 from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.language_continual_learning import LanguageContinualLearningConfig
 from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
@@ -194,6 +195,57 @@ def test_brain_service_uses_restored_lm_head_without_service_owner(tmp_path: Pat
     assert status.status_code == 200
     assert status.json()["active_language_path"] == "marulho_lm_head"
     assert status.json()["language_model"]["checkpointed_language_components"] is True
+
+
+def test_marulho_brain_language_learning_window_is_checkpointed(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, report = _language_model_fixture()
+    brain.install_language_model(model, tokenizer, evaluation_report=report)
+    old_split = build_language_model_splits(
+        ["old runtime evidence keeps replay protected. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    new_split = build_language_model_splits(
+        ["new online language window updates owned weights. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+
+    learning = brain.learn_language_window(
+        new_batches=new_split.train[:2],
+        old_eval_batches=old_split.eval,
+        new_eval_batches=new_split.train[:2],
+        replay_batches=old_split.train[:1],
+        config=LanguageContinualLearningConfig(
+            learning_rate=2e-2,
+            max_steps=3,
+            forgetting_tolerance=100.0,
+            replay_retention_tolerance=100.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-learn.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_status = restored.status()
+
+    assert learning["surface"] == "marulho_brain_language_learning_window.v1"
+    assert learning["active_language_path"] == "marulho_lm_head"
+    assert learning["external_llm_used"] is False
+    assert learning["report"]["mutates_language_model_weights"] is True
+    assert learning["report"]["learning_evidence"]["final_parameter_delta_l2"] > 0.0
+    assert learning["trace"]["event"] == "language_learn"
+    assert status["language_model"]["continual_learning_window_count"] == 1
+    assert status["language_model"]["last_continual_learning"]["surface"] == (
+        "marulho_language_continual_learning_window.v1"
+    )
+    assert restored_status["active_language_path"] == "marulho_lm_head"
+    assert restored_status["language_model"]["continual_learning_window_count"] == 1
+    assert restored_status["language_model"]["last_continual_learning"]["rollback_evidence"][
+        "restore_verified"
+    ] is True
 
 
 def test_marulho_brain_replay_and_growth_reports_are_local() -> None:

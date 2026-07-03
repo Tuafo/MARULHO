@@ -5,6 +5,10 @@ import math
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.training.language_continual_learning import (
+    LanguageContinualLearningConfig,
+    run_language_continual_learning_window,
+)
 from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
@@ -189,3 +193,55 @@ def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
     assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
     assert metadata["train_split_hash"] == split.report["train_split_hash"]
     torch.testing.assert_close(original_logits, restored_logits)
+
+
+def test_language_continual_learning_window_measures_forgetting_and_replay() -> None:
+    torch.manual_seed(17)
+    tokenizer = ByteLevelLanguageTokenizer()
+    old_split = build_language_model_splits(
+        ["old domain runtime truth protects replay evidence. " * 8],
+        tokenizer,
+        sequence_length=12,
+        eval_fraction=0.25,
+    )
+    new_split = build_language_model_splits(
+        ["new domain language learning updates checkpointed weights. " * 8],
+        tokenizer,
+        sequence_length=12,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+        )
+    )
+
+    report = run_language_continual_learning_window(
+        model,
+        new_batches=new_split.train[:2],
+        old_eval_batches=old_split.eval,
+        new_eval_batches=new_split.train[:2],
+        replay_batches=old_split.train[:1],
+        config=LanguageContinualLearningConfig(
+            learning_rate=2e-2,
+            max_steps=4,
+            replay_loss_weight=0.25,
+            forgetting_tolerance=100.0,
+            replay_retention_tolerance=100.0,
+        ),
+    )
+
+    assert report["surface"] == "marulho_language_continual_learning_window.v1"
+    assert report["owned_by_marulho"] is True
+    assert report["external_llm_used"] is False
+    assert report["active_language_path"] == "marulho_lm_head"
+    assert report["mutates_language_model_weights"] is True
+    assert report["learning_evidence"]["new_domain_loss_delta"] > 0.0
+    assert report["learning_evidence"]["final_parameter_delta_l2"] > 0.0
+    assert "old_domain_forgetting" in report["learning_evidence"]
+    assert "general_replay_retention_delta" in report["learning_evidence"]
+    assert report["rollback_evidence"]["rollback_applied"] is False
+    assert report["rollback_evidence"]["restore_verified"] is True
+    assert report["promotion_gate"]["old_domain_forgetting_within_tolerance"] is True

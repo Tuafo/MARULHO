@@ -19,7 +19,8 @@ from marulho.brain.sources import BrainPattern, BrainSourceBuffer
 from marulho.brain.trace import BrainTrace
 from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
-from marulho.training.language_model import MarulhoLanguageModel
+from marulho.training.language_continual_learning import LanguageContinualLearningConfig
+from marulho.training.language_model import LanguageBatch, MarulhoLanguageModel
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -145,6 +146,51 @@ class MarulhoBrain:
             "owned_by_marulho": True,
             "external_llm_used": False,
             "loads_external_checkpoint": False,
+        }
+
+    def learn_language_window(
+        self,
+        *,
+        new_batches: Sequence[LanguageBatch],
+        old_eval_batches: Sequence[LanguageBatch],
+        new_eval_batches: Sequence[LanguageBatch],
+        replay_batches: Sequence[LanguageBatch] = (),
+        config: LanguageContinualLearningConfig | None = None,
+    ) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        report = self._language_runtime.learn_continual_window(
+            new_batches=new_batches,
+            old_eval_batches=old_eval_batches,
+            new_eval_batches=new_eval_batches,
+            replay_batches=replay_batches,
+            config=config,
+        )
+        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_learn",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=str(gate.get("status") or report.get("status") or ""),
+            )
+        )
+        return {
+            "surface": "marulho_brain_language_learning_window.v1",
+            "active_language_path": self._active_language_path(),
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "report": report,
+            "trace": trace,
         }
 
     def feed(self, text: str, *, source: str = "operator", learn: bool = False) -> dict[str, Any]:

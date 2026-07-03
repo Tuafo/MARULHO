@@ -38,6 +38,14 @@ timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
 telemetry. This is not CUDA/Triton promotion; kernel parity, fallback, and
 complete-runtime impact reports remain required.
 
+Iteration 6 has a first bounded online-learning window for the LM head. The
+training-owned executor snapshots model weights, applies new-domain gradient
+updates with replay loss, measures old-domain forgetting, new-domain loss
+delta, replay retention, spike-rate delta, update throughput, and rollback
+hashes, then records the report in `MarulhoBrain` when the LM runtime is
+installed. This is review evidence for continual learning, not long-run
+promotion.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

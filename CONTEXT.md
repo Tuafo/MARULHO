@@ -33,6 +33,9 @@ _Avoid_: treating a design lock as implemented language-model capability, hiding
 **MARULHO Selective Spiking State Block** — the training-owned recurrent language block behind the Iteration 2 LM head. Its PyTorch foundation carries membrane/spike/selective-state/eligibility-trace cache, input-dependent leak and threshold, trainable current terms, RMSNorm residual output, adaptive timestep telemetry, and spike-health telemetry. It is implementation evidence for the state-space/SNN direction, not a promoted CUDA/Triton kernel or long-run capability claim.
 _Avoid_: calling the PyTorch fallback a promoted hot path, dropping the recurrent cache during streaming generation, or treating spike telemetry alone as language quality.
 
+**LM Continual Learning Window** — the training-owned bounded update surface for the MARULHO LM head. It snapshots language-model weights, applies gradient updates on new batches with replay protection, measures old-domain forgetting, new-domain improvement, replay retention, spike-rate delta, update throughput, and rollback hashes, and records the report through `MarulhoBrain` when installed. It is online-learning evidence, not a service-owned cognition loop or long-run promotion by itself.
+_Avoid_: triggering language learning from status reads, accepting improvement without old-domain/replay measurements, or hiding rollback/forgetting evidence.
+
 **External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
