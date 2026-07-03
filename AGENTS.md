@@ -1,16 +1,13 @@
 ## Agent skills
 
-### Issue tracker
-
-Issues are tracked in GitHub (`Tuafo/MARULHO`). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default triage label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
 ### Domain docs
 
-Single-context layout. See `docs/agents/domain.md`.
+Single-context layout. Read `CONTEXT.md` first, then the nearest
+`src/marulho/*/README.md` for the machinery being changed. See
+`docs/agents/domain.md`.
+
+Update docs close to the owning code when vocabulary, ownership, Runtime Truth,
+or validation evidence changes.
 
 ### MARULHO-specific grilling
 

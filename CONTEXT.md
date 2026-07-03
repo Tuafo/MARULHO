@@ -5,29 +5,29 @@ MARULHO is a grounded Subcortex runtime for auditable autonomous cognition. "Liv
 ## Documentation Layout
 
 `CONTEXT.md` is the domain vocabulary source of truth. The root `README.md`
-explains the project orientation and current runtime spine. Package-local
+explains the project orientation and current runtime direction. Package-local
 `README.md` files under `src/marulho/*` describe machinery ownership, hot-path
 rules, and evidence boundaries. Keep the documentation surface small and close
 to the code that owns the machinery.
 
 ## Core Concepts
 
-**MarulhoBrain** — the main runtime spine. It owns load/restore, feed/source buffering, tick/learn orchestration, local generation/readout, replay, growth/prune hooks, compact `BrainTrace` telemetry, and save/checkpoint metadata continuity. It delegates CUDA/Triton/native graph execution to `MarulhoTrainer`; service and UI code are adapters over this spine, not owners of neural algorithms.
+**MarulhoBrain** — the main runtime owner. It owns load/restore, feed/source buffering, tick/learn orchestration, local generation/readout, replay, growth/prune hooks, compact `BrainTrace` telemetry, and save/checkpoint metadata continuity. It delegates CUDA/Triton/native graph execution to `MarulhoTrainer`; service and UI code are adapters over this runtime, not owners of neural algorithms.
 _Avoid_: rebuilding the brain as service/status/schema ceremony, hiding an external LLM/ThoughtLoop/Cortex behind the readout, or moving CUDA trainer decisions into FastAPI routes.
 
 **Brain-Owned Lifecycle Loop** — the `/brain/start` and `/brain/stop` contract is a `MarulhoBrain` loop over queued source ticks. It reports `marulho_brain_loop_state.v1`, owner `MarulhoBrain`, configured tick width, interval, tick count, and uptime.
 _Avoid_: hiding service-owned schedulers behind `/brain/start`, moving trainer algorithms into lifecycle handlers, or using lifecycle status as evidence of cognition by itself.
 
 **Brain Service Adapter** — the active FastAPI composition root is `MarulhoBrainServiceManager`, a small adapter that loads one checkpoint into `MarulhoBrain`, exposes `/brain/*`, lists/saves/restores checkpoints, and stops the brain loop on shutdown. The HTTP/UI path should stay thin and should not become a second runtime owner.
-_Avoid_: keeping a hidden service owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating compatibility aliases as the maintained runtime spine.
+_Avoid_: keeping a hidden service owner behind a slim route list, importing giant schema/status stacks on normal API startup, or treating compatibility aliases as the maintained runtime owner.
 
-**BrainTrace** — compact telemetry emitted by `MarulhoBrain` for status, generation before/after evidence, tick throughput, checkpoint path, replay/growth events, device/executor names, and negative external-cognition flags. It replaces broad Runtime Truth as the default spine status surface, while deeper gates remain explicit validation tools.
+**BrainTrace** — compact telemetry emitted by `MarulhoBrain` for status, generation before/after evidence, tick throughput, checkpoint path, replay/growth events, device/executor names, and negative external-cognition flags. It replaces broad Runtime Truth as the default runtime status surface, while deeper gates remain explicit validation tools.
 _Avoid_: re-expanding status into a giant schema court system, treating trace text as proof of cognition, or using status reads as replay/consolidation work.
 
 **Subcortex** — the grounded predictive spiking substrate. Owns sparse routing, multimodal grounding, predictive error, neuromodulation, replay, and curiosity pressure. Does not reason in language.
 _Avoid_: SSN, raw SNN side
 
-**External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the runtime spine.
+**External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
 **Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize or mirror into the external-LLM boundary.
@@ -106,8 +106,8 @@ _Avoid_: hiding CUDA extension build compatibility, restoring rejected native16/
 **Lower-Level Text Sequence Executor Requirement** — the active CUDA boundary that says the next promotable text executor must move below the current Python/CUDA Graph replay wrapper. Conditional-WHILE q16 is now the promoted default for eligible text sequences; native8 repeated-child replay remains an internal fallback, not a selectable parallel path. Native16 and native32 repeated-child capacity probes, nested graph bodies, native host loops, wider truth cadences, and route/vote wrappers are rejection evidence rather than the next default. A candidate successor must own a bounded multi-tick sequence loop in C++/CUDA, Triton persistent kernels, CUDA device/conditional graph code, or a hybrid while preserving sequential state parity, fail-closed fallback, host-truth cadence, startup-cost reporting, and Runtime Truth coverage.
 _Avoid_: claiming another parent-capacity knob, local launcher, scalar report, or route/vote wrapper is the requested device-owned sequence executor without long clean evidence and parity gates.
 
-**Sustained Velocity Evidence** — the rule that production speed claims use long, full-warm continuous runtime runs when available, not only short hot-window or 4096-token samples. Benchmark reports must state target tokens, tick width, quantum, polling behavior, event coverage, CUDA graph replay/failure counts, dominant stage costs, and slow-path run-condition evidence for CPU/GPU contention. Short runs remain useful for development and A/B rejection, but they are not the actual velocity claim when longer uncontended stress evidence exists.
-_Avoid_: quoting the fastest short sample as system speed, allowing measurement polling to contend for runtime locks, hiding prewarm cost, ignoring host/GPU contention when comparing long runs, or treating graph/kernel throughput as complete cognitive runtime throughput.
+**Sustained Runtime Evidence** — the rule that production speed/runtime claims use long, full-warm continuous runtime runs, not short hot-window or 4096-token samples. The promotion ladder is `8192` tokens as the first diagnostic boundary, `131072` tokens as the normal long-run gate, and `524288` tokens as the house-scale target when hardware/runtime budget allows. Benchmark reports must state target tokens, token delta, tick width, quantum, polling behavior, event coverage, final/last `BrainTrace`, CUDA graph replay/failure counts, native/burst/sequence fallback counters, dominant stage costs, and slow-path run-condition evidence for CPU/GPU contention. Short `256`, `1024`, and `4096` token runs remain useful only for smoke/debug checks and A/B rejection; they are not promotion evidence. The 2026-07-03 long-run artifact `reports/runtime_evidence_20260703/long-gate-131072.json` reached `131072/131072` tokens at `43.666 tokens/sec`, CUDA RTX 3060, `conditional_while`, zero CUDA graph/native/sequence failures, bounded `12/65536` route rows, no all-column state transition, bounded streaming source refill with zero source drops, and no observed contention. The matching house-scale artifact `reports/runtime_evidence_20260703/house-scale-524288.json` reached `524288/524288` tokens at `44.834 tokens/sec`, with the same CUDA backend, bounded-route/state-transition evidence, `64` bounded source feeds, zero source drops, and no observed contention. These reports close the normal long-run and house-scale artifact boundaries but are not speed promotions over the historical 6k-ish hot-path band because complete elapsed time includes source refill/encoding. The preserved pre-fix failure `reports/runtime_evidence_20260703/long-gate-131072-source-exhausted-before-refill.json` exhausted the bounded `8192`-token source buffer after `8192` tokens, so long targets must use bounded streaming refill.
+_Avoid_: quoting the fastest short sample as system speed, allowing measurement polling to contend for runtime locks, hiding prewarm/source-refill cost, ignoring host/GPU contention when comparing long runs, treating graph/kernel throughput as complete cognitive runtime throughput, or feeding a long source into the bounded brain source buffer in one shot.
 
 **Velocity Environment Evidence** — the non-hot-path CPU/GPU condition snapshot collected around a sustained stress benchmark. It records whether benchmark comparability was likely affected by host CPU saturation, graphics/GPU contention, unavailable probes, or other run-condition signals. It is evidence for interpreting throughput variance, not a cognitive signal, scheduler input, runtime capability claim, or reason to synchronize inside a live tick.
 _Avoid_: moving machine probes into the cognitive tick, treating contention as a code regression by itself, or discarding a correct CUDA run because the environment was busy.
@@ -1270,14 +1270,14 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 
 **Evidence Responder** — hallucination-guarded response builder with source attribution and candidate scoring.
 
-**Living Loop** — the retired Terminus-era autonomous runtime cycle: tick → train → think → replay → act → sleep → repeat. Its useful record, policy, and self-model primitives remain as owner modules, but it is not the main runtime spine. Active source ticks, generation, replay, growth/prune, checkpoint orchestration, and lifecycle control belong to `MarulhoBrain`.
+**Living Loop** — the retired Terminus-era autonomous runtime cycle: tick → train → think → replay → act → sleep → repeat. Its useful record, policy, and self-model primitives remain as owner modules, but it is not the main runtime owner. Active source ticks, generation, replay, growth/prune, checkpoint orchestration, and lifecycle control belong to `MarulhoBrain`.
 - **Living Loop Helpers** (`living_loop_helpers.py`) — shared cross-layer private helper functions (Layer 0 / Foundation). No dependency on any other Living Loop module.
 - **Runtime Records** (`living_loop_records.py`) — enums and frozen dataclasses for the Living Loop runtime record types (Layer A). Maps to **Living Loop records** in domain vocabulary. Depends on Helpers only.
 - **Policy Scoring** (`living_loop_policy.py`) — PolicyScore, WorldModelLiteSummary, PolicyActuatorRecommendation, and policy actuator decision logic (Layer B). Maps to **Policy Actuator** in domain vocabulary. Depends on Helpers and Records only.
 - **Operational Self-Model** (`living_loop_self_model.py`) — OperationalSelfModel, build_runtime_benchmark_telemetry, and telemetry helpers (Layer C). Maps to **Runtime Truth / Living Loop self-model** in domain vocabulary. Depends on Helpers, Records, and Policy only.
 - The original `living_loop.py` compatibility shim is deleted. Active code imports directly from the owning Living Loop depth module instead of using an aggregator namespace.
 
-**Deleted Legacy Service Surfaces** — the pre-spine Terminus service manager, runtime facade, status read model, runtime-control file, and service BrainRuntime file are removed from the active tree. The maintained runtime spine is `MarulhoBrain`; the maintained HTTP adapter is `MarulhoBrainServiceManager`.
+**Deleted Legacy Service Surfaces** — the retired Terminus service manager, runtime facade, status read model, runtime-control file, and service BrainRuntime file are removed from the active tree. The maintained runtime owner is `MarulhoBrain`; the maintained HTTP adapter is `MarulhoBrainServiceManager`.
 _Avoid_: restoring compatibility shells for removed service/status/schema/readiness surfaces or routing source ticks, readout, replay, growth/prune, checkpoint orchestration, or lifecycle control through service-owned files.
 
 **Brain Runtime Facade** — `MarulhoBrainRuntimeFacade` in `service.brain_manager` is the only maintained runtime facade. It is a small HTTP/UI adapter over `MarulhoBrain`; active FastAPI routes call `/brain/*` through it.
@@ -1445,7 +1445,7 @@ _Avoid_: using Runtime Truth as the self-repair evaluator, exposing repair case 
 - Cortex-owned drives, episodic memory, working memory, narrative self, prompt, core, and ThoughtLoop modules must not be active extension points; reusable concepts belong under semantics, service runtime, or Subcortex modules.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
 - Replay Pipeline feeds adapter experiments that never touch production runtime
-- MarulhoBrain owns the runtime spine while package owner modules supply replay, grounding, policy, source, and interaction machinery behind explicit calls. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
+- MarulhoBrain owns runtime orchestration while package owner modules supply replay, grounding, policy, source, and interaction machinery behind explicit calls. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
 - CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. External LLM paths are not CUDA-first claims or architectural requirements.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Sensory Encoder device reports must include both persistent encoder state devices and the last emitted spike tensor device/shape; a configured device alone is not CUDA evidence.

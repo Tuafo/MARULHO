@@ -17,7 +17,7 @@ Use this with [../../../README.md](../../../README.md) and
 - Neural algorithms, CUDA execution policy, or readout learning.
 - Hidden replay, consolidation, or delayed-consequence work inside status reads.
 - Compatibility aliases that make HTTP routing look like a second runtime
-  spine.
+  owner.
 
 ## Active Contract
 

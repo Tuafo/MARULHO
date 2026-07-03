@@ -3,7 +3,7 @@
 Use this with [../../../README.md](../../../README.md) and
 [../../../CONTEXT.md](../../../CONTEXT.md).
 
-`MarulhoBrain` is the main runtime spine. The intended path is checkpoint
+`MarulhoBrain` is the main runtime owner. The intended path is checkpoint
 load/restore, feed/source buffering, tick/learn, local generate/readout, replay,
 grow/prune, compact trace, and save.
 
@@ -26,7 +26,7 @@ grow/prune, compact trace, and save.
   `/brain/stop` must call `MarulhoBrain.start()` and `MarulhoBrain.stop()`.
 - Hidden external LLM, Cortex, or ThoughtLoop cognition.
 - Broad Runtime Truth schema expansion. Use compact `BrainTrace` as the default
-  spine status and keep deeper gates explicit.
+  runtime status and keep deeper gates explicit.
 
 ## Validation Snapshot
 

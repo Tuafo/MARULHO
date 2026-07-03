@@ -1,3 +1,8 @@
+from collections import deque
+import json
+import time
+
+import marulho.evaluation.continuous_runtime_stress_benchmark as stress_benchmark
 from marulho.evaluation.continuous_runtime_stress_benchmark import (
     _collect_tick_events,
     _ensure_runtime_event_history_capacity,
@@ -9,6 +14,205 @@ from marulho.evaluation.continuous_runtime_stress_benchmark import (
     main,
     run_continuous_runtime_stress,
 )
+
+
+class _FakeStressConfig:
+    slow_memory_archive_interval_tokens = 256
+    trainer_telemetry_interval_tokens = 32
+    cuda_graph_host_truth_sync_interval_tokens = 32
+    cuda_graph_native_burst_replay = True
+    cuda_graph_native_burst_tokens = 8
+    cuda_graph_sequence_executor = "conditional_while"
+    cuda_graph_sequence_loop_tokens = 16
+    predictive_route_vote_mode = "cuda_graph_text"
+
+    def device_report(self) -> dict:
+        return {
+            "requested_device": "auto",
+            "resolved_device": "cuda:0",
+            "cuda_available": True,
+            "cuda_selected": True,
+        }
+
+
+class _FakeStressTrainer:
+    def __init__(self) -> None:
+        self.config = _FakeStressConfig()
+        self.token_count = 0
+        self.profile_disabled = False
+
+    def column_transition_runtime_report(self) -> dict:
+        return {
+            "surface": "column_transition_runtime.v1",
+            "failure_count": 0,
+            "selection_failure_count": 0,
+            "route_vote_fallback_reason": None,
+            "text_burst_execution_count": 1,
+            "text_burst_token_count": int(self.token_count),
+            "text_burst_fallback_count": 0,
+            "text_burst_fallback_reasons": {},
+            "text_burst_last_fallback_reason": None,
+            "text_sequence_execution_count": 1,
+            "text_sequence_token_count": int(self.token_count),
+            "cuda_graph_route_transition": {
+                "active": True,
+                "capture_succeeded": True,
+                "replay_count": 1,
+                "failure_count": 0,
+                "native_burst_replay_fallback_count": 0,
+                "native_burst_replay_failure_count": 0,
+                "native_sequence_loop_fallback_count": 0,
+                "native_sequence_loop_failure_count": 0,
+                "burst_replay_failure_count": 0,
+                "native_sequence_executor_requested": "cuda_graph_conditional_while",
+                "native_sequence_loop_backend": "cuda_graph_conditional_while",
+            },
+        }
+
+    def enable_train_step_profile(self, *, reset: bool = True) -> None:
+        del reset
+
+    def disable_train_step_profile(self) -> None:
+        self.profile_disabled = True
+
+    def train_step_profile_report(self) -> dict:
+        return {"enabled": True, "count": int(self.token_count)}
+
+
+class _FakeStressBrain:
+    def __init__(self, exc: BaseException) -> None:
+        self.trainer = _FakeStressTrainer()
+        self._trace_history = deque([], maxlen=2)
+        self.exc = exc
+        self.stopped = False
+
+    def feed(self, text: str, *, source: str, learn: bool) -> dict:
+        del text, source, learn
+        return {"accepted_tokens": 64, "queued_tokens": 64}
+
+    def tick(self, *, tokens: int, quantum_tokens: int, source: str) -> dict:
+        del tokens, quantum_tokens, source
+        if isinstance(self.exc, KeyboardInterrupt):
+            self.trainer.token_count += 4
+        raise self.exc
+
+    def status(self) -> dict:
+        return {
+            "surface": "marulho_brain_runtime.v1",
+            "queued_tokens": 64,
+            "token_count": int(self.trainer.token_count),
+        }
+
+    def trace(self) -> dict:
+        return {
+            "surface": "marulho_brain_trace.v1",
+            "event": "tick",
+            "trained_tokens": int(self.trainer.token_count),
+            "elapsed_ms": 1.5,
+            "executor": "conditional_while",
+        }
+
+    def trace_history(self, *, limit: int) -> list[dict]:
+        del limit
+        return [self.trace()]
+
+    def stop(self, *, timeout_seconds: float) -> dict:
+        del timeout_seconds
+        self.stopped = True
+        return {"stopped": True}
+
+
+class _BoundedSourceStressBrain:
+    def __init__(self, *, max_queue: int = 16) -> None:
+        self.trainer = _FakeStressTrainer()
+        self.max_queue = int(max_queue)
+        self.queued = 0
+        self.dropped_total = 0
+        self.feed_calls: list[int] = []
+        self._trace_history = deque([], maxlen=8)
+        self.stopped = False
+
+    def feed(self, text: str, *, source: str, learn: bool) -> dict:
+        del source, learn
+        accepted = len(text)
+        overflow = max(0, self.queued + accepted - self.max_queue)
+        self.dropped_total += overflow
+        self.queued = min(self.max_queue, self.queued + accepted)
+        self.feed_calls.append(accepted)
+        return {"accepted_tokens": accepted, "queued_tokens": int(self.queued)}
+
+    def tick(self, *, tokens: int, quantum_tokens: int, source: str) -> dict:
+        del quantum_tokens, source
+        trained = min(int(tokens), int(self.queued))
+        self.queued -= trained
+        self.trainer.token_count += trained
+        trace = {
+            "surface": "marulho_brain_trace.v1",
+            "step": len(self._trace_history) + 1,
+            "event": "tick",
+            "trained_tokens": trained,
+            "elapsed_ms": 1.0,
+            "executor": "conditional_while",
+        }
+        self._trace_history.append(trace)
+        return {"trained_tokens": trained, "queued_tokens": int(self.queued)}
+
+    def status(self) -> dict:
+        return {
+            "surface": "marulho_brain_runtime.v1",
+            "queued_tokens": int(self.queued),
+            "token_count": int(self.trainer.token_count),
+            "source_buffer": {
+                "queued_tokens": int(self.queued),
+                "dropped_total": int(self.dropped_total),
+                "max_items": int(self.max_queue),
+            },
+        }
+
+    def trace(self) -> dict:
+        if self._trace_history:
+            return dict(self._trace_history[-1])
+        return {
+            "surface": "marulho_brain_trace.v1",
+            "event": "tick",
+            "trained_tokens": 0,
+            "elapsed_ms": 0.0,
+            "executor": "conditional_while",
+        }
+
+    def trace_history(self, *, limit: int) -> list[dict]:
+        return [dict(item) for item in list(self._trace_history)[-int(limit) :]]
+
+    def stop(self, *, timeout_seconds: float) -> dict:
+        del timeout_seconds
+        self.stopped = True
+        return {"stopped": True}
+
+
+class _SlowTimeoutStressBrain(_BoundedSourceStressBrain):
+    def tick(self, *, tokens: int, quantum_tokens: int, source: str) -> dict:
+        time.sleep(0.12)
+        return super().tick(
+            tokens=tokens,
+            quantum_tokens=quantum_tokens,
+            source=source,
+        )
+
+
+def _patch_stress_runtime(monkeypatch, brain: _FakeStressBrain) -> None:
+    monkeypatch.setattr(
+        stress_benchmark.MarulhoBrain,
+        "load",
+        staticmethod(lambda checkpoint, trace_limit=64: brain),
+    )
+    monkeypatch.setattr(
+        stress_benchmark,
+        "_collect_velocity_environment_snapshot",
+        lambda: {
+            "cpu": {"available": False},
+            "gpu": {"available": False},
+        },
+    )
 
 
 def test_collect_tick_events_deduplicates_recent_history() -> None:
@@ -98,6 +302,111 @@ def test_source_text_scales_for_long_full_warm_runs() -> None:
 
     assert len(long) > len(short)
     assert "Adaptive memory plasticity" in long
+
+
+def test_stress_runner_refills_bounded_source_buffer_for_long_targets(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    brain = _BoundedSourceStressBrain(max_queue=16)
+    _patch_stress_runtime(monkeypatch, brain)  # type: ignore[arg-type]
+    output = tmp_path / "long-source-report.json"
+
+    report = run_continuous_runtime_stress(
+        tmp_path / "runtime.pt",
+        output_path=output,
+        target_tokens=40,
+        tick_tokens=8,
+        timeout_seconds=5.0,
+        sample_interval_seconds=0.001,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert report["success"] is True
+    assert report["token_delta"] == 40
+    assert brain.dropped_total == 0
+    assert len(brain.feed_calls) > 1
+    assert written["warm_ingestion"]["mode"] == "brain_feed_streaming_refill"
+    assert written["warm_ingestion"]["refill_count"] >= 1
+    assert written["warm_ingestion"]["source_buffer_max_items"] == 16
+    assert written["warm_ingestion"]["source_buffer_dropped_total"] == 0
+
+
+def test_stress_runner_writes_exception_report(monkeypatch, tmp_path) -> None:
+    brain = _FakeStressBrain(RuntimeError("simulated tick failure"))
+    _patch_stress_runtime(monkeypatch, brain)
+    output = tmp_path / "exception-report.json"
+
+    report = run_continuous_runtime_stress(
+        tmp_path / "runtime.pt",
+        output_path=output,
+        target_tokens=16,
+        tick_tokens=8,
+        timeout_seconds=5.0,
+        profile_trainer_stages=True,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert brain.stopped is True
+    assert report["success"] is False
+    assert report["evidence_status"] == "exception"
+    assert report["evidence_state"]["exception"] is True
+    assert report["failure_reason"] == "exception:RuntimeError"
+    assert written["exception"]["type"] == "RuntimeError"
+    assert written["runtime_owner"] == "MarulhoBrain"
+    assert written["runtime_device"]["resolved_device"] == "cuda:0"
+    assert written["final_brain_trace"]["surface"] == "marulho_brain_trace.v1"
+    assert written["failure_fallback_counters"]["cuda_graph_failure_count"] == 0
+    assert written["executor_evidence"]["trainer_owner"] == "MarulhoTrainer"
+
+
+def test_stress_runner_writes_keyboard_interrupt_report(monkeypatch, tmp_path) -> None:
+    brain = _FakeStressBrain(KeyboardInterrupt())
+    _patch_stress_runtime(monkeypatch, brain)
+    output = tmp_path / "interrupt-report.json"
+
+    report = run_continuous_runtime_stress(
+        tmp_path / "runtime.pt",
+        output_path=output,
+        target_tokens=16,
+        tick_tokens=8,
+        timeout_seconds=5.0,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert brain.stopped is True
+    assert report["success"] is False
+    assert report["evidence_status"] == "interrupt"
+    assert report["evidence_state"]["interrupt"] is True
+    assert report["failure_reason"] == "keyboard_interrupt_manual_stop"
+    assert report["token_delta"] == 4
+    assert written["exception"]["type"] == "KeyboardInterrupt"
+    assert written["token_delta"] == 4
+    assert written["event_summary"]["tick_event_count"] >= 1
+
+
+def test_stress_runner_writes_timeout_report(monkeypatch, tmp_path) -> None:
+    brain = _SlowTimeoutStressBrain(max_queue=16)
+    _patch_stress_runtime(monkeypatch, brain)  # type: ignore[arg-type]
+    output = tmp_path / "timeout-report.json"
+
+    report = run_continuous_runtime_stress(
+        tmp_path / "runtime.pt",
+        output_path=output,
+        target_tokens=64,
+        tick_tokens=8,
+        timeout_seconds=0.1,
+        sample_interval_seconds=0.001,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert brain.stopped is True
+    assert report["success"] is False
+    assert report["evidence_status"] == "timeout"
+    assert report["evidence_state"]["timeout"] is True
+    assert report["failure_reason"] == "target_tokens_not_reached_before_timeout"
+    assert written["token_delta"] < 64
+    assert written["warm_ingestion"]["mode"] == "brain_feed_streaming_refill"
 
 
 def test_parse_nvidia_smi_gpu_row_reports_numeric_run_conditions() -> None:

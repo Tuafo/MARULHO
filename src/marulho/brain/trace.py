@@ -7,7 +7,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class BrainTrace:
-    """Compact runtime telemetry for the MarulhoBrain spine."""
+    """Compact runtime telemetry for MarulhoBrain."""
 
     step: int
     event: str

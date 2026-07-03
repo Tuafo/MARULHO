@@ -88,15 +88,29 @@ CUDA claims require observed backend/device/failure-counter evidence, not config
 
 ## Current Validation
 
-Latest local validation snapshot, 2026-06-30 on a RTX3060:
+Latest local validation snapshot, 2026-07-03 on a RTX3060:
 
 - `python -m compileall -q src tests`: passed.
-- `python -m pytest`: `1625 passed`, `1 warning`.
+- `python -m pytest`: `1629 passed`, `17 subtests passed`, `1 warning`.
+- Focused runtime/service/stress tests: `30 passed`; stress-runner report tests: `18 passed`.
 - `npm run build` in `MARULHO_UI`: passed.
-- Long sequence-input CUDA gate: `6601.19` sequence tokens/sec versus `6507.41` per-quantum tokens/sec, backend `cuda_graph_conditional_while`, execution mode `cuda_graph_route_transition_burst`, device `cuda:0`, zero graph/native/burst failures.
-- Continuous stress: `256`, `1024`, and `4096` token runs passed through the same conditional-WHILE CUDA backend with zero graph/native/burst failures. The `4096` token run reached `121.93` tokens/sec over `32` ticks.
+- Continuous runtime diagnostic: `reports/runtime_evidence_20260703/diagnostic-8192.json` reached `8192/8192` tokens, `131.614 tokens/sec`, CUDA `NVIDIA GeForce RTX 3060`, `conditional_while`, zero CUDA graph/native/sequence failures, contention `not_observed`.
+- Continuous runtime long gate: `reports/runtime_evidence_20260703/long-gate-131072.json` reached `131072/131072` tokens, `43.666 tokens/sec`, CUDA `NVIDIA GeForce RTX 3060`, `conditional_while`, zero CUDA graph/native/sequence failures, route rows bounded at `12/65536`, state transition all-column execution `false`, source refill `brain_feed_streaming_refill`, `16` feed calls, zero source drops, contention `not_observed`.
+- Continuous runtime house-scale gate: `reports/runtime_evidence_20260703/house-scale-524288.json` reached `524288/524288` tokens, `44.834 tokens/sec`, CUDA `NVIDIA GeForce RTX 3060`, `conditional_while`, zero CUDA graph/native/sequence failures, route rows bounded at `12/65536`, state transition all-column execution `false`, source refill `brain_feed_streaming_refill`, `64` feed calls, zero source drops, contention `not_observed`.
+- Preserved failure evidence: `reports/runtime_evidence_20260703/long-gate-131072-source-exhausted-before-refill.json` shows the old one-shot feed path exhausted the bounded `8192`-token source buffer after `8192` tokens. The runner now refills the brain-owned source buffer in bounded chunks.
+- Continuous stress smoke/debug history: `256`, `1024`, and `4096` token runs passed through the same conditional-WHILE CUDA backend with zero graph/native/burst failures. These short runs are not promotion evidence.
 
-Known current validation gap: the `8192` and `131072` token continuous stress attempts did not produce a final JSON report before manual stop. Treat the long continuous stress boundary as open until that runner is diagnosed.
+The maintained promotion surface is sustained MARULHO runtime evidence. Use `8192` tokens as the first diagnostic boundary, `131072` tokens as the normal long-run gate, and `524288` tokens as the house-scale target when hardware/runtime budget allows. Promotion is not allowed from `256`, `1024`, or `4096` token runs.
+
+Continuous stress commands:
+
+```bash
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/long-gate-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 7200
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/house-scale-524288.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 21600
+```
+
+Current boundary: final `131072` and `524288` token reports exist, so the normal long-run and house-scale evidence artifact boundaries are closed for this milestone. These reports are not speed promotions versus the historical 6k-ish hot-path band because they include bounded streaming source refill/encoding in complete runtime elapsed time.
 
 ## Setup
 

@@ -1,4 +1,4 @@
-"""MARULHO brain-runtime spine."""
+"""MARULHO brain runtime."""
 
 from marulho.brain.runtime import MarulhoBrain
 from marulho.brain.trace import BrainTrace

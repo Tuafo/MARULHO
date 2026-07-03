@@ -38,4 +38,4 @@ developmental and consolidation runners, query runners, and long-run evidence.
   boundaries; they do not justify moving algorithms into service.
 - `long_test_runner.py` is now a `MarulhoBrain` health runner. It feeds local
   preset text, starts/stops the brain loop, samples compact brain status, and
-  checks feed/readout/tick progress through the active brain spine.
+  checks feed/readout/tick progress through the active brain runtime.

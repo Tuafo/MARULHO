@@ -79,7 +79,7 @@ def export_runtime_trace_dataset(
         "schema_version": BRAIN_TRACE_EXPORT_SCHEMA_VERSION,
         "training_role": "brain_trace_dataset_preview_only_not_training",
         "description": (
-            "Bounded compact BrainTrace events from the MarulhoBrain spine. "
+            "Bounded compact BrainTrace events from MarulhoBrain. "
             "This export does not train a model or revive legacy service traces."
         ),
         "limit": count,

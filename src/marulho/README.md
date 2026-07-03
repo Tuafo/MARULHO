@@ -4,12 +4,12 @@ Use this package map with [../../README.md](../../README.md) and
 [../../CONTEXT.md](../../CONTEXT.md).
 
 `CONTEXT.md` is the domain vocabulary source of truth. The root `README.md`
-explains the project shape and current runtime spine. Each package README
+explains the project shape and current runtime direction. Each package README
 below records local ownership rules and machinery-specific runtime rules.
 
 ## Machinery Folders
 
-- [brain](brain/README.md): main `MarulhoBrain` runtime spine and compact trace.
+- [brain](brain/README.md): main `MarulhoBrain` runtime owner and compact trace.
 - [core](core/README.md): local SNN tensor mechanisms and mutation algorithms.
 - [data](data/README.md): source loaders and sparse encoder boundaries.
 - [semantics](semantics/README.md): grounded readout, concepts, and language evidence.
