@@ -12,6 +12,9 @@ import torch
 from marulho.brain import MarulhoBrain
 from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.evaluation.language_grounding_support import (
+    run_language_grounding_support_report,
+)
 from marulho.evaluation.language_scale_ladder import (
     build_language_scale_ladder_report,
     estimate_language_model_parameters,
@@ -190,15 +193,57 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
+    grounding_report = run_language_grounding_support_report(
+        base_model,
+        tokenizer,
+        prompt_text="runtime truth replay evidence",
+        source_text=(
+            "Runtime truth records replay evidence for MARULHO-owned language "
+            "support. Source windows keep checkpointed evidence reviewable."
+        ),
+        required_terms=("runtime", "truth", "replay", "evidence"),
+        max_new_tokens=0,
+        output_path=output.parent / "language-suite-grounding-support.json",
+    )
+    grounding_gate = grounding_report["promotion_gate"]
     categories.append(
         _category(
             "grounding_support",
-            status="missing",
+            status=(
+                "pass"
+                if grounding_gate["grounding_support_available"]
+                else "fail"
+            ),
             evidence={
-                "grounding_surface": "not_yet_connected_to_lm_head_fixture",
-                "external_llm_used": False,
+                "grounding_surface": grounding_report["surface"],
+                "grounding_support_report": str(
+                    output.parent / "language-suite-grounding-support.json"
+                ),
+                "source_term_coverage": grounding_report["source_terms"][
+                    "source_term_coverage"
+                ],
+                "matched_required_terms": grounding_report["source_terms"][
+                    "matched_required_terms"
+                ],
+                "missing_required_terms": grounding_report["source_terms"][
+                    "missing_required_terms"
+                ],
+                "source_term_coverage_gate_passed": grounding_gate[
+                    "source_term_coverage_gate_passed"
+                ],
+                "active_language_path": grounding_report["generation"][
+                    "active_language_path"
+                ],
+                "external_llm_used": grounding_report["generation"][
+                    "external_llm_used"
+                ],
+                "review_kind": grounding_report["generation"]["review_kind"],
             },
-            missing=("grounding_support_report", "source_term_coverage_gate"),
+            missing=(
+                ()
+                if grounding_gate["grounding_support_available"]
+                else ("grounding_support_report", "source_term_coverage_gate")
+            ),
         )
     )
 
@@ -701,6 +746,9 @@ def run_language_runtime_benchmark_suite(
         "failed_category_count": len(failed_categories),
         "categories": categories,
         "subreports": {
+            "grounding_support": str(
+                output.parent / "language-suite-grounding-support.json"
+            ),
             "sustained_smoke": str(output.parent / "language-suite-sustained-smoke.json"),
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
@@ -717,6 +765,9 @@ def run_language_runtime_benchmark_suite(
             "requires_long_run_evidence": True,
             "requires_gpu_kernel_parity": True,
             "requires_grounding_support": True,
+            "grounding_support_available": grounding_gate[
+                "grounding_support_available"
+            ],
             "missing_required_category_names": [
                 item["name"] for item in missing_categories
             ],

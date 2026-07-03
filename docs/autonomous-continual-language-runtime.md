@@ -552,14 +552,15 @@ forgetting, restore, kernel, and generation-review evidence exists.
 
 `language_runtime_benchmark_suite.py` aggregates the LM-head evidence categories
 into one JSON plus README report. The suite can run tiny fixtures for next-token
-loss, heldout perplexity, generation smoke, continual learning, forgetting,
-replay recovery, structural transaction safety, sustained-runtime smoke, active
-compute, checkpoint restore, rollback, service-read contract, and scale-ladder
-inventory. It must keep missing grounding support, human/grounded generation
-review, Triton/CUDA kernel parity, and true 8192/131072-token long-run gates
-visible as blockers rather than promoting the smoke report. The structural
-safety category now exercises expert-spawn growth, explicit expert-prune,
-explicit expert-merge, and explicit expert-deep-sleep checkpoint transactions.
+loss, heldout perplexity, generation smoke, grounding-support source-term
+coverage, continual learning, forgetting, replay recovery, structural
+transaction safety, sustained-runtime smoke, active compute, checkpoint restore,
+rollback, service-read contract, and scale-ladder inventory. It must keep
+human/grounded generation review, Triton/CUDA kernel parity, and true
+8192/131072-token long-run gates visible as blockers rather than promoting the
+smoke report. The structural safety category now exercises expert-spawn growth,
+explicit expert-prune, explicit expert-merge, and explicit expert-deep-sleep
+checkpoint transactions.
 
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,
