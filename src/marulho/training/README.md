@@ -51,7 +51,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   components installed. It is training-owned, checkpoint-backed, and reports
   `external_llm_used=false`, but it is not promoted as live cognition until
   online learning, rollback, throughput, and long-run Runtime Evidence gates
-  pass.
+  pass. `build_language_model_splits` supports packed fixed-length language
+  windows so experiments can run multi-window optimizer steps on CPU or CUDA
+  without changing the model contract.
 - The current `MarulhoSelectiveSpikingStateBlock` is the Iteration 3 PyTorch
   foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
   current terms, selective recurrent state, eligibility trace cache, adaptive

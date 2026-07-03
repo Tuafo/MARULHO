@@ -77,9 +77,10 @@ harnesses.
   Triton/CUDA kernel parity evidence exist.
 - `language_training_experiment.py` is the fast mutable LM experiment runner.
   It trains a configurable MARULHO-owned routed selective-spiking LM on local
-  text, records training throughput, heldout loss/perplexity before and after
-  training, owned generation samples, a checkpoint, and a paired sustained
-  inference report. It is meant to accelerate model experiments, not create a
+  text using packed device-resident windows, records training throughput,
+  heldout loss/perplexity before and after training, owned generation samples,
+  source-continuation quality probes, a checkpoint, and paired sustained
+  inference reports. It is meant to accelerate model experiments, not create a
   new promotion gate.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
@@ -128,6 +129,19 @@ harnesses.
   throughput category, including the house-scale report, but keeps promotion
   blocked on `generation_coherence` review and `gpu_kernel_correctness`
   Triton/parity evidence.
+- Current 2026-07-03 batched LM training evidence in
+  `reports/language_training_experiments/cuda-batched-quality-8192.json`
+  trained `63744` tokens at `1240.010 train tokens/sec` with `batch_size=16`
+  and `1024` tokens per optimizer step, versus the earlier single-window CUDA
+  experiment at `74.551 train tokens/sec`. Heldout loss moved from `5.7651` to
+  `0.2381`, heldout perplexity from `318.9603` to `1.2689`, printable
+  generated continuation fraction reached `1.0`, and supported prompts moved
+  from `0.0` to `1.0` next-character source-continuation match rate. The same
+  trained checkpoint sustained `131072` tokens at `6938.880 tokens/sec` and
+  `524288` tokens at `6996.703 tokens/sec` with `torch_cuda_graph_burst`.
+  Generated continuations still show fractured local-corpus memorization, so
+  this is training/quality-probe evidence, not a generation-coherence
+  promotion.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
@@ -154,7 +168,7 @@ python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint ch
 LM training experiment:
 
 ```bash
-python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/local-run.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/local-run.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192
 ```
 
 LM scale ladder inventory:

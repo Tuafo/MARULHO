@@ -92,11 +92,16 @@ full `MarulhoBrain` sustained runtime gate.
 
 `marulho.evaluation.language_training_experiment` is now the fast mutable LM
 science loop. It trains a configurable routed selective-spiking LM on local
-text, records training throughput plus heldout loss/perplexity before and after
-the update, emits MARULHO-owned generation samples, saves a checkpoint, and runs
-paired sustained inference. Its job is to accelerate bigger experiment cycles;
-it records generated text and metrics honestly rather than turning every run
-into a new gate.
+text using packed device-resident windows, records training throughput plus
+heldout loss/perplexity before and after the update, emits MARULHO-owned
+generation samples with source-continuation probes, saves a checkpoint, and
+runs paired sustained inference. Its job is to accelerate bigger experiment
+cycles; it records generated text and metrics honestly rather than turning
+every run into a new gate. The current batched CUDA report trained `63744`
+tokens at `1240.010 train tokens/sec` and kept the trained checkpoint above the
+8192/131072/524288 sustained evidence ladder, but generated text still shows
+fractured local-corpus memorization and must not be promoted as general
+language coherence.
 
 The target runtime must preserve these boundaries:
 

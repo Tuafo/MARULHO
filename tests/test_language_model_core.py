@@ -74,6 +74,26 @@ def test_language_split_loader_reports_train_eval_hashes() -> None:
     assert split.train[0].input_ids.shape == split.train[0].target_ids.shape
 
 
+def test_language_split_loader_packs_batched_windows() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+
+    split = build_language_model_splits(
+        _texts(),
+        tokenizer,
+        sequence_length=8,
+        eval_fraction=0.25,
+        stride=4,
+        batch_size=3,
+    )
+
+    assert split.report["batch_size"] == 3
+    assert split.report["window_count"] >= split.report["train_window_count"]
+    assert split.train[0].input_ids.ndim == 2
+    assert split.train[0].input_ids.shape[0] <= 3
+    assert split.train[0].input_ids.shape[1] == 8
+    assert split.train[0].target_ids.shape == split.train[0].input_ids.shape
+
+
 def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     torch.manual_seed(7)
     tokenizer = ByteLevelLanguageTokenizer()

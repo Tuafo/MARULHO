@@ -879,8 +879,15 @@ class MarulhoLanguageModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         target_ids: torch.Tensor,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
     ) -> dict[str, Any]:
-        result = self.forward(input_ids)
+        result = self.forward(
+            input_ids,
+            collect_telemetry=collect_telemetry,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
         logits = result["logits"]
         loss = F.cross_entropy(
             logits.reshape(-1, self.config.vocab_size),
@@ -1002,10 +1009,12 @@ def build_language_model_splits(
     sequence_length: int,
     eval_fraction: float = 0.2,
     stride: int | None = None,
+    batch_size: int = 1,
     device: torch.device | str | None = None,
 ) -> LanguageSplit:
     if sequence_length < 2:
         raise ValueError("sequence_length must be at least 2")
+    batch_size = max(1, int(batch_size))
     token_ids: list[int] = []
     for text in texts:
         encoded = tokenizer.encode(text, add_bos=True, add_eos=True)
@@ -1023,29 +1032,51 @@ def build_language_model_splits(
     if not windows:
         raise ValueError("No language windows were produced")
     target_device = torch.device(device) if device is not None else torch.device("cpu")
-    batches = tuple(
-        LanguageBatch(
-            input_ids=torch.tensor([window[:-1]], dtype=torch.long, device=target_device),
-            target_ids=torch.tensor([window[1:]], dtype=torch.long, device=target_device),
-        )
-        for window in windows
-    )
-    if len(batches) == 1:
-        train_batches = batches
-        eval_batches = batches
+    if len(windows) == 1:
+        train_windows = windows
+        eval_windows = windows
     else:
-        eval_count = max(1, min(len(batches) - 1, math.ceil(len(batches) * float(eval_fraction))))
-        split_index = len(batches) - eval_count
-        train_batches = batches[:split_index]
-        eval_batches = batches[split_index:]
+        eval_count = max(
+            1,
+            min(len(windows) - 1, math.ceil(len(windows) * float(eval_fraction))),
+        )
+        split_index = len(windows) - eval_count
+        train_windows = windows[:split_index]
+        eval_windows = windows[split_index:]
+
+    def _pack(window_rows: Sequence[Sequence[int]]) -> tuple[LanguageBatch, ...]:
+        packed: list[LanguageBatch] = []
+        for offset in range(0, len(window_rows), batch_size):
+            chunk = window_rows[offset : offset + batch_size]
+            packed.append(
+                LanguageBatch(
+                    input_ids=torch.tensor(
+                        [window[:-1] for window in chunk],
+                        dtype=torch.long,
+                        device=target_device,
+                    ),
+                    target_ids=torch.tensor(
+                        [window[1:] for window in chunk],
+                        dtype=torch.long,
+                        device=target_device,
+                    ),
+                )
+            )
+        return tuple(packed)
+
+    train_batches = _pack(train_windows)
+    eval_batches = _pack(eval_windows)
     report = {
         "surface": "marulho_language_train_eval_split.v1",
         "owned_by_marulho": True,
         "external_dependency": False,
         "sequence_length": int(sequence_length),
         "stride": int(step),
+        "batch_size": int(batch_size),
         "source_text_count": len(texts),
-        "window_count": len(batches),
+        "window_count": len(windows),
+        "train_window_count": len(train_windows),
+        "eval_window_count": len(eval_windows),
         "train_batch_count": len(train_batches),
         "eval_batch_count": len(eval_batches),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
@@ -1066,12 +1097,22 @@ def evaluate_language_model(
     total_loss = 0.0
     total_tokens = 0
     last_telemetry: dict[str, Any] = {}
-    for batch in batches:
-        result = model.next_token_loss(batch.input_ids.to(model.device), batch.target_ids.to(model.device))
+    assume_no_sleeping = (
+        model.routed_experts.enabled
+        and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
+    )
+    for batch_index, batch in enumerate(batches):
+        result = model.next_token_loss(
+            batch.input_ids.to(model.device),
+            batch.target_ids.to(model.device),
+            collect_telemetry=batch_index == len(batches) - 1,
+            assume_no_sleeping_experts=assume_no_sleeping,
+        )
         token_count = int(batch.target_ids.numel())
         total_loss += float(result["loss"].detach().cpu().item()) * token_count
         total_tokens += token_count
-        last_telemetry = dict(result["telemetry"])
+        if batch_index == len(batches) - 1:
+            last_telemetry = dict(result["telemetry"])
     heldout_loss = total_loss / max(1, total_tokens)
     return {
         "artifact_kind": "marulho_language_model_heldout_evaluation",

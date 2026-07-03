@@ -51,6 +51,7 @@ class LanguageTrainingExperimentConfig:
     adaptive_timestep_budget: int = 1
     sequence_length: int = 32
     stride: int = 16
+    batch_size: int = 8
     max_train_batches: int = 64
     train_epochs: int = 2
     learning_rate: float = 2e-3
@@ -112,12 +113,85 @@ def _mean(values: Sequence[float]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
 
 
+def _common_prefix_length(left: str, right: str) -> int:
+    limit = min(len(left), len(right))
+    for index in range(limit):
+        if left[index] != right[index]:
+            return index
+    return limit
+
+
+def _printable_fraction(text: str) -> float:
+    if not text:
+        return 0.0
+    printable = sum(1 for char in text if char.isprintable() or char in "\n\t")
+    return float(printable) / float(len(text))
+
+
+def _distinct_bigram_fraction(token_ids: Sequence[int]) -> float:
+    if len(token_ids) < 2:
+        return 1.0 if token_ids else 0.0
+    bigrams = list(zip(token_ids, token_ids[1:]))
+    return float(len(set(bigrams))) / float(len(bigrams))
+
+
+def _max_token_run_length(token_ids: Sequence[int]) -> int:
+    if not token_ids:
+        return 0
+    longest = 1
+    current = 1
+    previous = int(token_ids[0])
+    for token_id in token_ids[1:]:
+        token_id = int(token_id)
+        if token_id == previous:
+            current += 1
+        else:
+            longest = max(longest, current)
+            current = 1
+            previous = token_id
+    return max(longest, current)
+
+
+def _source_continuation_review(
+    *,
+    prompt: str,
+    continuation_text: str,
+    corpus: str,
+    max_chars: int,
+) -> dict[str, Any]:
+    source_index = corpus.find(prompt)
+    if source_index < 0:
+        return {
+            "source_prompt_found": False,
+            "expected_source_continuation": "",
+            "prefix_match_chars": 0,
+            "prefix_match_fraction": 0.0,
+            "next_character_matches_source": False,
+        }
+    expected = corpus[
+        source_index + len(prompt) : source_index + len(prompt) + max(0, int(max_chars))
+    ]
+    prefix_match_chars = _common_prefix_length(expected, continuation_text)
+    return {
+        "source_prompt_found": True,
+        "expected_source_continuation": expected,
+        "prefix_match_chars": int(prefix_match_chars),
+        "prefix_match_fraction": (
+            float(prefix_match_chars) / float(len(expected)) if expected else 0.0
+        ),
+        "next_character_matches_source": bool(
+            expected and continuation_text and expected[0] == continuation_text[0]
+        ),
+    }
+
+
 def _decoded_generation(
     model: MarulhoLanguageModel,
     tokenizer: ByteLevelLanguageTokenizer,
     *,
     prompt: str,
     max_new_tokens: int,
+    corpus: str | None = None,
 ) -> dict[str, Any]:
     prompt_ids = torch.tensor(
         tokenizer.encode(prompt, add_eos=False),
@@ -134,19 +208,79 @@ def _decoded_generation(
     ]
     prompt_count = int(prompt_ids.numel())
     continuation_ids = generated_ids[prompt_count:]
+    continuation_text = tokenizer.decode(continuation_ids)
+    source_review = _source_continuation_review(
+        prompt=prompt,
+        continuation_text=continuation_text,
+        corpus=corpus or "",
+        max_chars=len(continuation_text),
+    )
     return {
         "surface": generation["surface"],
         "prompt": prompt,
         "generated_text": tokenizer.decode(generated_ids),
-        "continuation_text": tokenizer.decode(continuation_ids),
+        "continuation_text": continuation_text,
         "prompt_token_count": prompt_count,
         "generated_token_count": len(generated_ids),
+        "continuation_token_count": len(continuation_ids),
         "new_token_count": int(generation["new_token_count"]),
         "sequence_hash": tokenizer.sequence_hash(generated_ids),
         "continuation_sequence_hash": tokenizer.sequence_hash(continuation_ids),
+        "quality_probe": {
+            "printable_fraction": _printable_fraction(continuation_text),
+            "distinct_bigram_fraction": _distinct_bigram_fraction(continuation_ids),
+            "max_token_run_length": _max_token_run_length(continuation_ids),
+            "source_continuation": source_review,
+        },
         "active_language_path": generation["active_language_path"],
         "external_llm_used": bool(generation["external_llm_used"]),
         "owned_by_marulho": bool(generation["owned_by_marulho"]),
+    }
+
+
+def _generation_quality_summary(
+    generations: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    if not generations:
+        return {
+            "surface": "marulho_language_generation_quality_summary.v1",
+            "generation_count": 0,
+            "mean_printable_fraction": 0.0,
+            "mean_distinct_bigram_fraction": 0.0,
+            "mean_source_prefix_match_chars": 0.0,
+            "next_character_match_rate": 0.0,
+        }
+    printable: list[float] = []
+    distinct_bigrams: list[float] = []
+    prefix_matches: list[float] = []
+    next_matches = 0
+    source_found = 0
+    for generation in generations:
+        probe = generation.get("quality_probe") if isinstance(generation, dict) else {}
+        if not isinstance(probe, dict):
+            continue
+        printable.append(float(probe.get("printable_fraction", 0.0) or 0.0))
+        distinct_bigrams.append(
+            float(probe.get("distinct_bigram_fraction", 0.0) or 0.0)
+        )
+        source = probe.get("source_continuation")
+        if isinstance(source, dict) and bool(source.get("source_prompt_found")):
+            source_found += 1
+            prefix_matches.append(float(source.get("prefix_match_chars", 0.0) or 0.0))
+            if bool(source.get("next_character_matches_source")):
+                next_matches += 1
+    return {
+        "surface": "marulho_language_generation_quality_summary.v1",
+        "generation_count": len(generations),
+        "source_prompt_found_count": int(source_found),
+        "mean_printable_fraction": _mean(printable),
+        "mean_distinct_bigram_fraction": _mean(distinct_bigrams),
+        "mean_source_prefix_match_chars": _mean(prefix_matches),
+        "next_character_match_rate": (
+            float(next_matches) / float(source_found) if source_found else 0.0
+        ),
+        "review_kind": "source_continuation_probe_not_human_quality_review",
+        "promotes_generation_quality_claim": False,
     }
 
 
@@ -160,6 +294,10 @@ def _train_language_model(
         raise ValueError("At least one train batch is required")
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(config.learning_rate))
     model.train()
+    assume_no_sleeping = (
+        model.routed_experts.enabled
+        and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
+    )
     token_count = 0
     losses: list[float] = []
     grad_norms: list[float] = []
@@ -170,6 +308,8 @@ def _train_language_model(
             result = model.next_token_loss(
                 batch.input_ids.to(model.device),
                 batch.target_ids.to(model.device),
+                collect_telemetry=False,
+                assume_no_sleeping_experts=assume_no_sleeping,
             )
             loss = result["loss"]
             loss.backward()
@@ -186,6 +326,11 @@ def _train_language_model(
         "surface": "marulho_language_training_experiment_update.v1",
         "train_batch_count": len(batches),
         "train_epochs": max(1, int(config.train_epochs)),
+        "batch_size": int(config.batch_size),
+        "max_tokens_per_optimizer_step": max(
+            (int(batch.target_ids.numel()) for batch in batches),
+            default=0,
+        ),
         "optimizer": "AdamW",
         "learning_rate": float(config.learning_rate),
         "token_count": int(token_count),
@@ -215,15 +360,17 @@ def run_language_training_experiment(
     output.parent.mkdir(parents=True, exist_ok=True)
     tokenizer = ByteLevelLanguageTokenizer()
     corpus = _read_corpus(corpus_path)
+    device = _resolve_device(str(cfg.device))
     split = build_language_model_splits(
         [corpus],
         tokenizer,
         sequence_length=int(cfg.sequence_length),
         eval_fraction=0.20,
         stride=int(cfg.stride),
+        batch_size=int(cfg.batch_size),
+        device=device,
     )
     train_batches = _trim_batches(split.train, limit=int(cfg.max_train_batches))
-    device = _resolve_device(str(cfg.device))
     model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
 
     before_eval = evaluate_language_model(model, split.eval)
@@ -233,6 +380,7 @@ def run_language_training_experiment(
             tokenizer,
             prompt=prompt,
             max_new_tokens=min(16, int(cfg.generation_tokens)),
+            corpus=corpus,
         )
         for prompt in prompts
     ]
@@ -244,9 +392,12 @@ def run_language_training_experiment(
             tokenizer,
             prompt=prompt,
             max_new_tokens=int(cfg.generation_tokens),
+            corpus=corpus,
         )
         for prompt in prompts
     ]
+    before_generation_quality = _generation_quality_summary(before_generations)
+    after_generation_quality = _generation_quality_summary(after_generations)
 
     checkpoint_path = save_language_model_checkpoint(
         output.with_name(f"{output.stem}-checkpoint.pt"),
@@ -304,6 +455,22 @@ def run_language_training_experiment(
         },
         "generation_before": before_generations,
         "generation_after": after_generations,
+        "generation_quality_before": before_generation_quality,
+        "generation_quality_after": after_generation_quality,
+        "generation_quality_delta": {
+            "mean_source_prefix_match_chars_delta": (
+                after_generation_quality["mean_source_prefix_match_chars"]
+                - before_generation_quality["mean_source_prefix_match_chars"]
+            ),
+            "next_character_match_rate_delta": (
+                after_generation_quality["next_character_match_rate"]
+                - before_generation_quality["next_character_match_rate"]
+            ),
+            "mean_distinct_bigram_fraction_delta": (
+                after_generation_quality["mean_distinct_bigram_fraction"]
+                - before_generation_quality["mean_distinct_bigram_fraction"]
+            ),
+        },
         "checkpoint_path": str(checkpoint_path),
         "sustained_report_path": str(sustained_path),
         "sustained_summary": {
@@ -319,6 +486,7 @@ def run_language_training_experiment(
             "fast_mutable_experiment": True,
             "records_actual_training": training["token_count"] > 0,
             "records_actual_generation": bool(after_generations),
+            "records_generation_quality_probe": bool(after_generations),
             "records_sustained_inference": int(sustained_report["token_delta"]) > 0,
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
@@ -345,6 +513,7 @@ def main() -> int:
     parser.add_argument("--expert-hidden-dim", type=int, default=96)
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--stride", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-train-batches", type=int, default=64)
     parser.add_argument("--train-epochs", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
@@ -362,6 +531,7 @@ def main() -> int:
         expert_hidden_dim=args.expert_hidden_dim,
         sequence_length=args.sequence_length,
         stride=args.stride,
+        batch_size=args.batch_size,
         max_train_batches=args.max_train_batches,
         train_epochs=args.train_epochs,
         learning_rate=args.learning_rate,
