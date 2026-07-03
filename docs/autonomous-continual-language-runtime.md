@@ -558,9 +558,12 @@ transaction safety, sustained-runtime smoke, active compute, checkpoint restore,
 rollback, service-read contract, and scale-ladder inventory. It must keep
 human/grounded generation review, Triton/CUDA kernel parity, and true
 8192/131072-token long-run gates visible as blockers rather than promoting the
-smoke report. The structural safety category now exercises expert-spawn growth,
-explicit expert-prune, explicit expert-merge, and explicit expert-deep-sleep
-checkpoint transactions.
+smoke report. Existing `marulho_language_sustained_runtime_evidence.v1` JSON
+reports can be passed into the suite to satisfy the long-run throughput category
+only when they are final MARULHO-owned LM reports that reach the diagnostic and
+long-gate token counts. The structural safety category now exercises
+expert-spawn growth, explicit expert-prune, explicit expert-merge, and explicit
+expert-deep-sleep checkpoint transactions.
 
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,

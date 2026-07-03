@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import torch
 
@@ -51,6 +52,8 @@ from marulho.training.language_structural_plasticity import (
 
 SURFACE = "marulho_language_runtime_benchmark_suite.v1"
 ARTIFACT_KIND = "marulho_language_runtime_benchmark_suite"
+SUSTAINED_SURFACE = "marulho_language_sustained_runtime_evidence.v1"
+SUSTAINED_ARTIFACT_KIND = "marulho_language_sustained_runtime_evidence"
 
 
 def _fixture_config(tokenizer: ByteLevelLanguageTokenizer) -> LanguageModelConfig:
@@ -110,10 +113,125 @@ def _tiny_brain_config() -> MarulhoConfig:
     )
 
 
+def _read_sustained_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Sustained evidence report is not an object: {report_path}")
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
+def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
+    return (
+        report.get("artifact_kind") == SUSTAINED_ARTIFACT_KIND
+        and report.get("surface") == SUSTAINED_SURFACE
+        and report.get("report_status") == "final"
+        and report.get("success") is True
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+    )
+
+
+def _token_delta(report: Mapping[str, Any]) -> int:
+    try:
+        return int(report.get("token_delta", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sustained_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    device_backend = (
+        report.get("device_backend")
+        if isinstance(report.get("device_backend"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "report_status": report.get("report_status"),
+        "success": bool(report.get("success")),
+        "target_tokens": int(report.get("target_tokens", 0) or 0),
+        "token_delta": _token_delta(report),
+        "tokens_per_second": report.get("tokens_per_second"),
+        "active_language_path": report.get("active_language_path"),
+        "runtime_owner": report.get("runtime_owner"),
+        "device": device_backend.get("device"),
+        "backend": device_backend.get("backend"),
+        "triton_kernel_used": bool(device_backend.get("triton_kernel_used")),
+        "promoted_hot_path": bool(device_backend.get("promoted_hot_path")),
+        "diagnostic_boundary_reached": bool(
+            promotion_gate.get("diagnostic_boundary_reached")
+        ),
+        "long_run_gate_reached": bool(promotion_gate.get("long_run_gate_reached")),
+        "house_scale_gate_reached": bool(promotion_gate.get("house_scale_gate_reached")),
+        "promotes_runtime_claim": bool(promotion_gate.get("promotes_runtime_claim")),
+        "promotes_hot_path": bool(promotion_gate.get("promotes_hot_path")),
+    }
+
+
+def _language_long_run_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [dict(report) for report in reports if _valid_lm_sustained_report(report)]
+    diagnostic_reports = [
+        report for report in valid_reports if _token_delta(report) >= 8192
+    ]
+    diagnostic_only_reports = [
+        report for report in diagnostic_reports if _token_delta(report) < 131072
+    ]
+    long_gate_reports = [
+        report for report in valid_reports if _token_delta(report) >= 131072
+    ]
+    house_scale_reports = [
+        report for report in valid_reports if _token_delta(report) >= 524288
+    ]
+    best_diagnostic = max(
+        diagnostic_only_reports or diagnostic_reports,
+        key=_token_delta,
+        default=None,
+    )
+    best_long = max(long_gate_reports, key=_token_delta, default=None)
+    best_house = max(house_scale_reports, key=_token_delta, default=None)
+    missing: list[str] = []
+    if best_diagnostic is None:
+        missing.append("8192_token_diagnostic_run")
+    if best_long is None:
+        missing.append("131072_token_long_run_gate")
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "diagnostic_report": (
+            None if best_diagnostic is None else _sustained_report_summary(best_diagnostic)
+        ),
+        "long_gate_report": (
+            None if best_long is None else _sustained_report_summary(best_long)
+        ),
+        "house_scale_report": (
+            None if best_house is None else _sustained_report_summary(best_house)
+        ),
+        "diagnostic_boundary_reached": best_diagnostic is not None,
+        "long_run_gate_reached": best_long is not None,
+        "house_scale_gate_reached": best_house is not None,
+        "missing_evidence": missing,
+        "promotes_runtime_claim": False,
+        "promotes_hot_path": False,
+    }
+
+
 def run_language_runtime_benchmark_suite(
     *,
     output_path: str | Path,
     sustained_target_tokens: int = 8,
+    sustained_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run a compact benchmark-suite smoke pass and write an evidence report."""
 
@@ -549,20 +667,28 @@ def run_language_runtime_benchmark_suite(
         timeout_seconds=30.0,
         collect_environment=False,
     )
+    sustained_evidence_reports = [
+        _read_sustained_report(path) for path in sustained_evidence_paths
+    ]
+    sustained_long_run_evidence = _language_long_run_evidence(sustained_evidence_reports)
+    long_run_missing = tuple(sustained_long_run_evidence["missing_evidence"])
+    long_run_status = "pass" if not long_run_missing else "smoke_only"
+    long_run_evidence = {
+        "smoke_report_status": sustained_report["report_status"],
+        "smoke_target_tokens": sustained_report["target_tokens"],
+        "smoke_token_delta": sustained_report["token_delta"],
+        "smoke_tokens_per_second": sustained_report["tokens_per_second"],
+        "smoke_short_run_is_smoke_only": sustained_report["promotion_gate"][
+            "short_run_is_smoke_only"
+        ],
+        **sustained_long_run_evidence,
+    }
     categories.append(
         _category(
             "long_run_throughput",
-            status="smoke_only",
-            evidence={
-                "report_status": sustained_report["report_status"],
-                "target_tokens": sustained_report["target_tokens"],
-                "token_delta": sustained_report["token_delta"],
-                "tokens_per_second": sustained_report["tokens_per_second"],
-                "short_run_is_smoke_only": sustained_report["promotion_gate"][
-                    "short_run_is_smoke_only"
-                ],
-            },
-            missing=("8192_token_diagnostic_run", "131072_token_long_run_gate"),
+            status=long_run_status,
+            evidence=long_run_evidence,
+            missing=long_run_missing,
         )
     )
 
@@ -750,6 +876,9 @@ def run_language_runtime_benchmark_suite(
                 output.parent / "language-suite-grounding-support.json"
             ),
             "sustained_smoke": str(output.parent / "language-suite-sustained-smoke.json"),
+            "sustained_evidence": [
+                str(Path(path)) for path in sustained_evidence_paths
+            ],
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
             "checkpoint_evolution_dir": str(output.parent / "language-suite-evolution"),
@@ -768,6 +897,7 @@ def run_language_runtime_benchmark_suite(
             "grounding_support_available": grounding_gate[
                 "grounding_support_available"
             ],
+            "long_run_evidence_available": not long_run_missing,
             "missing_required_category_names": [
                 item["name"] for item in missing_categories
             ],
@@ -782,10 +912,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sustained-target-tokens", type=int, default=8)
+    parser.add_argument(
+        "--sustained-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Existing marulho_language_sustained_runtime_evidence JSON report.",
+    )
     args = parser.parse_args()
     run_language_runtime_benchmark_suite(
         output_path=args.output,
         sustained_target_tokens=args.sustained_target_tokens,
+        sustained_evidence_paths=tuple(args.sustained_evidence),
     )
     return 0
 

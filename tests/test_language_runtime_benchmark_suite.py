@@ -4,8 +4,45 @@ import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
     SURFACE,
+    SUSTAINED_ARTIFACT_KIND,
+    SUSTAINED_SURFACE,
     run_language_runtime_benchmark_suite,
 )
+
+
+def _write_sustained_report(path, *, token_delta: int) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": SUSTAINED_ARTIFACT_KIND,
+                "surface": SUSTAINED_SURFACE,
+                "report_status": "final",
+                "success": True,
+                "target_tokens": token_delta,
+                "token_delta": token_delta,
+                "tokens_per_second": 1234.5,
+                "runtime_owner": "MarulhoLanguageModel",
+                "active_language_path": "marulho_lm_head",
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "device_backend": {
+                    "device": "cpu",
+                    "backend": "torch_eager_cpu",
+                    "triton_kernel_used": False,
+                    "promoted_hot_path": False,
+                },
+                "promotion_gate": {
+                    "diagnostic_boundary_reached": token_delta >= 8192,
+                    "long_run_gate_reached": token_delta >= 131072,
+                    "house_scale_gate_reached": token_delta >= 524288,
+                    "promotes_runtime_claim": False,
+                    "promotes_hot_path": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
@@ -57,7 +94,11 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert "deep_sleep_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert categories["growth_prune_safety"]["missing_evidence"] == []
     assert categories["long_run_throughput"]["status"] == "smoke_only"
-    assert categories["long_run_throughput"]["evidence"]["token_delta"] == 4
+    assert categories["long_run_throughput"]["evidence"]["smoke_token_delta"] == 4
+    assert categories["long_run_throughput"]["evidence"][
+        "diagnostic_boundary_reached"
+    ] is False
+    assert categories["long_run_throughput"]["evidence"]["long_run_gate_reached"] is False
     assert categories["service_contract"]["evidence"]["status_read_mutates_token_count"] is False
     assert categories["checkpoint_restore"]["status"] == "pass"
     assert report["promotion_gate"]["status"] == "blocked_missing_required_evidence"
@@ -65,6 +106,7 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert report["promotion_gate"]["requires_gpu_kernel_parity"] is True
     assert report["promotion_gate"]["requires_grounding_support"] is True
     assert report["promotion_gate"]["grounding_support_available"] is True
+    assert report["promotion_gate"]["long_run_evidence_available"] is False
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence",
         "long_run_throughput",
@@ -76,3 +118,36 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert (tmp_path / "language-suite-sustained-smoke.json").exists()
     assert (tmp_path / "language-suite-scale-ladder.json").exists()
     assert (tmp_path / "language-suite-checkpoint.pt").exists()
+
+
+def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
+    tmp_path,
+) -> None:
+    output = tmp_path / "language-suite.json"
+    diagnostic = tmp_path / "diagnostic-8192.json"
+    long_gate = tmp_path / "long-gate-131072.json"
+    _write_sustained_report(diagnostic, token_delta=8192)
+    _write_sustained_report(long_gate, token_delta=131072)
+
+    report = run_language_runtime_benchmark_suite(
+        output_path=output,
+        sustained_target_tokens=2,
+        sustained_evidence_paths=(diagnostic, long_gate),
+    )
+    categories = {item["name"]: item for item in report["categories"]}
+    long_run = categories["long_run_throughput"]
+
+    assert long_run["status"] == "pass"
+    assert long_run["missing_evidence"] == []
+    assert long_run["evidence"]["valid_report_count"] == 2
+    assert long_run["evidence"]["diagnostic_boundary_reached"] is True
+    assert long_run["evidence"]["long_run_gate_reached"] is True
+    assert long_run["evidence"]["diagnostic_report"]["token_delta"] == 8192
+    assert long_run["evidence"]["long_gate_report"]["token_delta"] == 131072
+    assert long_run["evidence"]["promotes_runtime_claim"] is False
+    assert long_run["evidence"]["promotes_hot_path"] is False
+    assert report["promotion_gate"]["long_run_evidence_available"] is True
+    assert report["promotion_gate"]["missing_required_category_names"] == [
+        "generation_coherence",
+        "gpu_kernel_correctness",
+    ]
