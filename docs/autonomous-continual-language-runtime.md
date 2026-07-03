@@ -24,8 +24,11 @@ and `marulho.data.language_tokenizer`: a deterministic byte-level tokenizer,
 token embeddings, a selective spiking recurrent state block, a vocabulary LM
 head, next-token loss, train/eval split reports, heldout loss/perplexity,
 component checkpoint save/restore, and generation evidence that reports
-`external_llm_used=false`. This foundation is implementation evidence for the
-LM-head path, not a promotion of the live brain loop or long-run language
+`external_llm_used=false`. `MarulhoBrain` can now install those checkpointed
+language components through a brain-owned adapter and route `generate()` through
+`active_language_path=marulho_lm_head`; the local transition readout remains
+fallback evidence. This is implementation evidence for the LM-head path, not a
+promotion of online learning, the full live brain loop, or long-run language
 capability.
 
 The target runtime must preserve these boundaries:

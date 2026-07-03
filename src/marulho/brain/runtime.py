@@ -14,9 +14,12 @@ from marulho.brain.checkpoints import (
     save_brain_trainer_checkpoint,
 )
 from marulho.brain.generation import LocalTransitionReadout
+from marulho.brain.language_runtime import BrainLanguageModelRuntime
 from marulho.brain.sources import BrainPattern, BrainSourceBuffer
 from marulho.brain.trace import BrainTrace
 from marulho.config.model_config import MarulhoConfig
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.training.language_model import MarulhoLanguageModel
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -51,6 +54,7 @@ class MarulhoBrain:
         self._source_buffer = BrainSourceBuffer(max_items=source_buffer_limit)
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_limit)))
         self._readout = LocalTransitionReadout()
+        self._language_runtime: BrainLanguageModelRuntime | None = None
         self._step = 0
         self._last_state_key: int | None = None
         self._last_source: str | None = None
@@ -116,7 +120,32 @@ class MarulhoBrain:
         self.encoder = trainer.encoder
         self.metadata = dict(metadata or {})
         self.checkpoint_path = None if checkpoint_path is None else Path(checkpoint_path)
+        self._language_runtime = None
         self._restore_brain_state(self.metadata.get("brain_state"))
+
+    def install_language_model(
+        self,
+        model: MarulhoLanguageModel,
+        tokenizer: ByteLevelLanguageTokenizer,
+        *,
+        evaluation_report: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        runtime = BrainLanguageModelRuntime(
+            model,
+            tokenizer,
+            evaluation_report=evaluation_report,
+        )
+        runtime.to_device(self.trainer.model.device)
+        self._language_runtime = runtime
+        return {
+            "surface": "marulho_brain_language_model_install.v1",
+            "installed": True,
+            "active_language_path": runtime.active_language_path,
+            "language_model": runtime.summary(),
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+        }
 
     def feed(self, text: str, *, source: str = "operator", learn: bool = False) -> dict[str, Any]:
         patterns = self._patterns_from_text(text, source=source, learn=bool(learn))
@@ -188,6 +217,7 @@ class MarulhoBrain:
                 ),
                 executor=self._executor_name(),
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
                 cuda_available=bool(torch.cuda.is_available()),
                 generation_before=str(before.get("text", "")),
                 generation_after=str(after.get("text", "")),
@@ -208,8 +238,21 @@ class MarulhoBrain:
         return result
 
     def generate(self, prompt: str | None = None, *, max_tokens: int = 64) -> dict[str, Any]:
-        start_key = self._state_key_for_prompt(prompt)
-        generation = self._readout.generate(start_key, max_tokens=max_tokens)
+        active_path = self._active_language_path()
+        if self._language_runtime is not None:
+            generation = self._language_runtime.generate(prompt, max_tokens=max_tokens)
+            generation["transition_readout"] = self._readout_summary()
+        else:
+            start_key = self._state_key_for_prompt(prompt)
+            generation = self._readout.generate(start_key, max_tokens=max_tokens)
+            generation.update(
+                {
+                    "active_language_path": active_path,
+                    "transition_readout_fallback_used": True,
+                    "fallback_language_path": None,
+                    "checkpointed_language_components": False,
+                }
+            )
         generation.update(
             {
                 "prompt": prompt,
@@ -231,6 +274,7 @@ class MarulhoBrain:
                 queued_tokens=len(self._source_buffer),
                 executor=self._executor_name(),
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=active_path,
                 cuda_available=bool(torch.cuda.is_available()),
                 generation_after=str(generation.get("text", "")),
                 checkpoint_path=self._checkpoint_path_string(),
@@ -257,6 +301,7 @@ class MarulhoBrain:
                 queued_tokens=len(self._source_buffer),
                 executor=self._executor_name(),
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
                 cuda_available=bool(torch.cuda.is_available()),
                 generation_before=str(before.get("text", "")),
                 generation_after=str(after.get("text", "")),
@@ -296,6 +341,7 @@ class MarulhoBrain:
                 queued_tokens=len(self._source_buffer),
                 executor=self._executor_name(),
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
                 cuda_available=bool(torch.cuda.is_available()),
                 growth_events=growth_events,
                 prune_events=0,
@@ -333,6 +379,7 @@ class MarulhoBrain:
                 queued_tokens=len(self._source_buffer),
                 executor=self._executor_name(),
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
                 cuda_available=bool(torch.cuda.is_available()),
                 checkpoint_path=str(saved_path),
                 source=self._last_source,
@@ -391,6 +438,7 @@ class MarulhoBrain:
                     queued_tokens=len(self._source_buffer),
                     executor=self._executor_name(),
                     route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                    active_language_path=self._active_language_path(),
                     cuda_available=bool(torch.cuda.is_available()),
                     checkpoint_path=self._checkpoint_path_string(),
                     source=self._loop_source or self._last_source,
@@ -427,6 +475,7 @@ class MarulhoBrain:
                     queued_tokens=len(self._source_buffer),
                     executor=self._executor_name(),
                     route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                    active_language_path=self._active_language_path(),
                     cuda_available=bool(torch.cuda.is_available()),
                     checkpoint_path=self._checkpoint_path_string(),
                     source=self._loop_source or self._last_source,
@@ -453,8 +502,10 @@ class MarulhoBrain:
             "source_buffer": self._source_buffer.snapshot(),
             "executor": self._executor_name(),
             "route_vote_mode": str(self.trainer.config.predictive_route_vote_mode),
+            "active_language_path": self._active_language_path(),
             "cuda_available": bool(torch.cuda.is_available()),
             "readout": self._readout_summary(),
+            "language_model": self._language_model_summary(),
             "last_generation": dict(self._last_generation),
             "last_trace": self.trace(),
             "trace_history_size": len(self._trace_history),
@@ -477,6 +528,7 @@ class MarulhoBrain:
             queued_tokens=len(self._source_buffer),
             executor=self._executor_name(),
             route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+            active_language_path=self._active_language_path(),
             cuda_available=bool(torch.cuda.is_available()),
             checkpoint_path=self._checkpoint_path_string(),
             source=self._last_source,
@@ -500,6 +552,11 @@ class MarulhoBrain:
             "last_state_key": self._last_state_key,
             "last_source": self._last_source,
             "readout": self._readout.to_state(),
+            "language_model": (
+                None
+                if self._language_runtime is None
+                else self._language_runtime.to_state()
+            ),
             "trace_history": self.trace_history(limit=self._trace_history.maxlen or 64),
             "source_buffer": self._source_buffer.snapshot(),
         }
@@ -514,6 +571,15 @@ class MarulhoBrain:
         self._last_source = None if last_source is None else str(last_source)
         self._readout = LocalTransitionReadout.from_state(
             state.get("readout") if isinstance(state.get("readout"), Mapping) else None
+        )
+        language_state = state.get("language_model")
+        self._language_runtime = (
+            BrainLanguageModelRuntime.from_state(
+                language_state,
+                device=self.trainer.model.device,
+            )
+            if isinstance(language_state, Mapping)
+            else None
         )
         self._trace_history.clear()
         for raw in list(state.get("trace_history") or [])[-(self._trace_history.maxlen or 64) :]:
@@ -671,6 +737,16 @@ class MarulhoBrain:
             "owned_by_marulho": True,
             "external_dependency": False,
         }
+
+    def _language_model_summary(self) -> dict[str, Any]:
+        if self._language_runtime is None:
+            return BrainLanguageModelRuntime.empty_summary()
+        return self._language_runtime.summary()
+
+    def _active_language_path(self) -> str:
+        if self._language_runtime is None:
+            return "local_transition_readout"
+        return self._language_runtime.active_language_path
 
     def _compact_train_report(self, report: Mapping[str, Any]) -> dict[str, Any]:
         keys = (

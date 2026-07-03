@@ -5,11 +5,19 @@ from pathlib import Path
 import time
 
 from fastapi.testclient import TestClient
+import torch
 
 from marulho.brain import MarulhoBrain
 from marulho.config.model_config import MarulhoConfig
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.service.api import create_app
 from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.language_model import (
+    LanguageModelConfig,
+    MarulhoLanguageModel,
+    build_language_model_splits,
+    evaluate_language_model,
+)
 
 
 def _tiny_config() -> MarulhoConfig:
@@ -35,6 +43,33 @@ def _trained_brain() -> MarulhoBrain:
     tick = brain.tick(tokens=feed["accepted_tokens"], source="test")
     assert tick["trained_tokens"] == feed["accepted_tokens"]
     return brain
+
+
+def _language_model_fixture() -> tuple[
+    MarulhoLanguageModel,
+    ByteLevelLanguageTokenizer,
+    dict[str, object],
+]:
+    torch.manual_seed(20260703)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        [
+            "marulho language head predicts byte tokens from owned state. " * 4,
+            "checkpointed runtime evidence keeps external llms absent. " * 4,
+        ],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+        )
+    )
+    report = evaluate_language_model(model, split.eval)
+    return model, tokenizer, report
 
 
 def test_marulho_brain_feed_tick_generate_and_trace() -> None:
@@ -96,6 +131,69 @@ def test_marulho_brain_checkpoint_roundtrip_preserves_readout(tmp_path: Path) ->
     assert restored.status()["token_count"] == brain.status()["token_count"]
     assert restored.status()["readout"]["observed_transition_count"] > 0
     assert after["text"] == before["text"]
+
+
+def test_marulho_brain_uses_checkpointed_lm_head_when_installed(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, report = _language_model_fixture()
+
+    install = brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=report,
+    )
+    generation = brain.generate(prompt="marulho", max_tokens=4)
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-lm.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_generation = restored.generate(prompt="marulho", max_tokens=4)
+
+    assert install["surface"] == "marulho_brain_language_model_install.v1"
+    assert install["active_language_path"] == "marulho_lm_head"
+    assert generation["surface"] == "marulho_brain_language_model_generation.v1"
+    assert generation["active_language_path"] == "marulho_lm_head"
+    assert generation["transition_readout_fallback_used"] is False
+    assert generation["checkpointed_language_components"] is True
+    assert generation["external_llm_used"] is False
+    assert generation["thought_loop_used"] is False
+    assert generation["cortex_used"] is False
+    assert generation["emitted_tokens"] > 0
+    assert generation["tokenizer_hash"] == tokenizer.vocabulary_hash()
+    assert status["active_language_path"] == "marulho_lm_head"
+    assert status["language_model"]["checkpointed_language_components"] is True
+    assert status["language_model"]["heldout_evaluation_available"] is True
+    assert status["last_trace"]["active_language_path"] == "marulho_lm_head"
+    assert restored.status()["active_language_path"] == "marulho_lm_head"
+    assert restored_generation["active_language_path"] == "marulho_lm_head"
+    assert restored_generation["generated_token_ids"] == generation["generated_token_ids"]
+
+
+def test_brain_service_uses_restored_lm_head_without_service_owner(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, report = _language_model_fixture()
+    brain.install_language_model(model, tokenizer, evaluation_report=report)
+    checkpoint_path = tmp_path / "service-lm-brain.pt"
+    brain.save(checkpoint_path)
+    app = create_app(
+        checkpoint_path=checkpoint_path,
+        trace_dir=tmp_path / "traces",
+        env_root=tmp_path,
+    )
+
+    with TestClient(app) as client:
+        generate = client.post(
+            "/brain/generate",
+            json={"prompt": "marulho", "max_tokens": 4},
+        )
+        status = client.get("/brain/status")
+
+    assert generate.status_code == 200
+    assert generate.json()["active_language_path"] == "marulho_lm_head"
+    assert generate.json()["external_llm_used"] is False
+    assert generate.json()["tokenizer_hash"] == tokenizer.vocabulary_hash()
+    assert status.status_code == 200
+    assert status.json()["active_language_path"] == "marulho_lm_head"
+    assert status.json()["language_model"]["checkpointed_language_components"] is True
 
 
 def test_marulho_brain_replay_and_growth_reports_are_local() -> None:

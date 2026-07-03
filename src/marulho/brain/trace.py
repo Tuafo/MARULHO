@@ -20,6 +20,7 @@ class BrainTrace:
     throughput_tokens_per_sec: float = 0.0
     executor: str = ""
     route_vote_mode: str = ""
+    active_language_path: str = "local_transition_readout"
     cuda_available: bool = False
     generation_before: str = ""
     generation_after: str = ""
@@ -55,6 +56,7 @@ class BrainTrace:
             ),
             "executor": str(self.executor),
             "route_vote_mode": str(self.route_vote_mode),
+            "active_language_path": str(self.active_language_path),
             "cuda_available": bool(self.cuda_available),
             "generation": {
                 "before": str(self.generation_before),

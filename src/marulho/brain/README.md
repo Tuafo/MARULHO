@@ -11,7 +11,9 @@ grow/prune, compact trace, and save.
 
 - Source buffering for brain ticks.
 - Tick orchestration through `MarulhoTrainer.train_text_sequence`.
-- Early local readout through sparse MARULHO-owned transition state.
+- The active language path selection. When checkpointed language components are
+  installed, `generate()` uses the training-owned `marulho_lm_head` adapter;
+  otherwise it falls back to the sparse MARULHO-owned transition readout.
 - `BrainTrace` telemetry for status, generation before/after evidence, replay,
   growth/prune, checkpoint path, executor/device names, and negative external
   cognition flags.
@@ -33,6 +35,12 @@ grow/prune, compact trace, and save.
 Current brain validation covers load, feed, tick, local generate/readout,
 replay/growth hooks, save/restore continuity, and service adapter use through
 focused tests plus the full repository test suite.
+
+The Iteration 2 LM-head path is now brain-selectable through
+`BrainLanguageModelRuntime`. It is checkpointed inside `brain_state` and reports
+`active_language_path=marulho_lm_head` plus `external_llm_used=false`. It is not
+yet promoted as the live long-run language capability until online learning,
+rollback, throughput, and sustained Runtime Evidence gates pass.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend
