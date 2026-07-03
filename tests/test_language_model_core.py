@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import torch
 
@@ -16,6 +17,11 @@ from marulho.training.language_model import (
     evaluate_language_model,
     load_language_model_checkpoint,
     save_language_model_checkpoint,
+)
+from marulho.training.language_structural_plasticity import (
+    LanguageStructuralPlasticityConfig,
+    apply_language_structural_plasticity_transaction,
+    build_language_structural_plasticity_proposal,
 )
 
 
@@ -179,6 +185,61 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["active_parameters_per_token"] > 0
     assert model.routed_experts.route_keys.grad is not None
     assert torch.isfinite(model.routed_experts.route_keys.grad).all()
+
+
+def test_language_structural_plasticity_expands_experts_with_checkpoint(tmp_path) -> None:
+    torch.manual_seed(23)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    routing_evidence = {
+        "surface": "marulho_routed_language_experts.v1",
+        "total_columns": 2,
+        "active_columns": 2,
+        "candidate_rows_scored": 20,
+        "runs_all_columns": False,
+    }
+
+    proposal = build_language_structural_plasticity_proposal(
+        model,
+        routing_evidence=routing_evidence,
+        config=LanguageStructuralPlasticityConfig(
+            route_saturation_threshold=0.5,
+            max_added_experts=2,
+        ),
+    )
+    grown_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-structure-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(max_eval_loss_delta=10.0),
+    )
+
+    assert proposal["surface"] == "marulho_language_structural_plasticity_proposal.v1"
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["requires_operator_approval"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutates_runtime_state"] is True
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert Path(report["checkpoint"]["path"]).exists()
+    assert report["mutation"]["source_expert_count"] == 2
+    assert report["mutation"]["target_expert_count"] > 2
+    assert grown_model.config.expert_count == report["mutation"]["target_expert_count"]
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is True
 
 
 def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:

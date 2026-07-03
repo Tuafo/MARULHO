@@ -15,6 +15,11 @@ from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
 )
+from marulho.training.language_structural_plasticity import (
+    LanguageStructuralPlasticityConfig,
+    apply_language_structural_plasticity_transaction,
+    build_language_structural_plasticity_proposal,
+)
 
 
 class BrainLanguageModelRuntime:
@@ -29,6 +34,7 @@ class BrainLanguageModelRuntime:
         *,
         evaluation_report: Mapping[str, Any] | None = None,
         learning_reports: Sequence[Mapping[str, Any]] = (),
+        structural_reports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         if int(model.config.vocab_size) != int(tokenizer.vocab_size):
             raise ValueError("Language model vocab size must match tokenizer state")
@@ -36,6 +42,7 @@ class BrainLanguageModelRuntime:
         self.tokenizer = tokenizer
         self.evaluation_report = dict(evaluation_report or {})
         self.learning_reports = [dict(report) for report in learning_reports][-16:]
+        self.structural_reports = [dict(report) for report in structural_reports][-16:]
         self.model.eval()
 
     @property
@@ -122,6 +129,10 @@ class BrainLanguageModelRuntime:
             "last_continual_learning": (
                 dict(self.learning_reports[-1]) if self.learning_reports else None
             ),
+            "structural_transaction_count": len(self.structural_reports),
+            "last_structural_transaction": (
+                dict(self.structural_reports[-1]) if self.structural_reports else None
+            ),
         }
 
     @classmethod
@@ -150,6 +161,7 @@ class BrainLanguageModelRuntime:
             },
             "evaluation_report": dict(self.evaluation_report),
             "learning_reports": [dict(report) for report in self.learning_reports],
+            "structural_reports": [dict(report) for report in self.structural_reports],
             "owned_by_marulho": True,
             "external_llm_used": False,
             "loads_external_checkpoint": False,
@@ -177,6 +189,45 @@ class BrainLanguageModelRuntime:
         self.learning_reports = self.learning_reports[-16:]
         return report
 
+    def propose_structural_plasticity(
+        self,
+        *,
+        routing_evidence: Mapping[str, Any],
+        learning_evidence: Mapping[str, Any] | None = None,
+        config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        return build_language_structural_plasticity_proposal(
+            self.model,
+            routing_evidence=routing_evidence,
+            learning_evidence=learning_evidence,
+            config=config,
+        )
+
+    def apply_structural_plasticity(
+        self,
+        proposal: Mapping[str, Any],
+        *,
+        eval_batches: Sequence[LanguageBatch],
+        checkpoint_path: str,
+        operator_approved: bool,
+        config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        candidate, report = apply_language_structural_plasticity_transaction(
+            self.model,
+            proposal,
+            eval_batches=eval_batches,
+            checkpoint_path=checkpoint_path,
+            operator_approved=operator_approved,
+            config=config,
+        )
+        if bool(report.get("applied")):
+            self.model = candidate.to(self.device)
+            self.model.eval()
+            self.evaluation_report = dict(report["evaluation"]["candidate"])
+        self.structural_reports.append(dict(report))
+        self.structural_reports = self.structural_reports[-16:]
+        return report
+
     @classmethod
     def from_state(
         cls,
@@ -199,6 +250,11 @@ class BrainLanguageModelRuntime:
             learning_reports=[
                 item
                 for item in list(state.get("learning_reports") or [])
+                if isinstance(item, Mapping)
+            ],
+            structural_reports=[
+                item
+                for item in list(state.get("structural_reports") or [])
                 if isinstance(item, Mapping)
             ],
         )

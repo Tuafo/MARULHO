@@ -26,6 +26,11 @@ from .language_model import (
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
+from .language_structural_plasticity import (
+    LanguageStructuralPlasticityConfig,
+    apply_language_structural_plasticity_transaction,
+    build_language_structural_plasticity_proposal,
+)
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
@@ -34,6 +39,7 @@ __all__ = [
     "LanguageContinualLearningConfig",
     "LanguageModelConfig",
     "LanguageSplit",
+    "LanguageStructuralPlasticityConfig",
     "MarulhoLanguageModel",
     "MarulhoModel",
     "MarulhoSelectiveSpikingStateBlock",
@@ -42,6 +48,8 @@ __all__ = [
     "RoutedLanguageExpertLayer",
     "build_language_model_splits",
     "evaluate_language_model",
+    "apply_language_structural_plasticity_transaction",
+    "build_language_structural_plasticity_proposal",
     "load_language_model_checkpoint",
     "run_language_continual_learning_window",
     "save_language_model_checkpoint",

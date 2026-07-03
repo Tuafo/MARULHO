@@ -47,6 +47,13 @@ LM update window. It can mutate checkpointed language-model weights, records
 old/new loss, replay retention, rollback evidence, and a `language_learn` trace,
 but service/status endpoints still do not own or trigger cognition.
 
+`MarulhoBrain.propose_language_structure()` and
+`MarulhoBrain.apply_language_structure()` expose the training-owned LM expert
+growth transaction. Proposal is read-only; application requires explicit
+operator approval, writes a baseline checkpoint, verifies heldout
+non-regression, records rollback evidence, and emits a `language_structure`
+trace. These methods are runtime-owned helpers, not service/status mutation.
+
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend
 `cuda_graph_conditional_while`, device `cuda:0`, and zero graph/native/burst

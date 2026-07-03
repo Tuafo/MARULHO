@@ -19,6 +19,9 @@ from marulho.training.language_model import (
     build_language_model_splits,
     evaluate_language_model,
 )
+from marulho.training.language_structural_plasticity import (
+    LanguageStructuralPlasticityConfig,
+)
 
 
 def _tiny_config() -> MarulhoConfig:
@@ -245,6 +248,68 @@ def test_marulho_brain_language_learning_window_is_checkpointed(tmp_path: Path) 
     assert restored_status["language_model"]["continual_learning_window_count"] == 1
     assert restored_status["language_model"]["last_continual_learning"]["rollback_evidence"][
         "restore_verified"
+    ] is True
+
+
+def test_marulho_brain_language_structural_transaction_is_checkpointed(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural expert growth needs checkpoint rollback evidence. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 2,
+            "active_columns": 2,
+            "candidate_rows_scored": 20,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(route_saturation_threshold=0.5),
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-structure-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(max_eval_loss_delta=10.0),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-structure.pt")
+    restored = MarulhoBrain.load(saved["path"])
+
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] > 2
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert status["language_model"]["structural_transaction_count"] == 1
+    assert status["language_model"]["last_structural_transaction"]["surface"] == (
+        "marulho_language_structural_plasticity_transaction.v1"
+    )
+    restored_status = restored.status()
+    assert restored_status["language_model"]["structural_transaction_count"] == 1
+    assert restored_status["language_model"]["last_structural_transaction"]["promotion_gate"][
+        "checkpoint_backed"
     ] is True
 
 

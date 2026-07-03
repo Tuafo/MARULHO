@@ -54,6 +54,15 @@ device, latency, and whether all columns were scored. This is routing evidence
 for the LM path; block-sparse CUDA/Triton dispatch and complete-runtime impact
 reports remain future gates.
 
+Iteration 7 has a first checkpoint-backed LM structural transaction. The
+training-owned path creates a non-mutating expert-spawn proposal from routing
+and learning pressure, requires operator approval before application, writes a
+baseline checkpoint snapshot, expands expert columns in a candidate model,
+checks heldout non-regression, and records rollback hashes before `MarulhoBrain`
+accepts the candidate. This covers expert growth; prune, merge, split, synapse
+bundle, memory expansion, and route-bank expansion remain future transaction
+types.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

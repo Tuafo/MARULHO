@@ -21,6 +21,7 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_continual_learning import LanguageContinualLearningConfig
 from marulho.training.language_model import LanguageBatch, MarulhoLanguageModel
+from marulho.training.language_structural_plasticity import LanguageStructuralPlasticityConfig
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -185,6 +186,66 @@ class MarulhoBrain:
         )
         return {
             "surface": "marulho_brain_language_learning_window.v1",
+            "active_language_path": self._active_language_path(),
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "report": report,
+            "trace": trace,
+        }
+
+    def propose_language_structure(
+        self,
+        *,
+        routing_evidence: Mapping[str, Any],
+        learning_evidence: Mapping[str, Any] | None = None,
+        config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        return self._language_runtime.propose_structural_plasticity(
+            routing_evidence=routing_evidence,
+            learning_evidence=learning_evidence,
+            config=config,
+        )
+
+    def apply_language_structure(
+        self,
+        proposal: Mapping[str, Any],
+        *,
+        eval_batches: Sequence[LanguageBatch],
+        checkpoint_path: str | Path,
+        operator_approved: bool,
+        config: LanguageStructuralPlasticityConfig | None = None,
+    ) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        report = self._language_runtime.apply_structural_plasticity(
+            proposal,
+            eval_batches=eval_batches,
+            checkpoint_path=str(checkpoint_path),
+            operator_approved=operator_approved,
+            config=config,
+        )
+        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_structure",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=str(gate.get("status") or report.get("status") or ""),
+            )
+        )
+        return {
+            "surface": "marulho_brain_language_structural_transaction.v1",
             "active_language_path": self._active_language_path(),
             "owned_by_marulho": True,
             "external_llm_used": False,

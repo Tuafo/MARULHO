@@ -39,6 +39,9 @@ _Avoid_: triggering language learning from status reads, accepting improvement w
 **LM Routed Expert Layer** — the training-owned sparse expert foundation behind the MARULHO LM head. It uses a bounded candidate plan to score a subset of expert columns, wakes top-k experts, reports active columns, candidate rows, output candidates, active parameters per token, route device, latency, and fallback truth when all experts are scored. It is PyTorch routing evidence, not a promoted Triton block-sparse dispatcher.
 _Avoid_: counting configured experts as active work, hiding all-column route scoring, or claiming sparse execution without active-parameter and fallback evidence.
 
+**LM Structural Plasticity Transaction** — the training-owned checkpoint-backed mutation boundary for MARULHO LM expert growth. It creates a non-mutating expert-spawn proposal from routing/learning pressure, requires operator approval, writes a baseline checkpoint, expands expert columns in a candidate model, checks heldout non-regression, and records rollback hashes before `MarulhoBrain` accepts the candidate. It is expert-growth evidence, not a general self-modification permit.
+_Avoid_: applying growth from status, skipping proposal/approval, hiding checkpoint restore evidence, or treating expert spawn as proof that prune/merge/synapse-growth are implemented.
+
 **External LLM Boundary** — external LLM, NIM, Cortex, or ThoughtLoop components are not the MARULHO brain. They may be external tools or research references only when a caller explicitly wires them outside the MARULHO runtime.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
