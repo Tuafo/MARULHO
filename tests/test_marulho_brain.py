@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import time
 
@@ -422,6 +423,23 @@ def test_marulho_brain_start_stop_are_brain_owned() -> None:
 def test_brain_service_contract(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     checkpoint_path = tmp_path / "service-brain.pt"
+    reports_dir = tmp_path / "reports" / "language_benchmark_suite"
+    reports_dir.mkdir(parents=True)
+    (reports_dir / "language-suite.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_runtime_benchmark_suite",
+                "surface": "marulho_language_runtime_benchmark_suite.v1",
+                "external_llm_used": False,
+                "promotion_gate": {
+                    "status": "blocked_missing_required_evidence",
+                    "promotes_runtime_claim": False,
+                    "missing_required_category_names": ["grounding_support"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     save_trainer_checkpoint(
         checkpoint_path,
         brain.trainer,
@@ -462,6 +480,21 @@ def test_brain_service_contract(tmp_path: Path) -> None:
         assert traces.status_code == 200
         assert traces.json()["surface"] == "marulho_brain_trace_history.v1"
 
+        before_reports_status = client.get("/brain/status").json()["token_count"]
+        reports = client.get("/brain/evidence/reports?limit=4")
+        after_reports_status = client.get("/brain/status").json()["token_count"]
+        assert reports.status_code == 200
+        assert reports.json()["surface"] == "marulho_evidence_report_inventory.v1"
+        assert reports.json()["reports_not_run_by_service"] is True
+        assert reports.json()["mutates_runtime_state"] is False
+        assert reports.json()["reports"][0]["artifact_kind"] == (
+            "marulho_language_runtime_benchmark_suite"
+        )
+        assert reports.json()["reports"][0]["promotion_status"] == (
+            "blocked_missing_required_evidence"
+        )
+        assert before_reports_status == after_reports_status
+
         checkpoints = client.get("/brain/checkpoints")
         assert checkpoints.status_code == 200
         assert any(item["path"].endswith("service-brain.pt") for item in checkpoints.json()["checkpoints"])
@@ -499,6 +532,7 @@ def test_brain_service_contract(tmp_path: Path) -> None:
             "/brain/status",
             "/brain/checkpoints",
             "/brain/traces",
+            "/brain/evidence/reports",
             "/brain/feed",
             "/brain/tick",
             "/brain/generate",

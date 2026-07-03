@@ -9,7 +9,8 @@ Use this with [../../../README.md](../../../README.md) and
 
 - FastAPI route registration.
 - UI-facing status stream, start/stop, feed, tick, generate, replay,
-  grow/prune, checkpoints, and traces through `/brain/*`.
+  grow/prune, checkpoints, traces, and saved report inventory through
+  `/brain/*`.
 - Runtime composition for the active `MarulhoBrain` checkpoint.
 
 ## Must Not Own
@@ -34,6 +35,11 @@ and status-stream responses should come from compact brain state and
 contract. New route models should stay small and should be backed by an owner
 module in `brain`, `training`, `core`, `data`, `semantics`, or another
 machinery package.
+
+`/brain/evidence/reports` is a read-only projection over saved JSON artifacts in
+`reports/`. It summarizes report metadata and promotion gates for the UI but
+must not run benchmarks, mutate `MarulhoBrain`, or turn report presence into a
+capability claim.
 
 Some machinery modules for replay, SNN readout ledger, action execution,
 runtime sources, and plasticity live under `service` because they currently

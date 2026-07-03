@@ -24,7 +24,7 @@ Module structure:
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources
 - terminus_sensory.py: Real Hugging Face multimodal stream adapters
 - terminus_autonomy.py: Autonomy focus, provider curriculum, and shortlist helpers
-- api.py: FastAPI /brain route definitions
+- api.py: FastAPI /brain route definitions, including read-only saved report inventory
 - api_schemas.py: Active checkpoint request/response models for the /brain API adapter
 - server.py: CLI entry point (uvicorn launcher)
 """

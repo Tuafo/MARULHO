@@ -829,6 +829,7 @@ def benchmark_service_app(
             {"name": "health", "method": "GET", "path": "/health"},
             {"name": "brain_status", "method": "GET", "path": "/brain/status"},
             {"name": "brain_checkpoints", "method": "GET", "path": "/brain/checkpoints"},
+            {"name": "brain_evidence_reports", "method": "GET", "path": "/brain/evidence/reports"},
             {
                 "name": "brain_feed",
                 "method": "POST",

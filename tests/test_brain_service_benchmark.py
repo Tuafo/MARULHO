@@ -37,6 +37,7 @@ def test_service_benchmark_targets_brain_api_contract() -> None:
         assert result["success"] is True
         assert set(result["endpoints_by_name"]) == {
             "brain_checkpoints",
+            "brain_evidence_reports",
             "brain_feed",
             "brain_feed_configured",
             "brain_generate",

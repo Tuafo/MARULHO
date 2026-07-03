@@ -9,6 +9,7 @@ from threading import RLock
 from typing import Any, Mapping
 
 from marulho.brain import MarulhoBrain
+from marulho.reporting import build_evidence_report_inventory
 
 
 CURRENT_CHECKPOINT_MANIFEST = "marulho_current_checkpoint.json"
@@ -55,6 +56,9 @@ class MarulhoBrainRuntimeFacade:
 
     def restore_checkpoint(self, path: str) -> dict[str, Any]:
         return self._manager.restore_checkpoint(path)
+
+    def evidence_report_inventory(self, limit: int = 20) -> dict[str, Any]:
+        return self._manager.evidence_report_inventory(limit=limit)
 
 
 class MarulhoBrainServiceManager:
@@ -150,6 +154,14 @@ class MarulhoBrainServiceManager:
                 "readout": deepcopy(status.get("readout", {})),
                 "trace": self._brain.trace(),
             }
+
+    def evidence_report_inventory(self, limit: int = 20) -> dict[str, Any]:
+        reports_root = (
+            self._env_root / "reports"
+            if self._env_root is not None
+            else Path("reports")
+        )
+        return build_evidence_report_inventory(reports_root, limit=limit)
 
     @staticmethod
     def checkpoint_root_for_path(checkpoint_path: str | Path) -> Path:

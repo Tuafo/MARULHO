@@ -10,6 +10,7 @@ summaries, and report helpers.
 
 - Formatting evidence for humans.
 - Summaries of existing reports and benchmark outputs.
+- Read-only inventories over saved JSON reports for service/UI display.
 
 ## Must Not Own
 

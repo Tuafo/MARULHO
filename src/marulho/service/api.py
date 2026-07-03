@@ -106,6 +106,10 @@ def create_app(
             "traces": runtime.brain_traces(limit=limit),
         }
 
+    @app.get("/brain/evidence/reports")
+    def brain_evidence_reports(limit: int = Query(20, ge=1, le=200)) -> dict[str, Any]:
+        return runtime.evidence_report_inventory(limit=limit)
+
     @app.post("/brain/feed")
     def brain_feed(request: dict[str, Any]) -> dict[str, Any]:
         text = str(request.get("text") or "")
