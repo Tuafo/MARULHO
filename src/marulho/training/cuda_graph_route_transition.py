@@ -31,6 +31,15 @@ PERSISTENT_EXECUTOR_SEQUENCE_LOOP_TOKENS = 16
 PERSISTENT_EXECUTOR_EVENT_CAPACITY_TOKENS = 32
 
 
+def _new_cuda_graph(*, keep_graph: bool = False) -> torch.cuda.CUDAGraph:
+    if not keep_graph:
+        return torch.cuda.CUDAGraph()
+    try:
+        return torch.cuda.CUDAGraph(keep_graph=True)
+    except TypeError:
+        return torch.cuda.CUDAGraph()
+
+
 class CudaGraphRouteTransition:
     """Capture the fixed-shape text tick as one persistent CUDA replay."""
 
@@ -647,7 +656,7 @@ class CudaGraphRouteTransition:
                 for tensor, snapshot in zip(mutable, snapshots):
                     tensor.copy_(snapshot)
                 torch.cuda.synchronize(device)
-                burst_graph = torch.cuda.CUDAGraph()
+                burst_graph = _new_cuda_graph(keep_graph=True)
                 with torch.cuda.graph(burst_graph, stream=stream):
                     burst_outputs = self._burst_tick_ops(
                         candidates,
