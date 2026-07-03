@@ -39,6 +39,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
 )
@@ -329,6 +330,48 @@ def run_language_runtime_benchmark_suite(
             ),
         )
     )
+    structural_merge_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+        )
+    )
+    merge_proposal = build_language_structural_merge_proposal(
+        structural_merge_model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 2,
+            "duplicate_expert_pairs": [[1, 2]],
+            "expert_pair_similarities": {"1,2": 0.99},
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_merged_expert_pairs=1,
+            merge_similarity_threshold=0.95,
+        ),
+    )
+    structural_merged_candidate, structural_merge_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_merge_model,
+            merge_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-merge-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                min_expert_count=2,
+                max_merged_expert_pairs=1,
+                max_eval_loss_delta=100.0,
+            ),
+        )
+    )
     categories.append(
         _category(
             "growth_prune_safety",
@@ -340,6 +383,9 @@ def run_language_runtime_benchmark_suite(
                 and prune_proposal["mutates_runtime_state"] is False
                 and structural_prune_report["checkpoint"]["checkpoint_restore_verified"]
                 and structural_prune_report["rollback_evidence"]["rollback_verified"]
+                and merge_proposal["mutates_runtime_state"] is False
+                and structural_merge_report["checkpoint"]["checkpoint_restore_verified"]
+                and structural_merge_report["rollback_evidence"]["rollback_verified"]
                 else "fail"
             ),
             evidence={
@@ -359,9 +405,20 @@ def run_language_runtime_benchmark_suite(
                     "rollback_evidence"
                 ]["rollback_verified"],
                 "prune_target_expert_count": structural_pruned_candidate.config.expert_count,
-                "merge_deep_sleep_implemented": False,
+                "merge_proposal_mutates_runtime_state": merge_proposal[
+                    "mutates_runtime_state"
+                ],
+                "merge_transaction_applied": structural_merge_report["applied"],
+                "merge_checkpoint_backed": structural_merge_report["promotion_gate"][
+                    "checkpoint_backed"
+                ],
+                "merge_rollback_verified": structural_merge_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "merge_target_expert_count": structural_merged_candidate.config.expert_count,
+                "deep_sleep_implemented": False,
             },
-            missing=("merge_transaction", "deep_sleep_transaction"),
+            missing=("deep_sleep_transaction",),
         )
     )
 

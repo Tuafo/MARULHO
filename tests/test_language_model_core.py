@@ -25,6 +25,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
 )
@@ -309,6 +310,81 @@ def test_language_structural_plasticity_prunes_experts_with_checkpoint(tmp_path)
     assert report["checkpoint"]["checkpoint_restore_verified"] is True
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_merges_experts_with_checkpoint(tmp_path) -> None:
+    torch.manual_seed(25)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    with torch.no_grad():
+        model.routed_experts.route_keys[1].fill_(1.0)
+        model.routed_experts.route_keys[2].fill_(3.0)
+
+    proposal = build_language_structural_merge_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 2,
+            "duplicate_expert_pairs": [[1, 2]],
+            "expert_pair_similarities": {"1,2": 0.99},
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_merged_expert_pairs=1,
+            merge_similarity_threshold=0.95,
+        ),
+    )
+    merged_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-merge-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_merged_expert_pairs=1,
+            max_eval_loss_delta=10.0,
+        ),
+    )
+
+    assert proposal["surface"] == "marulho_language_structural_plasticity_proposal.v1"
+    assert proposal["proposal"]["proposal_kind"] == "expert_merge"
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["active_expert_count_preserved"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "expert_merge"
+    assert report["mutation"]["source_expert_count"] == 4
+    assert report["mutation"]["target_expert_count"] == 3
+    assert report["mutation"]["merged_expert_group_count"] == 1
+    assert report["mutation"]["structural_reduction_count"] == 1
+    assert report["mutation"]["merged_expert_groups"] == [[1, 2]]
+    assert report["mutation"]["removed_expert_ids"] == [2]
+    assert report["mutation"]["pruned_expert_count"] == 0
+    assert merged_model.config.expert_count == 3
+    torch.testing.assert_close(
+        merged_model.routed_experts.route_keys[1],
+        torch.full_like(merged_model.routed_experts.route_keys[1], 2.0),
+    )
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_merge_promotion"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is False
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
 
 

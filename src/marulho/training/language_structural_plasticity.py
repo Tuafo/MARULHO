@@ -22,8 +22,10 @@ from marulho.training.language_model import (
 class LanguageStructuralPlasticityConfig:
     max_added_experts: int = 2
     max_pruned_experts: int = 1
+    max_merged_expert_pairs: int = 1
     route_saturation_threshold: float = 0.75
     prune_utility_threshold: float = 0.05
+    merge_similarity_threshold: float = 0.95
     max_eval_loss_delta: float = 0.05
     min_expert_count: int = 1
     require_operator_approval: bool = True
@@ -194,6 +196,92 @@ def _clone_pruned_model(
     return pruned
 
 
+def _clone_merged_model(
+    model: MarulhoLanguageModel,
+    *,
+    merged_expert_groups: Sequence[Sequence[int]],
+) -> MarulhoLanguageModel:
+    groups = tuple(tuple(int(value) for value in group) for group in merged_expert_groups)
+    if not groups:
+        raise ValueError("merged_expert_groups must not be empty")
+    old_expert_count = max(0, int(model.config.expert_count))
+    seen: set[int] = set()
+    for group in groups:
+        if len(group) < 2:
+            raise ValueError("each merged expert group must contain at least two experts")
+        if any(value < 0 or value >= old_expert_count for value in group):
+            raise ValueError("merged_expert_groups contains an out-of-range expert id")
+        if seen.intersection(group):
+            raise ValueError("merged expert groups must be disjoint")
+        seen.update(group)
+    merge_by_primary = {group[0]: group for group in groups}
+    removed_ids = {value for group in groups for value in group[1:]}
+    retained_ids = tuple(value for value in range(old_expert_count) if value not in removed_ids)
+    target_expert_count = len(retained_ids)
+    if target_expert_count <= 0:
+        raise ValueError("expert merge must retain at least one expert")
+    new_config = replace(
+        model.config,
+        expert_count=target_expert_count,
+        active_expert_count=min(
+            max(1, int(model.config.active_expert_count)),
+            target_expert_count,
+        ),
+        route_candidate_count=min(
+            max(1, int(model.config.route_candidate_count)),
+            target_expert_count,
+        ),
+    )
+    merged = MarulhoLanguageModel(new_config).to(model.device)
+    merged_state = merged.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in merged_state and merged_state[key].shape == source_value.shape:
+            merged_state[key] = source_value.detach().clone().to(merged_state[key].device)
+    merged.load_state_dict(merged_state)
+    with torch.no_grad():
+        if merged.routed_experts.enabled and model.routed_experts.enabled:
+            for new_expert_id, old_expert_id in enumerate(retained_ids):
+                group = merge_by_primary.get(old_expert_id, (old_expert_id,))
+                group_tensor = torch.tensor(group, dtype=torch.long, device=model.device)
+                merged.routed_experts.route_keys[new_expert_id].copy_(
+                    model.routed_experts.route_keys.index_select(0, group_tensor)
+                    .mean(dim=0)
+                    .to(
+                        device=merged.routed_experts.route_keys.device,
+                        dtype=merged.routed_experts.route_keys.dtype,
+                    )
+                )
+                merged.routed_experts.route_bias[new_expert_id].copy_(
+                    model.routed_experts.route_bias.index_select(0, group_tensor)
+                    .mean(dim=0)
+                    .to(
+                        device=merged.routed_experts.route_bias.device,
+                        dtype=merged.routed_experts.route_bias.dtype,
+                    )
+                )
+                source_expert_parameters = [
+                    list(model.routed_experts.experts[source_id].parameters())
+                    for source_id in group
+                ]
+                for parameter_index, target_parameter in enumerate(
+                    merged.routed_experts.experts[new_expert_id].parameters()
+                ):
+                    averaged = torch.stack(
+                        [
+                            source_parameters[parameter_index].detach().to(
+                                device=target_parameter.device,
+                                dtype=target_parameter.dtype,
+                            )
+                            for source_parameters in source_expert_parameters
+                        ],
+                        dim=0,
+                    ).mean(dim=0)
+                    target_parameter.copy_(averaged)
+    merged.train(model.training)
+    return merged
+
+
 def _normalise_expert_ids(value: Any) -> tuple[int, ...]:
     if value is None:
         return ()
@@ -213,6 +301,80 @@ def _normalise_expert_ids(value: Any) -> tuple[int, ...]:
         except (TypeError, ValueError):
             continue
     return tuple(result)
+
+
+def _normalise_expert_pairs(value: Any) -> tuple[tuple[int, int], ...]:
+    if value is None or isinstance(value, (str, bytes)):
+        return ()
+    raw_pairs: list[Any]
+    if isinstance(value, Mapping):
+        raw_pairs = list(value.keys())
+    else:
+        try:
+            raw_pairs = list(value)
+        except TypeError:
+            return ()
+    pairs: list[tuple[int, int]] = []
+    for raw_pair in raw_pairs:
+        pair_value = raw_pair
+        if isinstance(raw_pair, str):
+            for delimiter in (",", ":", "|", "-"):
+                if delimiter in raw_pair:
+                    pair_value = raw_pair.split(delimiter, 1)
+                    break
+        try:
+            left, right = list(pair_value)[:2]
+            first = int(left)
+            second = int(right)
+        except (TypeError, ValueError):
+            continue
+        if first == second:
+            continue
+        pairs.append((min(first, second), max(first, second)))
+    return tuple(dict.fromkeys(pairs))
+
+
+def _similar_expert_pairs_from_evidence(
+    value: Any,
+    *,
+    threshold: float,
+) -> tuple[tuple[int, int], ...]:
+    result: list[tuple[int, int]] = []
+    if isinstance(value, Mapping):
+        iterable = value.items()
+    elif isinstance(value, (str, bytes)):
+        return ()
+    else:
+        try:
+            iterable = list(value)
+        except TypeError:
+            return ()
+    for item in iterable:
+        raw_pair: Any
+        raw_similarity: Any
+        if isinstance(value, Mapping):
+            raw_pair, raw_similarity = item
+        elif isinstance(item, Mapping):
+            raw_pair = (
+                item.get("expert_ids")
+                or item.get("pair")
+                or item.get("experts")
+            )
+            raw_similarity = item.get("similarity")
+        else:
+            try:
+                raw_pair = list(item)[:2]
+                raw_similarity = list(item)[2]
+            except (TypeError, IndexError):
+                continue
+        try:
+            similarity = float(raw_similarity)
+        except (TypeError, ValueError):
+            continue
+        if similarity < float(threshold):
+            continue
+        result.extend(_normalise_expert_pairs([raw_pair]))
+    return tuple(dict.fromkeys(result))
 
 
 def _low_utility_ids_from_evidence(
@@ -370,6 +532,93 @@ def build_language_structural_prune_proposal(
     }
 
 
+def build_language_structural_merge_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    active_requirement = max(1, int(model.config.active_expert_count), int(cfg.min_expert_count))
+    duplicate_pairs = set(
+        _normalise_expert_pairs(
+            route.get("duplicate_expert_pairs")
+            or route.get("merge_candidate_pairs")
+            or route.get("duplicate_function_pairs")
+        )
+    )
+    similar_pairs = set(
+        _similar_expert_pairs_from_evidence(
+            route.get("expert_similarity_pairs")
+            or route.get("expert_pair_similarities"),
+            threshold=float(cfg.merge_similarity_threshold),
+        )
+    )
+    pressure_pairs = sorted(duplicate_pairs | similar_pairs)
+    selected_groups: list[tuple[int, int]] = []
+    used_ids: set[int] = set()
+    merge_budget = max(0, expert_count - active_requirement)
+    max_pairs = min(int(cfg.max_merged_expert_pairs), merge_budget)
+    for first, second in pressure_pairs:
+        if len(selected_groups) >= max_pairs:
+            break
+        if not (0 <= first < expert_count and 0 <= second < expert_count):
+            continue
+        if first in used_ids or second in used_ids:
+            continue
+        selected_groups.append((first, second))
+        used_ids.update((first, second))
+    removed_ids = tuple(group[1] for group in selected_groups)
+    retained_ids = tuple(value for value in range(expert_count) if value not in set(removed_ids))
+    ready = expert_count > active_requirement and bool(selected_groups)
+    status = "ready_for_operator_review" if ready else "collect_more_merge_pressure"
+    proposal_body = {
+        "proposal_kind": "expert_merge",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(len(retained_ids)),
+        "merged_expert_groups": [list(group) for group in selected_groups],
+        "removed_expert_ids": list(removed_ids),
+        "retained_expert_ids": list(retained_ids),
+        "active_expert_count_floor": int(active_requirement),
+        "merge_pressure": bool(selected_groups),
+        "duplicate_expert_pairs": [list(pair) for pair in sorted(duplicate_pairs)],
+        "similar_expert_pairs": [list(pair) for pair in sorted(similar_pairs)],
+        "merge_similarity_threshold": float(cfg.merge_similarity_threshold),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "merge_pressure": bool(selected_groups),
+            "min_expert_count_preserved": len(retained_ids) >= int(cfg.min_expert_count),
+            "active_expert_count_preserved": len(retained_ids)
+            >= int(model.config.active_expert_count),
+        },
+    }
+
+
 def apply_language_structural_plasticity_transaction(
     model: MarulhoLanguageModel,
     proposal: Mapping[str, Any],
@@ -414,6 +663,14 @@ def apply_language_structural_plasticity_transaction(
                 int(value) for value in list(body.get("retained_expert_ids") or [])
             ],
         )
+    elif proposal_kind == "expert_merge":
+        candidate = _clone_merged_model(
+            model,
+            merged_expert_groups=[
+                [int(value) for value in list(group)]
+                for group in list(body.get("merged_expert_groups") or [])
+            ],
+        )
     else:
         target_expert_count = int(body.get("target_expert_count") or model.config.expert_count)
         candidate = _clone_expanded_model(model, target_expert_count=target_expert_count)
@@ -453,15 +710,34 @@ def apply_language_structural_plasticity_transaction(
             "candidate_target_expert_count": int(candidate.config.expert_count),
             "added_expert_count": int(
                 max(0, candidate.config.expert_count - model.config.expert_count)
+                if proposal_kind == "expert_spawn"
+                else 0
             ),
             "pruned_expert_count": int(
+                max(0, model.config.expert_count - candidate.config.expert_count)
+                if proposal_kind == "expert_prune"
+                else 0
+            ),
+            "merged_expert_group_count": int(
+                len(list(body.get("merged_expert_groups") or []))
+                if proposal_kind == "expert_merge"
+                else 0
+            ),
+            "structural_reduction_count": int(
                 max(0, model.config.expert_count - candidate.config.expert_count)
             ),
             "pruned_expert_ids": [
                 int(value) for value in list(body.get("pruned_expert_ids") or [])
             ],
+            "removed_expert_ids": [
+                int(value) for value in list(body.get("removed_expert_ids") or [])
+            ],
             "retained_expert_ids": [
                 int(value) for value in list(body.get("retained_expert_ids") or [])
+            ],
+            "merged_expert_groups": [
+                [int(value) for value in list(group)]
+                for group in list(body.get("merged_expert_groups") or [])
             ],
         },
         "evaluation": {
@@ -483,6 +759,9 @@ def apply_language_structural_plasticity_transaction(
             ),
             "eligible_for_reviewed_prune_promotion": bool(
                 accepted and proposal_kind == "expert_prune"
+            ),
+            "eligible_for_reviewed_merge_promotion": bool(
+                accepted and proposal_kind == "expert_merge"
             ),
             "eligible_for_reviewed_structural_promotion": bool(accepted),
             "checkpoint_backed": True,
