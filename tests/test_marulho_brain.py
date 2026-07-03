@@ -315,6 +315,83 @@ def test_marulho_brain_language_structural_transaction_is_checkpointed(tmp_path:
     ] is True
 
 
+def test_marulho_brain_language_structural_prune_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural expert prune needs checkpoint rollback evidence. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 3,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "inactive_expert_ids": [2],
+            "expert_utilities": [0.8, 0.2, 0.0],
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_pruned_experts=1,
+            prune_utility_threshold=0.05,
+        ),
+        mutation_kind="prune",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-prune-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_pruned_experts=1,
+            max_eval_loss_delta=10.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-prune.pt")
+    restored = MarulhoBrain.load(saved["path"])
+
+    assert proposal["proposal"]["proposal_kind"] == "expert_prune"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 2
+    assert transaction["report"]["mutation"]["pruned_expert_ids"] == [2]
+    assert transaction["report"]["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert status["language_model"]["last_structural_transaction"]["mutation"][
+        "proposal_kind"
+    ] == "expert_prune"
+    restored_status = restored.status()
+    assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
+        "target_expert_count"
+    ] == 2
+
+
 def test_marulho_brain_language_checkpoint_evolution_keeps_parent_installed(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     tokenizer = ByteLevelLanguageTokenizer()

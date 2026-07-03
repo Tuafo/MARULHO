@@ -22,6 +22,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
 )
 
@@ -212,7 +213,15 @@ class BrainLanguageModelRuntime:
         routing_evidence: Mapping[str, Any],
         learning_evidence: Mapping[str, Any] | None = None,
         config: LanguageStructuralPlasticityConfig | None = None,
+        mutation_kind: str = "growth",
     ) -> dict[str, Any]:
+        if str(mutation_kind) == "prune":
+            return build_language_structural_prune_proposal(
+                self.model,
+                routing_evidence=routing_evidence,
+                learning_evidence=learning_evidence,
+                config=config,
+            )
         return build_language_structural_plasticity_proposal(
             self.model,
             routing_evidence=routing_evidence,

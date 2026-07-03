@@ -21,7 +21,9 @@ from marulho.training.language_model import (
 @dataclass(frozen=True)
 class LanguageStructuralPlasticityConfig:
     max_added_experts: int = 2
+    max_pruned_experts: int = 1
     route_saturation_threshold: float = 0.75
+    prune_utility_threshold: float = 0.05
     max_eval_loss_delta: float = 0.05
     min_expert_count: int = 1
     require_operator_approval: bool = True
@@ -128,6 +130,114 @@ def _clone_expanded_model(
     return expanded
 
 
+def _clone_pruned_model(
+    model: MarulhoLanguageModel,
+    *,
+    retained_expert_ids: Sequence[int],
+) -> MarulhoLanguageModel:
+    retained_ids = tuple(int(value) for value in retained_expert_ids)
+    if not retained_ids:
+        raise ValueError("retained_expert_ids must not be empty")
+    old_expert_count = max(0, int(model.config.expert_count))
+    if any(value < 0 or value >= old_expert_count for value in retained_ids):
+        raise ValueError("retained_expert_ids contains an out-of-range expert id")
+    if len(set(retained_ids)) != len(retained_ids):
+        raise ValueError("retained_expert_ids must be unique")
+    target_expert_count = len(retained_ids)
+    new_config = replace(
+        model.config,
+        expert_count=target_expert_count,
+        active_expert_count=min(
+            max(1, int(model.config.active_expert_count)),
+            target_expert_count,
+        ),
+        route_candidate_count=min(
+            max(1, int(model.config.route_candidate_count)),
+            target_expert_count,
+        ),
+    )
+    pruned = MarulhoLanguageModel(new_config).to(model.device)
+    pruned_state = pruned.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in pruned_state and pruned_state[key].shape == source_value.shape:
+            pruned_state[key] = source_value.detach().clone().to(pruned_state[key].device)
+    pruned.load_state_dict(pruned_state)
+    retained_tensor = torch.tensor(retained_ids, dtype=torch.long, device=model.device)
+    with torch.no_grad():
+        if pruned.routed_experts.enabled and model.routed_experts.enabled:
+            pruned.routed_experts.route_keys.copy_(
+                model.routed_experts.route_keys.index_select(0, retained_tensor).to(
+                    device=pruned.routed_experts.route_keys.device,
+                    dtype=pruned.routed_experts.route_keys.dtype,
+                )
+            )
+            pruned.routed_experts.route_bias.copy_(
+                model.routed_experts.route_bias.index_select(0, retained_tensor).to(
+                    device=pruned.routed_experts.route_bias.device,
+                    dtype=pruned.routed_experts.route_bias.dtype,
+                )
+            )
+            for new_expert_id, old_expert_id in enumerate(retained_ids):
+                for target_parameter, source_parameter in zip(
+                    pruned.routed_experts.experts[new_expert_id].parameters(),
+                    model.routed_experts.experts[old_expert_id].parameters(),
+                    strict=True,
+                ):
+                    target_parameter.copy_(
+                        source_parameter.detach().to(
+                            device=target_parameter.device,
+                            dtype=target_parameter.dtype,
+                        )
+                    )
+    pruned.train(model.training)
+    return pruned
+
+
+def _normalise_expert_ids(value: Any) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, Mapping):
+        iterable = value.keys()
+    elif isinstance(value, (str, bytes)):
+        return ()
+    else:
+        try:
+            iterable = list(value)
+        except TypeError:
+            return ()
+    result: list[int] = []
+    for item in iterable:
+        try:
+            result.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return tuple(result)
+
+
+def _low_utility_ids_from_evidence(
+    value: Any,
+    *,
+    threshold: float,
+) -> tuple[int, ...]:
+    result: list[int] = []
+    if isinstance(value, Mapping):
+        for raw_id, raw_utility in value.items():
+            try:
+                if float(raw_utility) <= float(threshold):
+                    result.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+    elif not isinstance(value, (str, bytes)):
+        try:
+            for expert_id, raw_utility in enumerate(value):
+                if float(raw_utility) <= float(threshold):
+                    result.append(int(expert_id))
+        except TypeError:
+            pass
+    return tuple(result)
+
+
 def build_language_structural_plasticity_proposal(
     model: MarulhoLanguageModel,
     *,
@@ -185,6 +295,81 @@ def build_language_structural_plasticity_proposal(
     }
 
 
+def build_language_structural_prune_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    active_requirement = max(1, int(model.config.active_expert_count), int(cfg.min_expert_count))
+    active_ids = set(_normalise_expert_ids(route.get("active_expert_ids")))
+    explicit_low_utility_ids = set(_normalise_expert_ids(route.get("low_utility_expert_ids")))
+    explicit_inactive_ids = set(_normalise_expert_ids(route.get("inactive_expert_ids")))
+    utility_ids = set(
+        _low_utility_ids_from_evidence(
+            route.get("expert_utilities") or route.get("utility_by_expert"),
+            threshold=float(cfg.prune_utility_threshold),
+        )
+    )
+    valid_pressure_ids = {
+        value
+        for value in explicit_low_utility_ids | explicit_inactive_ids | utility_ids
+        if 0 <= value < expert_count and value not in active_ids
+    }
+    prune_budget = max(0, expert_count - active_requirement)
+    pruned_ids = tuple(
+        sorted(valid_pressure_ids)[: min(int(cfg.max_pruned_experts), prune_budget)]
+    )
+    retained_ids = tuple(value for value in range(expert_count) if value not in set(pruned_ids))
+    ready = expert_count > active_requirement and bool(pruned_ids)
+    status = "ready_for_operator_review" if ready else "collect_more_prune_pressure"
+    proposal_body = {
+        "proposal_kind": "expert_prune",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(len(retained_ids)),
+        "pruned_expert_ids": list(pruned_ids),
+        "retained_expert_ids": list(retained_ids),
+        "active_expert_count_floor": int(active_requirement),
+        "prune_pressure": bool(pruned_ids),
+        "explicit_inactive_expert_ids": sorted(explicit_inactive_ids),
+        "explicit_low_utility_expert_ids": sorted(explicit_low_utility_ids),
+        "utility_threshold": float(cfg.prune_utility_threshold),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "prune_pressure": bool(pruned_ids),
+            "min_expert_count_preserved": len(retained_ids) >= int(cfg.min_expert_count),
+            "active_expert_count_preserved": len(retained_ids)
+            >= int(model.config.active_expert_count),
+        },
+    }
+
+
 def apply_language_structural_plasticity_transaction(
     model: MarulhoLanguageModel,
     proposal: Mapping[str, Any],
@@ -221,8 +406,17 @@ def apply_language_structural_plasticity_transaction(
     )
     checkpoint_restore_hash = _load_checkpoint_hash(saved_checkpoint)
     baseline_eval = evaluate_language_model(model, eval_batches)
-    target_expert_count = int(body.get("target_expert_count") or model.config.expert_count)
-    candidate = _clone_expanded_model(model, target_expert_count=target_expert_count)
+    proposal_kind = str(body.get("proposal_kind") or "")
+    if proposal_kind == "expert_prune":
+        candidate = _clone_pruned_model(
+            model,
+            retained_expert_ids=[
+                int(value) for value in list(body.get("retained_expert_ids") or [])
+            ],
+        )
+    else:
+        target_expert_count = int(body.get("target_expert_count") or model.config.expert_count)
+        candidate = _clone_expanded_model(model, target_expert_count=target_expert_count)
     candidate_hash = _model_state_hash(candidate)
     candidate_eval = evaluate_language_model(candidate, eval_batches)
     loss_delta = float(candidate_eval["heldout_loss"]) - float(baseline_eval["heldout_loss"])
@@ -260,6 +454,15 @@ def apply_language_structural_plasticity_transaction(
             "added_expert_count": int(
                 max(0, candidate.config.expert_count - model.config.expert_count)
             ),
+            "pruned_expert_count": int(
+                max(0, model.config.expert_count - candidate.config.expert_count)
+            ),
+            "pruned_expert_ids": [
+                int(value) for value in list(body.get("pruned_expert_ids") or [])
+            ],
+            "retained_expert_ids": [
+                int(value) for value in list(body.get("retained_expert_ids") or [])
+            ],
         },
         "evaluation": {
             "baseline": baseline_eval,
@@ -275,7 +478,13 @@ def apply_language_structural_plasticity_transaction(
         },
         "promotion_gate": {
             "status": status,
-            "eligible_for_reviewed_growth_promotion": bool(accepted),
+            "eligible_for_reviewed_growth_promotion": bool(
+                accepted and proposal_kind == "expert_spawn"
+            ),
+            "eligible_for_reviewed_prune_promotion": bool(
+                accepted and proposal_kind == "expert_prune"
+            ),
+            "eligible_for_reviewed_structural_promotion": bool(accepted),
             "checkpoint_backed": True,
             "operator_approved": bool(operator_approved),
             "heldout_non_regression": bool(accepted),

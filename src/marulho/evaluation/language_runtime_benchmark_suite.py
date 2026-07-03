@@ -39,6 +39,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
 )
 
@@ -264,7 +265,7 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
-    structural_model = _new_model(tokenizer)
+    structural_growth_model = _new_model(tokenizer)
     routing_evidence = {
         "surface": "marulho_routed_language_experts.v1",
         "total_columns": 2,
@@ -273,17 +274,60 @@ def run_language_runtime_benchmark_suite(
         "runs_all_columns": False,
     }
     proposal = build_language_structural_plasticity_proposal(
-        structural_model,
+        structural_growth_model,
         routing_evidence=routing_evidence,
         config=LanguageStructuralPlasticityConfig(route_saturation_threshold=0.5),
     )
     structural_candidate, structural_report = apply_language_structural_plasticity_transaction(
-        structural_model,
+        structural_growth_model,
         proposal,
         eval_batches=old_split.eval,
         checkpoint_path=output.parent / "language-suite-structure-baseline.pt",
         operator_approved=True,
         config=LanguageStructuralPlasticityConfig(max_eval_loss_delta=100.0),
+    )
+    structural_prune_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+        )
+    )
+    prune_proposal = build_language_structural_prune_proposal(
+        structural_prune_model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 3,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "inactive_expert_ids": [2],
+            "expert_utilities": [0.7, 0.2, 0.0],
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_pruned_experts=1,
+            prune_utility_threshold=0.05,
+        ),
+    )
+    structural_pruned_candidate, structural_prune_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_prune_model,
+            prune_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-prune-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                min_expert_count=2,
+                max_pruned_experts=1,
+                max_eval_loss_delta=100.0,
+            ),
+        )
     )
     categories.append(
         _category(
@@ -293,17 +337,31 @@ def run_language_runtime_benchmark_suite(
                 if proposal["mutates_runtime_state"] is False
                 and structural_report["checkpoint"]["checkpoint_restore_verified"]
                 and structural_report["rollback_evidence"]["rollback_verified"]
+                and prune_proposal["mutates_runtime_state"] is False
+                and structural_prune_report["checkpoint"]["checkpoint_restore_verified"]
+                and structural_prune_report["rollback_evidence"]["rollback_verified"]
                 else "fail"
             ),
             evidence={
                 "proposal_mutates_runtime_state": proposal["mutates_runtime_state"],
-                "transaction_applied": structural_report["applied"],
-                "checkpoint_backed": structural_report["promotion_gate"]["checkpoint_backed"],
-                "rollback_verified": structural_report["rollback_evidence"]["rollback_verified"],
-                "target_expert_count": structural_candidate.config.expert_count,
-                "prune_merge_sleep_implemented": False,
+                "growth_transaction_applied": structural_report["applied"],
+                "growth_checkpoint_backed": structural_report["promotion_gate"]["checkpoint_backed"],
+                "growth_rollback_verified": structural_report["rollback_evidence"]["rollback_verified"],
+                "growth_target_expert_count": structural_candidate.config.expert_count,
+                "prune_proposal_mutates_runtime_state": prune_proposal[
+                    "mutates_runtime_state"
+                ],
+                "prune_transaction_applied": structural_prune_report["applied"],
+                "prune_checkpoint_backed": structural_prune_report["promotion_gate"][
+                    "checkpoint_backed"
+                ],
+                "prune_rollback_verified": structural_prune_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "prune_target_expert_count": structural_pruned_candidate.config.expert_count,
+                "merge_deep_sleep_implemented": False,
             },
-            missing=("prune_transaction", "merge_transaction", "deep_sleep_transaction"),
+            missing=("merge_transaction", "deep_sleep_transaction"),
         )
     )
 

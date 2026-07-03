@@ -68,11 +68,13 @@ developmental and consolidation runners, query runners, and long-run evidence.
   active parameters per token, route device, route latency, and explicit
   all-column fallback truth. It is PyTorch correctness evidence, not a promoted
   block-sparse Triton dispatch path.
-- `language_structural_plasticity.py` is the first Iteration 7 transaction
-  path for LM expert growth. It builds non-mutating expert-spawn proposals from
-  route/learning pressure, requires operator approval, writes a baseline
-  checkpoint snapshot, expands expert columns under heldout non-regression, and
-  records rollback hashes before accepting the candidate.
+- `language_structural_plasticity.py` is the Iteration 7 transaction path for
+  LM expert growth and explicit expert prune. It builds non-mutating
+  expert-spawn proposals from route/learning pressure and expert-prune proposals
+  from explicit inactive or low-utility expert evidence, requires operator
+  approval, writes a baseline checkpoint snapshot, applies the candidate
+  topology change under heldout non-regression, and records rollback hashes
+  before accepting the candidate.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,

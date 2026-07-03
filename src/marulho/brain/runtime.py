@@ -201,6 +201,7 @@ class MarulhoBrain:
         routing_evidence: Mapping[str, Any],
         learning_evidence: Mapping[str, Any] | None = None,
         config: LanguageStructuralPlasticityConfig | None = None,
+        mutation_kind: str = "growth",
     ) -> dict[str, Any]:
         if self._language_runtime is None:
             raise RuntimeError("MARULHO language model runtime is not installed")
@@ -208,6 +209,7 @@ class MarulhoBrain:
             routing_evidence=routing_evidence,
             learning_evidence=learning_evidence,
             config=config,
+            mutation_kind=mutation_kind,
         )
 
     def apply_language_structure(

@@ -49,7 +49,7 @@ but service/status endpoints still do not own or trigger cognition.
 
 `MarulhoBrain.propose_language_structure()` and
 `MarulhoBrain.apply_language_structure()` expose the training-owned LM expert
-growth transaction. Proposal is read-only; application requires explicit
+growth/prune transaction. Proposal is read-only; application requires explicit
 operator approval, writes a baseline checkpoint, verifies heldout
 non-regression, records rollback evidence, and emits a `language_structure`
 trace. These methods are runtime-owned helpers, not service/status mutation.
