@@ -55,16 +55,18 @@ for the LM path; block-sparse CUDA/Triton dispatch and complete-runtime impact
 reports remain future gates.
 
 Iteration 7 has checkpoint-backed LM structural transactions for expert growth,
-explicit expert prune, and explicit expert merge. The training-owned path
-creates a non-mutating expert-spawn proposal from routing and learning pressure,
-a non-mutating expert-prune proposal from explicit inactive/low-utility expert
-evidence, or a non-mutating expert-merge proposal from duplicate/high-similarity
-expert-pair evidence, requires operator approval before application, writes a
-baseline checkpoint snapshot, applies the candidate topology change in
-isolation, checks heldout non-regression, and records rollback hashes before
-`MarulhoBrain` accepts the candidate. This covers expert-column
-growth/prune/merge; split, synapse bundle, memory expansion, route-bank
-expansion, retire, and deep sleep remain future transaction types.
+explicit expert prune, explicit expert merge, and explicit expert deep sleep.
+The training-owned path creates a non-mutating expert-spawn proposal from
+routing and learning pressure, a non-mutating expert-prune proposal from
+explicit inactive/low-utility expert evidence, a non-mutating expert-merge
+proposal from duplicate/high-similarity expert-pair evidence, or a non-mutating
+expert-deep-sleep proposal from stale, low-activation, low-utility, high-cost,
+or dead-spike expert evidence. Application requires operator approval, writes a
+baseline checkpoint snapshot, applies the candidate topology change or
+checkpointed sleep mask in isolation, checks heldout non-regression, and records
+rollback hashes before `MarulhoBrain` accepts the candidate. This covers
+expert-column growth/prune/merge/deep-sleep; split, synapse bundle, memory
+expansion, route-bank expansion, and retire remain future transaction types.
 
 Iteration 8 has a first controlled checkpoint-evolution evaluator in
 `marulho.training.language_checkpoint_evolution`. It writes an immutable parent
@@ -554,11 +556,10 @@ loss, heldout perplexity, generation smoke, continual learning, forgetting,
 replay recovery, structural transaction safety, sustained-runtime smoke, active
 compute, checkpoint restore, rollback, service-read contract, and scale-ladder
 inventory. It must keep missing grounding support, human/grounded generation
-review, Triton/CUDA kernel parity, deep-sleep transactions, and true
-8192/131072-token long-run gates visible as blockers rather than promoting the
-smoke report. The structural safety category now exercises both expert-spawn
-growth, explicit expert-prune, and explicit expert-merge checkpoint
-transactions.
+review, Triton/CUDA kernel parity, and true 8192/131072-token long-run gates
+visible as blockers rather than promoting the smoke report. The structural
+safety category now exercises expert-spawn growth, explicit expert-prune,
+explicit expert-merge, and explicit expert-deep-sleep checkpoint transactions.
 
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,

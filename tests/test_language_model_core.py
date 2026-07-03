@@ -25,6 +25,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_deep_sleep_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
@@ -191,6 +192,38 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["active_parameters_per_token"] > 0
     assert model.routed_experts.route_keys.grad is not None
     assert torch.isfinite(model.routed_experts.route_keys.grad).all()
+
+
+def test_language_model_sleeping_experts_are_skipped_by_route_candidates() -> None:
+    torch.manual_seed(15)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=4,
+            expert_hidden_dim=24,
+        )
+    )
+    with torch.no_grad():
+        model.routed_experts.sleeping_expert_mask[3] = True
+
+    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    routing = result["telemetry"]["routing"]
+
+    assert routing["surface"] == "marulho_routed_language_experts.v1"
+    assert routing["sleep_filter_applied"] is True
+    assert routing["sleeping_columns"] == 1
+    assert routing["awake_columns"] == 3
+    assert routing["sleeping_expert_ids"] == [3]
+    assert routing["route_candidate_count"] == 3
+    assert routing["candidate_rows_scored"] == split.train[0].input_ids.numel() * 3
+    assert routing["runs_all_columns"] is False
+    assert routing["fallback_reason"] is None
 
 
 def test_language_structural_plasticity_expands_experts_with_checkpoint(tmp_path) -> None:
@@ -384,6 +417,95 @@ def test_language_structural_plasticity_merges_experts_with_checkpoint(tmp_path)
     assert report["checkpoint"]["checkpoint_restore_verified"] is True
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_merge_promotion"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is False
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_deep_sleeps_experts_with_checkpoint(
+    tmp_path,
+) -> None:
+    torch.manual_seed(26)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=4,
+        )
+    )
+
+    proposal = build_language_structural_deep_sleep_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "stale_expert_ids": [3],
+            "low_activation_expert_ids": [3],
+            "expert_utilities": [0.7, 0.4, 0.3, 0.0],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_deep_sleep_experts=1,
+            deep_sleep_utility_threshold=0.10,
+        ),
+    )
+    slept_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-deep-sleep-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_deep_sleep_experts=1,
+            max_eval_loss_delta=10.0,
+        ),
+    )
+    sleep_eval = evaluate_language_model(slept_model, split.eval)
+    sleep_routing = sleep_eval["spike_telemetry"]["routing"]
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-deep-sleep.pt",
+        slept_model,
+        tokenizer,
+        metadata={"transaction": "deep_sleep"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["surface"] == "marulho_language_structural_plasticity_proposal.v1"
+    assert proposal["proposal"]["proposal_kind"] == "expert_deep_sleep"
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["deep_sleep_reduces_awake_candidates"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "expert_deep_sleep"
+    assert report["mutation"]["source_expert_count"] == 4
+    assert report["mutation"]["target_expert_count"] == 4
+    assert report["mutation"]["deep_sleep_expert_count"] == 1
+    assert report["mutation"]["deep_sleep_expert_ids"] == [3]
+    assert report["mutation"]["sleeping_expert_ids_after"] == [3]
+    assert report["mutation"]["awake_expert_count_after"] == 3
+    assert slept_model.config.expert_count == 4
+    assert slept_model.routed_experts.sleeping_expert_ids() == [3]
+    assert sleep_routing["sleeping_expert_ids"] == [3]
+    assert sleep_routing["awake_columns"] == 3
+    assert sleep_routing["candidate_rows_scored"] == split.eval[0].input_ids.numel() * 3
+    assert sleep_routing["runs_all_columns"] is False
+    assert metadata["transaction"] == "deep_sleep"
+    assert restored_model.routed_experts.sleeping_expert_ids() == [3]
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_deep_sleep_promotion"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is False
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
 

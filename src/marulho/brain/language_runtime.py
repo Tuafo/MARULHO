@@ -18,10 +18,12 @@ from marulho.training.language_model import (
     LanguageBatch,
     LanguageModelConfig,
     MarulhoLanguageModel,
+    load_language_model_state,
 )
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_deep_sleep_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
@@ -216,6 +218,13 @@ class BrainLanguageModelRuntime:
         config: LanguageStructuralPlasticityConfig | None = None,
         mutation_kind: str = "growth",
     ) -> dict[str, Any]:
+        if str(mutation_kind) in {"deep_sleep", "sleep"}:
+            return build_language_structural_deep_sleep_proposal(
+                self.model,
+                routing_evidence=routing_evidence,
+                learning_evidence=learning_evidence,
+                config=config,
+            )
         if str(mutation_kind) == "merge":
             return build_language_structural_merge_proposal(
                 self.model,
@@ -300,7 +309,7 @@ class BrainLanguageModelRuntime:
         tokenizer = ByteLevelLanguageTokenizer.load_state_dict(state["tokenizer"])
         config = LanguageModelConfig(**dict(state["config"]))
         model = MarulhoLanguageModel(config)
-        model.load_state_dict(state["model_state"])
+        load_language_model_state(model, state["model_state"])
         runtime = cls(
             model,
             tokenizer,

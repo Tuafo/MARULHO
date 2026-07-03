@@ -45,11 +45,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert categories["growth_prune_safety"]["evidence"]["growth_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["prune_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["merge_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["deep_sleep_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["deep_sleep_runs_all_columns"] is False
     assert "prune_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "merge_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
-    assert categories["growth_prune_safety"]["missing_evidence"] == [
-        "deep_sleep_transaction"
-    ]
+    assert "deep_sleep_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
+    assert categories["growth_prune_safety"]["missing_evidence"] == []
     assert categories["long_run_throughput"]["status"] == "smoke_only"
     assert categories["long_run_throughput"]["evidence"]["token_delta"] == 4
     assert categories["service_contract"]["evidence"]["status_read_mutates_token_count"] is False

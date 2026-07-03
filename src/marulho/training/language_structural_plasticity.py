@@ -23,9 +23,11 @@ class LanguageStructuralPlasticityConfig:
     max_added_experts: int = 2
     max_pruned_experts: int = 1
     max_merged_expert_pairs: int = 1
+    max_deep_sleep_experts: int = 1
     route_saturation_threshold: float = 0.75
     prune_utility_threshold: float = 0.05
     merge_similarity_threshold: float = 0.95
+    deep_sleep_utility_threshold: float = 0.10
     max_eval_loss_delta: float = 0.05
     min_expert_count: int = 1
     require_operator_approval: bool = True
@@ -123,6 +125,11 @@ def _clone_expanded_model(
     expanded.load_state_dict(expanded_state)
     with torch.no_grad():
         if expanded.routed_experts.enabled and old_expert_count < expanded.routed_experts.expert_count:
+            expanded.routed_experts.sleeping_expert_mask[:old_expert_count].copy_(
+                model.routed_experts.sleeping_expert_mask[:old_expert_count].to(
+                    device=expanded.routed_experts.sleeping_expert_mask.device
+                )
+            )
             expanded.routed_experts.route_keys[old_expert_count:].zero_()
             expanded.routed_experts.route_bias[old_expert_count:].fill_(-10.0)
             for expert in expanded.routed_experts.experts[old_expert_count:]:
@@ -168,6 +175,12 @@ def _clone_pruned_model(
     retained_tensor = torch.tensor(retained_ids, dtype=torch.long, device=model.device)
     with torch.no_grad():
         if pruned.routed_experts.enabled and model.routed_experts.enabled:
+            pruned.routed_experts.sleeping_expert_mask.copy_(
+                model.routed_experts.sleeping_expert_mask.index_select(
+                    0,
+                    retained_tensor,
+                ).to(device=pruned.routed_experts.sleeping_expert_mask.device)
+            )
             pruned.routed_experts.route_keys.copy_(
                 model.routed_experts.route_keys.index_select(0, retained_tensor).to(
                     device=pruned.routed_experts.route_keys.device,
@@ -244,6 +257,14 @@ def _clone_merged_model(
             for new_expert_id, old_expert_id in enumerate(retained_ids):
                 group = merge_by_primary.get(old_expert_id, (old_expert_id,))
                 group_tensor = torch.tensor(group, dtype=torch.long, device=model.device)
+                merged.routed_experts.sleeping_expert_mask[new_expert_id].copy_(
+                    model.routed_experts.sleeping_expert_mask.index_select(
+                        0,
+                        group_tensor.to(model.routed_experts.sleeping_expert_mask.device),
+                    ).all().to(
+                        device=merged.routed_experts.sleeping_expert_mask.device
+                    )
+                )
                 merged.routed_experts.route_keys[new_expert_id].copy_(
                     model.routed_experts.route_keys.index_select(0, group_tensor)
                     .mean(dim=0)
@@ -280,6 +301,40 @@ def _clone_merged_model(
                     target_parameter.copy_(averaged)
     merged.train(model.training)
     return merged
+
+
+def _clone_deep_sleep_model(
+    model: MarulhoLanguageModel,
+    *,
+    deep_sleep_expert_ids: Sequence[int],
+) -> MarulhoLanguageModel:
+    sleep_ids = tuple(int(value) for value in deep_sleep_expert_ids)
+    if not sleep_ids:
+        raise ValueError("deep_sleep_expert_ids must not be empty")
+    old_expert_count = max(0, int(model.config.expert_count))
+    if any(value < 0 or value >= old_expert_count for value in sleep_ids):
+        raise ValueError("deep_sleep_expert_ids contains an out-of-range expert id")
+    if len(set(sleep_ids)) != len(sleep_ids):
+        raise ValueError("deep_sleep_expert_ids must be unique")
+    candidate = MarulhoLanguageModel(model.config).to(model.device)
+    candidate_state = candidate.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in candidate_state and candidate_state[key].shape == source_value.shape:
+            candidate_state[key] = source_value.detach().clone().to(
+                candidate_state[key].device
+            )
+    candidate.load_state_dict(candidate_state)
+    with torch.no_grad():
+        if candidate.routed_experts.enabled:
+            sleep_tensor = torch.tensor(
+                sleep_ids,
+                dtype=torch.long,
+                device=candidate.routed_experts.sleeping_expert_mask.device,
+            )
+            candidate.routed_experts.sleeping_expert_mask[sleep_tensor] = True
+    candidate.train(model.training)
+    return candidate
 
 
 def _normalise_expert_ids(value: Any) -> tuple[int, ...]:
@@ -619,6 +674,116 @@ def build_language_structural_merge_proposal(
     }
 
 
+def build_language_structural_deep_sleep_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    active_requirement = max(1, int(model.config.active_expert_count), int(cfg.min_expert_count))
+    active_ids = set(_normalise_expert_ids(route.get("active_expert_ids")))
+    current_sleeping_ids = set(
+        model.routed_experts.sleeping_expert_ids()
+        if model.routed_experts.enabled
+        else []
+    )
+    explicit_sleep_ids = set(
+        _normalise_expert_ids(
+            route.get("sleep_candidate_expert_ids")
+            or route.get("stale_expert_ids")
+            or route.get("deep_sleep_candidate_expert_ids")
+        )
+    )
+    low_activation_ids = set(_normalise_expert_ids(route.get("low_activation_expert_ids")))
+    high_cost_low_contribution_ids = set(
+        _normalise_expert_ids(route.get("high_cost_low_contribution_expert_ids"))
+    )
+    dead_spike_ids = set(_normalise_expert_ids(route.get("dead_spike_expert_ids")))
+    utility_ids = set(
+        _low_utility_ids_from_evidence(
+            route.get("expert_utilities") or route.get("utility_by_expert"),
+            threshold=float(cfg.deep_sleep_utility_threshold),
+        )
+    )
+    pressure_ids = {
+        value
+        for value in (
+            explicit_sleep_ids
+            | low_activation_ids
+            | high_cost_low_contribution_ids
+            | dead_spike_ids
+            | utility_ids
+        )
+        if 0 <= value < expert_count
+        and value not in active_ids
+        and value not in current_sleeping_ids
+    }
+    awake_count_before = max(0, expert_count - len(current_sleeping_ids))
+    sleep_budget = max(0, awake_count_before - active_requirement)
+    selected_sleep_ids = tuple(
+        sorted(pressure_ids)[: min(int(cfg.max_deep_sleep_experts), sleep_budget)]
+    )
+    sleeping_after = sorted(current_sleeping_ids | set(selected_sleep_ids))
+    awake_after = max(0, expert_count - len(sleeping_after))
+    ready = expert_count > active_requirement and bool(selected_sleep_ids)
+    status = "ready_for_operator_review" if ready else "collect_more_sleep_pressure"
+    proposal_body = {
+        "proposal_kind": "expert_deep_sleep",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(expert_count),
+        "deep_sleep_expert_ids": list(selected_sleep_ids),
+        "existing_sleeping_expert_ids": sorted(current_sleeping_ids),
+        "sleeping_expert_ids_after": list(sleeping_after),
+        "awake_expert_count_before": int(awake_count_before),
+        "awake_expert_count_after": int(awake_after),
+        "active_expert_count_floor": int(active_requirement),
+        "sleep_pressure": bool(selected_sleep_ids),
+        "explicit_sleep_candidate_expert_ids": sorted(explicit_sleep_ids),
+        "low_activation_expert_ids": sorted(low_activation_ids),
+        "high_cost_low_contribution_expert_ids": sorted(
+            high_cost_low_contribution_ids
+        ),
+        "dead_spike_expert_ids": sorted(dead_spike_ids),
+        "utility_threshold": float(cfg.deep_sleep_utility_threshold),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "sleep_pressure": bool(selected_sleep_ids),
+            "min_expert_count_preserved": expert_count >= int(cfg.min_expert_count),
+            "active_expert_count_preserved": awake_after
+            >= int(model.config.active_expert_count),
+            "deep_sleep_reduces_awake_candidates": bool(
+                awake_after < awake_count_before
+            ),
+        },
+    }
+
+
 def apply_language_structural_plasticity_transaction(
     model: MarulhoLanguageModel,
     proposal: Mapping[str, Any],
@@ -669,6 +834,13 @@ def apply_language_structural_plasticity_transaction(
             merged_expert_groups=[
                 [int(value) for value in list(group)]
                 for group in list(body.get("merged_expert_groups") or [])
+            ],
+        )
+    elif proposal_kind == "expert_deep_sleep":
+        candidate = _clone_deep_sleep_model(
+            model,
+            deep_sleep_expert_ids=[
+                int(value) for value in list(body.get("deep_sleep_expert_ids") or [])
             ],
         )
     else:
@@ -726,6 +898,29 @@ def apply_language_structural_plasticity_transaction(
             "structural_reduction_count": int(
                 max(0, model.config.expert_count - candidate.config.expert_count)
             ),
+            "deep_sleep_expert_count": int(
+                len(list(body.get("deep_sleep_expert_ids") or []))
+                if proposal_kind == "expert_deep_sleep"
+                else 0
+            ),
+            "deep_sleep_expert_ids": [
+                int(value) for value in list(body.get("deep_sleep_expert_ids") or [])
+            ],
+            "sleeping_expert_ids_after": [
+                int(value)
+                for value in (
+                    candidate.routed_experts.sleeping_expert_ids()
+                    if candidate.routed_experts.enabled
+                    else []
+                )
+            ],
+            "awake_expert_count_after": int(
+                len(
+                    candidate.routed_experts.awake_expert_ids()
+                    if candidate.routed_experts.enabled
+                    else []
+                )
+            ),
             "pruned_expert_ids": [
                 int(value) for value in list(body.get("pruned_expert_ids") or [])
             ],
@@ -762,6 +957,9 @@ def apply_language_structural_plasticity_transaction(
             ),
             "eligible_for_reviewed_merge_promotion": bool(
                 accepted and proposal_kind == "expert_merge"
+            ),
+            "eligible_for_reviewed_deep_sleep_promotion": bool(
+                accepted and proposal_kind == "expert_deep_sleep"
             ),
             "eligible_for_reviewed_structural_promotion": bool(accepted),
             "checkpoint_backed": True,

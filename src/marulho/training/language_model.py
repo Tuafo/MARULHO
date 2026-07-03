@@ -274,10 +274,18 @@ class RoutedLanguageExpertLayer(nn.Module):
         if self.expert_count > 0:
             self.route_keys = nn.Parameter(torch.empty(self.expert_count, self.state_dim))
             self.route_bias = nn.Parameter(torch.zeros(self.expert_count))
+            self.register_buffer(
+                "sleeping_expert_mask",
+                torch.zeros(self.expert_count, dtype=torch.bool),
+            )
             nn.init.normal_(self.route_keys, mean=0.0, std=self.state_dim**-0.5)
         else:
             self.register_parameter("route_keys", None)
             self.register_parameter("route_bias", None)
+            self.register_buffer(
+                "sleeping_expert_mask",
+                torch.zeros(0, dtype=torch.bool),
+            )
         self.experts = nn.ModuleList(
             [
                 nn.Sequential(
@@ -293,12 +301,37 @@ class RoutedLanguageExpertLayer(nn.Module):
     def enabled(self) -> bool:
         return self.expert_count > 0
 
+    def awake_expert_ids(self, device: torch.device | None = None) -> torch.Tensor:
+        target_device = device or self.sleeping_expert_mask.device
+        if not self.enabled:
+            return torch.empty(0, dtype=torch.long, device=target_device)
+        mask = ~self.sleeping_expert_mask.to(device=target_device)
+        return torch.arange(
+            self.expert_count,
+            device=target_device,
+            dtype=torch.long,
+        )[mask]
+
+    def sleeping_expert_ids(self) -> list[int]:
+        if not self.enabled:
+            return []
+        return [
+            int(value)
+            for value in torch.nonzero(
+                self.sleeping_expert_mask.detach().cpu(),
+                as_tuple=False,
+            ).flatten().tolist()
+        ]
+
     def candidate_count(self) -> int:
         if not self.enabled:
             return 0
+        awake_count = int((~self.sleeping_expert_mask).sum().detach().cpu().item())
+        if awake_count <= 0:
+            return 0
         if self.route_candidate_count <= 0:
-            return self.expert_count
-        return min(self.expert_count, self.route_candidate_count)
+            return awake_count
+        return min(awake_count, self.route_candidate_count)
 
     def _expert_parameter_count(self) -> int:
         if not self.experts:
@@ -312,11 +345,12 @@ class RoutedLanguageExpertLayer(nn.Module):
         time_steps: int,
         device: torch.device,
     ) -> torch.Tensor:
-        return torch.arange(self.expert_count, device=device, dtype=torch.long).view(
-            1,
-            1,
-            self.expert_count,
-        ).expand(batch_size, time_steps, self.expert_count)
+        awake_ids = self.awake_expert_ids(device)
+        return awake_ids.view(1, 1, int(awake_ids.numel())).expand(
+            batch_size,
+            time_steps,
+            int(awake_ids.numel()),
+        )
 
     def forward(
         self,
@@ -339,18 +373,56 @@ class RoutedLanguageExpertLayer(nn.Module):
                 "route_device": str(hidden.device),
                 "route_latency_ms": 0.0,
                 "active_parameters_per_token": 0,
+                "awake_columns": 0,
+                "sleeping_columns": 0,
+                "sleeping_expert_ids": [],
+                "sleep_filter_applied": False,
+                "sleeping_candidate_filtered_count": 0,
             }
 
         started = time.perf_counter()
+        sleeping_mask = self.sleeping_expert_mask.to(device=hidden.device)
+        sleeping_count = int(sleeping_mask.sum().detach().cpu().item())
+        awake_ids = self.awake_expert_ids(hidden.device)
+        awake_count = int(awake_ids.numel())
+        if awake_count <= 0:
+            return hidden, {
+                "surface": self.surface,
+                "enabled": True,
+                "route_plan_source": "all_language_experts_sleeping",
+                "total_columns": int(self.expert_count),
+                "active_columns": 0,
+                "active_expert_count_per_token": 0,
+                "candidate_rows_scored": 0,
+                "route_candidate_count": 0,
+                "output_candidate_count": 0,
+                "runs_all_columns": False,
+                "fallback_reason": "all_language_experts_sleeping",
+                "route_device": str(hidden.device),
+                "route_latency_ms": 0.0,
+                "active_parameters_per_token": 0,
+                "expert_parameters_per_column": int(self._expert_parameter_count()),
+                "awake_columns": 0,
+                "sleeping_columns": int(sleeping_count),
+                "sleeping_expert_ids": self.sleeping_expert_ids(),
+                "sleep_filter_applied": bool(sleeping_count > 0),
+                "sleeping_candidate_filtered_count": 0,
+            }
         if candidate_ids is None:
             candidate_ids = self._dense_candidate_ids(
                 batch_size=batch_size,
                 time_steps=time_steps,
                 device=hidden.device,
             )
-            runs_all_columns = True
-            fallback_reason: str | None = "route_candidate_plan_missing_dense_score"
-            route_plan_source = "dense_all_experts"
+            runs_all_columns = sleeping_count == 0
+            fallback_reason: str | None = (
+                "route_candidate_plan_missing_dense_score"
+                if runs_all_columns
+                else None
+            )
+            route_plan_source = (
+                "dense_all_experts" if runs_all_columns else "awake_expert_mask"
+            )
         else:
             if candidate_ids.ndim == 1:
                 candidate_ids = candidate_ids.view(1, 1, -1).expand(
@@ -361,11 +433,40 @@ class RoutedLanguageExpertLayer(nn.Module):
             if candidate_ids.ndim != 3:
                 raise ValueError("candidate_ids must be [batch, time, candidate]")
             candidate_ids = candidate_ids.to(device=hidden.device, dtype=torch.long)
-            runs_all_columns = int(candidate_ids.shape[-1]) >= self.expert_count
+            runs_all_columns = (
+                int(candidate_ids.shape[-1]) >= self.expert_count
+                and sleeping_count == 0
+            )
             fallback_reason = "route_candidate_plan_unbounded" if runs_all_columns else None
             route_plan_source = "token_hash_candidate_bank"
 
         candidate_ids = candidate_ids.remainder(self.expert_count)
+        sleeping_candidates = sleeping_mask.index_select(0, candidate_ids.reshape(-1)).reshape_as(
+            candidate_ids
+        )
+        sleeping_candidate_filtered_count = int(
+            sleeping_candidates.sum().detach().cpu().item()
+        )
+        if sleeping_candidate_filtered_count > 0:
+            replacement_positions = (
+                torch.arange(
+                    int(candidate_ids.shape[-1]),
+                    device=hidden.device,
+                    dtype=torch.long,
+                )
+                % max(1, awake_count)
+            )
+            replacements = awake_ids.index_select(0, replacement_positions).view(
+                1,
+                1,
+                int(candidate_ids.shape[-1]),
+            ).expand_as(candidate_ids)
+            candidate_ids = torch.where(
+                sleeping_candidates,
+                replacements,
+                candidate_ids,
+            )
+            route_plan_source = f"{route_plan_source}_sleep_filtered"
         candidate_count = int(candidate_ids.shape[-1])
         active_count = min(self.active_expert_count, candidate_count)
         route_keys = self.route_keys[candidate_ids]
@@ -416,6 +517,13 @@ class RoutedLanguageExpertLayer(nn.Module):
             "route_latency_ms": float(route_latency_ms),
             "active_parameters_per_token": active_parameters_per_token,
             "expert_parameters_per_column": int(expert_parameters),
+            "awake_columns": int(awake_count),
+            "sleeping_columns": int(sleeping_count),
+            "sleeping_expert_ids": self.sleeping_expert_ids(),
+            "sleep_filter_applied": bool(sleeping_count > 0),
+            "sleeping_candidate_filtered_count": int(
+                sleeping_candidate_filtered_count
+            ),
         }
 
 
@@ -474,12 +582,24 @@ class MarulhoLanguageModel(nn.Module):
     def _language_route_candidates(self, input_ids: torch.Tensor) -> torch.Tensor | None:
         if not self.routed_experts.enabled:
             return None
+        awake_ids = self.routed_experts.awake_expert_ids(input_ids.device)
+        awake_count = int(awake_ids.numel())
+        if awake_count <= 0:
+            return None
         candidate_count = self.routed_experts.candidate_count()
-        if candidate_count <= 0 or candidate_count >= self.routed_experts.expert_count:
+        if candidate_count <= 0:
+            return None
+        if (
+            awake_count == self.routed_experts.expert_count
+            and candidate_count >= awake_count
+        ):
             return None
         offsets = torch.arange(candidate_count, device=input_ids.device, dtype=torch.long)
-        return (input_ids.to(torch.long).unsqueeze(-1) + offsets) % int(
-            self.routed_experts.expert_count
+        candidate_positions = (input_ids.to(torch.long).unsqueeze(-1) + offsets) % int(
+            awake_count
+        )
+        return awake_ids.index_select(0, candidate_positions.reshape(-1)).reshape(
+            candidate_positions.shape
         )
 
     def next_token_loss(
@@ -657,6 +777,25 @@ def language_model_checkpoint_payload(
     }
 
 
+def load_language_model_state(
+    model: MarulhoLanguageModel,
+    model_state: Mapping[str, torch.Tensor],
+) -> None:
+    result = model.load_state_dict(dict(model_state), strict=False)
+    allowed_missing = {"routed_experts.sleeping_expert_mask"}
+    unexpected = list(result.unexpected_keys)
+    missing = [
+        key
+        for key in result.missing_keys
+        if key not in allowed_missing
+    ]
+    if unexpected or missing:
+        raise RuntimeError(
+            "Language model checkpoint state does not match current model: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+
 def save_language_model_checkpoint(
     path: str | Path,
     model: MarulhoLanguageModel,
@@ -693,5 +832,5 @@ def load_language_model_checkpoint(
             "Language model checkpoint vocab size does not match tokenizer state"
         )
     model = MarulhoLanguageModel(config)
-    model.load_state_dict(payload["model_state"])
+    load_language_model_state(model, payload["model_state"])
     return model, tokenizer, dict(payload.get("metadata") or {})

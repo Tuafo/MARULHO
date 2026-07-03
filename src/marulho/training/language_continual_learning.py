@@ -52,6 +52,11 @@ def _parameter_delta_l2(
     total = 0.0
     for key, before_tensor in before.items():
         after_tensor = after[key].detach().cpu()
+        if not (
+            torch.is_floating_point(before_tensor)
+            and torch.is_floating_point(after_tensor)
+        ):
+            continue
         delta = after_tensor - before_tensor.detach().cpu()
         total += float(delta.pow(2).sum().item())
     return float(math.sqrt(total))

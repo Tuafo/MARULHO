@@ -468,6 +468,88 @@ def test_marulho_brain_language_structural_merge_transaction_is_checkpointed(
     ] == 3
 
 
+def test_marulho_brain_language_structural_deep_sleep_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural expert deep sleep needs stale evidence and rollback. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=4,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "stale_expert_ids": [3],
+            "low_activation_expert_ids": [3],
+            "expert_utilities": [0.7, 0.4, 0.3, 0.0],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_deep_sleep_experts=1,
+            deep_sleep_utility_threshold=0.10,
+        ),
+        mutation_kind="deep_sleep",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-deep-sleep-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_deep_sleep_experts=1,
+            max_eval_loss_delta=10.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-deep-sleep.pt")
+    restored = MarulhoBrain.load(saved["path"])
+
+    assert proposal["proposal"]["proposal_kind"] == "expert_deep_sleep"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 4
+    assert transaction["report"]["mutation"]["deep_sleep_expert_ids"] == [3]
+    assert transaction["report"]["mutation"]["sleeping_expert_ids_after"] == [3]
+    assert transaction["report"]["mutation"]["awake_expert_count_after"] == 3
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_deep_sleep_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert status["language_model"]["last_structural_transaction"]["mutation"][
+        "proposal_kind"
+    ] == "expert_deep_sleep"
+    restored_status = restored.status()
+    assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
+        "sleeping_expert_ids_after"
+    ] == [3]
+
+
 def test_marulho_brain_language_checkpoint_evolution_keeps_parent_installed(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     tokenizer = ByteLevelLanguageTokenizer()

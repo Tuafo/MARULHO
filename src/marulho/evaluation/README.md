@@ -86,8 +86,8 @@ harnesses.
   forgetting, replay recovery, growth/prune safety, long-run throughput, active
   compute, GPU kernel correctness, checkpoint restore, rollback, service
   contract, and scale-ladder inventory. The suite keeps missing grounding,
-  human/grounded generation review, Triton/CUDA parity, deep-sleep, and
-  real long-run evidence as promotion blockers.
+  human/grounded generation review, Triton/CUDA parity, and real long-run
+  evidence as promotion blockers.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick

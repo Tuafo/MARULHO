@@ -15,7 +15,7 @@ grow/prune, compact trace, and save.
   installed, `generate()` uses the training-owned `marulho_lm_head` adapter;
   otherwise it falls back to the sparse MARULHO-owned transition readout.
 - `BrainTrace` telemetry for status, generation before/after evidence, replay,
-  growth/prune/merge, checkpoint path, executor/device names, and negative external
+  growth/prune/merge/deep-sleep, checkpoint path, executor/device names, and negative external
   cognition flags.
 - Brain-local checkpoint metadata continuity.
 - Brain-owned background start/stop loop for queued source ticks.
@@ -49,7 +49,7 @@ but service/status endpoints still do not own or trigger cognition.
 
 `MarulhoBrain.propose_language_structure()` and
 `MarulhoBrain.apply_language_structure()` expose the training-owned LM expert
-growth/prune/merge transaction. Proposal is read-only; application requires explicit
+growth/prune/merge/deep-sleep transaction. Proposal is read-only; application requires explicit
 operator approval, writes a baseline checkpoint, verifies heldout
 non-regression, records rollback evidence, and emits a `language_structure`
 trace. These methods are runtime-owned helpers, not service/status mutation.

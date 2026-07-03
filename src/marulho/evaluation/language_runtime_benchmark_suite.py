@@ -39,6 +39,7 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_deep_sleep_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
@@ -372,6 +373,52 @@ def run_language_runtime_benchmark_suite(
             ),
         )
     )
+    structural_sleep_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=4,
+            expert_hidden_dim=32,
+        )
+    )
+    sleep_proposal = build_language_structural_deep_sleep_proposal(
+        structural_sleep_model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "stale_expert_ids": [3],
+            "low_activation_expert_ids": [3],
+            "expert_utilities": [0.7, 0.4, 0.3, 0.0],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_deep_sleep_experts=1,
+            deep_sleep_utility_threshold=0.10,
+        ),
+    )
+    structural_sleep_candidate, structural_sleep_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_sleep_model,
+            sleep_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-deep-sleep-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                min_expert_count=2,
+                max_deep_sleep_experts=1,
+                max_eval_loss_delta=100.0,
+            ),
+        )
+    )
+    sleep_eval = evaluate_language_model(structural_sleep_candidate, old_split.eval)
+    sleep_routing = sleep_eval["spike_telemetry"]["routing"]
     categories.append(
         _category(
             "growth_prune_safety",
@@ -386,6 +433,9 @@ def run_language_runtime_benchmark_suite(
                 and merge_proposal["mutates_runtime_state"] is False
                 and structural_merge_report["checkpoint"]["checkpoint_restore_verified"]
                 and structural_merge_report["rollback_evidence"]["rollback_verified"]
+                and sleep_proposal["mutates_runtime_state"] is False
+                and structural_sleep_report["checkpoint"]["checkpoint_restore_verified"]
+                and structural_sleep_report["rollback_evidence"]["rollback_verified"]
                 else "fail"
             ),
             evidence={
@@ -416,9 +466,29 @@ def run_language_runtime_benchmark_suite(
                     "rollback_evidence"
                 ]["rollback_verified"],
                 "merge_target_expert_count": structural_merged_candidate.config.expert_count,
-                "deep_sleep_implemented": False,
+                "deep_sleep_proposal_mutates_runtime_state": sleep_proposal[
+                    "mutates_runtime_state"
+                ],
+                "deep_sleep_transaction_applied": structural_sleep_report["applied"],
+                "deep_sleep_checkpoint_backed": structural_sleep_report[
+                    "promotion_gate"
+                ]["checkpoint_backed"],
+                "deep_sleep_rollback_verified": structural_sleep_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "deep_sleep_target_expert_count": (
+                    structural_sleep_candidate.config.expert_count
+                ),
+                "deep_sleep_awake_expert_count": sleep_routing["awake_columns"],
+                "deep_sleep_sleeping_expert_ids": sleep_routing[
+                    "sleeping_expert_ids"
+                ],
+                "deep_sleep_candidate_rows_scored": sleep_routing[
+                    "candidate_rows_scored"
+                ],
+                "deep_sleep_runs_all_columns": sleep_routing["runs_all_columns"],
             },
-            missing=("deep_sleep_transaction",),
+            missing=(),
         )
     )
 
