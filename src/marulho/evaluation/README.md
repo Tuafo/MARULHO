@@ -72,6 +72,14 @@ harnesses.
   fallback counts, environment contention, and promotion gates. It is component
   evidence only; the current PyTorch LM path remains `promotes_hot_path=false`
   until Triton/CUDA parity and complete-runtime impact evidence exist.
+- `language_scale_ladder.py` defines the MARULHO LM target scale classes and
+  writes JSON plus README evidence inventories. It estimates total parameters,
+  active parameters per token, routed-column budgets, dense vocab-head cost, and
+  memory footprint for the small fixture, 140M-class, 500M-class, 0.9B-class,
+  and 2B+ research ladders. Large ladder entries are not instantiated or
+  promoted by the report; their gate stays `configuration_defined_not_trained`
+  until training, long-run, forgetting, kernel, restore, and generation-review
+  evidence exists.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -111,4 +119,10 @@ LM-head component evidence:
 
 ```bash
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint checkpoints/marulho/language.pt --output reports/language_runtime_evidence/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600
+```
+
+LM scale ladder inventory:
+
+```bash
+python -m marulho.evaluation.language_scale_ladder --output reports/language_scale_ladder/scale-ladder.json --include-smoke-fixture
 ```

@@ -538,6 +538,13 @@ scale ladder.
 | 0.9B-class | NeuronSpark-scale comparison class | long-run stability, kernel coverage, restore fidelity |
 | 2B+ research | larger recurrent sparse research | memory budget, throughput, generation review |
 
+`language_scale_ladder.py` now defines these target classes for the LM head and
+writes an evidence inventory with analytic total-parameter, active-parameter,
+routed-column, dense vocab-head, and memory estimates. The small fixture can run
+heldout loss and owned generation checks in CI. The 140M/500M/0.9B/2B+ entries
+remain `configuration_defined_not_trained` until train-token, long-run,
+forgetting, restore, kernel, and generation-review evidence exists.
+
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,
 restore fidelity, and generation quality.

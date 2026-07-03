@@ -60,7 +60,7 @@ Key machinery:
 - `src/marulho/consolidation`: CPU archival memory, replay records, and consolidation metadata.
 - `src/marulho/retrieval`: tensor candidate search, routing caches, and graph-safe cache generation.
 - `src/marulho/service`: thin FastAPI adapter over `MarulhoBrain`.
-- `src/marulho/evaluation`: benchmarks, promotion gates, readiness checks, and validation harnesses.
+- `src/marulho/evaluation`: benchmarks, promotion gates, scale-ladder inventories, readiness checks, and validation harnesses.
 - `MARULHO_UI`: the control-room UI.
 
 ## HTTP And UI
