@@ -54,6 +54,9 @@ SURFACE = "marulho_language_runtime_benchmark_suite.v1"
 ARTIFACT_KIND = "marulho_language_runtime_benchmark_suite"
 SUSTAINED_SURFACE = "marulho_language_sustained_runtime_evidence.v1"
 SUSTAINED_ARTIFACT_KIND = "marulho_language_sustained_runtime_evidence"
+KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
+KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
+RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 
 
 def _fixture_config(tokenizer: ByteLevelLanguageTokenizer) -> LanguageModelConfig:
@@ -124,6 +127,17 @@ def _read_sustained_report(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def _read_gpu_kernel_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"GPU kernel evidence report is not an object: {report_path}")
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
     return (
         report.get("artifact_kind") == SUSTAINED_ARTIFACT_KIND
@@ -134,6 +148,24 @@ def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
         and report.get("owned_by_marulho") is True
         and report.get("external_llm_used") is False
         and report.get("loads_external_checkpoint") is False
+    )
+
+
+def _valid_language_gpu_kernel_report(report: Mapping[str, Any]) -> bool:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == KERNEL_ARTIFACT_KIND
+        and report.get("surface") == KERNEL_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("kernel_name") == RMSNORM_KERNEL_NAME
+        and report.get("parity_passed") is True
+        and promotion_gate.get("kernel_parity_available") is True
     )
 
 
@@ -227,11 +259,87 @@ def _language_long_run_evidence(
     }
 
 
+def _gpu_kernel_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    benchmark_summary = (
+        report.get("benchmark_summary")
+        if isinstance(report.get("benchmark_summary"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "kernel_name": report.get("kernel_name"),
+        "parity_passed": bool(report.get("parity_passed")),
+        "valid_shape_result_count": int(report.get("valid_shape_result_count", 0) or 0),
+        "dtype_coverage": list(report.get("dtype_coverage") or []),
+        "geometric_speedup_vs_torch": benchmark_summary.get(
+            "geometric_speedup_vs_torch"
+        ),
+        "complete_runtime_impact_available": bool(
+            promotion_gate.get("complete_runtime_impact_available")
+        ),
+        "promotes_hot_path": bool(promotion_gate.get("promotes_hot_path")),
+    }
+
+
+def _language_gpu_kernel_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_gpu_kernel_report(report)
+    ]
+    rmsnorm_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == RMSNORM_KERNEL_NAME
+        ),
+        None,
+    )
+    missing = []
+    if rmsnorm_report is None:
+        missing.append("rmsnorm_triton_parity")
+    missing.extend(
+        [
+            "plif_triton_parity",
+            "selective_scan_triton_parity",
+            "block_sparse_expert_dispatch_parity",
+            "sampled_vocab_cross_entropy_parity",
+        ]
+    )
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "covered_kernel_names": sorted(
+            {
+                str(report.get("kernel_name"))
+                for report in valid_reports
+                if report.get("kernel_name")
+            }
+        ),
+        "rmsnorm_triton_parity": rmsnorm_report is not None,
+        "rmsnorm_report": (
+            None if rmsnorm_report is None else _gpu_kernel_report_summary(rmsnorm_report)
+        ),
+        "lm_triton_kernel_used": rmsnorm_report is not None,
+        "pytorch_fallback_available": True,
+        "missing_evidence": missing,
+        "promotes_hot_path": False,
+    }
+
+
 def run_language_runtime_benchmark_suite(
     *,
     output_path: str | Path,
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
+    gpu_kernel_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run a compact benchmark-suite smoke pass and write an evidence report."""
 
@@ -712,20 +820,17 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
+    gpu_kernel_reports = [
+        _read_gpu_kernel_report(path) for path in gpu_kernel_evidence_paths
+    ]
+    gpu_kernel_evidence = _language_gpu_kernel_evidence(gpu_kernel_reports)
+    gpu_kernel_missing = tuple(gpu_kernel_evidence["missing_evidence"])
     categories.append(
         _category(
             "gpu_kernel_correctness",
-            status="missing",
-            evidence={
-                "lm_triton_kernel_used": False,
-                "pytorch_fallback_available": True,
-            },
-            missing=(
-                "plif_triton_parity",
-                "selective_scan_triton_parity",
-                "block_sparse_expert_dispatch_parity",
-                "sampled_vocab_cross_entropy_parity",
-            ),
+            status="pass" if not gpu_kernel_missing else "missing",
+            evidence=gpu_kernel_evidence,
+            missing=gpu_kernel_missing,
         )
     )
 
@@ -879,6 +984,9 @@ def run_language_runtime_benchmark_suite(
             "sustained_evidence": [
                 str(Path(path)) for path in sustained_evidence_paths
             ],
+            "gpu_kernel_evidence": [
+                str(Path(path)) for path in gpu_kernel_evidence_paths
+            ],
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
             "checkpoint_evolution_dir": str(output.parent / "language-suite-evolution"),
@@ -919,11 +1027,19 @@ def main() -> int:
         default=[],
         help="Existing marulho_language_sustained_runtime_evidence JSON report.",
     )
+    parser.add_argument(
+        "--gpu-kernel-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Existing marulho_language_triton_kernel_report JSON report.",
+    )
     args = parser.parse_args()
     run_language_runtime_benchmark_suite(
         output_path=args.output,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_evidence_paths=tuple(args.sustained_evidence),
+        gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
     )
     return 0
 

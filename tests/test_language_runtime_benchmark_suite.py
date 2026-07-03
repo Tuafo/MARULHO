@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
+    KERNEL_ARTIFACT_KIND,
+    KERNEL_SURFACE,
+    RMSNORM_KERNEL_NAME,
     SURFACE,
     SUSTAINED_ARTIFACT_KIND,
     SUSTAINED_SURFACE,
@@ -37,6 +40,33 @@ def _write_sustained_report(path, *, token_delta: int) -> None:
                     "long_run_gate_reached": token_delta >= 131072,
                     "house_scale_gate_reached": token_delta >= 524288,
                     "promotes_runtime_claim": False,
+                    "promotes_hot_path": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_gpu_kernel_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": KERNEL_ARTIFACT_KIND,
+                "surface": KERNEL_SURFACE,
+                "kernel_name": RMSNORM_KERNEL_NAME,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "parity_passed": True,
+                "valid_shape_result_count": 2,
+                "dtype_coverage": ["float16", "float32"],
+                "benchmark_summary": {
+                    "geometric_speedup_vs_torch": 1.25,
+                },
+                "promotion_gate": {
+                    "kernel_parity_available": True,
+                    "complete_runtime_impact_available": False,
                     "promotes_hot_path": False,
                 },
             }
@@ -83,6 +113,9 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         "source_term_coverage_gate_passed"
     ] is True
     assert categories["gpu_kernel_correctness"]["status"] == "missing"
+    assert categories["gpu_kernel_correctness"]["evidence"]["lm_triton_kernel_used"] is False
+    assert categories["gpu_kernel_correctness"]["evidence"]["rmsnorm_triton_parity"] is False
+    assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
     assert categories["generation_coherence"]["status"] == "smoke_only"
     assert categories["growth_prune_safety"]["evidence"]["growth_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["prune_transaction_applied"] is True
@@ -126,16 +159,20 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     output = tmp_path / "language-suite.json"
     diagnostic = tmp_path / "diagnostic-8192.json"
     long_gate = tmp_path / "long-gate-131072.json"
+    gpu_kernel = tmp_path / "rmsnorm-triton.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
+    _write_gpu_kernel_report(gpu_kernel)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
         sustained_evidence_paths=(diagnostic, long_gate),
+        gpu_kernel_evidence_paths=(gpu_kernel,),
     )
     categories = {item["name"]: item for item in report["categories"]}
     long_run = categories["long_run_throughput"]
+    gpu_kernel_category = categories["gpu_kernel_correctness"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -146,6 +183,14 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert long_run["evidence"]["long_gate_report"]["token_delta"] == 131072
     assert long_run["evidence"]["promotes_runtime_claim"] is False
     assert long_run["evidence"]["promotes_hot_path"] is False
+    assert gpu_kernel_category["status"] == "missing"
+    assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
+    assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
+    assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
+        RMSNORM_KERNEL_NAME
+    ]
+    assert "rmsnorm_triton_parity" not in gpu_kernel_category["missing_evidence"]
+    assert "plif_triton_parity" in gpu_kernel_category["missing_evidence"]
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence",

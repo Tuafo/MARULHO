@@ -13,6 +13,9 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   homeostasis and prediction evidence.
 - Binding and topology algorithms, including non-mutating topology proposals.
 - Core CUDA/Triton kernels such as fused route/vote scoring.
+- The LM-head RMSNorm Triton forward primitive in
+  `language_rmsnorm_triton.py`, including forced parity/benchmark execution,
+  PyTorch fallback, and runtime-use counters.
 
 ## Must Not Own
 
@@ -27,6 +30,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   device.
 - Disabled routing work should not launch CUDA kernels merely to multiply by
   zero.
+- Language RMSNorm uses Triton only where the row count is large enough to beat
+  the PyTorch CUDA expression. One-token streaming remains on the faster CUDA
+  graph/PyTorch path and reports that fallback instead of silently regressing
+  sustained throughput.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

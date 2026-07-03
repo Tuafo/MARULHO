@@ -14,6 +14,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from marulho.core.language_rmsnorm_triton import language_rmsnorm
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 
 
@@ -88,8 +89,7 @@ class RMSNorm(nn.Module):
         self.eps = float(eps)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        rms = value.pow(2).mean(dim=-1, keepdim=True).add(self.eps).rsqrt()
-        return value * rms * self.weight.to(device=value.device, dtype=value.dtype)
+        return language_rmsnorm(value, self.weight, eps=self.eps)
 
 
 class MarulhoSelectiveSpikingStateBlock(nn.Module):

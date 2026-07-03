@@ -506,6 +506,16 @@ Each kernel must have PyTorch fallback, shape sweep, dtype coverage where
 supported, deterministic mode where possible, failure-before-mutation behavior,
 benchmark against baseline, and complete-runtime impact report.
 
+The first LM-head kernel evidence slice covers the RMSNorm forward primitive.
+`language_rmsnorm_triton.py` provides the Triton kernel, PyTorch fallback,
+autograd-compatible backward, and runtime-use counters. The 2026-07-03 report
+`reports/language_kernel_evidence/rmsnorm-triton-20260703.json` passed
+`float32`/`float16` shape sweeps with geometric microbenchmark speedup `1.440x`.
+Forced Triton on one-token streaming was measured and rejected for sustained
+generation throughput, so the maintained policy uses Triton for batched rows
+and reports PyTorch/CUDA fallback for streaming rows until a narrower streaming
+kernel wins complete-runtime evidence.
+
 ## Evaluation Gates
 
 Language model gates:
@@ -584,6 +594,12 @@ only when they are final MARULHO-owned LM reports that reach the diagnostic and
 long-gate token counts. The structural safety category now exercises
 expert-spawn growth, explicit expert-prune, explicit expert-merge, and explicit
 expert-deep-sleep checkpoint transactions.
+
+`language-suite-rmsnorm-kernel.json` ingests both the RMSNorm kernel report and
+the updated sustained LM reports. It records `long_run_throughput=pass`,
+`rmsnorm_triton_parity=true`, and keeps promotion blocked on generation
+coherence plus the remaining PLIF, selective-scan, block-sparse expert, and
+sampled-vocab kernel parity evidence.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

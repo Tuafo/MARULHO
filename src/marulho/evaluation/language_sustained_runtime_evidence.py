@@ -11,6 +11,10 @@ from typing import Any, Mapping
 
 import torch
 
+from marulho.core.language_rmsnorm_triton import (
+    language_rmsnorm_triton_stats,
+    language_rmsnorm_triton_stats_delta,
+)
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.continuous_runtime_stress_benchmark import (
     _collect_velocity_environment_snapshot,
@@ -138,6 +142,22 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "cuda_graph_failure_reason": None,
         "pytorch_eager_language_token_count": 0,
         "pytorch_eager_tail_token_count": 0,
+        "triton_kernel_used": False,
+        "triton_kernel_failure_count": 0,
+        "triton_kernel_fallback_count": 0,
+        "language_rmsnorm_triton": {
+            "surface": "marulho_language_rmsnorm_triton_stats_delta.v1",
+            "triton_available": False,
+            "triton_forward_calls": 0,
+            "triton_forward_elements": 0,
+            "torch_fallback_calls": 0,
+            "torch_fallback_elements": 0,
+            "triton_failure_count": 0,
+            "last_failure": None,
+            "last_device": None,
+            "last_dtype": None,
+            "triton_kernel_used": False,
+        },
     }
 
 
@@ -304,9 +324,13 @@ def _report_payload(
         execution.get("pytorch_eager_language_token_count", int(token_delta)) or 0
     )
     fallback_reason = (
-        "language_lm_head_uses_cuda_graph_burst_until_triton_parity_gate"
-        if cuda_graph_tokens > 0
-        else "language_lm_head_uses_pytorch_eager_until_triton_parity_gate"
+        "language_lm_head_uses_triton_rmsnorm_partial_kernel_evidence"
+        if bool(execution.get("triton_kernel_used", False))
+        else (
+            "language_lm_head_uses_cuda_graph_burst_until_triton_parity_gate"
+            if cuda_graph_tokens > 0
+            else "language_lm_head_uses_pytorch_eager_until_triton_parity_gate"
+        )
     )
     trace = _last_language_trace(
         token_delta=token_delta,
@@ -361,7 +385,14 @@ def _report_payload(
             "cuda_graph_setup_seconds": float(
                 execution.get("cuda_graph_setup_seconds", 0.0) or 0.0
             ),
-            "triton_kernel_used": False,
+            "triton_kernel_used": bool(execution.get("triton_kernel_used", False)),
+            "language_rmsnorm_triton_used": bool(
+                (
+                    execution.get("language_rmsnorm_triton")
+                    if isinstance(execution.get("language_rmsnorm_triton"), Mapping)
+                    else {}
+                ).get("triton_kernel_used", False)
+            ),
             "promoted_hot_path": False,
         },
         "failure_fallback_counters": {
@@ -372,15 +403,21 @@ def _report_payload(
             "native_burst_replay_failure_count": 0,
             "native_sequence_loop_failure_count": 0,
             "torch_sequence_graph_failure_count": 0,
-            "triton_kernel_failure_count": 0,
-            "triton_kernel_fallback_count": int(token_delta),
+            "triton_kernel_failure_count": int(
+                execution.get("triton_kernel_failure_count", 0) or 0
+            ),
+            "triton_kernel_fallback_count": int(
+                execution.get("triton_kernel_fallback_count", int(token_delta)) or 0
+            ),
             "fallback_reason": fallback_reason,
             "cuda_graph_failure_reason": execution.get("cuda_graph_failure_reason"),
         },
         "fallback_counts": {
             "pytorch_eager_language_token_count": eager_tokens,
             "torch_cuda_graph_language_token_count": cuda_graph_tokens,
-            "triton_kernel_fallback_count": int(token_delta),
+            "triton_kernel_fallback_count": int(
+                execution.get("triton_kernel_fallback_count", int(token_delta)) or 0
+            ),
             "external_lm_fallback_count": 0,
         },
         "execution_evidence": execution,
@@ -482,6 +519,7 @@ def run_language_sustained_runtime_evidence(
     finished = started
     execution_evidence = _new_execution_evidence(model)
     graph_tail_tensor: torch.Tensor | None = None
+    rmsnorm_stats_before = language_rmsnorm_triton_stats()
 
     try:
         model.eval()
@@ -632,6 +670,25 @@ def run_language_sustained_runtime_evidence(
         )
     if tail_values:
         generated_tail_ids = tail_values[-32:]
+
+    rmsnorm_stats_after = language_rmsnorm_triton_stats()
+    rmsnorm_delta = language_rmsnorm_triton_stats_delta(
+        rmsnorm_stats_before,
+        rmsnorm_stats_after,
+    )
+    execution_evidence["language_rmsnorm_triton"] = rmsnorm_delta
+    execution_evidence["triton_kernel_used"] = bool(
+        rmsnorm_delta.get("triton_kernel_used", False)
+    )
+    execution_evidence["triton_kernel_failure_count"] = int(
+        rmsnorm_delta.get("triton_failure_count", 0) or 0
+    )
+    execution_evidence["triton_kernel_fallback_count"] = (
+        0
+        if bool(rmsnorm_delta.get("triton_kernel_used", False))
+        and int(rmsnorm_delta.get("triton_failure_count", 0) or 0) == 0
+        else int(token_delta)
+    )
 
     report = _report_payload(
         output_path=output,

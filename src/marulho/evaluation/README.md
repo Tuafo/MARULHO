@@ -142,6 +142,25 @@ harnesses.
   Generated continuations still show fractured local-corpus memorization, so
   this is training/quality-probe evidence, not a generation-coherence
   promotion.
+- Current 2026-07-03 RMSNorm Triton evidence in
+  `reports/language_kernel_evidence/rmsnorm-triton-20260703.json` passed six
+  CUDA shape/dtype parity cases for `language_rmsnorm_forward` (`float32` and
+  `float16`) with geometric microbenchmark speedup `1.440x` over the PyTorch
+  RMSNorm expression. A forced one-token streaming diagnostic
+  `cuda-batched-quality-rmsnorm-triton-8192-sustained.json` proved graph
+  capture and zero Triton failures but regressed throughput to
+  `4528.675 tokens/sec`, so the maintained model policy uses Triton only for
+  batched rows and keeps one-token streaming on CUDA graph/PyTorch fallback.
+  The short fallback-policy diagnostic
+  `cuda-batched-quality-rmsnorm-policy-8192-sustained.json` reached
+  `8192/8192` at `4346.188 tokens/sec` and is diagnostic only. The accepted
+  house-scale policy run
+  `cuda-batched-quality-rmsnorm-policy-524288-sustained.json` reached
+  `524288/524288` tokens at `7003.004 tokens/sec`, CUDA graph burst, zero graph
+  failures, zero Triton failures, and no observed environment contention.
+  `language-suite-rmsnorm-kernel.json` now records `long_run_throughput=pass`
+  and `rmsnorm_triton_parity=true` while keeping generation coherence and the
+  remaining PLIF/scan/expert/vocab kernel parity blockers open.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
@@ -182,4 +201,6 @@ LM benchmark suite:
 ```bash
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8 --sustained-evidence reports/language_runtime_evidence/diagnostic-8192.json --sustained-evidence reports/language_runtime_evidence/long-gate-131072.json
+python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 ```

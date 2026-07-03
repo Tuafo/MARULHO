@@ -59,6 +59,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   current terms, selective recurrent state, eligibility trace cache, adaptive
   timestep budget, and spike/dead/over-firing telemetry. CUDA/Triton parity and
   complete-runtime impact evidence are still required before promotion.
+- `RMSNorm` now routes CUDA tensors through the language RMSNorm Triton
+  primitive only for batched row counts where the kernel is measured useful.
+  Streaming one-token LM generation keeps the faster CUDA graph/PyTorch
+  fallback and exposes the fallback count in sustained reports.
 - `language_continual_learning.py` is the first Iteration 6 foundation for the
   LM head. It applies bounded online updates, mixes replay batches, measures
   old/new heldout loss and replay retention, records spike-rate and throughput
