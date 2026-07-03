@@ -19,6 +19,15 @@ The current generation path is MARULHO-owned and reports
 state. It is not yet a next-token language model with a vocabulary LM head,
 heldout perplexity, checkpointed token embeddings, and scale-ladder evidence.
 
+Iteration 2 has a training-owned foundation in `marulho.training.language_model`
+and `marulho.data.language_tokenizer`: a deterministic byte-level tokenizer,
+token embeddings, a selective spiking recurrent state block, a vocabulary LM
+head, next-token loss, train/eval split reports, heldout loss/perplexity,
+component checkpoint save/restore, and generation evidence that reports
+`external_llm_used=false`. This foundation is implementation evidence for the
+LM-head path, not a promotion of the live brain loop or long-run language
+capability.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

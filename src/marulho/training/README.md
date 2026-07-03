@@ -15,6 +15,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   unavailable, and exact fallback before mutation.
 - Trainer-owned checkpoint state, route caches, strong-event rings, and burst
   evidence.
+- The MARULHO-owned next-token language-model foundation: token embedding,
+  selective spiking recurrent state, LM head, next-token loss, train/eval split
+  reports, heldout loss/perplexity, and language component checkpoints.
 
 ## Must Not Own
 
@@ -43,3 +46,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - `long_test_runner.py` is now a `MarulhoBrain` health runner. It feeds local
   preset text, starts/stops the brain loop, samples compact brain status, and
   checks feed/readout/tick progress through the active brain runtime.
+- `language_model.py` is the Iteration 2 foundation for the future active
+  `marulho_lm_head` path. It is training-owned, checkpoint-backed, and reports
+  `external_llm_used=false`, but it is not promoted as live cognition until
+  online learning, rollback, throughput, and long-run Runtime Evidence gates
+  pass.

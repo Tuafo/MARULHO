@@ -12,9 +12,11 @@ from .source_catalog import (
     expand_source_bank_specs,
     select_catalog_source_specs,
 )
+from .language_tokenizer import ByteLevelLanguageTokenizer
 from .rtf_encoder import RTFEncoder
 
 __all__ = [
+    "ByteLevelLanguageTokenizer",
     "FSDDAdapter",
     "NMNISTAdapter",
     "PairedDigitDataset",

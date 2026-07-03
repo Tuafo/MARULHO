@@ -11,6 +11,8 @@ audio, event-camera style input, and multimodal streams.
 - Input normalization.
 - Emitted encoder tensors and device evidence.
 - Dataset/source adapters and bounded source-stream preparation.
+- MARULHO-owned tokenizer adapters and deterministic source-to-token
+  preparation for the language-model path.
 
 ## Must Not Own
 
@@ -34,3 +36,7 @@ audio, event-camera style input, and multimodal streams.
 - Semantic encoder construction is offline/deterministic by default. GloVe
   bucket initialization is an explicit `semantic_initialize_from_glove=True`
   setup step because it may touch cache, downloader, PCA, and ridge-solve work.
+- The byte-level language tokenizer is the first Iteration 2 tokenizer
+  foundation. It owns UTF-8 byte ids, BOS/EOS/PAD/UNK/checkpoint/replay marker
+  ids, encode/decode determinism, tokenizer hash, and checkpoint state. It does
+  not load an external language model or generation stack.

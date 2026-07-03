@@ -10,7 +10,31 @@ Module structure:
 """
 
 from .bootstrap import PredictiveBootstrap
+from .language_model import (
+    LanguageBatch,
+    LanguageModelConfig,
+    LanguageSplit,
+    MarulhoLanguageModel,
+    MarulhoSelectiveSpikingStateBlock,
+    build_language_model_splits,
+    evaluate_language_model,
+    load_language_model_checkpoint,
+    save_language_model_checkpoint,
+)
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
-__all__ = ["PredictiveBootstrap", "MarulhoModel", "MarulhoTrainer"]
+__all__ = [
+    "LanguageBatch",
+    "LanguageModelConfig",
+    "LanguageSplit",
+    "MarulhoLanguageModel",
+    "MarulhoModel",
+    "MarulhoSelectiveSpikingStateBlock",
+    "MarulhoTrainer",
+    "PredictiveBootstrap",
+    "build_language_model_splits",
+    "evaluate_language_model",
+    "load_language_model_checkpoint",
+    "save_language_model_checkpoint",
+]
