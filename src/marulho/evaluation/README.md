@@ -80,6 +80,14 @@ harnesses.
   promoted by the report; their gate stays `configuration_defined_not_trained`
   until training, long-run, forgetting, kernel, restore, and generation-review
   evidence exists.
+- `language_runtime_benchmark_suite.py` aggregates MARULHO LM-head benchmark
+  evidence into one JSON plus README report. It covers next-token loss, heldout
+  perplexity, generation smoke, grounding support, continual learning,
+  forgetting, replay recovery, growth/prune safety, long-run throughput, active
+  compute, GPU kernel correctness, checkpoint restore, rollback, service
+  contract, and scale-ladder inventory. The suite keeps missing grounding,
+  human/grounded generation review, Triton/CUDA parity, prune/merge/sleep, and
+  real long-run evidence as promotion blockers.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -125,4 +133,10 @@ LM scale ladder inventory:
 
 ```bash
 python -m marulho.evaluation.language_scale_ladder --output reports/language_scale_ladder/scale-ladder.json --include-smoke-fixture
+```
+
+LM benchmark suite:
+
+```bash
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8
 ```
