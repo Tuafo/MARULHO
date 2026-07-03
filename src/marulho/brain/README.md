@@ -39,3 +39,10 @@ The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_conditional_while`, device `cuda:0`, and zero graph/native/burst
 failures. The latest measured long sequence gate reached `6601.19` sequence
 tokens/sec versus `6507.41` per-quantum tokens/sec.
+
+Hot-path feed/tick invariants:
+
+- `feed(..., learn=False)` queues source patterns without mutating learned
+  chunk state.
+- `tick()` records readout transitions from trainer winner evidence and must
+  not recompute offline winners per token after the CUDA trainer step.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
 
 import torch
 
@@ -74,11 +73,10 @@ class BaseEncoderProtocolTests(unittest.TestCase):
     def test_empty_chunk_codebook_batch_matches_scalar_encoder(self) -> None:
         text = "MARULHO learns predictive sparse cortical columns."
         batched = RTFEncoder(window_size=10, enable_learned_chunking=True)
-        scalar = RTFEncoder(window_size=10, enable_learned_chunking=True)
+        scalar = RTFEncoder(window_size=10, enable_learned_chunking=False)
 
         batched_patterns = list(batched.iter_char_patterns(text, window_size=10, learn=False))
-        with patch.object(scalar, "_empty_chunk_codebook", return_value=False):
-            scalar_patterns = list(scalar.iter_char_patterns(text, window_size=10, learn=False))
+        scalar_patterns = list(scalar.iter_char_patterns(text, window_size=10, learn=False))
 
         self.assertEqual(
             [raw_window for raw_window, _pattern in batched_patterns],

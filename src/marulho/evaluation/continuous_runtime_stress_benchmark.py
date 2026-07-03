@@ -1028,7 +1028,7 @@ def run_continuous_runtime_stress(
     quantum_tokens: int = DEFAULT_BRAIN_QUANTUM_TOKENS,
     source_concept_observation_tick_interval: int = 4,
     timeout_seconds: float = 60.0,
-    sample_interval_seconds: float = 0.02,
+    sample_interval_seconds: float = 0.001,
     environment_sample_interval_seconds: float = 0.0,
     profile_trainer_stages: bool = False,
     host_truth_sync_interval_tokens: int | None = None,
@@ -1047,6 +1047,8 @@ def run_continuous_runtime_stress(
         and int(host_truth_sync_interval_tokens) <= 0
     ):
         raise ValueError("host_truth_sync_interval_tokens must be positive")
+    if float(sample_interval_seconds) < 0.0:
+        raise ValueError("sample_interval_seconds must be non-negative")
     if float(environment_sample_interval_seconds) < 0.0:
         raise ValueError("environment_sample_interval_seconds must be non-negative")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1478,7 +1480,7 @@ def main() -> int:
     )
     parser.add_argument("--source-concept-observation-tick-interval", type=int, default=4)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
-    parser.add_argument("--sample-interval-seconds", type=float, default=0.02)
+    parser.add_argument("--sample-interval-seconds", type=float, default=0.001)
     parser.add_argument(
         "--environment-sample-interval-seconds",
         type=float,

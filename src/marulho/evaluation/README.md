@@ -60,21 +60,29 @@ harnesses.
   `BrainTrace`, device report, CUDA/backend/executor evidence, graph/native/
   burst/sequence failure and fallback counters, event summary, and environment
   contention summary.
-- Current 2026-07-03 evidence: `reports/runtime_evidence_20260703/diagnostic-8192.json`
-  reached `8192/8192` tokens at `131.614 tokens/sec`; the normal long gate
-  `reports/runtime_evidence_20260703/long-gate-131072.json` reached
-  `131072/131072` tokens at `43.666 tokens/sec`, CUDA RTX 3060,
-  `conditional_while`, zero CUDA graph/native/sequence failures, bounded
-  `12/65536` route rows, no all-column state transition, `brain_feed_streaming_refill`
-  with `16` feed calls and zero source drops, and contention `not_observed`.
-  The house-scale gate `reports/runtime_evidence_20260703/house-scale-524288.json`
-  reached `524288/524288` tokens at `44.834 tokens/sec`, with the same CUDA
-  backend, zero CUDA graph/native/sequence failures, bounded `12/65536` route
-  rows, no all-column state transition, `brain_feed_streaming_refill` with
-  `64` feed calls and zero source drops, and contention `not_observed`.
-  These reports close the normal long-run and house-scale artifact boundaries
-  but are not speed promotions over the historical 6k-ish hot-path band because
-  complete elapsed time includes bounded source refill/encoding.
+- Current 2026-07-03 fixed evidence:
+  `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
+  reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
+  `21.123 ms`, and p95 `19.287 ms`. GPU contention was observed in this
+  diagnostic run. The normal long gate
+  `reports/runtime_evidence_20260703/long-gate-131072-after-feed-readout-fix.json`
+  reached `131072/131072` tokens at `5608.147 tokens/sec`, mean tick
+  `17.800 ms`, p95 `20.073 ms`, CUDA RTX 3060, `conditional_while`, zero CUDA
+  graph/native/sequence failures or fallbacks, bounded `12/65536` route rows,
+  no all-column state transition, `brain_feed_streaming_refill` with `16` feed
+  calls and zero source drops, and contention `not_observed`. The house-scale
+  gate
+  `reports/runtime_evidence_20260703/house-scale-524288-after-feed-readout-fix.json`
+  reached `524288/524288` tokens at `5877.601 tokens/sec`, mean tick
+  `17.445 ms`, p95 `19.358 ms`, with the same CUDA backend, zero CUDA graph/
+  native/sequence failures or fallbacks, bounded `12/65536` route rows, no
+  all-column state transition, `brain_feed_streaming_refill` with `64` feed
+  calls and zero source drops, and contention `not_observed`.
+- Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
+  `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
+  regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
+  and tick readout keys recomputed offline winners per token. Keep those files
+  only as regression evidence, not current runtime speed evidence.
 - Preserved failure evidence: `reports/runtime_evidence_20260703/long-gate-131072-source-exhausted-before-refill.json`
   shows the old one-shot feed path exhausted the bounded `8192`-token source
   buffer after `8192` tokens. Keep long targets on bounded streaming refill.
@@ -82,7 +90,7 @@ harnesses.
 ## Sustained Runtime Commands
 
 ```bash
-python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600
-python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/long-gate-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 7200
-python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/house-scale-524288.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 21600
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/diagnostic-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --sample-interval-seconds 0.001
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/long-gate-131072.json --target-tokens 131072 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 7200 --sample-interval-seconds 0.001
+python -m marulho.evaluation.continuous_runtime_stress_benchmark --checkpoint checkpoints/marulho/model.pt --output reports/runtime_evidence_20260703/house-scale-524288.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 21600 --sample-interval-seconds 0.001
 ```

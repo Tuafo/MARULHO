@@ -628,6 +628,7 @@ def test_main_defaults_environment_sampling_outside_measured_window(
     )
 
     assert main() == 0
+    assert captured["sample_interval_seconds"] == 0.001
     assert captured["environment_sample_interval_seconds"] == 0.0
 
 
@@ -655,3 +656,16 @@ def test_stress_runner_rejects_negative_environment_sample_interval(tmp_path) ->
         assert "environment_sample_interval_seconds" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected invalid environment sample interval rejection")
+
+
+def test_stress_runner_rejects_negative_sample_interval(tmp_path) -> None:
+    try:
+        run_continuous_runtime_stress(
+            tmp_path / "missing.pt",
+            output_path=tmp_path / "report.json",
+            sample_interval_seconds=-1.0,
+        )
+    except ValueError as exc:
+        assert "sample_interval_seconds" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected invalid sample interval rejection")

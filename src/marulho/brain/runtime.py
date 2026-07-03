@@ -119,7 +119,7 @@ class MarulhoBrain:
         self._restore_brain_state(self.metadata.get("brain_state"))
 
     def feed(self, text: str, *, source: str = "operator", learn: bool = False) -> dict[str, Any]:
-        patterns = self._patterns_from_text(text, source=source, learn=True)
+        patterns = self._patterns_from_text(text, source=source, learn=bool(learn))
         added = self._source_buffer.extend(patterns)
         self._last_source = str(source)
         result = {
@@ -166,7 +166,7 @@ class MarulhoBrain:
                 allow_sleep_maintenance=bool(allow_sleep_maintenance),
             )
             trained = int(train_report.get("trained", len(patterns)) or 0)
-            state_keys = self._state_keys_for_patterns(batch)
+            state_keys = self._state_keys_for_tick_batch(batch, train_report)
             self._record_sequence_transitions(state_keys, raw_windows)
             if state_keys:
                 self._last_state_key = int(state_keys[-1])
@@ -602,6 +602,24 @@ class MarulhoBrain:
                 learn=bool(learn),
             )
         ]
+
+    def _state_keys_for_tick_batch(
+        self,
+        patterns: Sequence[BrainPattern],
+        train_report: Mapping[str, Any],
+    ) -> list[int]:
+        key: int | None = None
+        last_metrics = train_report.get("last_metrics")
+        if isinstance(last_metrics, Mapping) and last_metrics.get("winner") is not None:
+            try:
+                key = int(last_metrics["winner"])
+            except (TypeError, ValueError):
+                key = None
+        if key is None and self.trainer.last_winner is not None:
+            key = int(self.trainer.last_winner)
+        if key is None:
+            return self._state_keys_for_patterns(patterns)
+        return [int(key) for _item in patterns]
 
     def _state_keys_for_patterns(self, patterns: Sequence[BrainPattern]) -> list[int]:
         keys: list[int] = []

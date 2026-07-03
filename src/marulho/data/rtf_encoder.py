@@ -620,7 +620,7 @@ class RTFEncoder:
         chars: Iterable[str],
         window_size: int,
         *,
-        batch_size: int = 32,
+        batch_size: int = 1024,
     ) -> Iterator[tuple[str, torch.Tensor]]:
         maxlen = max(1, int(window_size))
         window_codes: list[int] = []
@@ -629,6 +629,9 @@ class RTFEncoder:
         pending_windows: list[str] = []
         pending_codes: list[list[int]] = []
         pending_chunks: list[list[int]] = []
+        use_chunk_projection = (
+            self.learned_chunking is not None and not self._empty_chunk_codebook()
+        )
 
         def flush() -> Iterator[tuple[str, torch.Tensor]]:
             if not pending_codes:
@@ -644,7 +647,7 @@ class RTFEncoder:
             base = self._normalize_rows(base)
 
             features = base
-            if self.learned_chunking is not None:
+            if use_chunk_projection:
                 signatures = torch.zeros(
                     len(pending_chunks),
                     self.chunk_projection_work_dim,
@@ -689,7 +692,7 @@ class RTFEncoder:
                 window_codes.pop(0)
                 window_chars.pop(0)
 
-            if self.learned_chunking is not None:
+            if use_chunk_projection:
                 if self.learned_chunking.is_separator(code):
                     chunk_codes = []
                 else:

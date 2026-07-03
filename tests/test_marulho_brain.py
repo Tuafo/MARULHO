@@ -54,6 +54,35 @@ def test_marulho_brain_feed_tick_generate_and_trace() -> None:
     assert status["retired_brain_surfaces"]["external_llm_used"] is False
 
 
+def test_marulho_brain_tick_uses_trainer_winner_for_readout_keys() -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    feed = brain.feed("marulho readout keys stay off the hot path.", source="test")
+    assert feed["accepted_tokens"] > 0
+
+    def fail_offline_winner(_pattern: object) -> int:
+        raise AssertionError("tick should not recompute offline winners per token")
+
+    brain.trainer.winner_for_pattern = fail_offline_winner  # type: ignore[method-assign]
+    tick = brain.tick(tokens=feed["accepted_tokens"], source="test")
+
+    assert tick["trained_tokens"] == feed["accepted_tokens"]
+    assert brain.status()["readout"]["observed_transition_count"] > 0
+
+
+def test_marulho_brain_feed_does_not_learn_chunks_unless_requested() -> None:
+    config = _tiny_config()
+    config.enable_learned_chunking = True
+    brain = MarulhoBrain.fresh(config)
+    chunking = brain.encoder.learned_chunking
+    assert chunking is not None
+
+    feed = brain.feed("chunk learning must stay explicit.", source="test", learn=False)
+
+    assert feed["accepted_tokens"] > 0
+    assert feed["learned_immediately"] is False
+    assert float(chunking.usage.sum().item()) == 0.0
+
+
 def test_marulho_brain_checkpoint_roundtrip_preserves_readout(tmp_path: Path) -> None:
     brain = _trained_brain()
     before = brain.generate(max_tokens=12)
