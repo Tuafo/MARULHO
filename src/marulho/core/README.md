@@ -16,6 +16,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
 - The LM-head RMSNorm Triton forward primitive in
   `language_rmsnorm_triton.py`, including forced parity/benchmark execution,
   PyTorch fallback, and runtime-use counters.
+- The LM-head PLIF/adaptive-LIF Triton forward primitive in
+  `language_plif_triton.py`, including forced parity/benchmark execution,
+  PyTorch fallback, and runtime-use counters for membrane/spike/selective-state
+  no-grad updates.
 
 ## Must Not Own
 
@@ -34,6 +38,9 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   the PyTorch CUDA expression. One-token streaming remains on the faster CUDA
   graph/PyTorch path and reports that fallback instead of silently regressing
   sustained throughput.
+- Language PLIF forward uses Triton only for no-grad/eval rows where the row
+  count policy allows it. Gradient training keeps the surrogate-gradient
+  PyTorch path until a PLIF backward surrogate kernel has parity evidence.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

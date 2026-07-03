@@ -57,6 +57,11 @@ SUSTAINED_ARTIFACT_KIND = "marulho_language_sustained_runtime_evidence"
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
+PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
+SUPPORTED_GPU_KERNEL_NAMES = {
+    RMSNORM_KERNEL_NAME,
+    PLIF_FORWARD_KERNEL_NAME,
+}
 
 
 def _fixture_config(tokenizer: ByteLevelLanguageTokenizer) -> LanguageModelConfig:
@@ -163,7 +168,7 @@ def _valid_language_gpu_kernel_report(report: Mapping[str, Any]) -> bool:
         and report.get("owned_by_marulho") is True
         and report.get("external_llm_used") is False
         and report.get("loads_external_checkpoint") is False
-        and report.get("kernel_name") == RMSNORM_KERNEL_NAME
+        and report.get("kernel_name") in SUPPORTED_GPU_KERNEL_NAMES
         and report.get("parity_passed") is True
         and promotion_gate.get("kernel_parity_available") is True
     )
@@ -302,12 +307,22 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    plif_forward_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == PLIF_FORWARD_KERNEL_NAME
+        ),
+        None,
+    )
     missing = []
     if rmsnorm_report is None:
         missing.append("rmsnorm_triton_parity")
+    if plif_forward_report is None:
+        missing.append("plif_triton_forward_parity")
     missing.extend(
         [
-            "plif_triton_parity",
+            "plif_triton_backward_surrogate_parity",
             "selective_scan_triton_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
@@ -327,7 +342,13 @@ def _language_gpu_kernel_evidence(
         "rmsnorm_report": (
             None if rmsnorm_report is None else _gpu_kernel_report_summary(rmsnorm_report)
         ),
-        "lm_triton_kernel_used": rmsnorm_report is not None,
+        "plif_triton_forward_parity": plif_forward_report is not None,
+        "plif_forward_report": (
+            None
+            if plif_forward_report is None
+            else _gpu_kernel_report_summary(plif_forward_report)
+        ),
+        "lm_triton_kernel_used": bool(valid_reports),
         "pytorch_fallback_available": True,
         "missing_evidence": missing,
         "promotes_hot_path": False,

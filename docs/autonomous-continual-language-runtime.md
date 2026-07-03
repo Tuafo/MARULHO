@@ -35,8 +35,9 @@ Iteration 3 has a PyTorch foundation in `MarulhoSelectiveSpikingStateBlock`.
 The block now uses RMSNorm, input-dependent leak and threshold terms, trainable
 current terms, selective recurrent state, an eligibility trace cache, adaptive
 timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
-telemetry. This is not CUDA/Triton promotion; kernel parity, fallback, and
-complete-runtime impact reports remain required.
+telemetry. It now has partial CUDA/Triton evidence for RMSNorm forward and
+no-grad PLIF forward, but this is not hot-path promotion; PLIF backward,
+selective scan, fallback, and complete-runtime impact reports remain required.
 
 Iteration 6 has a first bounded online-learning window for the LM head. The
 training-owned executor snapshots model weights, applies new-domain gradient
@@ -490,7 +491,7 @@ Kernel promotion starts with correctness and complete-runtime evidence.
 
 | Priority | Kernel | Owner | Promotion evidence |
 | --- | --- | --- | --- |
-| 1 | PLIF/adaptive-LIF forward | `core`/`training` | parity, spike-rate telemetry, complete tick impact |
+| 1 | PLIF/adaptive-LIF forward | `core`/`training` | forward parity exists; spike-rate telemetry and complete tick impact remain |
 | 2 | PLIF/adaptive-LIF backward | `core`/`training` | surrogate parity, finite gradients, loss impact |
 | 3 | selective recurrent state scan | `training` | cache correctness, streaming restore, long-context impact |
 | 4 | route/vote top-k selection | `core`/`retrieval` | bounded rows, no all-column scan, route latency |
@@ -515,6 +516,15 @@ Forced Triton on one-token streaming was measured and rejected for sustained
 generation throughput, so the maintained policy uses Triton for batched rows
 and reports PyTorch/CUDA fallback for streaming rows until a narrower streaming
 kernel wins complete-runtime evidence.
+
+The second LM-head kernel evidence slice covers PLIF/adaptive-LIF forward only.
+`language_plif_triton.py` provides the Triton kernel, PyTorch fallback, no-grad
+runtime-use counters, and a hard-spike forward reference for membrane, spike,
+selective-state, eligibility-trace, and mixed-state updates. The 2026-07-03
+report `reports/language_kernel_evidence/plif-forward-triton-20260703.json`
+passed `float32`/`float16` shape sweeps with geometric microbenchmark speedup
+`3.145x`. Gradient-enabled training still uses the PyTorch
+straight-through-surrogate update until PLIF backward surrogate parity exists.
 
 ## Evaluation Gates
 
@@ -567,8 +577,9 @@ shape (`batch=16`, `seq=64`, `state_dim=128`) from `823.405 ms` to
 `cuda-vectorized-state-8192.json` training report reached `2293.991 train
 tokens/sec` for `63744` train tokens and the paired `524288` sustained report
 reached `7264.683 tokens/sec`. This is a PyTorch/CUDA projection-vectorization
-speed slice; PLIF forward/backward and selective-scan Triton kernels remain
-separate promotion blockers.
+speed slice; PLIF forward is now covered by separate parity evidence, while
+PLIF backward and selective-scan Triton kernels remain separate promotion
+blockers.
 
 ## Scale Ladder
 
@@ -609,13 +620,20 @@ expert-deep-sleep checkpoint transactions.
 `language-suite-rmsnorm-kernel.json` ingests both the RMSNorm kernel report and
 the updated sustained LM reports. It records `long_run_throughput=pass`,
 `rmsnorm_triton_parity=true`, and keeps promotion blocked on generation
-coherence plus the remaining PLIF, selective-scan, block-sparse expert, and
+coherence plus the then-remaining PLIF, selective-scan, block-sparse expert, and
 sampled-vocab kernel parity evidence.
 
 `language-suite-vectorized-state.json` records the same blocker posture after
 the vectorized state-block training slice: long-run throughput remains passing,
-RMSNorm parity remains covered, and generation coherence plus PLIF/selective-
-scan/expert/vocab kernel parity remain open.
+RMSNorm parity remains covered, and generation coherence plus the then-open
+PLIF/selective-scan/expert/vocab kernel parity remain open.
+
+`language-suite-plif-forward-kernel.json` ingests the RMSNorm and PLIF-forward
+kernel reports with the current sustained LM reports. It records
+`long_run_throughput=pass`, `rmsnorm_triton_parity=true`, and
+`plif_triton_forward_parity=true`, while keeping promotion blocked on
+generation coherence plus PLIF backward surrogate, selective-scan,
+block-sparse expert, and sampled-vocab kernel evidence.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

@@ -11,6 +11,10 @@ from typing import Any, Mapping
 
 import torch
 
+from marulho.core.language_plif_triton import (
+    language_plif_triton_stats,
+    language_plif_triton_stats_delta,
+)
 from marulho.core.language_rmsnorm_triton import (
     language_rmsnorm_triton_stats,
     language_rmsnorm_triton_stats_delta,
@@ -147,6 +151,19 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "triton_kernel_fallback_count": 0,
         "language_rmsnorm_triton": {
             "surface": "marulho_language_rmsnorm_triton_stats_delta.v1",
+            "triton_available": False,
+            "triton_forward_calls": 0,
+            "triton_forward_elements": 0,
+            "torch_fallback_calls": 0,
+            "torch_fallback_elements": 0,
+            "triton_failure_count": 0,
+            "last_failure": None,
+            "last_device": None,
+            "last_dtype": None,
+            "triton_kernel_used": False,
+        },
+        "language_plif_triton": {
+            "surface": "marulho_language_plif_triton_stats_delta.v1",
             "triton_available": False,
             "triton_forward_calls": 0,
             "triton_forward_elements": 0,
@@ -393,6 +410,13 @@ def _report_payload(
                     else {}
                 ).get("triton_kernel_used", False)
             ),
+            "language_plif_triton_used": bool(
+                (
+                    execution.get("language_plif_triton")
+                    if isinstance(execution.get("language_plif_triton"), Mapping)
+                    else {}
+                ).get("triton_kernel_used", False)
+            ),
             "promoted_hot_path": False,
         },
         "failure_fallback_counters": {
@@ -520,6 +544,7 @@ def run_language_sustained_runtime_evidence(
     execution_evidence = _new_execution_evidence(model)
     graph_tail_tensor: torch.Tensor | None = None
     rmsnorm_stats_before = language_rmsnorm_triton_stats()
+    plif_stats_before = language_plif_triton_stats()
 
     try:
         model.eval()
@@ -676,17 +701,27 @@ def run_language_sustained_runtime_evidence(
         rmsnorm_stats_before,
         rmsnorm_stats_after,
     )
+    plif_stats_after = language_plif_triton_stats()
+    plif_delta = language_plif_triton_stats_delta(
+        plif_stats_before,
+        plif_stats_after,
+    )
     execution_evidence["language_rmsnorm_triton"] = rmsnorm_delta
+    execution_evidence["language_plif_triton"] = plif_delta
     execution_evidence["triton_kernel_used"] = bool(
         rmsnorm_delta.get("triton_kernel_used", False)
+        or plif_delta.get("triton_kernel_used", False)
+    )
+    triton_failure_count = int(rmsnorm_delta.get("triton_failure_count", 0) or 0) + int(
+        plif_delta.get("triton_failure_count", 0) or 0
     )
     execution_evidence["triton_kernel_failure_count"] = int(
-        rmsnorm_delta.get("triton_failure_count", 0) or 0
+        triton_failure_count
     )
     execution_evidence["triton_kernel_fallback_count"] = (
         0
-        if bool(rmsnorm_delta.get("triton_kernel_used", False))
-        and int(rmsnorm_delta.get("triton_failure_count", 0) or 0) == 0
+        if bool(execution_evidence["triton_kernel_used"])
+        and int(triton_failure_count) == 0
         else int(token_delta)
     )
 

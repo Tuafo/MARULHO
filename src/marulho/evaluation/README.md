@@ -160,7 +160,19 @@ harnesses.
   failures, zero Triton failures, and no observed environment contention.
   `language-suite-rmsnorm-kernel.json` now records `long_run_throughput=pass`
   and `rmsnorm_triton_parity=true` while keeping generation coherence and the
-  remaining PLIF/scan/expert/vocab kernel parity blockers open.
+  then-remaining PLIF/scan/expert/vocab kernel parity blockers open.
+- Current 2026-07-03 PLIF forward Triton evidence in
+  `reports/language_kernel_evidence/plif-forward-triton-20260703.json` passed
+  six CUDA shape/dtype parity cases for `language_plif_forward` (`float32` and
+  `float16`) on the RTX 3060 with geometric microbenchmark speedup `3.145x`
+  over the PyTorch PLIF forward reference. The kernel covers no-grad membrane,
+  spike, selective-state, eligibility-trace, and mixed-state updates only;
+  gradient-enabled training still uses the PyTorch straight-through surrogate
+  path. `language-suite-plif-forward-kernel.json` records both
+  `rmsnorm_triton_parity=true` and `plif_triton_forward_parity=true`, keeps
+  long-run throughput available through the current `524288` LM sustained
+  report, and leaves PLIF backward surrogate, selective-scan, expert-dispatch,
+  sampled-vocab cross-entropy, and generation coherence as blockers.
 - Current 2026-07-03 vectorized state-block evidence precomputes the
   token-independent LM state-block projections across `[batch,time]` while
   preserving the causal recurrent membrane/spike/selective-state loop. The
@@ -175,8 +187,9 @@ harnesses.
   `cuda-vectorized-state-524288-sustained.json` reached `524288/524288` at
   `7264.683 tokens/sec`, CUDA graph burst, zero graph failures, and no
   observed contention. `language-suite-vectorized-state.json` keeps promotion
-  blocked on generation coherence and the remaining PLIF/scan/expert/vocab
-  kernel parity evidence.
+  blocked on generation coherence and the then-remaining PLIF/scan/expert/
+  vocab kernel parity evidence; the later PLIF-forward report covers only the
+  forward slice and does not close PLIF backward surrogate or scan evidence.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks

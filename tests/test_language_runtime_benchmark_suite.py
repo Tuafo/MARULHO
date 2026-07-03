@@ -5,6 +5,7 @@ import json
 from marulho.evaluation.language_runtime_benchmark_suite import (
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
+    PLIF_FORWARD_KERNEL_NAME,
     RMSNORM_KERNEL_NAME,
     SURFACE,
     SUSTAINED_ARTIFACT_KIND,
@@ -48,13 +49,13 @@ def _write_sustained_report(path, *, token_delta: int) -> None:
     )
 
 
-def _write_gpu_kernel_report(path) -> None:
+def _write_gpu_kernel_report(path, *, kernel_name: str = RMSNORM_KERNEL_NAME) -> None:
     path.write_text(
         json.dumps(
             {
                 "artifact_kind": KERNEL_ARTIFACT_KIND,
                 "surface": KERNEL_SURFACE,
-                "kernel_name": RMSNORM_KERNEL_NAME,
+                "kernel_name": kernel_name,
                 "owned_by_marulho": True,
                 "external_llm_used": False,
                 "loads_external_checkpoint": False,
@@ -115,7 +116,17 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert categories["gpu_kernel_correctness"]["status"] == "missing"
     assert categories["gpu_kernel_correctness"]["evidence"]["lm_triton_kernel_used"] is False
     assert categories["gpu_kernel_correctness"]["evidence"]["rmsnorm_triton_parity"] is False
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
+            "plif_triton_forward_parity"
+        ]
+        is False
+    )
     assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
+    assert (
+        "plif_triton_forward_parity"
+        in categories["gpu_kernel_correctness"]["missing_evidence"]
+    )
     assert categories["generation_coherence"]["status"] == "smoke_only"
     assert categories["growth_prune_safety"]["evidence"]["growth_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["prune_transaction_applied"] is True
@@ -159,16 +170,18 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     output = tmp_path / "language-suite.json"
     diagnostic = tmp_path / "diagnostic-8192.json"
     long_gate = tmp_path / "long-gate-131072.json"
-    gpu_kernel = tmp_path / "rmsnorm-triton.json"
+    rmsnorm_kernel = tmp_path / "rmsnorm-triton.json"
+    plif_kernel = tmp_path / "plif-forward-triton.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
-    _write_gpu_kernel_report(gpu_kernel)
+    _write_gpu_kernel_report(rmsnorm_kernel)
+    _write_gpu_kernel_report(plif_kernel, kernel_name=PLIF_FORWARD_KERNEL_NAME)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
         sustained_evidence_paths=(diagnostic, long_gate),
-        gpu_kernel_evidence_paths=(gpu_kernel,),
+        gpu_kernel_evidence_paths=(rmsnorm_kernel, plif_kernel),
     )
     categories = {item["name"]: item for item in report["categories"]}
     long_run = categories["long_run_throughput"]
@@ -186,11 +199,17 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert gpu_kernel_category["status"] == "missing"
     assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
     assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
+    assert gpu_kernel_category["evidence"]["plif_triton_forward_parity"] is True
     assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
-        RMSNORM_KERNEL_NAME
+        PLIF_FORWARD_KERNEL_NAME,
+        RMSNORM_KERNEL_NAME,
     ]
     assert "rmsnorm_triton_parity" not in gpu_kernel_category["missing_evidence"]
-    assert "plif_triton_parity" in gpu_kernel_category["missing_evidence"]
+    assert "plif_triton_forward_parity" not in gpu_kernel_category["missing_evidence"]
+    assert (
+        "plif_triton_backward_surrogate_parity"
+        in gpu_kernel_category["missing_evidence"]
+    )
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence",
