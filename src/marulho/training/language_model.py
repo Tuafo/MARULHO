@@ -137,10 +137,125 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             "eligibility_trace": zeros.clone(),
         }
 
+    def step(
+        self,
+        token_input: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
+        if token_input.ndim != 2:
+            raise ValueError("Language state block step expects [batch, input_dim]")
+        batch_size = int(token_input.shape[0])
+        if state is None:
+            current_state = self.initial_state(
+                batch_size,
+                device=token_input.device,
+                dtype=token_input.dtype,
+            )
+        else:
+            current_state = {
+                "membrane": state["membrane"].to(
+                    device=token_input.device,
+                    dtype=token_input.dtype,
+                ),
+                "spikes": state["spikes"].to(
+                    device=token_input.device,
+                    dtype=token_input.dtype,
+                ),
+                "selective_state": state["selective_state"].to(
+                    device=token_input.device,
+                    dtype=token_input.dtype,
+                ),
+                "eligibility_trace": state.get(
+                    "eligibility_trace",
+                    torch.zeros_like(state["spikes"]),
+                ).to(device=token_input.device, dtype=token_input.dtype),
+            }
+
+        membrane = current_state["membrane"]
+        spikes = current_state["spikes"]
+        selective_state = current_state["selective_state"]
+        eligibility_trace = current_state["eligibility_trace"]
+        raw_leak = self.raw_leak.to(device=token_input.device, dtype=token_input.dtype)
+        base_threshold = self.threshold.to(device=token_input.device, dtype=token_input.dtype)
+        current_gain = self.current_gain.to(device=token_input.device, dtype=token_input.dtype)
+        token_input = self.input_norm(token_input)
+        select_logits = self.select_proj(token_input)
+        state_decay_logits, state_input_logits, state_output_logits = select_logits.chunk(
+            3,
+            dim=-1,
+        )
+        state_decay = torch.sigmoid(state_decay_logits)
+        state_input = torch.sigmoid(state_input_logits)
+        state_output = torch.sigmoid(state_output_logits)
+        leak = torch.sigmoid(
+            raw_leak
+            + self.beta_input_proj(token_input)
+            + self.beta_state_proj(selective_state)
+        )
+        threshold = F.softplus(base_threshold + self.threshold_input_proj(token_input))
+        current = current_gain * self.current_proj(token_input)
+        drive = self.input_proj(token_input) + current + self.recurrent_proj(spikes)
+        for _substep in range(self.adaptive_timestep_budget):
+            membrane = leak * membrane + (1.0 - leak) * drive - spikes * threshold
+            spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
+            selective_state = state_decay * selective_state + state_input * spikes
+            eligibility_trace = 0.95 * eligibility_trace + spikes
+        residual = self.residual_proj(token_input)
+        mixed_state = state_output * selective_state + spikes
+        hidden = self.output_norm(residual + self.state_output_proj(mixed_state))
+        if bool(collect_telemetry):
+            denominator = max(1, batch_size * self.state_dim)
+            firing_fraction = (spikes > 0).sum(dim=0) / float(max(1, batch_size))
+            dead_fraction = (firing_fraction <= 0).to(token_input.dtype).mean()
+            over_firing_fraction = (firing_fraction >= 0.8).to(token_input.dtype).mean()
+            telemetry = {
+                "surface": "marulho_selective_spiking_state_block.v1",
+                "spike_rate": float((spikes.sum() / float(denominator)).detach().cpu().item()),
+                "dead_neuron_fraction": float(dead_fraction.detach().cpu().item()),
+                "over_firing_fraction": float(over_firing_fraction.detach().cpu().item()),
+                "adaptive_timestep_budget": int(self.adaptive_timestep_budget),
+                "adaptive_step_count": int(self.adaptive_timestep_budget),
+                "state_dim": self.state_dim,
+                "time_steps": 1,
+                "normalization": "rmsnorm",
+                "plif_state": "membrane_spikes_selective_state",
+                "state_cache_keys": [
+                    "membrane",
+                    "spikes",
+                    "selective_state",
+                    "eligibility_trace",
+                ],
+                "input_dependent_leak": True,
+                "input_dependent_threshold": True,
+                "trainable_current_terms": True,
+                "surrogate_gradient": "straight_through_sigmoid",
+                "device": str(token_input.device),
+            }
+        else:
+            telemetry = {
+                "surface": "marulho_selective_spiking_state_block.v1",
+                "telemetry_collected": False,
+                "device": str(token_input.device),
+            }
+        return (
+            hidden,
+            {
+                "membrane": membrane,
+                "spikes": spikes,
+                "selective_state": selective_state,
+                "eligibility_trace": eligibility_trace,
+            },
+            telemetry,
+        )
+
     def forward(
         self,
         inputs: torch.Tensor,
         state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
         if inputs.ndim != 3:
             raise ValueError("Language state block expects [batch, time, input_dim]")
@@ -174,7 +289,9 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         current_gain = self.current_gain.to(device=inputs.device, dtype=inputs.dtype)
         outputs: list[torch.Tensor] = []
         spike_sum = inputs.new_tensor(0.0)
-        active_neuron_counts = inputs.new_zeros(self.state_dim)
+        active_neuron_counts = (
+            inputs.new_zeros(self.state_dim) if bool(collect_telemetry) else None
+        )
 
         for step in range(time_steps):
             token_input = self.input_norm(inputs[:, step, :])
@@ -206,38 +323,48 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             residual = self.residual_proj(token_input)
             mixed_state = state_output * selective_state + spikes
             outputs.append(self.output_norm(residual + self.state_output_proj(mixed_state)))
-            spike_sum = spike_sum + spikes.sum()
-            active_neuron_counts = active_neuron_counts + (spikes > 0).sum(dim=0)
+            if bool(collect_telemetry):
+                spike_sum = spike_sum + spikes.sum()
+                assert active_neuron_counts is not None
+                active_neuron_counts = active_neuron_counts + (spikes > 0).sum(dim=0)
 
         hidden = torch.stack(outputs, dim=1)
-        denominator = max(1, batch_size * time_steps * self.state_dim)
-        per_neuron_denominator = max(1, batch_size * time_steps)
-        firing_fraction = active_neuron_counts / float(per_neuron_denominator)
-        dead_fraction = (firing_fraction <= 0).to(inputs.dtype).mean()
-        over_firing_fraction = (firing_fraction >= 0.8).to(inputs.dtype).mean()
-        telemetry = {
-            "surface": "marulho_selective_spiking_state_block.v1",
-            "spike_rate": float((spike_sum / float(denominator)).detach().cpu().item()),
-            "dead_neuron_fraction": float(dead_fraction.detach().cpu().item()),
-            "over_firing_fraction": float(over_firing_fraction.detach().cpu().item()),
-            "adaptive_timestep_budget": int(self.adaptive_timestep_budget),
-            "adaptive_step_count": int(time_steps * self.adaptive_timestep_budget),
-            "state_dim": self.state_dim,
-            "time_steps": int(time_steps),
-            "normalization": "rmsnorm",
-            "plif_state": "membrane_spikes_selective_state",
-            "state_cache_keys": [
-                "membrane",
-                "spikes",
-                "selective_state",
-                "eligibility_trace",
-            ],
-            "input_dependent_leak": True,
-            "input_dependent_threshold": True,
-            "trainable_current_terms": True,
-            "surrogate_gradient": "straight_through_sigmoid",
-            "device": str(inputs.device),
-        }
+        if bool(collect_telemetry):
+            denominator = max(1, batch_size * time_steps * self.state_dim)
+            per_neuron_denominator = max(1, batch_size * time_steps)
+            assert active_neuron_counts is not None
+            firing_fraction = active_neuron_counts / float(per_neuron_denominator)
+            dead_fraction = (firing_fraction <= 0).to(inputs.dtype).mean()
+            over_firing_fraction = (firing_fraction >= 0.8).to(inputs.dtype).mean()
+            telemetry = {
+                "surface": "marulho_selective_spiking_state_block.v1",
+                "spike_rate": float((spike_sum / float(denominator)).detach().cpu().item()),
+                "dead_neuron_fraction": float(dead_fraction.detach().cpu().item()),
+                "over_firing_fraction": float(over_firing_fraction.detach().cpu().item()),
+                "adaptive_timestep_budget": int(self.adaptive_timestep_budget),
+                "adaptive_step_count": int(time_steps * self.adaptive_timestep_budget),
+                "state_dim": self.state_dim,
+                "time_steps": int(time_steps),
+                "normalization": "rmsnorm",
+                "plif_state": "membrane_spikes_selective_state",
+                "state_cache_keys": [
+                    "membrane",
+                    "spikes",
+                    "selective_state",
+                    "eligibility_trace",
+                ],
+                "input_dependent_leak": True,
+                "input_dependent_threshold": True,
+                "trainable_current_terms": True,
+                "surrogate_gradient": "straight_through_sigmoid",
+                "device": str(inputs.device),
+            }
+        else:
+            telemetry = {
+                "surface": "marulho_selective_spiking_state_block.v1",
+                "telemetry_collected": False,
+                "device": str(inputs.device),
+            }
         return (
             hidden,
             {
@@ -296,6 +423,7 @@ class RoutedLanguageExpertLayer(nn.Module):
                 for _ in range(self.expert_count)
             ]
         )
+        self._inference_expert_stack_cache: dict[str, Any] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -338,6 +466,66 @@ class RoutedLanguageExpertLayer(nn.Module):
             return 0
         return sum(int(parameter.numel()) for parameter in self.experts[0].parameters())
 
+    def _expert_parameter_version(self) -> tuple[int, ...]:
+        versions: list[int] = []
+        for expert in self.experts:
+            first = expert[0]
+            second = expert[2]
+            versions.extend(
+                [
+                    int(first.weight._version),
+                    int(first.bias._version),
+                    int(second.weight._version),
+                    int(second.bias._version),
+                ]
+            )
+        return tuple(versions)
+
+    def _stacked_expert_parameters(
+        self,
+        *,
+        use_inference_cache: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        version = self._expert_parameter_version() if use_inference_cache else ()
+        cache = self._inference_expert_stack_cache
+        if (
+            use_inference_cache
+            and cache is not None
+            and cache.get("version") == version
+        ):
+            return (
+                cache["first_weights"],
+                cache["first_biases"],
+                cache["second_weights"],
+                cache["second_biases"],
+            )
+
+        first_weights = torch.stack(
+            [expert[0].weight for expert in self.experts],
+            dim=0,
+        )
+        first_biases = torch.stack(
+            [expert[0].bias for expert in self.experts],
+            dim=0,
+        )
+        second_weights = torch.stack(
+            [expert[2].weight for expert in self.experts],
+            dim=0,
+        )
+        second_biases = torch.stack(
+            [expert[2].bias for expert in self.experts],
+            dim=0,
+        )
+        if use_inference_cache:
+            self._inference_expert_stack_cache = {
+                "version": version,
+                "first_weights": first_weights,
+                "first_biases": first_biases,
+                "second_weights": second_weights,
+                "second_biases": second_biases,
+            }
+        return first_weights, first_biases, second_weights, second_biases
+
     def _dense_candidate_ids(
         self,
         *,
@@ -356,6 +544,9 @@ class RoutedLanguageExpertLayer(nn.Module):
         self,
         hidden: torch.Tensor,
         candidate_ids: torch.Tensor | None = None,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         if hidden.ndim != 3:
             raise ValueError("Routed language experts expect [batch, time, state_dim]")
@@ -381,9 +572,18 @@ class RoutedLanguageExpertLayer(nn.Module):
             }
 
         started = time.perf_counter()
-        sleeping_mask = self.sleeping_expert_mask.to(device=hidden.device)
-        sleeping_count = int(sleeping_mask.sum().detach().cpu().item())
-        awake_ids = self.awake_expert_ids(hidden.device)
+        if bool(assume_no_sleeping_experts):
+            sleeping_mask = None
+            sleeping_count = 0
+            awake_ids = torch.arange(
+                self.expert_count,
+                device=hidden.device,
+                dtype=torch.long,
+            )
+        else:
+            sleeping_mask = self.sleeping_expert_mask.to(device=hidden.device)
+            sleeping_count = int(sleeping_mask.sum().detach().cpu().item())
+            awake_ids = self.awake_expert_ids(hidden.device)
         awake_count = int(awake_ids.numel())
         if awake_count <= 0:
             return hidden, {
@@ -441,13 +641,17 @@ class RoutedLanguageExpertLayer(nn.Module):
             route_plan_source = "token_hash_candidate_bank"
 
         candidate_ids = candidate_ids.remainder(self.expert_count)
-        sleeping_candidates = sleeping_mask.index_select(0, candidate_ids.reshape(-1)).reshape_as(
-            candidate_ids
-        )
-        sleeping_candidate_filtered_count = int(
-            sleeping_candidates.sum().detach().cpu().item()
-        )
+        sleeping_candidate_filtered_count = 0
+        sleeping_candidates = None
+        if sleeping_mask is not None:
+            sleeping_candidates = sleeping_mask.index_select(0, candidate_ids.reshape(-1)).reshape_as(
+                candidate_ids
+            )
+            sleeping_candidate_filtered_count = int(
+                sleeping_candidates.sum().detach().cpu().item()
+            )
         if sleeping_candidate_filtered_count > 0:
+            assert sleeping_candidates is not None
             replacement_positions = (
                 torch.arange(
                     int(candidate_ids.shape[-1]),
@@ -479,26 +683,60 @@ class RoutedLanguageExpertLayer(nn.Module):
         flat_hidden = hidden.reshape(-1, self.state_dim)
         flat_ids = selected_expert_ids.reshape(-1, active_count)
         flat_weights = top_weights.reshape(-1, active_count)
-        expert_delta = hidden.new_zeros(flat_hidden.shape)
-        unique_experts = torch.unique(flat_ids.detach()).tolist()
-        for raw_expert_id in unique_experts:
-            expert_id = int(raw_expert_id)
-            selection_mask = flat_ids == expert_id
-            if not bool(selection_mask.any().item()):
-                continue
-            selected_positions = selection_mask.nonzero(as_tuple=False)
-            token_positions = selected_positions[:, 0]
-            slot_positions = selected_positions[:, 1]
-            expert_input = flat_hidden.index_select(0, token_positions)
-            expert_output = self.experts[expert_id](expert_input)
-            weights = flat_weights[token_positions, slot_positions].unsqueeze(-1)
-            expert_delta[token_positions] = (
-                expert_delta[token_positions] + expert_output * weights
-            )
+        (
+            first_weights,
+            first_biases,
+            second_weights,
+            second_biases,
+        ) = self._stacked_expert_parameters(
+            use_inference_cache=not torch.is_grad_enabled(),
+        )
+        selected_flat = flat_ids.reshape(-1)
+        selected_first_weights = first_weights.index_select(0, selected_flat).reshape(
+            flat_ids.shape[0],
+            active_count,
+            self.expert_hidden_dim,
+            self.state_dim,
+        )
+        selected_first_biases = first_biases.index_select(0, selected_flat).reshape(
+            flat_ids.shape[0],
+            active_count,
+            self.expert_hidden_dim,
+        )
+        selected_second_weights = second_weights.index_select(0, selected_flat).reshape(
+            flat_ids.shape[0],
+            active_count,
+            self.state_dim,
+            self.expert_hidden_dim,
+        )
+        selected_second_biases = second_biases.index_select(0, selected_flat).reshape(
+            flat_ids.shape[0],
+            active_count,
+            self.state_dim,
+        )
+        expanded_hidden = flat_hidden.unsqueeze(1).expand(
+            -1,
+            active_count,
+            -1,
+        )
+        expert_hidden = F.silu(
+            torch.einsum("nkd,nkhd->nkh", expanded_hidden, selected_first_weights)
+            + selected_first_biases
+        )
+        expert_outputs = (
+            torch.einsum("nkh,nkdh->nkd", expert_hidden, selected_second_weights)
+            + selected_second_biases
+        )
+        expert_delta = (expert_outputs * flat_weights.unsqueeze(-1)).sum(dim=1)
 
         routed = hidden + expert_delta.reshape_as(hidden)
         route_latency_ms = (time.perf_counter() - started) * 1000.0
-        active_columns = len({int(value) for value in unique_experts})
+        if bool(collect_telemetry):
+            active_columns = int(torch.unique(flat_ids.detach()).numel())
+            sleeping_expert_ids = self.sleeping_expert_ids()
+        else:
+            active_columns = 0
+            sleeping_expert_ids = []
         expert_parameters = self._expert_parameter_count()
         active_parameters_per_token = int(active_count * expert_parameters)
         return routed, {
@@ -519,7 +757,7 @@ class RoutedLanguageExpertLayer(nn.Module):
             "expert_parameters_per_column": int(expert_parameters),
             "awake_columns": int(awake_count),
             "sleeping_columns": int(sleeping_count),
-            "sleeping_expert_ids": self.sleeping_expert_ids(),
+            "sleeping_expert_ids": sleeping_expert_ids,
             "sleep_filter_applied": bool(sleeping_count > 0),
             "sleeping_candidate_filtered_count": int(
                 sleeping_candidate_filtered_count
@@ -557,13 +795,28 @@ class MarulhoLanguageModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
     ) -> dict[str, Any]:
         if input_ids.ndim != 2:
             raise ValueError("Language model expects input_ids shaped [batch, time]")
         embeddings = self.token_embedding(input_ids.to(self.device))
-        hidden, next_state, telemetry = self.state_block(embeddings, state)
-        route_candidates = self._language_route_candidates(input_ids.to(self.device))
-        hidden, routing_telemetry = self.routed_experts(hidden, route_candidates)
+        hidden, next_state, telemetry = self.state_block(
+            embeddings,
+            state,
+            collect_telemetry=collect_telemetry,
+        )
+        route_candidates = self._language_route_candidates(
+            input_ids.to(self.device),
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
+        hidden, routing_telemetry = self.routed_experts(
+            hidden,
+            route_candidates,
+            collect_telemetry=collect_telemetry,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
         logits = self.lm_head(hidden)
         telemetry = {
             **telemetry,
@@ -579,14 +832,34 @@ class MarulhoLanguageModel(nn.Module):
             "telemetry": telemetry,
         }
 
-    def _language_route_candidates(self, input_ids: torch.Tensor) -> torch.Tensor | None:
+    def _language_route_candidates(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        assume_no_sleeping_experts: bool = False,
+    ) -> torch.Tensor | None:
         if not self.routed_experts.enabled:
             return None
-        awake_ids = self.routed_experts.awake_expert_ids(input_ids.device)
-        awake_count = int(awake_ids.numel())
+        if bool(assume_no_sleeping_experts):
+            awake_count = int(self.routed_experts.expert_count)
+            awake_ids = torch.arange(
+                awake_count,
+                device=input_ids.device,
+                dtype=torch.long,
+            )
+        else:
+            awake_ids = self.routed_experts.awake_expert_ids(input_ids.device)
+            awake_count = int(awake_ids.numel())
         if awake_count <= 0:
             return None
-        candidate_count = self.routed_experts.candidate_count()
+        if bool(assume_no_sleeping_experts):
+            candidate_count = (
+                awake_count
+                if self.routed_experts.route_candidate_count <= 0
+                else min(awake_count, self.routed_experts.route_candidate_count)
+            )
+        else:
+            candidate_count = self.routed_experts.candidate_count()
         if candidate_count <= 0:
             return None
         if (
@@ -619,6 +892,52 @@ class MarulhoLanguageModel(nn.Module):
             "loss_kind": "causal_next_token_cross_entropy",
         }
 
+    def forward_step(
+        self,
+        input_ids: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
+    ) -> dict[str, Any]:
+        if input_ids.ndim == 1:
+            token_ids = input_ids.view(-1)
+        elif input_ids.ndim == 2 and input_ids.shape[1] == 1:
+            token_ids = input_ids[:, 0]
+        else:
+            raise ValueError("forward_step expects token ids shaped [batch] or [batch, 1]")
+        token_ids = token_ids.to(self.device)
+        embeddings = self.token_embedding(token_ids)
+        hidden, next_state, telemetry = self.state_block.step(
+            embeddings,
+            state,
+            collect_telemetry=collect_telemetry,
+        )
+        route_candidates = self._language_route_candidates(
+            token_ids.view(-1, 1),
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
+        hidden, routing_telemetry = self.routed_experts(
+            hidden.unsqueeze(1),
+            route_candidates,
+            collect_telemetry=collect_telemetry,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
+        logits = self.lm_head(hidden[:, 0, :])
+        telemetry = {
+            **telemetry,
+            "active_language_path": self.config.active_language_path,
+            "external_llm_used": False,
+            "owned_by_marulho": True,
+            "vocab_size": self.config.vocab_size,
+            "routing": routing_telemetry,
+        }
+        return {
+            "logits": logits.unsqueeze(1),
+            "state": next_state,
+            "telemetry": telemetry,
+        }
+
     @torch.no_grad()
     def generate(
         self,
@@ -636,7 +955,18 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("prompt_ids must be [time] or [batch, time]")
         generated = prompt.to(self.device)
         state: Mapping[str, torch.Tensor] | None = None
-        result = self.forward(generated, state)
+        assume_no_sleeping = (
+            self.routed_experts.enabled
+            and not bool(
+                self.routed_experts.sleeping_expert_mask.detach().any().cpu().item()
+            )
+        )
+        result = self.forward(
+            generated,
+            state,
+            collect_telemetry=False,
+            assume_no_sleeping_experts=assume_no_sleeping,
+        )
         state = result["state"]
         next_logits = result["logits"][:, -1, :]
         new_token_count = 0
@@ -646,7 +976,12 @@ class MarulhoLanguageModel(nn.Module):
             new_token_count += 1
             if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
                 break
-            result = self.forward(next_id, state)
+            result = self.forward_step(
+                next_id,
+                state,
+                collect_telemetry=False,
+                assume_no_sleeping_experts=assume_no_sleeping,
+            )
             state = result["state"]
             next_logits = result["logits"][:, -1, :]
         return {

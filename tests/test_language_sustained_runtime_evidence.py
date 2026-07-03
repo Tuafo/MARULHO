@@ -161,9 +161,11 @@ def test_language_sustained_evidence_loads_checkpoint_metadata(tmp_path) -> None
         target_tokens=2,
         timeout_seconds=5.0,
         collect_environment=False,
+        map_location="cpu",
     )
 
     assert report["success"] is True
     assert report["checkpoint_path"] == str(checkpoint)
     assert report["checkpoint_metadata"]["split_hash"] == "unit-test"
+    assert report["device_backend"]["device"] == "cpu"
     assert json.loads(output.read_text(encoding="utf-8"))["token_delta"] == 2

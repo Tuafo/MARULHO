@@ -69,9 +69,12 @@ harnesses.
   recurrent cache, writes JSON plus README mirrors for final, timeout,
   manual-stop partial, interrupt, and exception outcomes, and reports
   checkpoint metadata, active routed columns, spike health, device/backend,
-  fallback counts, environment contention, and promotion gates. It is component
-  evidence only; the current PyTorch LM path remains `promotes_hot_path=false`
-  until Triton/CUDA parity and complete-runtime impact evidence exist.
+  fallback counts, environment contention, and promotion gates. CUDA runs now
+  attempt ordered `torch_cuda_graph_burst` replay at the configured quantum,
+  record graph replay/token counts and setup time, and fail back to eager
+  streaming before hiding graph failures. It is component evidence only; the
+  LM path remains `promotes_hot_path=false` until generation quality and
+  Triton/CUDA kernel parity evidence exist.
 - `language_training_experiment.py` is the fast mutable LM experiment runner.
   It trains a configurable MARULHO-owned routed selective-spiking LM on local
   text, records training throughput, heldout loss/perplexity before and after
@@ -114,6 +117,17 @@ harnesses.
   native/sequence failures or fallbacks, bounded `12/65536` route rows, no
   all-column state transition, `brain_feed_streaming_refill` with `64` feed
   calls and zero source drops, and contention `not_observed`.
+- Current 2026-07-03 LM-head component evidence from
+  `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` uses
+  `torch_cuda_graph_burst` on `cuda:0` with `16`-token ordered bursts and no
+  graph failures: `cuda-exp-8192-graph-cuda-sustained.json` reached
+  `8192/8192` at `4853.244 tokens/sec`, `cuda-exp-131072-graph-cuda-sustained.json`
+  reached `131072/131072` at `6898.430 tokens/sec`, and
+  `cuda-exp-524288-graph-cuda-sustained.json` reached `524288/524288` at
+  `6978.602 tokens/sec`. `language-suite-graph.json` accepts the long-run
+  throughput category, including the house-scale report, but keeps promotion
+  blocked on `generation_coherence` review and `gpu_kernel_correctness`
+  Triton/parity evidence.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks

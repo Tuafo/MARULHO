@@ -156,6 +156,40 @@ def test_selective_state_cache_matches_full_sequence_suffix() -> None:
     )
 
 
+def test_language_model_forward_step_matches_single_token_forward() -> None:
+    torch.manual_seed(10)
+    tokenizer = ByteLevelLanguageTokenizer()
+    token_ids = torch.tensor(
+        [tokenizer.encode("single token streaming stays equivalent.")],
+        dtype=torch.long,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=2,
+            route_candidate_count=3,
+            expert_hidden_dim=24,
+        )
+    )
+    model.eval()
+    split_at = max(1, token_ids.shape[1] // 2)
+
+    with torch.no_grad():
+        prefix = model(token_ids[:, :split_at])
+        suffix = token_ids[:, split_at : split_at + 1]
+        full_step = model(suffix, state=prefix["state"])
+        stream_step = model.forward_step(suffix, state=prefix["state"])
+
+    torch.testing.assert_close(stream_step["logits"], full_step["logits"])
+    for key, value in full_step["state"].items():
+        torch.testing.assert_close(stream_step["state"][key], value)
+    assert stream_step["telemetry"]["active_language_path"] == "marulho_lm_head"
+    assert stream_step["telemetry"]["external_llm_used"] is False
+
+
 def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() -> None:
     torch.manual_seed(13)
     tokenizer = ByteLevelLanguageTokenizer()

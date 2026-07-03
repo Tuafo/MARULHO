@@ -83,9 +83,12 @@ checkpointed MARULHO LM head with recurrent cache state and writes JSON plus
 README evidence for final, timeout, manual-stop partial, interrupt, and
 exception outcomes. Reports include checkpoint metadata, token delta,
 tokens/sec, active language path, device/backend, active routed columns, spike
-health, fallback counts, environment contention, and promotion gates. The runner
-is component evidence for the LM head; it does not promote the PyTorch path as a
-Triton/CUDA hot path or replace the full `MarulhoBrain` sustained runtime gate.
+health, fallback counts, environment contention, and promotion gates. CUDA runs
+attempt ordered `torch_cuda_graph_burst` replay over the configured
+`quantum_tokens`, with graph setup time, graph replay count, graph token count,
+eager tail tokens, and graph failure reason recorded. The runner is component
+evidence for the LM head; it does not promote generation quality or replace the
+full `MarulhoBrain` sustained runtime gate.
 
 `marulho.evaluation.language_training_experiment` is now the fast mutable LM
 science loop. It trains a configurable routed selective-spiking LM on local
@@ -535,7 +538,11 @@ growth/prune proposals, environment contention, and report status.
 `language_sustained_runtime_evidence.py` is the first component-level LM-head
 runner for this contract. It must keep short runs marked as smoke/debug only and
 must keep `promotes_hot_path=false` until a Triton/CUDA language hot path has
-parity, fallback, and complete-runtime impact evidence.
+parity, fallback, and complete-runtime impact evidence. The current CUDA graph
+burst path is valid sustained execution evidence and removes the per-token
+Python launch bottleneck for fixed-shape checkpoint streaming, but it is not a
+Triton block-sparse expert kernel and does not prove generated language quality
+by itself.
 
 ## Scale Ladder
 
@@ -572,6 +579,15 @@ only when they are final MARULHO-owned LM reports that reach the diagnostic and
 long-gate token counts. The structural safety category now exercises
 expert-spawn growth, explicit expert-prune, explicit expert-merge, and explicit
 expert-deep-sleep checkpoint transactions.
+
+Current 2026-07-03 LM component reports from
+`reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the
+diagnostic, long, and house-scale sustained targets on `cuda:0` with
+`torch_cuda_graph_burst`: `8192` tokens at `4853.244 tokens/sec`, `131072`
+tokens at `6898.430 tokens/sec`, and `524288` tokens at `6978.602 tokens/sec`.
+The suite accepts long-run throughput from these reports while keeping
+generation coherence review and Triton/kernel correctness as missing required
+evidence.
 
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,

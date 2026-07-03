@@ -66,7 +66,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
   active parameters per token, route device, route latency, and explicit
-  all-column fallback truth. It is PyTorch correctness evidence, not a promoted
+  all-column fallback truth. Its no-telemetry inference path avoids host
+  sleeping-expert materialization so CUDA graph capture can replay fixed-shape
+  LM bursts. It is PyTorch/CUDA graph execution evidence, not a promoted
   block-sparse Triton dispatch path.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
@@ -87,5 +89,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - LM-head sustained report writing lives in
   `marulho.evaluation.language_sustained_runtime_evidence`, not in status or
   service code. It can stream this package's checkpointed LM state for
-  final/partial evidence, but it must report the current PyTorch path as
-  unpromoted until CUDA/Triton parity and complete-runtime impact gates exist.
+  final/partial evidence. CUDA runs may use `torch_cuda_graph_burst` replay over
+  ordered `quantum_tokens` steps, while stop/EOS-sensitive runs and graph
+  failures fall back to eager streaming with the fallback reason recorded. The
+  path stays unpromoted until generation quality, CUDA/Triton parity, and
+  complete-runtime impact gates exist.

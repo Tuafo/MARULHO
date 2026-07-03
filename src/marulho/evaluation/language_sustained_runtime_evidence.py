@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 import time
@@ -117,6 +118,138 @@ def _last_language_trace(
     }
 
 
+def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
+    backend = "torch_eager_cuda" if model.device.type == "cuda" else "torch_eager_cpu"
+    return {
+        "surface": "marulho_language_sustained_execution_evidence.v1",
+        "mode": "torch_eager_step",
+        "backend": backend,
+        "cuda_graph_burst_available": bool(
+            model.device.type == "cuda"
+            and torch.cuda.is_available()
+            and hasattr(torch.cuda, "CUDAGraph")
+        ),
+        "cuda_graph_burst_used": False,
+        "cuda_graph_burst_tokens": 0,
+        "cuda_graph_burst_replay_count": 0,
+        "cuda_graph_language_token_count": 0,
+        "cuda_graph_setup_seconds": 0.0,
+        "cuda_graph_failure_count": 0,
+        "cuda_graph_failure_reason": None,
+        "pytorch_eager_language_token_count": 0,
+        "pytorch_eager_tail_token_count": 0,
+    }
+
+
+def _try_capture_cuda_graph_burst(
+    *,
+    model: MarulhoLanguageModel,
+    next_logits: torch.Tensor,
+    state: Mapping[str, torch.Tensor],
+    burst_tokens: int,
+    assume_no_sleeping_experts: bool,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    evidence = _new_execution_evidence(model)
+    if model.device.type != "cuda" or not torch.cuda.is_available():
+        evidence["cuda_graph_failure_reason"] = "cuda_unavailable"
+        return None, evidence
+    if not hasattr(torch.cuda, "CUDAGraph"):
+        evidence["cuda_graph_failure_reason"] = "torch_cuda_graph_unavailable"
+        return None, evidence
+    burst_tokens = max(1, int(burst_tokens))
+    if burst_tokens <= 1:
+        evidence["cuda_graph_failure_reason"] = "burst_tokens_not_greater_than_one"
+        return None, evidence
+
+    setup_started = time.perf_counter()
+    graph: torch.cuda.CUDAGraph | None = None
+    try:
+        token_buffer = torch.argmax(next_logits, dim=-1, keepdim=True).detach().clone()
+        state_buffers = {
+            key: value.detach().clone()
+            for key, value in state.items()
+        }
+        reset_token = token_buffer.detach().clone()
+        reset_state = {
+            key: value.detach().clone()
+            for key, value in state_buffers.items()
+        }
+        tail_buffer = torch.empty(
+            (burst_tokens,),
+            device=model.device,
+            dtype=torch.long,
+        )
+
+        warmup_stream = torch.cuda.Stream(device=model.device)
+        warmup_stream.wait_stream(torch.cuda.current_stream(model.device))
+        with torch.cuda.stream(warmup_stream):
+            for _ in range(2):
+                model.forward_step(
+                    token_buffer,
+                    state_buffers,
+                    collect_telemetry=False,
+                    assume_no_sleeping_experts=assume_no_sleeping_experts,
+                )
+        torch.cuda.current_stream(model.device).wait_stream(warmup_stream)
+
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            current_token = token_buffer
+            current_state: Mapping[str, torch.Tensor] = state_buffers
+            for step in range(burst_tokens):
+                tail_buffer[step].copy_(current_token.reshape(-1)[0])
+                step_result = model.forward_step(
+                    current_token,
+                    current_state,
+                    collect_telemetry=False,
+                    assume_no_sleeping_experts=assume_no_sleeping_experts,
+                )
+                current_state = step_result["state"]
+                current_token = torch.argmax(
+                    step_result["logits"][:, -1, :],
+                    dim=-1,
+                    keepdim=True,
+                )
+            token_buffer.copy_(current_token)
+            for key in state_buffers:
+                state_buffers[key].copy_(current_state[key])
+
+        token_buffer.copy_(reset_token)
+        for key in state_buffers:
+            state_buffers[key].copy_(reset_state[key])
+        torch.cuda.synchronize(model.device)
+        evidence.update(
+            {
+                "mode": "torch_cuda_graph_burst",
+                "backend": "torch_cuda_graph_burst",
+                "cuda_graph_burst_used": True,
+                "cuda_graph_burst_tokens": int(burst_tokens),
+                "cuda_graph_setup_seconds": time.perf_counter() - setup_started,
+            }
+        )
+        return (
+            {
+                "graph": graph,
+                "token_buffer": token_buffer,
+                "state_buffers": state_buffers,
+                "tail_buffer": tail_buffer,
+                "burst_tokens": int(burst_tokens),
+            },
+            evidence,
+        )
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        if graph is not None:
+            del graph
+        evidence.update(
+            {
+                "cuda_graph_failure_count": 1,
+                "cuda_graph_failure_reason": f"{type(exc).__name__}: {exc}",
+                "cuda_graph_setup_seconds": time.perf_counter() - setup_started,
+            }
+        )
+        return None, evidence
+
+
 def _report_payload(
     *,
     output_path: Path,
@@ -141,6 +274,7 @@ def _report_payload(
     environment_before: Mapping[str, Any] | None,
     environment_after: Mapping[str, Any] | None,
     checkpoint_metadata: Mapping[str, Any] | None,
+    execution_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     elapsed_seconds = max(0.0, float(elapsed_seconds))
     timeout = (
@@ -160,7 +294,20 @@ def _report_payload(
     routing = telemetry.get("routing") if isinstance(telemetry.get("routing"), Mapping) else {}
     active_language_path = str(model.config.active_language_path)
     model_device = model.device
-    backend = "torch_eager_cuda" if model_device.type == "cuda" else "torch_eager_cpu"
+    execution = dict(execution_evidence or _new_execution_evidence(model))
+    backend = str(
+        execution.get("backend")
+        or ("torch_eager_cuda" if model_device.type == "cuda" else "torch_eager_cpu")
+    )
+    cuda_graph_tokens = int(execution.get("cuda_graph_language_token_count", 0) or 0)
+    eager_tokens = int(
+        execution.get("pytorch_eager_language_token_count", int(token_delta)) or 0
+    )
+    fallback_reason = (
+        "language_lm_head_uses_cuda_graph_burst_until_triton_parity_gate"
+        if cuda_graph_tokens > 0
+        else "language_lm_head_uses_pytorch_eager_until_triton_parity_gate"
+    )
     trace = _last_language_trace(
         token_delta=token_delta,
         target_tokens=target_tokens,
@@ -205,24 +352,38 @@ def _report_payload(
             "backend": backend,
             "torch_cuda_available": bool(torch.cuda.is_available()),
             "cuda_selected": bool(model_device.type == "cuda"),
+            "cuda_graph_burst_used": bool(execution.get("cuda_graph_burst_used", False)),
+            "cuda_graph_burst_tokens": int(execution.get("cuda_graph_burst_tokens", 0) or 0),
+            "cuda_graph_burst_replay_count": int(
+                execution.get("cuda_graph_burst_replay_count", 0) or 0
+            ),
+            "cuda_graph_language_token_count": cuda_graph_tokens,
+            "cuda_graph_setup_seconds": float(
+                execution.get("cuda_graph_setup_seconds", 0.0) or 0.0
+            ),
             "triton_kernel_used": False,
             "promoted_hot_path": False,
         },
         "failure_fallback_counters": {
             "surface": "marulho_language_sustained_failure_fallback_counters.v1",
-            "cuda_graph_failure_count": 0,
+            "cuda_graph_failure_count": int(
+                execution.get("cuda_graph_failure_count", 0) or 0
+            ),
             "native_burst_replay_failure_count": 0,
             "native_sequence_loop_failure_count": 0,
             "torch_sequence_graph_failure_count": 0,
             "triton_kernel_failure_count": 0,
             "triton_kernel_fallback_count": int(token_delta),
-            "fallback_reason": "language_lm_head_uses_pytorch_eager_until_triton_parity_gate",
+            "fallback_reason": fallback_reason,
+            "cuda_graph_failure_reason": execution.get("cuda_graph_failure_reason"),
         },
         "fallback_counts": {
-            "pytorch_eager_language_token_count": int(token_delta),
+            "pytorch_eager_language_token_count": eager_tokens,
+            "torch_cuda_graph_language_token_count": cuda_graph_tokens,
             "triton_kernel_fallback_count": int(token_delta),
             "external_lm_fallback_count": 0,
         },
+        "execution_evidence": execution,
         "active_columns": int(_routing_value(routing, "active_columns", 0) or 0),
         "total_columns": int(_routing_value(routing, "total_columns", 0) or 0),
         "active_parameters_per_token": int(
@@ -310,6 +471,8 @@ def run_language_sustained_runtime_evidence(
     prompt_token_count = 0
     last_token_id: int | None = None
     generated_tail_ids: list[int] = []
+    tail_token_tensors: deque[torch.Tensor] = deque(maxlen=32)
+    last_token_tensor: torch.Tensor | None = None
     telemetry: Mapping[str, Any] = {}
     success = False
     failure_reason: str | None = None
@@ -317,6 +480,8 @@ def run_language_sustained_runtime_evidence(
     interrupted = False
     exception: BaseException | None = None
     finished = started
+    execution_evidence = _new_execution_evidence(model)
+    graph_tail_tensor: torch.Tensor | None = None
 
     try:
         model.eval()
@@ -324,16 +489,63 @@ def run_language_sustained_runtime_evidence(
         if not prompt_ids:
             prompt_ids = [tokenizer.bos_id]
         prompt_token_count = len(prompt_ids)
+        assume_no_sleeping = (
+            model.routed_experts.enabled
+            and not bool(
+                model.routed_experts.sleeping_expert_mask.detach().any().cpu().item()
+            )
+        )
         with torch.no_grad():
             generated = torch.tensor(
                 [prompt_ids],
                 dtype=torch.long,
                 device=model.device,
             )
-            result = model(generated)
+            result = model(
+                generated,
+                collect_telemetry=True,
+                assume_no_sleeping_experts=assume_no_sleeping,
+            )
             state = result["state"]
             telemetry = dict(result["telemetry"])
             next_logits = result["logits"][:, -1, :]
+            graph_runner: dict[str, Any] | None = None
+            graph_generated_tokens = 0
+            graph_replay_count = 0
+            eager_generated_tokens = 0
+            current_next_id: torch.Tensor | None = None
+            if should_stop is None and not bool(stop_on_eos):
+                graph_runner, execution_evidence = _try_capture_cuda_graph_burst(
+                    model=model,
+                    next_logits=next_logits,
+                    state=state,
+                    burst_tokens=min(
+                        max(2, int(quantum_tokens)),
+                        int(target_tokens),
+                    ),
+                    assume_no_sleeping_experts=assume_no_sleeping,
+                )
+            else:
+                execution_evidence["cuda_graph_failure_reason"] = (
+                    "per_token_stop_or_eos_required"
+                )
+
+            if graph_runner is not None:
+                burst_tokens = int(graph_runner["burst_tokens"])
+                while token_delta + burst_tokens <= int(target_tokens):
+                    if time.perf_counter() >= deadline:
+                        failure_reason = "target_tokens_not_reached_before_timeout"
+                        break
+                    graph_runner["graph"].replay()
+                    token_delta += burst_tokens
+                    graph_generated_tokens += burst_tokens
+                    graph_replay_count += 1
+                if graph_generated_tokens > 0:
+                    graph_tail_tensor = graph_runner["tail_buffer"].detach().clone()
+                    last_token_tensor = graph_tail_tensor[-1:].reshape(-1)
+                state = graph_runner["state_buffers"]
+                current_next_id = graph_runner["token_buffer"]
+
             while token_delta < int(target_tokens):
                 if should_stop is not None and bool(should_stop()):
                     manual_stop = True
@@ -342,17 +554,46 @@ def run_language_sustained_runtime_evidence(
                 if time.perf_counter() >= deadline:
                     failure_reason = "target_tokens_not_reached_before_timeout"
                     break
-                next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
-                last_token_id = int(next_id.detach().cpu().reshape(-1)[0].item())
-                generated_tail_ids.append(last_token_id)
+                next_id = (
+                    current_next_id
+                    if current_next_id is not None
+                    else torch.argmax(next_logits, dim=-1, keepdim=True)
+                )
+                last_token_tensor = next_id.detach().reshape(-1)[:1]
+                tail_token_tensors.append(last_token_tensor)
                 token_delta += 1
-                result = model(next_id, state)
+                eager_generated_tokens += 1
+                collect_step_telemetry = (
+                    token_delta >= int(target_tokens)
+                    or token_delta % max(1, int(tick_tokens)) == 0
+                )
+                result = model.forward_step(
+                    next_id,
+                    state,
+                    collect_telemetry=collect_step_telemetry,
+                    assume_no_sleeping_experts=assume_no_sleeping,
+                )
                 state = result["state"]
-                telemetry = dict(result["telemetry"])
+                if collect_step_telemetry:
+                    telemetry = dict(result["telemetry"])
                 next_logits = result["logits"][:, -1, :]
-                if bool(stop_on_eos) and last_token_id == int(tokenizer.eos_id):
-                    failure_reason = "eos_before_target_tokens"
-                    break
+                if current_next_id is not None:
+                    current_next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
+                if bool(stop_on_eos):
+                    last_token_id = int(last_token_tensor.detach().cpu().item())
+                    if last_token_id == int(tokenizer.eos_id):
+                        failure_reason = "eos_before_target_tokens"
+                        break
+            execution_evidence["cuda_graph_burst_replay_count"] = int(graph_replay_count)
+            execution_evidence["cuda_graph_language_token_count"] = int(
+                graph_generated_tokens
+            )
+            execution_evidence["pytorch_eager_tail_token_count"] = int(
+                eager_generated_tokens
+            )
+            execution_evidence["pytorch_eager_language_token_count"] = int(
+                eager_generated_tokens if graph_generated_tokens > 0 else token_delta
+            )
             success = token_delta >= int(target_tokens)
             if success:
                 failure_reason = None
@@ -372,6 +613,25 @@ def run_language_sustained_runtime_evidence(
         else:
             model.eval()
         environment_after = _environment_snapshot(collect=collect_environment)
+
+    if last_token_tensor is not None and last_token_id is None:
+        last_token_id = int(last_token_tensor.detach().cpu().item())
+    tail_values: list[int] = []
+    if graph_tail_tensor is not None:
+        tail_values.extend(
+            int(value)
+            for value in graph_tail_tensor.detach().cpu().reshape(-1).tolist()
+        )
+    if tail_token_tensors:
+        tail_values.extend(
+            int(value)
+            for value in torch.cat([item.reshape(1) for item in tail_token_tensors])
+            .detach()
+            .cpu()
+            .tolist()
+        )
+    if tail_values:
+        generated_tail_ids = tail_values[-32:]
 
     report = _report_payload(
         output_path=output,
@@ -396,6 +656,7 @@ def run_language_sustained_runtime_evidence(
         environment_before=environment_before,
         environment_after=environment_after,
         checkpoint_metadata=checkpoint_metadata,
+        execution_evidence=execution_evidence,
     )
     write_json_report_with_readme(output, report)
     return report
@@ -418,6 +679,11 @@ def run_language_sustained_runtime_evidence_from_checkpoint(
         checkpoint_path,
         map_location=map_location,
     )
+    if map_location is not None:
+        target_device = torch.device(map_location)
+        if target_device.type == "cuda" and not torch.cuda.is_available():
+            raise ValueError("CUDA map_location requested but CUDA is unavailable")
+        model.to(target_device)
     return run_language_sustained_runtime_evidence(
         model,
         tokenizer,
