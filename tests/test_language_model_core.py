@@ -67,6 +67,7 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
             embedding_dim=16,
             state_dim=24,
             spike_slope=4.0,
+            adaptive_timestep_budget=2,
         )
     )
 
@@ -78,9 +79,64 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     assert result["telemetry"]["surface"] == "marulho_selective_spiking_state_block.v1"
     assert result["telemetry"]["active_language_path"] == "marulho_lm_head"
     assert result["telemetry"]["external_llm_used"] is False
+    assert result["telemetry"]["normalization"] == "rmsnorm"
+    assert result["telemetry"]["plif_state"] == "membrane_spikes_selective_state"
+    assert result["telemetry"]["adaptive_timestep_budget"] == 2
+    assert result["telemetry"]["adaptive_step_count"] == split.train[0].input_ids.shape[1] * 2
+    assert result["telemetry"]["input_dependent_leak"] is True
+    assert result["telemetry"]["input_dependent_threshold"] is True
+    assert result["telemetry"]["trainable_current_terms"] is True
+    assert set(result["telemetry"]["state_cache_keys"]) == {
+        "membrane",
+        "spikes",
+        "selective_state",
+        "eligibility_trace",
+    }
     assert 0.0 <= result["telemetry"]["spike_rate"] <= 1.0
     assert model.token_embedding.weight.grad is not None
+    assert model.state_block.current_gain.grad is not None
+    assert model.state_block.raw_leak.grad is not None
     assert torch.isfinite(model.token_embedding.weight.grad).all()
+    assert torch.isfinite(model.state_block.current_gain.grad).all()
+    assert torch.isfinite(model.state_block.raw_leak.grad).all()
+
+
+def test_selective_state_cache_matches_full_sequence_suffix() -> None:
+    torch.manual_seed(9)
+    tokenizer = ByteLevelLanguageTokenizer()
+    token_ids = torch.tensor(
+        [tokenizer.encode("streaming state cache stays causal and exact.")],
+        dtype=torch.long,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            adaptive_timestep_budget=2,
+        )
+    )
+    model.eval()
+    split_at = token_ids.shape[1] // 2
+
+    with torch.no_grad():
+        full = model(token_ids)
+        prefix = model(token_ids[:, :split_at])
+        suffix = model(token_ids[:, split_at:], state=prefix["state"])
+
+    assert set(prefix["state"]) == {
+        "membrane",
+        "spikes",
+        "selective_state",
+        "eligibility_trace",
+    }
+    assert suffix["telemetry"]["adaptive_timestep_budget"] == 2
+    torch.testing.assert_close(
+        full["logits"][:, split_at:, :],
+        suffix["logits"],
+        rtol=1e-5,
+        atol=1e-5,
+    )
 
 
 def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:

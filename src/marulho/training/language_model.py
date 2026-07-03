@@ -22,6 +22,7 @@ class LanguageModelConfig:
     embedding_dim: int = 64
     state_dim: int = 128
     spike_slope: float = 5.0
+    adaptive_timestep_budget: int = 1
     active_language_path: str = "marulho_lm_head"
 
 
@@ -73,21 +74,47 @@ def _split_hash(batches: Sequence[LanguageBatch]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+class RMSNorm(nn.Module):
+    """RMSNorm without sequence-shape assumptions."""
+
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(int(dim)))
+        self.eps = float(eps)
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        rms = value.pow(2).mean(dim=-1, keepdim=True).add(self.eps).rsqrt()
+        return value * rms * self.weight.to(device=value.device, dtype=value.dtype)
+
+
 class MarulhoSelectiveSpikingStateBlock(nn.Module):
     """Causal selective recurrent spike block for the MARULHO LM foundation."""
 
-    def __init__(self, input_dim: int, state_dim: int, spike_slope: float = 5.0) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        state_dim: int,
+        spike_slope: float = 5.0,
+        adaptive_timestep_budget: int = 1,
+    ) -> None:
         super().__init__()
         self.input_dim = int(input_dim)
         self.state_dim = int(state_dim)
         self.spike_slope = float(spike_slope)
-        self.input_norm = nn.LayerNorm(self.input_dim)
+        self.adaptive_timestep_budget = max(1, int(adaptive_timestep_budget))
+        self.input_norm = RMSNorm(self.input_dim)
         self.input_proj = nn.Linear(self.input_dim, self.state_dim)
-        self.select_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.current_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.beta_input_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.beta_state_proj = nn.Linear(self.state_dim, self.state_dim, bias=False)
+        self.threshold_input_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.select_proj = nn.Linear(self.input_dim, self.state_dim * 3)
         self.recurrent_proj = nn.Linear(self.state_dim, self.state_dim, bias=False)
         self.residual_proj = nn.Linear(self.input_dim, self.state_dim)
-        self.output_norm = nn.LayerNorm(self.state_dim)
+        self.state_output_proj = nn.Linear(self.state_dim, self.state_dim)
+        self.output_norm = RMSNorm(self.state_dim)
         self.raw_leak = nn.Parameter(torch.full((self.state_dim,), 1.75))
+        self.current_gain = nn.Parameter(torch.ones(self.state_dim))
         self.threshold = nn.Parameter(torch.ones(self.state_dim))
 
     def initial_state(
@@ -101,6 +128,8 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         return {
             "membrane": zeros,
             "spikes": zeros.clone(),
+            "selective_state": zeros.clone(),
+            "eligibility_trace": zeros.clone(),
         }
 
     def forward(
@@ -121,25 +150,57 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             current_state = {
                 "membrane": state["membrane"].to(device=inputs.device, dtype=inputs.dtype),
                 "spikes": state["spikes"].to(device=inputs.device, dtype=inputs.dtype),
+                "selective_state": state["selective_state"].to(
+                    device=inputs.device,
+                    dtype=inputs.dtype,
+                ),
+                "eligibility_trace": state.get(
+                    "eligibility_trace",
+                    torch.zeros_like(state["spikes"]),
+                ).to(device=inputs.device, dtype=inputs.dtype),
             }
 
         membrane = current_state["membrane"]
         spikes = current_state["spikes"]
-        leak = torch.sigmoid(self.raw_leak).to(device=inputs.device, dtype=inputs.dtype)
-        threshold = F.softplus(self.threshold).to(device=inputs.device, dtype=inputs.dtype)
+        selective_state = current_state["selective_state"]
+        eligibility_trace = current_state["eligibility_trace"]
+        raw_leak = self.raw_leak.to(device=inputs.device, dtype=inputs.dtype)
+        base_threshold = self.threshold.to(device=inputs.device, dtype=inputs.dtype)
+        current_gain = self.current_gain.to(device=inputs.device, dtype=inputs.dtype)
         outputs: list[torch.Tensor] = []
         spike_sum = inputs.new_tensor(0.0)
         active_neuron_counts = inputs.new_zeros(self.state_dim)
 
         for step in range(time_steps):
             token_input = self.input_norm(inputs[:, step, :])
-            selective_gate = torch.sigmoid(self.select_proj(token_input))
-            drive = selective_gate * self.input_proj(token_input)
-            drive = drive + self.recurrent_proj(spikes)
-            membrane = leak * membrane + (1.0 - leak) * drive
-            spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
+            select_logits = self.select_proj(token_input)
+            state_decay_logits, state_input_logits, state_output_logits = select_logits.chunk(
+                3,
+                dim=-1,
+            )
+            state_decay = torch.sigmoid(state_decay_logits)
+            state_input = torch.sigmoid(state_input_logits)
+            state_output = torch.sigmoid(state_output_logits)
+            leak = torch.sigmoid(
+                raw_leak
+                + self.beta_input_proj(token_input)
+                + self.beta_state_proj(selective_state)
+            )
+            threshold = F.softplus(
+                base_threshold + self.threshold_input_proj(token_input)
+            )
+            current = current_gain * self.current_proj(token_input)
+            drive = self.input_proj(token_input) + current + self.recurrent_proj(spikes)
+            for _substep in range(self.adaptive_timestep_budget):
+                membrane = leak * membrane + (1.0 - leak) * drive - spikes * threshold
+                spikes = _surrogate_spike(membrane - threshold, self.spike_slope)
+                selective_state = state_decay * selective_state + state_input * spikes
+                eligibility_trace = (
+                    0.95 * eligibility_trace + spikes
+                )
             residual = self.residual_proj(token_input)
-            outputs.append(self.output_norm(residual + spikes))
+            mixed_state = state_output * selective_state + spikes
+            outputs.append(self.output_norm(residual + self.state_output_proj(mixed_state)))
             spike_sum = spike_sum + spikes.sum()
             active_neuron_counts = active_neuron_counts + (spikes > 0).sum(dim=0)
 
@@ -154,11 +215,34 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             "spike_rate": float((spike_sum / float(denominator)).detach().cpu().item()),
             "dead_neuron_fraction": float(dead_fraction.detach().cpu().item()),
             "over_firing_fraction": float(over_firing_fraction.detach().cpu().item()),
+            "adaptive_timestep_budget": int(self.adaptive_timestep_budget),
+            "adaptive_step_count": int(time_steps * self.adaptive_timestep_budget),
             "state_dim": self.state_dim,
             "time_steps": int(time_steps),
+            "normalization": "rmsnorm",
+            "plif_state": "membrane_spikes_selective_state",
+            "state_cache_keys": [
+                "membrane",
+                "spikes",
+                "selective_state",
+                "eligibility_trace",
+            ],
+            "input_dependent_leak": True,
+            "input_dependent_threshold": True,
+            "trainable_current_terms": True,
             "surrogate_gradient": "straight_through_sigmoid",
+            "device": str(inputs.device),
         }
-        return hidden, {"membrane": membrane, "spikes": spikes}, telemetry
+        return (
+            hidden,
+            {
+                "membrane": membrane,
+                "spikes": spikes,
+                "selective_state": selective_state,
+                "eligibility_trace": eligibility_trace,
+            },
+            telemetry,
+        )
 
 
 class MarulhoLanguageModel(nn.Module):
@@ -172,6 +256,7 @@ class MarulhoLanguageModel(nn.Module):
             config.embedding_dim,
             config.state_dim,
             spike_slope=config.spike_slope,
+            adaptive_timestep_budget=config.adaptive_timestep_budget,
         )
         self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
 

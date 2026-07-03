@@ -31,6 +31,13 @@ fallback evidence. This is implementation evidence for the LM-head path, not a
 promotion of online learning, the full live brain loop, or long-run language
 capability.
 
+Iteration 3 has a PyTorch foundation in `MarulhoSelectiveSpikingStateBlock`.
+The block now uses RMSNorm, input-dependent leak and threshold terms, trainable
+current terms, selective recurrent state, an eligibility trace cache, adaptive
+timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
+telemetry. This is not CUDA/Triton promotion; kernel parity, fallback, and
+complete-runtime impact reports remain required.
+
 The target runtime must preserve these boundaries:
 
 - no hidden external LLM, NIM, Cortex, or ThoughtLoop as the brain;

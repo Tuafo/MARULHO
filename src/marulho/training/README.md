@@ -52,3 +52,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `external_llm_used=false`, but it is not promoted as live cognition until
   online learning, rollback, throughput, and long-run Runtime Evidence gates
   pass.
+- The current `MarulhoSelectiveSpikingStateBlock` is the Iteration 3 PyTorch
+  foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
+  current terms, selective recurrent state, eligibility trace cache, adaptive
+  timestep budget, and spike/dead/over-firing telemetry. CUDA/Triton parity and
+  complete-runtime impact evidence are still required before promotion.
