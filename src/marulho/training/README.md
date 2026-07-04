@@ -144,6 +144,18 @@ developmental and consolidation runners, query runners, and long-run evidence.
   same eval batch counts, while update throughput is `-2.180%`; read it as
   heldout-eval sync reduction plus repeatable evidence plumbing, not a new
   update-loop promotion.
+  The generation-quality follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-quality-524288.json`
+  keeps the same `524288`/`1024` sampled continual shape and adds MARULHO-owned
+  old/new prompt continuations before and after online learning. It records
+  `records_generation_quality_probe=true`, `records_generation_quality_delta=true`,
+  and `promotes_generation_quality_claim=false`; next-character match improved
+  from `0.0` to `1.0`, mean source-prefix match improved only from `0.0` to
+  `1.0` character, printable fraction improved from `0.956` to `1.0`, and
+  distinct-bigram fraction fell from `0.362` to `0.191`. The raw old-domain
+  continuation improved from broken bytes to repetitive `replay` text, so this
+  proves generation is being measured around continual learning, not that broad
+  language quality is solved.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -317,8 +329,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - `evaluation/language_continual_learning_experiment.py` is the repeatable
   sampled/padded continual-learning evidence runner for old/new/replay windows.
   It writes JSON plus README reports, applies the CUDA math policy, caps heldout
-  eval batch counts when comparing same-shape runs, and records throughput
-  deltas without turning them into generation-quality claims.
+  eval batch counts when comparing same-shape runs, records throughput deltas,
+  and captures MARULHO-owned before/after generation-quality probes without
+  turning them into generation-quality claims.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

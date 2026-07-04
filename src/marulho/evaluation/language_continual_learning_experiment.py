@@ -13,6 +13,8 @@ import torch
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_training_experiment import (
     _apply_cuda_math_policy,
+    _decoded_generation,
+    _generation_quality_summary,
     _resolve_device,
     _restore_cuda_math_policy,
 )
@@ -67,6 +69,11 @@ class LanguageContinualLearningExperimentConfig:
     max_new_eval_batches: int = 0
     max_new_batches: int = 4
     max_replay_batches: int = 4
+    generation_tokens: int = 48
+    generation_prompts: tuple[str, ...] = (
+        "Old replay domain",
+        "New continual domain",
+    )
     learning_rate: float = 2e-3
     max_steps: int = 2
     replay_loss_weight: float = 0.25
@@ -154,6 +161,72 @@ def _phase(report: dict[str, Any], key: str) -> float:
     evidence = report.get("learning_evidence") or {}
     timings = evidence.get("window_phase_timings") or {}
     return float(timings.get(key, 0.0) or 0.0)
+
+
+def _generation_source_for_prompt(
+    prompt: str,
+    *,
+    old_text: str,
+    new_text: str,
+) -> tuple[str, str]:
+    if prompt in old_text:
+        return "old_domain", old_text
+    if prompt in new_text:
+        return "new_domain", new_text
+    return "combined_old_new_domain", f"{old_text}\n{new_text}"
+
+
+def _generation_quality_probe(
+    model: MarulhoLanguageModel,
+    tokenizer: ByteLevelLanguageTokenizer,
+    *,
+    old_text: str,
+    new_text: str,
+    config: LanguageContinualLearningExperimentConfig,
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    generations: list[dict[str, Any]] = []
+    for prompt in tuple(config.generation_prompts):
+        source_domain, source_text = _generation_source_for_prompt(
+            prompt,
+            old_text=old_text,
+            new_text=new_text,
+        )
+        generation = _decoded_generation(
+            model,
+            tokenizer,
+            prompt=prompt,
+            max_new_tokens=max(0, int(config.generation_tokens)),
+            corpus=source_text,
+        )
+        generation["source_domain"] = source_domain
+        generations.append(generation)
+    return tuple(generations), _generation_quality_summary(generations)
+
+
+def _generation_quality_delta(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "surface": "marulho_language_continual_generation_quality_delta.v1",
+        "mean_source_prefix_match_chars_delta": (
+            float(after.get("mean_source_prefix_match_chars", 0.0) or 0.0)
+            - float(before.get("mean_source_prefix_match_chars", 0.0) or 0.0)
+        ),
+        "next_character_match_rate_delta": (
+            float(after.get("next_character_match_rate", 0.0) or 0.0)
+            - float(before.get("next_character_match_rate", 0.0) or 0.0)
+        ),
+        "mean_printable_fraction_delta": (
+            float(after.get("mean_printable_fraction", 0.0) or 0.0)
+            - float(before.get("mean_printable_fraction", 0.0) or 0.0)
+        ),
+        "mean_distinct_bigram_fraction_delta": (
+            float(after.get("mean_distinct_bigram_fraction", 0.0) or 0.0)
+            - float(before.get("mean_distinct_bigram_fraction", 0.0) or 0.0)
+        ),
+        "promotes_generation_quality_claim": False,
+    }
 
 
 def _same_shape_comparison(
@@ -385,6 +458,13 @@ def run_language_continual_learning_experiment(
         used_replay_batches = _trim(old_split.train, int(cfg.max_replay_batches))
         old_eval_batches = _trim(old_split.eval, int(cfg.max_old_eval_batches))
         new_eval_batches = _trim(new_split.eval, int(cfg.max_new_eval_batches))
+        generation_before, generation_quality_before = _generation_quality_probe(
+            model,
+            tokenizer,
+            old_text=old_text,
+            new_text=new_text,
+            config=cfg,
+        )
         report = dict(
             run_language_continual_learning_window(
                 model,
@@ -394,6 +474,13 @@ def run_language_continual_learning_experiment(
                 replay_batches=used_replay_batches,
                 config=learning_config,
             )
+        )
+        generation_after, generation_quality_after = _generation_quality_probe(
+            model,
+            tokenizer,
+            old_text=old_text,
+            new_text=new_text,
+            config=cfg,
         )
         report.update(
             {
@@ -418,6 +505,14 @@ def run_language_continual_learning_experiment(
                     "old_character_count": len(old_text),
                     "new_character_count": len(new_text),
                 },
+                "generation_before": generation_before,
+                "generation_after": generation_after,
+                "generation_quality_before": generation_quality_before,
+                "generation_quality_after": generation_quality_after,
+                "generation_quality_delta": _generation_quality_delta(
+                    generation_quality_before,
+                    generation_quality_after,
+                ),
             }
         )
         report["baseline_comparison"] = _same_shape_comparison(
@@ -459,6 +554,13 @@ def run_language_continual_learning_experiment(
             ),
             "records_window_phase_timings": bool(
                 report["learning_evidence"].get("window_phase_timings")
+            ),
+            "records_generation_quality_probe": bool(
+                report["generation_quality_after"]["generation_count"] > 0
+            ),
+            "records_generation_quality_delta": bool(
+                report["generation_quality_delta"].get("surface")
+                == "marulho_language_continual_generation_quality_delta.v1"
             ),
             "records_sparse_optimizer_policy": (
                 report["learning_evidence"].get("optimizer_policy")
@@ -502,6 +604,8 @@ def main() -> int:
     parser.add_argument("--max-new-eval-batches", type=int, default=0)
     parser.add_argument("--max-new-batches", type=int, default=4)
     parser.add_argument("--max-replay-batches", type=int, default=4)
+    parser.add_argument("--generation-tokens", type=int, default=48)
+    parser.add_argument("--generation-prompt", action="append", default=[])
     parser.add_argument("--learning-rate", type=float, default=2e-3)
     parser.add_argument("--max-steps", type=int, default=2)
     parser.add_argument("--replay-loss-weight", type=float, default=0.25)
@@ -539,6 +643,9 @@ def main() -> int:
         max_new_eval_batches=args.max_new_eval_batches,
         max_new_batches=args.max_new_batches,
         max_replay_batches=args.max_replay_batches,
+        generation_tokens=args.generation_tokens,
+        generation_prompts=tuple(args.generation_prompt)
+        or ("Old replay domain", "New continual domain"),
         learning_rate=args.learning_rate,
         max_steps=args.max_steps,
         replay_loss_weight=args.replay_loss_weight,

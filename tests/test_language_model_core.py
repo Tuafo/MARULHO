@@ -900,6 +900,7 @@ def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
     assert model.training is True
     prompt = torch.tensor(tokenizer.encode("marulho", add_eos=False), dtype=torch.long)
     generation = model.generate(prompt, max_new_tokens=3, eos_id=tokenizer.eos_id)
+    assert model.training is True
     checkpoint_path = save_language_model_checkpoint(
         tmp_path / "language-model.pt",
         model,

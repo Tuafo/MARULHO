@@ -30,6 +30,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
             batch_size=2,
             max_new_batches=1,
             max_replay_batches=1,
+            generation_tokens=8,
             max_steps=1,
             gradient_clip_interval=1,
             device="cpu",
@@ -44,6 +45,8 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     )
     assert report["experiment_review"]["records_eval_metric_readback"] is True
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
+    assert report["experiment_review"]["records_generation_quality_probe"] is True
+    assert report["experiment_review"]["records_generation_quality_delta"] is True
     assert report["old_domain_before"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )
@@ -55,3 +58,14 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
         "enabled"
     ] is True
+    assert report["generation_quality_before"]["generation_count"] == 2
+    assert report["generation_quality_after"]["generation_count"] == 2
+    assert report["generation_quality_before"]["promotes_generation_quality_claim"] is False
+    assert report["generation_quality_after"]["promotes_generation_quality_claim"] is False
+    assert report["generation_quality_delta"]["surface"] == (
+        "marulho_language_continual_generation_quality_delta.v1"
+    )
+    assert "next_character_match_rate_delta" in report["generation_quality_delta"]
+    assert report["generation_quality_delta"]["promotes_generation_quality_claim"] is False
+    assert report["generation_before"][0]["external_llm_used"] is False
+    assert report["generation_after"][0]["owned_by_marulho"] is True

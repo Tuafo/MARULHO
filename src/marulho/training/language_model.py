@@ -1542,39 +1542,25 @@ class MarulhoLanguageModel(nn.Module):
         max_new_tokens: int,
         eos_id: int | None = None,
     ) -> dict[str, Any]:
-        self.eval()
-        if prompt_ids.ndim == 1:
-            prompt = prompt_ids.unsqueeze(0)
-        elif prompt_ids.ndim == 2:
-            prompt = prompt_ids
-        else:
-            raise ValueError("prompt_ids must be [time] or [batch, time]")
-        generated = prompt.to(self.device)
-        state: Mapping[str, torch.Tensor] | None = None
-        assume_no_sleeping = (
-            self.routed_experts.enabled
-            and not bool(
-                self.routed_experts.sleeping_expert_mask.detach().any().cpu().item()
+        was_training = self.training
+        try:
+            self.eval()
+            if prompt_ids.ndim == 1:
+                prompt = prompt_ids.unsqueeze(0)
+            elif prompt_ids.ndim == 2:
+                prompt = prompt_ids
+            else:
+                raise ValueError("prompt_ids must be [time] or [batch, time]")
+            generated = prompt.to(self.device)
+            state: Mapping[str, torch.Tensor] | None = None
+            assume_no_sleeping = (
+                self.routed_experts.enabled
+                and not bool(
+                    self.routed_experts.sleeping_expert_mask.detach().any().cpu().item()
+                )
             )
-        )
-        result = self.forward(
-            generated,
-            state,
-            collect_telemetry=False,
-            assume_no_sleeping_experts=assume_no_sleeping,
-            decode_vocab_only=True,
-        )
-        state = result["state"]
-        next_logits = result["logits"][:, -1, :]
-        new_token_count = 0
-        for _ in range(max(0, int(max_new_tokens))):
-            next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
-            generated = torch.cat([generated, next_id], dim=1)
-            new_token_count += 1
-            if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
-                break
-            result = self.forward_step(
-                next_id,
+            result = self.forward(
+                generated,
                 state,
                 collect_telemetry=False,
                 assume_no_sleeping_experts=assume_no_sleeping,
@@ -1582,16 +1568,37 @@ class MarulhoLanguageModel(nn.Module):
             )
             state = result["state"]
             next_logits = result["logits"][:, -1, :]
-        return {
-            "surface": "marulho_language_generation.v1",
-            "generated_ids": generated.detach().cpu(),
-            "new_token_count": new_token_count,
-            "active_language_path": self.config.active_language_path,
-            "external_llm_used": False,
-            "owned_by_marulho": True,
-            "loads_external_checkpoint": False,
-            "generation_decode": self.generation_decode_policy(),
-        }
+            new_token_count = 0
+            for _ in range(max(0, int(max_new_tokens))):
+                next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
+                generated = torch.cat([generated, next_id], dim=1)
+                new_token_count += 1
+                if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
+                    break
+                result = self.forward_step(
+                    next_id,
+                    state,
+                    collect_telemetry=False,
+                    assume_no_sleeping_experts=assume_no_sleeping,
+                    decode_vocab_only=True,
+                )
+                state = result["state"]
+                next_logits = result["logits"][:, -1, :]
+            return {
+                "surface": "marulho_language_generation.v1",
+                "generated_ids": generated.detach().cpu(),
+                "new_token_count": new_token_count,
+                "active_language_path": self.config.active_language_path,
+                "external_llm_used": False,
+                "owned_by_marulho": True,
+                "loads_external_checkpoint": False,
+                "generation_decode": self.generation_decode_policy(),
+            }
+        finally:
+            if was_training:
+                self.train()
+            else:
+                self.eval()
 
 
 def build_language_model_splits(
