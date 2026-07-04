@@ -150,6 +150,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `0.150728 ms/token`; optimizer step is only `0.007629 ms/token`. Treat this
   as evidence to aim the next speed slice at state-block/PLIF backward and
   forward/loss before optimizer fusion.
+- `LanguageModelConfig.recurrent_gradient_horizon` is an opt-in bounded BPTT
+  policy for fast LM training experiments. When enabled, multi-token gradient
+  training preserves causal forward recurrence on device but detaches membrane,
+  spike, selective-state, and eligibility tensors at fixed token boundaries;
+  one-token streaming generation is unchanged. The local 2026-07-04 horizon-8
+  report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-profile-524288-63744.json`
+  recorded `7` detach boundaries per 64-token batch, trained the `524288`
+  model-vocab, `1024` sampled-row, batch-16 shape at `2435.816` train
+  tokens/sec, improved heldout loss from `7.1213` to `0.2303`, and sustained
+  `524288/524288` generated tokens at `7225.847` tokens/sec. This is a
+  throughput/credit-horizon tradeoff, not full long-context BPTT or a
+  generation-quality promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

@@ -125,6 +125,9 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     assert result["telemetry"]["input_dependent_leak"] is True
     assert result["telemetry"]["input_dependent_threshold"] is True
     assert result["telemetry"]["trainable_current_terms"] is True
+    assert result["telemetry"]["recurrent_gradient_horizon"] == 0
+    assert result["telemetry"]["truncated_bptt_applied"] is False
+    assert result["telemetry"]["gradient_horizon_policy"] == "full_sequence_bptt"
     assert set(result["telemetry"]["state_cache_keys"]) == {
         "membrane",
         "spikes",
@@ -132,6 +135,45 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
         "eligibility_trace",
     }
     assert 0.0 <= result["telemetry"]["spike_rate"] <= 1.0
+    assert model.token_embedding.weight.grad is not None
+    assert model.state_block.current_gain.grad is not None
+    assert model.state_block.raw_leak.grad is not None
+    assert torch.isfinite(model.token_embedding.weight.grad).all()
+    assert torch.isfinite(model.state_block.current_gain.grad).all()
+    assert torch.isfinite(model.state_block.raw_leak.grad).all()
+
+
+def test_language_model_recurrent_gradient_horizon_trains_with_bounded_bptt() -> None:
+    torch.manual_seed(20260704)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        _texts(),
+        tokenizer,
+        sequence_length=12,
+        batch_size=2,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+            expert_count=4,
+            active_expert_count=2,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+            recurrent_gradient_horizon=4,
+        )
+    )
+
+    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    result["loss"].backward()
+
+    telemetry = result["telemetry"]
+    assert telemetry["recurrent_gradient_horizon"] == 4
+    assert telemetry["truncated_bptt_applied"] is True
+    assert telemetry["truncated_bptt_boundary_count"] == 2
+    assert telemetry["gradient_horizon_policy"] == "bounded_recurrent_state_detach"
+    assert result["loss"].detach().item() > 0.0
     assert model.token_embedding.weight.grad is not None
     assert model.state_block.current_gain.grad is not None
     assert model.state_block.raw_leak.grad is not None

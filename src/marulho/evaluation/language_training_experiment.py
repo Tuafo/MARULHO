@@ -56,6 +56,7 @@ class LanguageTrainingExperimentConfig:
     route_candidate_count: int = 4
     expert_hidden_dim: int = 96
     adaptive_timestep_budget: int = 1
+    recurrent_gradient_horizon: int = 0
     sequence_length: int = 32
     stride: int = 16
     batch_size: int = 8
@@ -111,6 +112,7 @@ def _model_config(
         embedding_dim=int(config.embedding_dim),
         state_dim=int(config.state_dim),
         adaptive_timestep_budget=int(config.adaptive_timestep_budget),
+        recurrent_gradient_horizon=max(0, int(config.recurrent_gradient_horizon)),
         expert_count=int(config.expert_count),
         active_expert_count=int(config.active_expert_count),
         route_candidate_count=int(config.route_candidate_count),
@@ -546,6 +548,7 @@ def _train_language_model(
     max_grad_norm_record: torch.Tensor | None = None
     last_loss_kind = "unknown"
     last_loss_evidence: dict[str, Any] = {}
+    last_state_block_telemetry: dict[str, Any] = {}
     stage_profiler = _TrainingStageProfiler(
         model.device,
         enabled=bool(config.profile_training_stages),
@@ -613,6 +616,8 @@ def _train_language_model(
             loss_records.append(loss.detach())
             last_loss_kind = str(result.get("loss_kind", "unknown"))
             last_loss_evidence = dict(result.get("loss_evidence") or {})
+            telemetry = result.get("telemetry")
+            last_state_block_telemetry = dict(telemetry) if isinstance(telemetry, dict) else {}
             grad_norm_record = _detached_scalar_on_device(
                 grad_norm,
                 device=model.device,
@@ -654,6 +659,28 @@ def _train_language_model(
         "optimizer": optimizer_policy,
         "optimizer_policy": optimizer_policy,
         "learning_rate": float(config.learning_rate),
+        "recurrent_gradient_horizon": int(model.config.recurrent_gradient_horizon),
+        "truncated_recurrent_bptt": bool(
+            int(model.config.recurrent_gradient_horizon) > 0
+        ),
+        "gradient_horizon_policy": (
+            "bounded_recurrent_state_detach"
+            if int(model.config.recurrent_gradient_horizon) > 0
+            else "full_sequence_bptt"
+        ),
+        "truncated_bptt_boundary_count_per_batch": int(
+            last_state_block_telemetry.get("truncated_bptt_boundary_count", 0) or 0
+        ),
+        "state_block_gradient_horizon_policy": str(
+            last_state_block_telemetry.get(
+                "gradient_horizon_policy",
+                (
+                    "bounded_recurrent_state_detach"
+                    if int(model.config.recurrent_gradient_horizon) > 0
+                    else "full_sequence_bptt"
+                ),
+            )
+        ),
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed if elapsed > 0.0 else 0.0,
@@ -881,6 +908,7 @@ def main() -> int:
     parser.add_argument("--active-expert-count", type=int, default=2)
     parser.add_argument("--route-candidate-count", type=int, default=4)
     parser.add_argument("--expert-hidden-dim", type=int, default=96)
+    parser.add_argument("--recurrent-gradient-horizon", type=int, default=0)
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--stride", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -903,6 +931,7 @@ def main() -> int:
         active_expert_count=args.active_expert_count,
         route_candidate_count=args.route_candidate_count,
         expert_hidden_dim=args.expert_hidden_dim,
+        recurrent_gradient_horizon=max(0, int(args.recurrent_gradient_horizon)),
         sequence_length=args.sequence_length,
         stride=args.stride,
         batch_size=args.batch_size,

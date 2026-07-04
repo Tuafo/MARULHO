@@ -50,6 +50,7 @@ class LanguageModelConfig:
     sampled_vocab_sparse_lm_head_gradient: bool = False
     sparse_token_embedding_gradients: bool = False
     generation_vocab_size: int = 0
+    recurrent_gradient_horizon: int = 0
     active_language_path: str = "marulho_lm_head"
 
 
@@ -116,12 +117,14 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         state_dim: int,
         spike_slope: float = 5.0,
         adaptive_timestep_budget: int = 1,
+        recurrent_gradient_horizon: int = 0,
     ) -> None:
         super().__init__()
         self.input_dim = int(input_dim)
         self.state_dim = int(state_dim)
         self.spike_slope = float(spike_slope)
         self.adaptive_timestep_budget = max(1, int(adaptive_timestep_budget))
+        self.recurrent_gradient_horizon = max(0, int(recurrent_gradient_horizon))
         self.input_norm = RMSNorm(self.input_dim)
         self.input_proj = nn.Linear(self.input_dim, self.state_dim)
         self.current_proj = nn.Linear(self.input_dim, self.state_dim)
@@ -294,6 +297,10 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "input_dependent_threshold": True,
                 "trainable_current_terms": True,
                 "surrogate_gradient": "straight_through_sigmoid",
+                "recurrent_gradient_horizon": int(self.recurrent_gradient_horizon),
+                "truncated_bptt_applied": False,
+                "truncated_bptt_boundary_count": 0,
+                "gradient_horizon_policy": "single_step_streaming_state",
                 "plif_forward_backend": (
                     (
                         "triton_surrogate_forward_backward"
@@ -318,6 +325,10 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             telemetry = {
                 "surface": "marulho_selective_spiking_state_block.v1",
                 "telemetry_collected": False,
+                "recurrent_gradient_horizon": int(self.recurrent_gradient_horizon),
+                "truncated_bptt_applied": False,
+                "truncated_bptt_boundary_count": 0,
+                "gradient_horizon_policy": "single_step_streaming_state",
                 "device": str(token_input.device),
             }
         return (
@@ -392,6 +403,13 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             if bool(collect_telemetry)
             else None
         )
+        gradient_horizon = int(self.recurrent_gradient_horizon)
+        detach_recurrent_state = bool(
+            torch.is_grad_enabled()
+            and gradient_horizon > 0
+            and self.adaptive_timestep_budget == 1
+        )
+        truncated_bptt_boundary_count = 0
 
         for step in range(time_steps):
             leak = torch.sigmoid(
@@ -453,6 +471,16 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 spike_sum = spike_sum + spikes.sum()
                 assert active_neuron_counts is not None
                 active_neuron_counts = active_neuron_counts + (spikes > 0).sum(dim=0)
+            if (
+                detach_recurrent_state
+                and step + 1 < time_steps
+                and (step + 1) % gradient_horizon == 0
+            ):
+                membrane = membrane.detach()
+                spikes = spikes.detach()
+                selective_state = selective_state.detach()
+                eligibility_trace = eligibility_trace.detach()
+                truncated_bptt_boundary_count += 1
 
         hidden = self.output_norm(torch.stack(outputs, dim=1))
         if bool(collect_telemetry):
@@ -492,6 +520,14 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "trainable_current_terms": True,
                 "surrogate_gradient": "straight_through_sigmoid",
                 "state_block_projection_mode": "batched_token_projection_recurrent_loop",
+                "recurrent_gradient_horizon": int(gradient_horizon),
+                "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
+                "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
+                "gradient_horizon_policy": (
+                    "bounded_recurrent_state_detach"
+                    if truncated_bptt_boundary_count > 0
+                    else "full_sequence_bptt"
+                ),
                 "plif_forward_backend": (
                     (
                         "triton_surrogate_forward_backward"
@@ -517,6 +553,14 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "surface": "marulho_selective_spiking_state_block.v1",
                 "telemetry_collected": False,
                 "state_block_projection_mode": "batched_token_projection_recurrent_loop",
+                "recurrent_gradient_horizon": int(gradient_horizon),
+                "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
+                "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
+                "gradient_horizon_policy": (
+                    "bounded_recurrent_state_detach"
+                    if truncated_bptt_boundary_count > 0
+                    else "full_sequence_bptt"
+                ),
                 "device": str(inputs.device),
             }
         return (
@@ -964,6 +1008,8 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("generation_vocab_size must be non-negative")
         if int(config.generation_vocab_size) > int(config.vocab_size):
             raise ValueError("generation_vocab_size cannot exceed vocab_size")
+        if int(config.recurrent_gradient_horizon) < 0:
+            raise ValueError("recurrent_gradient_horizon must be non-negative")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
@@ -975,6 +1021,7 @@ class MarulhoLanguageModel(nn.Module):
             config.state_dim,
             spike_slope=config.spike_slope,
             adaptive_timestep_budget=config.adaptive_timestep_budget,
+            recurrent_gradient_horizon=config.recurrent_gradient_horizon,
         )
         self.routed_experts = RoutedLanguageExpertLayer(
             config.state_dim,
