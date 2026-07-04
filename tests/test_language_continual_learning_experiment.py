@@ -31,6 +31,8 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
             max_new_batches=1,
             max_replay_batches=1,
             generation_tokens=8,
+            generation_repetition_penalty=1.1,
+            generation_no_repeat_ngram_size=2,
             max_steps=1,
             gradient_clip_interval=1,
             device="cpu",
@@ -69,3 +71,8 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["generation_quality_delta"]["promotes_generation_quality_claim"] is False
     assert report["generation_before"][0]["external_llm_used"] is False
     assert report["generation_after"][0]["owned_by_marulho"] is True
+    decode = report["generation_after"][0]["generation_decode"]
+    assert decode["repetition_penalty_applied"] is True
+    assert decode["repetition_penalty"] == 1.1
+    assert decode["no_repeat_ngram_applied"] is True
+    assert decode["no_repeat_ngram_size"] == 2

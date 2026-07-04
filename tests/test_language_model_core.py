@@ -308,6 +308,47 @@ def test_padded_vocab_generation_limits_decode_rows_and_restores_checkpoint(tmp_
     assert metadata["policy"] == "padded-vocab-decode-limit"
 
 
+def test_generation_no_repeat_ngram_reports_decode_controls() -> None:
+    torch.manual_seed(20260704)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=16,
+            embedding_dim=8,
+            state_dim=12,
+        )
+    )
+    with torch.no_grad():
+        model.lm_head.weight.zero_()
+        model.lm_head.bias.zero_()
+        model.lm_head.bias[5] = 10.0
+    prompt = torch.tensor([1], dtype=torch.long)
+
+    greedy = model.generate(prompt, max_new_tokens=3, eos_id=None)
+    controlled = model.generate(
+        prompt,
+        max_new_tokens=3,
+        eos_id=None,
+        repetition_penalty=1.2,
+        no_repeat_ngram_size=1,
+    )
+    greedy_tail = greedy["generated_ids"].reshape(-1).tolist()[1:]
+    controlled_tail = controlled["generated_ids"].reshape(-1).tolist()[1:]
+    decode = controlled["generation_decode"]
+
+    assert greedy_tail == [5, 5, 5]
+    assert len(set(controlled_tail)) == len(controlled_tail)
+    assert decode["repetition_penalty_applied"] is True
+    assert decode["repetition_penalty"] == 1.2
+    assert decode["no_repeat_ngram_applied"] is True
+    assert decode["no_repeat_ngram_size"] == 1
+    assert decode["decode_controls_backend"] == "torch_device_tensor"
+    assert decode["decode_controls_cpu_token_copy"] is False
+    assert decode["repetition_penalty_adjusted_token_count"] > 0
+    assert decode["no_repeat_ngram_banned_token_count"] > 0
+    assert decode["decode_control_fallback_count"] == 0
+    assert controlled["external_llm_used"] is False
+
+
 def test_padded_vocab_checkpoint_requires_decode_policy(tmp_path) -> None:
     tokenizer = ByteLevelLanguageTokenizer()
     model = MarulhoLanguageModel(

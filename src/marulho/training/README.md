@@ -156,6 +156,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   continuation improved from broken bytes to repetitive `replay` text, so this
   proves generation is being measured around continual learning, not that broad
   language quality is solved.
+  The decode-control follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-decode-controls-524288.json`
+  keeps the same continual shape and enables transparent greedy decode controls
+  with `repetition_penalty=1.15` and `no_repeat_ngram_size=2`. It records
+  `decode_controls_backend=torch_device_tensor`,
+  `decode_controls_cpu_token_copy=false`, `1249` repetition-penalty token
+  adjustments, `59` no-repeat banned-token events, zero decode-control
+  fallbacks, `3687.327` update tokens/sec, and `2051.118` total-window
+  tokens/sec. Compared with the prior generation-quality report, update
+  throughput is `+20.267%`, total-window throughput is `+21.491%`, and
+  after-learning distinct-bigram fraction improves from `0.191` to `1.000`;
+  source-prefix match remains only `1.0` character, so this is
+  repetition-control evidence rather than a language-quality promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -330,8 +343,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sampled/padded continual-learning evidence runner for old/new/replay windows.
   It writes JSON plus README reports, applies the CUDA math policy, caps heldout
   eval batch counts when comparing same-shape runs, records throughput deltas,
-  and captures MARULHO-owned before/after generation-quality probes without
-  turning them into generation-quality claims.
+  and captures MARULHO-owned before/after generation-quality probes. Optional
+  repetition-penalty and no-repeat-ngram decode controls are recorded as decode
+  policy and counters, not hidden generation authority or quality promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

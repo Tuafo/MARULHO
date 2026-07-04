@@ -496,6 +496,8 @@ def _decoded_generation(
     prompt: str,
     max_new_tokens: int,
     corpus: str | None = None,
+    repetition_penalty: float = 1.0,
+    no_repeat_ngram_size: int = 0,
 ) -> dict[str, Any]:
     prompt_ids = torch.tensor(
         tokenizer.encode(prompt, add_eos=False),
@@ -505,6 +507,8 @@ def _decoded_generation(
         prompt_ids,
         max_new_tokens=max(0, int(max_new_tokens)),
         eos_id=tokenizer.eos_id,
+        repetition_penalty=max(1.0, float(repetition_penalty)),
+        no_repeat_ngram_size=max(0, int(no_repeat_ngram_size)),
     )
     generated_ids = [
         int(token_id)

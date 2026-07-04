@@ -74,6 +74,8 @@ class LanguageContinualLearningExperimentConfig:
         "Old replay domain",
         "New continual domain",
     )
+    generation_repetition_penalty: float = 1.0
+    generation_no_repeat_ngram_size: int = 0
     learning_rate: float = 2e-3
     max_steps: int = 2
     replay_loss_weight: float = 0.25
@@ -163,6 +165,11 @@ def _phase(report: dict[str, Any], key: str) -> float:
     return float(timings.get(key, 0.0) or 0.0)
 
 
+def _quality_metric(report: dict[str, Any], key: str) -> float:
+    quality = report.get("generation_quality_after") or {}
+    return float(quality.get(key, 0.0) or 0.0)
+
+
 def _generation_source_for_prompt(
     prompt: str,
     *,
@@ -197,6 +204,11 @@ def _generation_quality_probe(
             prompt=prompt,
             max_new_tokens=max(0, int(config.generation_tokens)),
             corpus=source_text,
+            repetition_penalty=max(1.0, float(config.generation_repetition_penalty)),
+            no_repeat_ngram_size=max(
+                0,
+                int(config.generation_no_repeat_ngram_size),
+            ),
         )
         generation["source_domain"] = source_domain
         generations.append(generation)
@@ -368,6 +380,71 @@ def _same_shape_comparison(
                 - _phase(comparison, "post_update_evaluation_seconds"),
             }
         )
+        comparison_quality = comparison.get("generation_quality_after")
+        if isinstance(comparison_quality, dict):
+            current_prefix = _quality_metric(
+                report,
+                "mean_source_prefix_match_chars",
+            )
+            comparison_prefix = _quality_metric(
+                comparison,
+                "mean_source_prefix_match_chars",
+            )
+            current_next_match = _quality_metric(
+                report,
+                "next_character_match_rate",
+            )
+            comparison_next_match = _quality_metric(
+                comparison,
+                "next_character_match_rate",
+            )
+            current_distinct = _quality_metric(
+                report,
+                "mean_distinct_bigram_fraction",
+            )
+            comparison_distinct = _quality_metric(
+                comparison,
+                "mean_distinct_bigram_fraction",
+            )
+            current_printable = _quality_metric(
+                report,
+                "mean_printable_fraction",
+            )
+            comparison_printable = _quality_metric(
+                comparison,
+                "mean_printable_fraction",
+            )
+            payload.update(
+                {
+                    "comparison_generation_quality_available": True,
+                    "current_after_mean_source_prefix_match_chars": current_prefix,
+                    "comparison_after_mean_source_prefix_match_chars": (
+                        comparison_prefix
+                    ),
+                    "delta_vs_comparison_after_mean_source_prefix_match_chars": (
+                        current_prefix - comparison_prefix
+                    ),
+                    "current_after_next_character_match_rate": current_next_match,
+                    "comparison_after_next_character_match_rate": (
+                        comparison_next_match
+                    ),
+                    "delta_vs_comparison_after_next_character_match_rate": (
+                        current_next_match - comparison_next_match
+                    ),
+                    "current_after_mean_distinct_bigram_fraction": current_distinct,
+                    "comparison_after_mean_distinct_bigram_fraction": (
+                        comparison_distinct
+                    ),
+                    "delta_vs_comparison_after_mean_distinct_bigram_fraction": (
+                        current_distinct - comparison_distinct
+                    ),
+                    "current_after_mean_printable_fraction": current_printable,
+                    "comparison_after_mean_printable_fraction": comparison_printable,
+                    "delta_vs_comparison_after_mean_printable_fraction": (
+                        current_printable - comparison_printable
+                    ),
+                }
+            )
     if original is not None:
         original_tps = float(
             (original.get("learning_evidence") or {}).get("tokens_per_second", 0.0)
@@ -606,6 +683,8 @@ def main() -> int:
     parser.add_argument("--max-replay-batches", type=int, default=4)
     parser.add_argument("--generation-tokens", type=int, default=48)
     parser.add_argument("--generation-prompt", action="append", default=[])
+    parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
     parser.add_argument("--max-steps", type=int, default=2)
     parser.add_argument("--replay-loss-weight", type=float, default=0.25)
@@ -646,6 +725,14 @@ def main() -> int:
         generation_tokens=args.generation_tokens,
         generation_prompts=tuple(args.generation_prompt)
         or ("Old replay domain", "New continual domain"),
+        generation_repetition_penalty=max(
+            1.0,
+            float(args.generation_repetition_penalty),
+        ),
+        generation_no_repeat_ngram_size=max(
+            0,
+            int(args.generation_no_repeat_ngram_size),
+        ),
         learning_rate=args.learning_rate,
         max_steps=args.max_steps,
         replay_loss_weight=args.replay_loss_weight,

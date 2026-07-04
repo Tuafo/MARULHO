@@ -465,6 +465,23 @@ harnesses.
   useful generation-quality instrumentation around continual learning, but the
   raw old-domain continuation still repeats `replay`, so it is not a broad
   generation-quality promotion.
+- The decode-control continual follow-up in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-decode-controls-524288.json`
+  keeps the same `524288` model vocab, `1024` sampled rows, `65536` updated
+  tokens, `22` old heldout eval batches, and `27` new heldout eval batches, but
+  enables transparent greedy decode controls with `repetition_penalty=1.15` and
+  `no_repeat_ngram_size=2`. It records
+  `decode_controls_backend=torch_device_tensor`,
+  `decode_controls_cpu_token_copy=false`, `1249` repetition-penalty token
+  adjustments, `59` no-repeat banned-token events, zero decode-control
+  fallbacks, `external_llm_used=false`, and
+  `promotes_generation_quality_claim=false`. The after-learning
+  distinct-bigram fraction improves from the previous `0.191` report to
+  `1.000`, while update throughput is `3687.327` tokens/sec (`+20.267%` versus
+  the previous generation-quality report) and total-window throughput is
+  `2051.118` tokens/sec (`+21.491%`). Source-prefix match remains only `1.0`
+  character and the raw text remains incoherent, so this is repetition-control
+  evidence, not broad generation-quality promotion.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
@@ -546,6 +563,7 @@ python -m marulho.evaluation.language_training_experiment --output reports/langu
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 python -m marulho.evaluation.language_continual_learning_experiment --output reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-eval-metrics-524288.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-old-eval-batches 22 --max-new-eval-batches 27 --max-new-batches 8 --max-replay-batches 8 --max-steps 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --device cuda --comparison-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-eval-precompute-deferred-metrics-524288.json --original-baseline-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json --precompute-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json --deferred-metric-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json
 python -m marulho.evaluation.language_continual_learning_experiment --output reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-quality-524288.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-old-eval-batches 22 --max-new-eval-batches 27 --max-new-batches 8 --max-replay-batches 8 --generation-tokens 48 --max-steps 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --device cuda --comparison-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-eval-metrics-524288.json --original-baseline-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json --precompute-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json --deferred-metric-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json
+python -m marulho.evaluation.language_continual_learning_experiment --output reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-decode-controls-524288.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-old-eval-batches 22 --max-new-eval-batches 27 --max-new-batches 8 --max-replay-batches 8 --generation-tokens 48 --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 2 --max-steps 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --device cuda --comparison-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-generation-quality-524288.json --original-baseline-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json --precompute-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json --deferred-metric-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json
 ```
 
 LM scale ladder inventory:

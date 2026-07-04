@@ -1095,6 +1095,98 @@ class RoutedLanguageExpertLayer(nn.Module):
         }
 
 
+def _valid_generated_token_tensor(
+    token_ids: torch.Tensor,
+    *,
+    vocab_size: int,
+) -> torch.Tensor:
+    vocab_size = max(0, int(vocab_size))
+    if token_ids.numel() <= 0 or vocab_size <= 0:
+        return token_ids.new_empty((0,), dtype=torch.long)
+    token_ids = token_ids.to(dtype=torch.long)
+    return token_ids[(token_ids >= 0) & (token_ids < vocab_size)]
+
+
+def _no_repeat_ngram_banned_token_tensor(
+    token_ids: torch.Tensor,
+    *,
+    ngram_size: int,
+    vocab_size: int,
+) -> torch.Tensor:
+    ngram_size = max(0, int(ngram_size))
+    vocab_size = max(0, int(vocab_size))
+    if ngram_size <= 0 or vocab_size <= 0:
+        return token_ids.new_empty((0,), dtype=torch.long)
+    tokens = _valid_generated_token_tensor(token_ids, vocab_size=vocab_size)
+    if ngram_size == 1:
+        return torch.unique(tokens, sorted=True)
+    if int(tokens.numel()) < ngram_size:
+        return token_ids.new_empty((0,), dtype=torch.long)
+    prefix_length = ngram_size - 1
+    prefix = tokens[-prefix_length:]
+    windows = tokens.unfold(0, ngram_size, 1)
+    matches = (windows[:, :prefix_length] == prefix).all(dim=1)
+    return torch.unique(windows[matches, -1], sorted=True)
+
+
+def _apply_generation_decode_controls(
+    logits: torch.Tensor,
+    generated_ids: torch.Tensor,
+    *,
+    repetition_penalty: float,
+    no_repeat_ngram_size: int,
+) -> tuple[torch.Tensor, dict[str, int]]:
+    repetition_penalty = max(1.0, float(repetition_penalty))
+    no_repeat_ngram_size = max(0, int(no_repeat_ngram_size))
+    if repetition_penalty <= 1.0 and no_repeat_ngram_size <= 0:
+        return logits, {
+            "repetition_penalty_adjusted_token_count": 0,
+            "no_repeat_ngram_banned_token_count": 0,
+            "decode_control_fallback_count": 0,
+        }
+
+    adjusted = logits.clone()
+    vocab_size = int(adjusted.shape[-1])
+    repetition_penalty_adjusted_token_count = 0
+    no_repeat_ngram_banned_token_count = 0
+    decode_control_fallback_count = 0
+    for batch_index, row in enumerate(generated_ids.detach()):
+        previous_tokens = _valid_generated_token_tensor(
+            row,
+            vocab_size=vocab_size,
+        )
+        if repetition_penalty > 1.0 and int(previous_tokens.numel()) > 0:
+            unique_tokens = torch.unique(previous_tokens, sorted=True)
+            selected = adjusted[batch_index].index_select(0, unique_tokens)
+            penalized = torch.where(
+                selected > 0,
+                selected / repetition_penalty,
+                selected * repetition_penalty,
+            )
+            adjusted[batch_index].index_copy_(0, unique_tokens, penalized)
+            repetition_penalty_adjusted_token_count += int(unique_tokens.numel())
+        banned_tokens = _no_repeat_ngram_banned_token_tensor(
+            previous_tokens,
+            ngram_size=no_repeat_ngram_size,
+            vocab_size=vocab_size,
+        )
+        if int(banned_tokens.numel()) > 0:
+            if int(banned_tokens.numel()) >= vocab_size:
+                decode_control_fallback_count += 1
+            else:
+                adjusted[batch_index, banned_tokens] = -torch.inf
+                no_repeat_ngram_banned_token_count += int(banned_tokens.numel())
+    return adjusted, {
+        "repetition_penalty_adjusted_token_count": int(
+            repetition_penalty_adjusted_token_count
+        ),
+        "no_repeat_ngram_banned_token_count": int(
+            no_repeat_ngram_banned_token_count
+        ),
+        "decode_control_fallback_count": int(decode_control_fallback_count),
+    }
+
+
 class MarulhoLanguageModel(nn.Module):
     """MARULHO-owned next-token language model foundation."""
 
@@ -1141,17 +1233,31 @@ class MarulhoLanguageModel(nn.Module):
             return int(self.config.vocab_size)
         return max(2, min(configured, int(self.config.vocab_size)))
 
-    def generation_decode_policy(self) -> dict[str, Any]:
+    def generation_decode_policy(
+        self,
+        *,
+        repetition_penalty: float = 1.0,
+        no_repeat_ngram_size: int = 0,
+    ) -> dict[str, Any]:
+        repetition_penalty = max(1.0, float(repetition_penalty))
+        no_repeat_ngram_size = max(0, int(no_repeat_ngram_size))
         generation_vocab_size = int(self.generation_vocab_size)
         model_vocab_size = int(self.config.vocab_size)
         return {
             "surface": "marulho_language_generation_decode_policy.v1",
+            "decode_strategy": "greedy_argmax",
+            "decode_controls_backend": "torch_device_tensor",
+            "decode_controls_cpu_token_copy": False,
             "model_vocab_size": model_vocab_size,
             "generation_vocab_size": generation_vocab_size,
             "full_model_vocab_logits_materialized": bool(
                 generation_vocab_size >= model_vocab_size
             ),
             "padded_vocab_rows_masked": max(0, model_vocab_size - generation_vocab_size),
+            "repetition_penalty": float(repetition_penalty),
+            "repetition_penalty_applied": bool(repetition_penalty > 1.0),
+            "no_repeat_ngram_size": int(no_repeat_ngram_size),
+            "no_repeat_ngram_applied": bool(no_repeat_ngram_size > 0),
             "policy": (
                 "limit_generation_to_configured_vocab_rows"
                 if generation_vocab_size < model_vocab_size
@@ -1541,7 +1647,11 @@ class MarulhoLanguageModel(nn.Module):
         *,
         max_new_tokens: int,
         eos_id: int | None = None,
+        repetition_penalty: float = 1.0,
+        no_repeat_ngram_size: int = 0,
     ) -> dict[str, Any]:
+        repetition_penalty = max(1.0, float(repetition_penalty))
+        no_repeat_ngram_size = max(0, int(no_repeat_ngram_size))
         was_training = self.training
         try:
             self.eval()
@@ -1569,8 +1679,26 @@ class MarulhoLanguageModel(nn.Module):
             state = result["state"]
             next_logits = result["logits"][:, -1, :]
             new_token_count = 0
+            repetition_penalty_adjusted_token_count = 0
+            no_repeat_ngram_banned_token_count = 0
+            decode_control_fallback_count = 0
             for _ in range(max(0, int(max_new_tokens))):
-                next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
+                decode_logits, decode_control = _apply_generation_decode_controls(
+                    next_logits,
+                    generated,
+                    repetition_penalty=repetition_penalty,
+                    no_repeat_ngram_size=no_repeat_ngram_size,
+                )
+                repetition_penalty_adjusted_token_count += int(
+                    decode_control["repetition_penalty_adjusted_token_count"]
+                )
+                no_repeat_ngram_banned_token_count += int(
+                    decode_control["no_repeat_ngram_banned_token_count"]
+                )
+                decode_control_fallback_count += int(
+                    decode_control["decode_control_fallback_count"]
+                )
+                next_id = torch.argmax(decode_logits, dim=-1, keepdim=True)
                 generated = torch.cat([generated, next_id], dim=1)
                 new_token_count += 1
                 if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
@@ -1584,6 +1712,23 @@ class MarulhoLanguageModel(nn.Module):
                 )
                 state = result["state"]
                 next_logits = result["logits"][:, -1, :]
+            generation_decode = self.generation_decode_policy(
+                repetition_penalty=repetition_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+            )
+            generation_decode.update(
+                {
+                    "repetition_penalty_adjusted_token_count": int(
+                        repetition_penalty_adjusted_token_count
+                    ),
+                    "no_repeat_ngram_banned_token_count": int(
+                        no_repeat_ngram_banned_token_count
+                    ),
+                    "decode_control_fallback_count": int(
+                        decode_control_fallback_count
+                    ),
+                }
+            )
             return {
                 "surface": "marulho_language_generation.v1",
                 "generated_ids": generated.detach().cpu(),
@@ -1592,7 +1737,7 @@ class MarulhoLanguageModel(nn.Module):
                 "external_llm_used": False,
                 "owned_by_marulho": True,
                 "loads_external_checkpoint": False,
-                "generation_decode": self.generation_decode_policy(),
+                "generation_decode": generation_decode,
             }
         finally:
             if was_training:
