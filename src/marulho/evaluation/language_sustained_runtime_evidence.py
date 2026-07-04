@@ -149,6 +149,19 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "triton_kernel_used": False,
         "triton_kernel_failure_count": 0,
         "triton_kernel_fallback_count": 0,
+        "decode_controls_requested": False,
+        "decode_controls_backend": "torch_device_tensor",
+        "decode_controls_cpu_token_copy": False,
+        "decode_controls_disable_cuda_graph_burst": False,
+        "repetition_penalty": 1.0,
+        "repetition_penalty_applied": False,
+        "repetition_penalty_adjusted_token_count": 0,
+        "no_repeat_ngram_size": 0,
+        "no_repeat_ngram_applied": False,
+        "no_repeat_ngram_state_backend": "disabled",
+        "no_repeat_ngram_state_capacity_tokens": 0,
+        "no_repeat_ngram_banned_token_count": 0,
+        "decode_control_fallback_count": 0,
         "language_rmsnorm_triton": {
             "surface": "marulho_language_rmsnorm_triton_stats_delta.v1",
             "triton_available": False,
@@ -291,6 +304,169 @@ def _try_capture_cuda_graph_burst(
         return None, evidence
 
 
+class _SustainedDecodeControlState:
+    """Device-resident greedy decode controls for sustained single-stream runs."""
+
+    def __init__(
+        self,
+        *,
+        vocab_size: int,
+        device: torch.device,
+        repetition_penalty: float,
+        no_repeat_ngram_size: int,
+        max_dense_ngram_entries: int = 64_000_000,
+    ) -> None:
+        self.vocab_size = max(1, int(vocab_size))
+        self.device = device
+        self.repetition_penalty = max(1.0, float(repetition_penalty))
+        self.no_repeat_ngram_size = max(0, int(no_repeat_ngram_size))
+        self.repetition_penalty_adjusted_token_count = torch.zeros(
+            (),
+            device=device,
+            dtype=torch.long,
+        )
+        self.no_repeat_ngram_banned_token_count = torch.zeros(
+            (),
+            device=device,
+            dtype=torch.long,
+        )
+        self.decode_control_fallback_count = torch.zeros(
+            (),
+            device=device,
+            dtype=torch.long,
+        )
+        self.seen_unigram = torch.zeros(
+            (self.vocab_size,),
+            device=device,
+            dtype=torch.bool,
+        )
+        self.prefix_length = max(0, self.no_repeat_ngram_size - 1)
+        self.valid_recent_count = 0
+        self.recent_tokens = torch.empty(
+            (self.prefix_length,),
+            device=device,
+            dtype=torch.long,
+        )
+        self.ngram_state: torch.Tensor | None = None
+        self.ngram_state_backend = "disabled"
+        self.ngram_capacity_tokens = 0
+        self._prefix_powers = torch.empty((0,), device=device, dtype=torch.long)
+        if self.no_repeat_ngram_size >= 2:
+            prefix_rows = self.vocab_size ** self.prefix_length
+            entry_count = prefix_rows * self.vocab_size
+            self.ngram_capacity_tokens = int(entry_count)
+            if entry_count <= max(1, int(max_dense_ngram_entries)):
+                self.ngram_state = torch.zeros(
+                    (prefix_rows, self.vocab_size),
+                    device=device,
+                    dtype=torch.bool,
+                )
+                self.ngram_state_backend = "dense_device_prefix_table"
+                self._prefix_powers = torch.tensor(
+                    [
+                        self.vocab_size ** power
+                        for power in range(self.prefix_length - 1, -1, -1)
+                    ],
+                    device=device,
+                    dtype=torch.long,
+                )
+            else:
+                self.ngram_state_backend = "unsupported_dense_capacity_exceeded"
+
+    @property
+    def requested(self) -> bool:
+        return bool(self.repetition_penalty > 1.0 or self.no_repeat_ngram_size > 0)
+
+    def prime(self, token_ids: list[int]) -> None:
+        for raw_token in token_ids:
+            self.update_token(
+                torch.tensor(
+                    int(raw_token),
+                    device=self.device,
+                    dtype=torch.long,
+                )
+            )
+
+    def _prefix_index(self) -> torch.Tensor:
+        return (self.recent_tokens * self._prefix_powers).sum(dtype=torch.long)
+
+    def update_token(self, token: torch.Tensor) -> None:
+        token = token.reshape(()).to(device=self.device, dtype=torch.long)
+        if self.ngram_state is not None and self.valid_recent_count >= self.prefix_length:
+            self.ngram_state[self._prefix_index(), token] = True
+        self.seen_unigram[token] = True
+        if self.prefix_length > 0:
+            if self.valid_recent_count < self.prefix_length:
+                self.recent_tokens[self.valid_recent_count] = token
+                self.valid_recent_count += 1
+            else:
+                self.recent_tokens[:-1] = self.recent_tokens[1:].clone()
+                self.recent_tokens[-1] = token
+
+    def select_next_token(self, logits: torch.Tensor) -> torch.Tensor:
+        adjusted = logits.clone()
+        if self.repetition_penalty > 1.0:
+            penalized = torch.where(
+                adjusted > 0,
+                adjusted / self.repetition_penalty,
+                adjusted * self.repetition_penalty,
+            )
+            adjusted = torch.where(self.seen_unigram.unsqueeze(0), penalized, adjusted)
+            self.repetition_penalty_adjusted_token_count += self.seen_unigram.long().sum()
+        if self.no_repeat_ngram_size == 1:
+            adjusted = self._apply_banned_mask(adjusted, self.seen_unigram)
+        elif self.no_repeat_ngram_size >= 2:
+            if self.ngram_state is None:
+                self.decode_control_fallback_count += 1
+            elif self.valid_recent_count >= self.prefix_length:
+                adjusted = self._apply_banned_mask(
+                    adjusted,
+                    self.ngram_state[self._prefix_index()],
+                )
+        next_id = torch.argmax(adjusted, dim=-1, keepdim=True)
+        self.update_token(next_id.reshape(()))
+        return next_id
+
+    def _apply_banned_mask(
+        self,
+        logits: torch.Tensor,
+        banned: torch.Tensor,
+    ) -> torch.Tensor:
+        banned_count = banned.long().sum()
+        all_banned = banned_count >= self.vocab_size
+        masked = logits.masked_fill(banned.unsqueeze(0), -torch.inf)
+        self.no_repeat_ngram_banned_token_count += torch.where(
+            all_banned,
+            torch.zeros_like(banned_count),
+            banned_count,
+        )
+        self.decode_control_fallback_count += all_banned.long()
+        return torch.where(all_banned.reshape(1, 1), logits, masked)
+
+    def evidence(self) -> dict[str, Any]:
+        return {
+            "decode_controls_requested": self.requested,
+            "decode_controls_backend": "torch_device_tensor",
+            "decode_controls_cpu_token_copy": False,
+            "decode_controls_disable_cuda_graph_burst": self.requested,
+            "repetition_penalty": float(self.repetition_penalty),
+            "repetition_penalty_applied": bool(self.repetition_penalty > 1.0),
+            "repetition_penalty_adjusted_token_count": int(
+                self.repetition_penalty_adjusted_token_count.detach().cpu().item()
+            ),
+            "no_repeat_ngram_size": int(self.no_repeat_ngram_size),
+            "no_repeat_ngram_applied": bool(self.no_repeat_ngram_size > 0),
+            "no_repeat_ngram_state_backend": self.ngram_state_backend,
+            "no_repeat_ngram_state_capacity_tokens": int(self.ngram_capacity_tokens),
+            "no_repeat_ngram_banned_token_count": int(
+                self.no_repeat_ngram_banned_token_count.detach().cpu().item()
+            ),
+            "decode_control_fallback_count": int(
+                self.decode_control_fallback_count.detach().cpu().item()
+            ),
+        }
+
+
 def _report_payload(
     *,
     output_path: Path,
@@ -335,8 +511,11 @@ def _report_payload(
     routing = telemetry.get("routing") if isinstance(telemetry.get("routing"), Mapping) else {}
     active_language_path = str(model.config.active_language_path)
     model_device = model.device
-    generation_policy = model.generation_decode_policy()
     execution = dict(execution_evidence or _new_execution_evidence(model))
+    generation_policy = model.generation_decode_policy(
+        repetition_penalty=float(execution.get("repetition_penalty", 1.0) or 1.0),
+        no_repeat_ngram_size=int(execution.get("no_repeat_ngram_size", 0) or 0),
+    )
     backend = str(
         execution.get("backend")
         or ("torch_eager_cuda" if model_device.type == "cuda" else "torch_eager_cpu")
@@ -440,6 +619,9 @@ def _report_payload(
             ),
             "fallback_reason": fallback_reason,
             "cuda_graph_failure_reason": execution.get("cuda_graph_failure_reason"),
+            "decode_control_fallback_count": int(
+                execution.get("decode_control_fallback_count", 0) or 0
+            ),
         },
         "fallback_counts": {
             "pytorch_eager_language_token_count": eager_tokens,
@@ -478,6 +660,30 @@ def _report_payload(
         ),
         "generation_decode": {
             **generation_policy,
+            "decode_controls_backend": str(
+                execution.get("decode_controls_backend", "torch_device_tensor")
+            ),
+            "decode_controls_cpu_token_copy": bool(
+                execution.get("decode_controls_cpu_token_copy", False)
+            ),
+            "decode_controls_disable_cuda_graph_burst": bool(
+                execution.get("decode_controls_disable_cuda_graph_burst", False)
+            ),
+            "repetition_penalty_adjusted_token_count": int(
+                execution.get("repetition_penalty_adjusted_token_count", 0) or 0
+            ),
+            "no_repeat_ngram_state_backend": str(
+                execution.get("no_repeat_ngram_state_backend", "disabled")
+            ),
+            "no_repeat_ngram_state_capacity_tokens": int(
+                execution.get("no_repeat_ngram_state_capacity_tokens", 0) or 0
+            ),
+            "no_repeat_ngram_banned_token_count": int(
+                execution.get("no_repeat_ngram_banned_token_count", 0) or 0
+            ),
+            "decode_control_fallback_count": int(
+                execution.get("decode_control_fallback_count", 0) or 0
+            ),
             "tokenizer_vocab_size": int(tokenizer.vocab_size),
             "padded_vocab_rows_above_tokenizer": max(
                 0,
@@ -531,6 +737,8 @@ def run_language_sustained_runtime_evidence(
     quantum_tokens: int = 16,
     timeout_seconds: float = 60.0,
     stop_on_eos: bool = False,
+    generation_repetition_penalty: float = 1.0,
+    generation_no_repeat_ngram_size: int = 0,
     should_stop: Callable[[], bool] | None = None,
     collect_environment: bool = True,
 ) -> dict[str, Any]:
@@ -593,12 +801,24 @@ def run_language_sustained_runtime_evidence(
             state = result["state"]
             telemetry = dict(result["telemetry"])
             next_logits = result["logits"][:, -1, :]
+            decode_controls = _SustainedDecodeControlState(
+                vocab_size=int(model.generation_vocab_size),
+                device=model.device,
+                repetition_penalty=max(1.0, float(generation_repetition_penalty)),
+                no_repeat_ngram_size=max(0, int(generation_no_repeat_ngram_size)),
+            )
+            decode_controls.prime(prompt_ids)
+            execution_evidence.update(decode_controls.evidence())
             graph_runner: dict[str, Any] | None = None
             graph_generated_tokens = 0
             graph_replay_count = 0
             eager_generated_tokens = 0
             current_next_id: torch.Tensor | None = None
-            if should_stop is None and not bool(stop_on_eos):
+            if (
+                should_stop is None
+                and not bool(stop_on_eos)
+                and not bool(decode_controls.requested)
+            ):
                 graph_runner, execution_evidence = _try_capture_cuda_graph_burst(
                     model=model,
                     next_logits=next_logits,
@@ -611,8 +831,17 @@ def run_language_sustained_runtime_evidence(
                 )
             else:
                 execution_evidence["cuda_graph_failure_reason"] = (
-                    "per_token_stop_or_eos_required"
+                    "decode_controls_require_eager_history"
+                    if bool(decode_controls.requested)
+                    else "per_token_stop_or_eos_required"
                 )
+                if bool(decode_controls.requested):
+                    execution_evidence["mode"] = "torch_eager_decode_controls"
+                    execution_evidence["backend"] = (
+                        "torch_eager_cuda_decode_controls"
+                        if model.device.type == "cuda"
+                        else "torch_eager_cpu_decode_controls"
+                    )
 
             if graph_runner is not None:
                 burst_tokens = int(graph_runner["burst_tokens"])
@@ -641,8 +870,14 @@ def run_language_sustained_runtime_evidence(
                 next_id = (
                     current_next_id
                     if current_next_id is not None
-                    else torch.argmax(next_logits, dim=-1, keepdim=True)
+                    else (
+                        decode_controls.select_next_token(next_logits)
+                        if bool(decode_controls.requested)
+                        else torch.argmax(next_logits, dim=-1, keepdim=True)
+                    )
                 )
+                if not bool(decode_controls.requested):
+                    decode_controls.update_token(next_id.reshape(()))
                 last_token_tensor = next_id.detach().reshape(-1)[:1]
                 tail_token_tensors.append(last_token_tensor)
                 token_delta += 1
@@ -679,6 +914,8 @@ def run_language_sustained_runtime_evidence(
             execution_evidence["pytorch_eager_language_token_count"] = int(
                 eager_generated_tokens if graph_generated_tokens > 0 else token_delta
             )
+            if bool(decode_controls.requested):
+                execution_evidence.update(decode_controls.evidence())
             success = token_delta >= int(target_tokens)
             if success:
                 failure_reason = None
@@ -786,6 +1023,8 @@ def run_language_sustained_runtime_evidence_from_checkpoint(
     quantum_tokens: int = 16,
     timeout_seconds: float = 60.0,
     stop_on_eos: bool = False,
+    generation_repetition_penalty: float = 1.0,
+    generation_no_repeat_ngram_size: int = 0,
     collect_environment: bool = True,
     map_location: str | torch.device | None = None,
 ) -> dict[str, Any]:
@@ -810,6 +1049,8 @@ def run_language_sustained_runtime_evidence_from_checkpoint(
         quantum_tokens=quantum_tokens,
         timeout_seconds=timeout_seconds,
         stop_on_eos=stop_on_eos,
+        generation_repetition_penalty=generation_repetition_penalty,
+        generation_no_repeat_ngram_size=generation_no_repeat_ngram_size,
         collect_environment=collect_environment,
     )
 
@@ -824,6 +1065,8 @@ def main() -> int:
     parser.add_argument("--quantum-tokens", type=int, default=16)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument("--stop-on-eos", action="store_true")
+    parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
     parser.add_argument("--no-environment-snapshot", action="store_true")
     parser.add_argument("--map-location", default=None)
     args = parser.parse_args()
@@ -836,6 +1079,14 @@ def main() -> int:
         quantum_tokens=args.quantum_tokens,
         timeout_seconds=args.timeout_seconds,
         stop_on_eos=bool(args.stop_on_eos),
+        generation_repetition_penalty=max(
+            1.0,
+            float(args.generation_repetition_penalty),
+        ),
+        generation_no_repeat_ngram_size=max(
+            0,
+            int(args.generation_no_repeat_ngram_size),
+        ),
         collect_environment=not bool(args.no_environment_snapshot),
         map_location=args.map_location,
     )

@@ -207,3 +207,45 @@ def test_language_sustained_evidence_reports_padded_vocab_decode_policy(tmp_path
     assert report["padded_vocab_rows"] == 32
     assert report["generation_decode"]["full_model_vocab_logits_materialized"] is False
     assert max(report["generated_tail_ids"]) < tokenizer.vocab_size
+
+
+def test_language_sustained_evidence_reports_decode_controls(tmp_path) -> None:
+    model, tokenizer = _language_runtime_fixture()
+    repeated_token = tokenizer.byte_offset + ord("A")
+    with torch.no_grad():
+        model.lm_head.weight.zero_()
+        model.lm_head.bias.zero_()
+        model.lm_head.bias[repeated_token] = 10.0
+
+    report = run_language_sustained_runtime_evidence(
+        model,
+        tokenizer,
+        output_path=tmp_path / "language-decode-controls.json",
+        target_tokens=5,
+        prompt="",
+        tick_tokens=2,
+        quantum_tokens=2,
+        timeout_seconds=5.0,
+        generation_repetition_penalty=1.2,
+        generation_no_repeat_ngram_size=1,
+        collect_environment=False,
+    )
+    decode = report["generation_decode"]
+
+    assert report["success"] is True
+    assert report["device_backend"]["cuda_graph_burst_used"] is False
+    assert report["execution_evidence"]["mode"] == "torch_eager_decode_controls"
+    assert report["failure_fallback_counters"]["cuda_graph_failure_reason"] == (
+        "decode_controls_require_eager_history"
+    )
+    assert decode["repetition_penalty_applied"] is True
+    assert decode["repetition_penalty"] == 1.2
+    assert decode["no_repeat_ngram_applied"] is True
+    assert decode["no_repeat_ngram_size"] == 1
+    assert decode["decode_controls_backend"] == "torch_device_tensor"
+    assert decode["decode_controls_cpu_token_copy"] is False
+    assert decode["decode_controls_disable_cuda_graph_burst"] is True
+    assert decode["repetition_penalty_adjusted_token_count"] > 0
+    assert decode["no_repeat_ngram_banned_token_count"] > 0
+    assert decode["decode_control_fallback_count"] == 0
+    assert len(set(report["generated_tail_ids"])) == len(report["generated_tail_ids"])
