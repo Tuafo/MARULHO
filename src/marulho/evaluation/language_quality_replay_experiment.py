@@ -16,6 +16,9 @@ from marulho.evaluation.language_generation_coherence import (
     default_generation_coherence_prompt_cases,
     run_language_generation_coherence_report,
 )
+from marulho.evaluation.language_runtime_benchmark_suite import (
+    run_language_runtime_benchmark_suite,
+)
 from marulho.evaluation.language_sustained_runtime_evidence import (
     run_language_sustained_runtime_evidence,
 )
@@ -61,10 +64,13 @@ class LanguageQualityReplayExperimentConfig:
     generation_repetition_penalty: float = 1.15
     generation_no_repeat_ngram_size: int = 3
     sustained_target_tokens: int = 0
+    sustained_target_token_counts: tuple[int, ...] = ()
     sustained_prompt: str = "MARULHO"
     sustained_tick_tokens: int = 128
     sustained_quantum_tokens: int = 16
     sustained_timeout_seconds: float = 600.0
+    benchmark_suite_output_path: str = ""
+    benchmark_gpu_kernel_evidence_paths: tuple[str, ...] = ()
     collect_environment: bool = False
     device: str = "auto"
 
@@ -107,6 +113,24 @@ def _trim_batches(
     if int(limit) <= 0:
         return tuple(batches)
     return tuple(batches[: int(limit)])
+
+
+def _sustained_targets(
+    config: LanguageQualityReplayExperimentConfig,
+) -> tuple[int, ...]:
+    targets: list[int] = []
+    single_target = max(0, int(config.sustained_target_tokens))
+    if single_target > 0:
+        targets.append(single_target)
+    for value in config.sustained_target_token_counts:
+        target = max(0, int(value))
+        if target > 0:
+            targets.append(target)
+    unique_targets: list[int] = []
+    for target in targets:
+        if target not in unique_targets:
+            unique_targets.append(target)
+    return tuple(unique_targets)
 
 
 def _prompt_segment(
@@ -238,6 +262,76 @@ def _coherence_delta(
         "regressed_prompt_count": len(regressed_prompts),
         "regressed_prompts": regressed_prompts,
         "promotes_generation_quality_claim": False,
+    }
+
+
+def _sustained_summary(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    successful = [report for report in reports if bool(report.get("success"))]
+    target_tokens = [int(report.get("target_tokens", 0) or 0) for report in reports]
+    house_scale_reports = [
+        report for report in reports if int(report.get("target_tokens", 0) or 0) >= 524288
+    ]
+    long_run_reports = [
+        report for report in reports if int(report.get("target_tokens", 0) or 0) >= 131072
+    ]
+    diagnostic_reports = [
+        report for report in reports if int(report.get("target_tokens", 0) or 0) >= 8192
+    ]
+    token_rates = [
+        float(report.get("tokens_per_second", 0.0) or 0.0)
+        for report in successful
+    ]
+    return {
+        "surface": "marulho_language_quality_replay_sustained_summary.v1",
+        "enabled": bool(reports),
+        "report_count": len(reports),
+        "successful_report_count": len(successful),
+        "all_success": bool(reports) and len(successful) == len(reports),
+        "target_tokens": target_tokens,
+        "diagnostic_8192_available": bool(diagnostic_reports),
+        "long_run_131072_available": bool(long_run_reports),
+        "house_scale_524288_available": bool(house_scale_reports),
+        "max_target_tokens": max(target_tokens, default=0),
+        "max_tokens_per_second": max(token_rates, default=0.0),
+        "min_tokens_per_second": min(token_rates, default=0.0),
+        "reports": [
+            {
+                "path": str(report.get("output_path") or ""),
+                "checkpoint_path": str(report.get("checkpoint_path") or ""),
+                "target_tokens": int(report.get("target_tokens", 0) or 0),
+                "token_delta": int(report.get("token_delta", 0) or 0),
+                "tokens_per_second": float(
+                    report.get("tokens_per_second", 0.0) or 0.0
+                ),
+                "success": bool(report.get("success")),
+                "report_status": report.get("report_status"),
+                "backend": dict(report.get("execution_evidence") or {}).get(
+                    "backend"
+                ),
+            }
+            for report in reports
+        ],
+    }
+
+
+def _disabled_sustained_summary() -> dict[str, Any]:
+    return {
+        "surface": "marulho_language_quality_replay_sustained_summary.v1",
+        "enabled": False,
+        "reason": "sustained_target_tokens_not_requested",
+        "report_count": 0,
+        "successful_report_count": 0,
+        "all_success": False,
+        "target_tokens": [],
+        "diagnostic_8192_available": False,
+        "long_run_131072_available": False,
+        "house_scale_524288_available": False,
+        "max_target_tokens": 0,
+        "max_tokens_per_second": 0.0,
+        "min_tokens_per_second": 0.0,
+        "reports": [],
     }
 
 
@@ -386,41 +480,63 @@ def run_language_quality_replay_experiment(
         generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
     )
 
-    sustained_report: dict[str, Any]
-    sustained_target = max(0, int(cfg.sustained_target_tokens))
-    if sustained_target > 0:
+    sustained_targets = _sustained_targets(cfg)
+    sustained_reports: list[dict[str, Any]] = []
+    for sustained_target in sustained_targets:
         sustained_path = output.with_name(
             f"{output.stem}-child-sustained-{sustained_target}.json"
         )
-        sustained_report = run_language_sustained_runtime_evidence(
-            model,
-            tokenizer,
-            output_path=sustained_path,
-            target_tokens=sustained_target,
-            checkpoint_path=child_checkpoint,
-            checkpoint_metadata=child_metadata,
-            prompt=str(cfg.sustained_prompt),
-            tick_tokens=int(cfg.sustained_tick_tokens),
-            quantum_tokens=int(cfg.sustained_quantum_tokens),
-            timeout_seconds=float(cfg.sustained_timeout_seconds),
-            generation_repetition_penalty=float(cfg.generation_repetition_penalty),
-            generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
-            collect_environment=bool(cfg.collect_environment),
+        sustained_reports.append(
+            run_language_sustained_runtime_evidence(
+                model,
+                tokenizer,
+                output_path=sustained_path,
+                target_tokens=sustained_target,
+                checkpoint_path=child_checkpoint,
+                checkpoint_metadata=child_metadata,
+                prompt=str(cfg.sustained_prompt),
+                tick_tokens=int(cfg.sustained_tick_tokens),
+                quantum_tokens=int(cfg.sustained_quantum_tokens),
+                timeout_seconds=float(cfg.sustained_timeout_seconds),
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+                collect_environment=bool(cfg.collect_environment),
+            )
+        )
+    sustained_summary = (
+        _sustained_summary(sustained_reports)
+        if sustained_reports
+        else _disabled_sustained_summary()
+    )
+    sustained_report: dict[str, Any] = (
+        sustained_reports[0]
+        if len(sustained_reports) == 1
+        else sustained_summary
+    )
+
+    benchmark_suite_report: dict[str, Any]
+    benchmark_suite_output = str(cfg.benchmark_suite_output_path or "").strip()
+    if benchmark_suite_output:
+        benchmark_suite_report = run_language_runtime_benchmark_suite(
+            output_path=benchmark_suite_output,
+            sustained_target_tokens=8,
+            sustained_evidence_paths=[
+                str(report.get("output_path") or "")
+                for report in sustained_reports
+                if report.get("output_path")
+            ],
+            generation_coherence_evidence_paths=(str(after_coherence_path),),
+            gpu_kernel_evidence_paths=tuple(cfg.benchmark_gpu_kernel_evidence_paths),
         )
     else:
-        sustained_report = {
-            "surface": "marulho_language_quality_replay_sustained_evidence.v1",
+        benchmark_suite_report = {
+            "surface": "marulho_language_quality_replay_benchmark_suite.v1",
             "enabled": False,
-            "reason": "sustained_target_tokens_not_requested",
-            "target_tokens": 0,
+            "reason": "benchmark_suite_output_path_not_requested",
         }
 
     coherence_delta = _coherence_delta(before_coherence, after_coherence)
-    sustained_success = (
-        bool(sustained_report.get("success"))
-        if sustained_target > 0
-        else False
-    )
+    sustained_success = bool(sustained_summary.get("all_success", False))
     same_child_quality = bool(
         dict(after_coherence.get("promotion_gate") or {}).get(
             "generation_coherence_available",
@@ -471,6 +587,9 @@ def run_language_quality_replay_experiment(
         "generation_coherence_after": after_coherence,
         "generation_coherence_delta": coherence_delta,
         "sustained_runtime_evidence": sustained_report,
+        "sustained_runtime_evidence_reports": sustained_reports,
+        "sustained_runtime_evidence_summary": sustained_summary,
+        "benchmark_suite_report": benchmark_suite_report,
         "experiment_review": {
             "surface": "marulho_language_quality_replay_review.v1",
             "fast_mutable_experiment": True,
@@ -487,7 +606,15 @@ def run_language_quality_replay_experiment(
                 in dict(learning_report.get("learning_evidence") or {})
             ),
             "records_same_child_generation_coherence": True,
-            "records_same_child_sustained_runtime": bool(sustained_target > 0),
+            "records_same_child_sustained_runtime": bool(sustained_reports),
+            "records_multiple_sustained_targets": bool(len(sustained_reports) > 1),
+            "records_house_scale_sustained_runtime": bool(
+                sustained_summary["house_scale_524288_available"]
+            ),
+            "records_benchmark_suite_aggregation": bool(
+                benchmark_suite_report.get("surface")
+                == "marulho_language_runtime_benchmark_suite.v1"
+            ),
             "same_child_generation_coherence_available": bool(same_child_quality),
             "same_child_sustained_runtime_success": bool(sustained_success),
             "promotes_generation_quality_claim": False,
@@ -526,11 +653,13 @@ def main() -> int:
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=3)
-    parser.add_argument("--sustained-target-tokens", type=int, default=0)
+    parser.add_argument("--sustained-target-tokens", type=int, action="append", default=[])
     parser.add_argument("--sustained-prompt", default="MARULHO")
     parser.add_argument("--sustained-tick-tokens", type=int, default=128)
     parser.add_argument("--sustained-quantum-tokens", type=int, default=16)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=600.0)
+    parser.add_argument("--benchmark-suite-output", type=Path, default=None)
+    parser.add_argument("--gpu-kernel-evidence", action="append", default=[])
     parser.add_argument("--collect-environment", action="store_true")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
@@ -572,17 +701,22 @@ def main() -> int:
             min_case_pass_rate=args.min_case_pass_rate,
             generation_repetition_penalty=args.generation_repetition_penalty,
             generation_no_repeat_ngram_size=args.generation_no_repeat_ngram_size,
-            sustained_target_tokens=args.sustained_target_tokens,
+            sustained_target_tokens=0,
+            sustained_target_token_counts=tuple(args.sustained_target_tokens),
             sustained_prompt=args.sustained_prompt,
             sustained_tick_tokens=args.sustained_tick_tokens,
             sustained_quantum_tokens=args.sustained_quantum_tokens,
             sustained_timeout_seconds=args.sustained_timeout_seconds,
+            benchmark_suite_output_path=(
+                "" if args.benchmark_suite_output is None else str(args.benchmark_suite_output)
+            ),
+            benchmark_gpu_kernel_evidence_paths=tuple(str(path) for path in args.gpu_kernel_evidence),
             collect_environment=bool(args.collect_environment),
             device=args.device,
         ),
     )
-    if int(args.sustained_target_tokens) > 0:
-        return 0 if bool(report["sustained_runtime_evidence"].get("success")) else 1
+    if args.sustained_target_tokens:
+        return 0 if bool(report["sustained_runtime_evidence_summary"]["all_success"]) else 1
     return 0
 
 
