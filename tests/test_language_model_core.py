@@ -986,6 +986,13 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
         "deferred_gpu_scalar_aggregation"
     )
     assert report["learning_evidence"]["per_step_metric_cpu_sync"] is False
+    assert report["learning_evidence"]["window_phase_timings"]["surface"] == (
+        "marulho_language_continual_window_phase_timings.v1"
+    )
+    assert report["learning_evidence"]["window_phase_timings"][
+        "total_window_seconds"
+    ] >= report["learning_evidence"]["window_phase_timings"]["update_seconds"]
+    assert report["learning_evidence"]["total_window_tokens_per_second"] > 0.0
     assert report["learning_evidence"]["sampled_vocab_training"] is False
     assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
         "enabled"
@@ -998,6 +1005,7 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["rollback_evidence"]["rollback_applied"] is False
     assert report["rollback_evidence"]["restore_verified"] is True
     assert report["promotion_gate"]["old_domain_forgetting_within_tolerance"] is True
+    assert model.training is True
 
 
 def test_language_continual_learning_supports_sampled_padded_vocab_sparse_updates() -> None:
@@ -1075,10 +1083,24 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["sampled_vocab_precompute"]["surface"] == (
         "marulho_language_continual_sampled_vocab_precompute.v1"
     )
+    assert evidence["sampled_vocab_precompute"]["old_eval_batches"]["enabled"] is True
+    assert evidence["sampled_vocab_precompute"]["new_eval_batches"]["enabled"] is True
     assert evidence["sampled_vocab_precompute"]["new_batches"]["enabled"] is True
     assert evidence["sampled_vocab_precompute"]["new_batches"]["batch_count"] == 2
     assert evidence["sampled_vocab_precompute"]["replay_batches"]["enabled"] is True
     assert evidence["sampled_vocab_precompute"]["replay_batches"]["batch_count"] == 1
+    phase_timings = evidence["window_phase_timings"]
+    assert phase_timings["surface"] == (
+        "marulho_language_continual_window_phase_timings.v1"
+    )
+    assert phase_timings["sampled_vocab_precompute_seconds"] >= 0.0
+    assert phase_timings["pre_update_evaluation_seconds"] >= 0.0
+    assert phase_timings["post_update_evaluation_seconds"] >= 0.0
+    assert phase_timings["total_window_seconds"] >= phase_timings["update_seconds"]
+    assert evidence["total_window_elapsed_seconds"] == phase_timings[
+        "total_window_seconds"
+    ]
+    assert evidence["total_window_tokens_per_second"] > 0.0
     assert evidence["loss_evidence"]["sampled_vocab_id_source"] == (
         "precomputed_batch_sampled_vocab_ids"
     )
@@ -1089,6 +1111,15 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["loss_evidence"]["precomputed_target_positions_used"] is True
     assert evidence["replay_loss_evidence"]["precomputed_sampled_vocab_used"] is True
     assert evidence["replay_loss_evidence"]["precomputed_target_positions_used"] is True
+    assert report["old_domain_before"]["spike_telemetry"]["vocab_loss"][
+        "precomputed_sampled_vocab_used"
+    ] is True
+    assert report["new_domain_after"]["spike_telemetry"]["vocab_loss"][
+        "precomputed_sampled_vocab_used"
+    ] is True
+    assert report["replay_after"]["spike_telemetry"]["vocab_loss"][
+        "precomputed_sampled_vocab_used"
+    ] is True
     assert evidence["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert evidence["loss_evidence"]["token_embedding_gradient_sparse"] is True
     assert evidence["final_parameter_delta_l2"] > 0.0

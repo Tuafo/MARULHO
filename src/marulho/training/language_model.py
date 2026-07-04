@@ -1699,6 +1699,8 @@ def evaluate_language_model(
             batch.target_ids.to(model.device),
             collect_telemetry=batch_index == len(batches) - 1,
             assume_no_sleeping_experts=assume_no_sleeping,
+            sampled_vocab_ids=batch.sampled_vocab_ids,
+            sampled_target_positions=batch.sampled_target_positions,
         )
         token_count = int(batch.target_ids.numel())
         total_loss += float(result["loss"].detach().cpu().item()) * token_count

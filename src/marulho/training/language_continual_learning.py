@@ -169,22 +169,19 @@ def run_language_continual_learning_window(
     if not new_eval_batches:
         raise ValueError("new_eval_batches must not be empty")
     cfg = config or LanguageContinualLearningConfig()
+    total_started = time.perf_counter()
+    was_training = model.training
+    snapshot_started = time.perf_counter()
     snapshot = _clone_state_dict(model)
     snapshot_hash = _state_dict_hash(snapshot)
-    old_before = evaluate_language_model(model, old_eval_batches)
-    new_before = evaluate_language_model(model, new_eval_batches)
-    replay_before = (
-        evaluate_language_model(model, replay_batches)
-        if replay_batches
-        else None
+    snapshot_elapsed_seconds = max(0.0, time.perf_counter() - snapshot_started)
+    precompute_started = time.perf_counter()
+    old_eval_runtime_batches, old_eval_sampled_vocab_precompute = (
+        precompute_sampled_vocab_batches(model, old_eval_batches)
     )
-
-    was_training = model.training
-    model.train()
-    optimizers, optimizer_policy = _continual_optimizer_policy(model, cfg)
-    trainable_parameters = [
-        parameter for parameter in model.parameters() if parameter.requires_grad
-    ]
+    new_eval_runtime_batches, new_eval_sampled_vocab_precompute = (
+        precompute_sampled_vocab_batches(model, new_eval_batches)
+    )
     new_update_batches, new_sampled_vocab_precompute = precompute_sampled_vocab_batches(
         model,
         new_batches,
@@ -202,6 +199,33 @@ def run_language_continual_learning_window(
                 "device": str(model.device),
             },
         )
+    )
+    sampled_vocab_precompute_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - precompute_started,
+    )
+    pre_update_evaluation_started = time.perf_counter()
+    old_before = evaluate_language_model(model, old_eval_runtime_batches)
+    new_before = evaluate_language_model(model, new_eval_runtime_batches)
+    replay_before = (
+        evaluate_language_model(model, replay_update_batches)
+        if replay_update_batches
+        else None
+    )
+    pre_update_evaluation_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - pre_update_evaluation_started,
+    )
+
+    optimizer_setup_started = time.perf_counter()
+    model.train()
+    optimizers, optimizer_policy = _continual_optimizer_policy(model, cfg)
+    trainable_parameters = [
+        parameter for parameter in model.parameters() if parameter.requires_grad
+    ]
+    optimizer_setup_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - optimizer_setup_started,
     )
     cuda_synchronized_before_timing_start = False
     if model.device.type == "cuda":
@@ -314,12 +338,17 @@ def run_language_continual_learning_window(
 
     candidate_state = _clone_state_dict(model)
     candidate_hash = _state_dict_hash(candidate_state)
-    old_after = evaluate_language_model(model, old_eval_batches)
-    new_after = evaluate_language_model(model, new_eval_batches)
+    post_update_evaluation_started = time.perf_counter()
+    old_after = evaluate_language_model(model, old_eval_runtime_batches)
+    new_after = evaluate_language_model(model, new_eval_runtime_batches)
     replay_after = (
-        evaluate_language_model(model, replay_batches)
-        if replay_batches
+        evaluate_language_model(model, replay_update_batches)
+        if replay_update_batches
         else None
+    )
+    post_update_evaluation_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - post_update_evaluation_started,
     )
     new_domain_loss_delta = -_metric_delta(new_before, new_after, "heldout_loss")
     old_domain_forgetting = _metric_delta(old_before, old_after, "heldout_loss")
@@ -336,8 +365,11 @@ def run_language_continual_learning_window(
         and (not forgetting_within_gate or not replay_within_gate)
     )
     rollback_applied = False
+    rollback_elapsed_seconds = 0.0
     if rollback_required:
+        rollback_started = time.perf_counter()
         model.load_state_dict(snapshot)
+        rollback_elapsed_seconds = max(0.0, time.perf_counter() - rollback_started)
         rollback_applied = True
 
     final_state = _clone_state_dict(model)
@@ -355,6 +387,7 @@ def run_language_continual_learning_window(
         if rollback_applied
         else "needs_more_learning_evidence"
     )
+    total_elapsed_seconds = max(0.0, time.perf_counter() - total_started)
     return {
         "artifact_kind": "marulho_language_continual_learning_window",
         "surface": "marulho_language_continual_learning_window.v1",
@@ -395,6 +428,8 @@ def run_language_continual_learning_window(
             "replay_batch_count": int(len(replay_batches)),
             "sampled_vocab_precompute": {
                 "surface": "marulho_language_continual_sampled_vocab_precompute.v1",
+                "old_eval_batches": old_eval_sampled_vocab_precompute,
+                "new_eval_batches": new_eval_sampled_vocab_precompute,
                 "new_batches": new_sampled_vocab_precompute,
                 "replay_batches": replay_sampled_vocab_precompute,
             },
@@ -415,9 +450,32 @@ def run_language_continual_learning_window(
             "gradient_norm_observed_step_count": int(gradient_clip_applied_step_count),
             "update_token_count": int(update_token_count),
             "elapsed_seconds": float(elapsed_seconds),
+            "window_phase_timings": {
+                "surface": "marulho_language_continual_window_phase_timings.v1",
+                "state_snapshot_seconds": float(snapshot_elapsed_seconds),
+                "sampled_vocab_precompute_seconds": float(
+                    sampled_vocab_precompute_elapsed_seconds
+                ),
+                "pre_update_evaluation_seconds": float(
+                    pre_update_evaluation_elapsed_seconds
+                ),
+                "optimizer_setup_seconds": float(optimizer_setup_elapsed_seconds),
+                "update_seconds": float(elapsed_seconds),
+                "post_update_evaluation_seconds": float(
+                    post_update_evaluation_elapsed_seconds
+                ),
+                "rollback_seconds": float(rollback_elapsed_seconds),
+                "total_window_seconds": float(total_elapsed_seconds),
+            },
+            "total_window_elapsed_seconds": float(total_elapsed_seconds),
             "tokens_per_second": (
                 float(update_token_count) / elapsed_seconds
                 if elapsed_seconds > 0.0
+                else 0.0
+            ),
+            "total_window_tokens_per_second": (
+                float(update_token_count) / total_elapsed_seconds
+                if total_elapsed_seconds > 0.0
                 else 0.0
             ),
             "mean_update_loss": mean_update_loss,

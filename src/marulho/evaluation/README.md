@@ -423,6 +423,18 @@ harnesses.
   timing start/stop. It reaches `3089.664` train tokens/sec, `+2.173%` over the
   precompute-only report and `+17.957%` over the retained baseline, while still
   accepting the online update and avoiding full vocab logits.
+- The eval-precompute/phase-timing follow-up in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-eval-precompute-deferred-metrics-524288.json`
+  keeps the same current synthetic corpus and online shape, records old/new
+  heldout eval sampled-vocab precompute, and shows heldout evaluation loss
+  using `precomputed_batch_sampled_vocab_ids`. It reaches `3057.041` update
+  tokens/sec and introduces `1690.405` total-window tokens/sec with phase
+  timings: `0.839s` snapshot, `0.355s` sampled-vocab precompute, `5.829s`
+  pre-update eval, `2.283s` optimizer setup, `21.438s` update, and `6.245s`
+  post-update eval. The update-loop result is `+16.712%` versus the retained
+  baseline but `-1.056%` versus the previous deferred-metric report, so this
+  should be read as full-window visibility and eval-precompute evidence rather
+  than a fresh update-loop speed promotion.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked

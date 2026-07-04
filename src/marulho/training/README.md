@@ -95,9 +95,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   token-embedding and LM-head row gradients, the same dense-core plus sparse
   vocab-row optimizer policy used by fast LM experiments, sparse-aware
   gradient-clip cadence, telemetry-light training updates, sampled-vocab
-  batch precompute for both online new batches and replay batches, and
-  deferred GPU-scalar metric aggregation for update/replay loss plus
-  max-gradient-norm evidence. The local
+  batch precompute for online new, replay, and heldout eval batches, deferred
+  GPU-scalar metric aggregation for update/replay loss plus max-gradient-norm
+  evidence, and full-window phase timings. The local
   2026-07-04 CUDA report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   updated `65536` new+replay tokens on the `524288` model-vocab, `1024`
@@ -120,6 +120,16 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `3089.664` train tokens/sec on the same current corpus and shape. That is
   `+2.173%` over the precompute-only report and `+17.957%` versus the retained
   baseline.
+  The eval-precompute follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-eval-precompute-deferred-metrics-524288.json`
+  records precomputed sampled vocab for old/new heldout eval batches and
+  `precomputed_batch_sampled_vocab_ids` in heldout loss evidence. It reaches
+  `3057.041` update tokens/sec and `1690.405` total-window tokens/sec, with
+  phase timings showing `21.438s` in update, `5.829s` in pre-update eval,
+  `6.245s` in post-update eval, `2.283s` in optimizer setup, and `0.355s` in
+  sampled-vocab precompute. This is full-window visibility and eval-precompute
+  evidence; update throughput is in the same band as the previous deferred
+  report, not a new update-loop promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -284,6 +294,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   deferred-readback pattern: detached device scalars aggregate update loss,
   replay loss, and max observed grad norm in the measured loop, then read back
   after a single CUDA stop synchronization.
+- `evaluate_language_model` accepts precomputed sampled row IDs and target
+  positions from `LanguageBatch`, so continual before/after heldout and replay
+  evaluations can reuse the same sampled-vocab contract as the update loop.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from
