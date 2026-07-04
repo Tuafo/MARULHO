@@ -84,7 +84,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   LM head. It applies bounded online updates, mixes replay batches, measures
   old/new heldout loss and replay retention, records spike-rate and throughput
   deltas, and keeps rollback snapshot hashes before accepting the update as
-  review evidence.
+  review evidence. It now supports sampled/padded vocab models with sparse
+  token-embedding and LM-head row gradients, the same dense-core plus sparse
+  vocab-row optimizer policy used by fast LM experiments, sparse-aware
+  gradient-clip cadence, and telemetry-light training updates. The local
+  2026-07-04 CUDA report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
+  updated `65536` new+replay tokens on the `524288` model-vocab, `1024`
+  sampled-row, horizon-8, TF32, clip-interval-8 shape at `2619.310` train
+  tokens/sec, improved new-domain heldout loss from `7.1125` to `0.5576`,
+  improved old-domain loss from `7.0595` to `1.7194`, improved replay loss
+  from `7.0595` to `1.7182`, and accepted the update without rollback.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,

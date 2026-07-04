@@ -918,8 +918,116 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["mutates_language_model_weights"] is True
     assert report["learning_evidence"]["new_domain_loss_delta"] > 0.0
     assert report["learning_evidence"]["final_parameter_delta_l2"] > 0.0
+    assert report["learning_evidence"]["optimizer_policy"] == "AdamW_all_parameters"
+    assert report["learning_evidence"]["optimizer_step_count"] == 8
+    assert report["learning_evidence"]["gradient_clip_mode"] == (
+        "sparse_aware_device_norm_every_step"
+    )
+    assert report["learning_evidence"]["gradient_clip_applied_step_count"] == 8
+    assert report["learning_evidence"]["gradient_clip_skipped_step_count"] == 0
+    assert report["learning_evidence"]["sampled_vocab_training"] is False
     assert "old_domain_forgetting" in report["learning_evidence"]
     assert "general_replay_retention_delta" in report["learning_evidence"]
     assert report["rollback_evidence"]["rollback_applied"] is False
     assert report["rollback_evidence"]["restore_verified"] is True
     assert report["promotion_gate"]["old_domain_forgetting_within_tolerance"] is True
+
+
+def test_language_continual_learning_supports_sampled_padded_vocab_sparse_updates() -> None:
+    torch.manual_seed(20260704)
+    tokenizer = ByteLevelLanguageTokenizer()
+    old_split = build_language_model_splits(
+        ["old replay domain protects retained language evidence. " * 8],
+        tokenizer,
+        sequence_length=12,
+        eval_fraction=0.25,
+        batch_size=2,
+    )
+    new_split = build_language_model_splits(
+        ["new sampled vocabulary domain updates sparse rows. " * 8],
+        tokenizer,
+        sequence_length=12,
+        eval_fraction=0.25,
+        batch_size=2,
+    )
+    model_vocab_size = tokenizer.vocab_size + 128
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+            expert_count=4,
+            active_expert_count=2,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+            sampled_vocab_size=32,
+            sampled_vocab_sparse_lm_head_gradient=True,
+            sparse_token_embedding_gradients=True,
+            generation_vocab_size=tokenizer.vocab_size,
+            recurrent_gradient_horizon=4,
+        )
+    )
+
+    report = run_language_continual_learning_window(
+        model,
+        new_batches=new_split.train[:2],
+        old_eval_batches=old_split.eval,
+        new_eval_batches=new_split.train[:2],
+        replay_batches=old_split.train[:1],
+        config=LanguageContinualLearningConfig(
+            learning_rate=2e-2,
+            max_steps=2,
+            replay_loss_weight=0.25,
+            gradient_clip_interval=2,
+            forgetting_tolerance=100.0,
+            replay_retention_tolerance=100.0,
+            rollback_on_forgetting=False,
+        ),
+    )
+
+    evidence = report["learning_evidence"]
+    assert report["surface"] == "marulho_language_continual_learning_window.v1"
+    assert report["model_vocab_size"] == model_vocab_size
+    assert report["generation_vocab_size"] == tokenizer.vocab_size
+    assert report["sampled_vocab_size"] == 32
+    assert report["sparse_vocab_optimizer"] is True
+    assert evidence["optimizer_policy"] == (
+        "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+    )
+    assert evidence["optimizer_step_count"] == 4
+    assert evidence["gradient_clip_mode"] == (
+        "sparse_aware_device_norm_every_n_steps"
+    )
+    assert evidence["gradient_clip_interval"] == 2
+    assert evidence["gradient_clip_applied_step_count"] == 2
+    assert evidence["gradient_clip_skipped_step_count"] == 2
+    assert evidence["sampled_vocab_training"] is True
+    assert evidence["full_vocab_logits_materialized"] is False
+    assert evidence["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
+    assert evidence["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert evidence["final_parameter_delta_l2"] > 0.0
+    assert report["rollback_evidence"]["rollback_applied"] is False
+
+    guard_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+            sampled_vocab_size=32,
+            sampled_vocab_sparse_lm_head_gradient=True,
+            sparse_token_embedding_gradients=True,
+            generation_vocab_size=tokenizer.vocab_size,
+        )
+    )
+    with pytest.raises(ValueError, match="sparse_vocab_optimizer"):
+        run_language_continual_learning_window(
+            guard_model,
+            new_batches=new_split.train[:1],
+            old_eval_batches=old_split.eval,
+            new_eval_batches=new_split.train[:1],
+            config=LanguageContinualLearningConfig(
+                sparse_vocab_optimizer=False,
+                forgetting_tolerance=100.0,
+                replay_retention_tolerance=100.0,
+            ),
+        )

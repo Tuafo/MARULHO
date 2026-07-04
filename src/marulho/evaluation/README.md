@@ -339,6 +339,18 @@ harnesses.
   `2.041%`; compared with the full-sequence profiled baseline, it improves
   `8.374%`. The gradient-clip stage falls to `0.002918 ms/token`, while
   backward remains the largest stage.
+- Current 2026-07-04 sampled/padded continual-learning evidence in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
+  runs `run_language_continual_learning_window` on CUDA with a `524288`
+  model vocab, `1024` sampled rows, sparse token-embedding and LM-head row
+  gradients, horizon `8`, TF32, and gradient clip interval `8`. It updates
+  `65536` new+replay tokens at `2619.310` train tokens/sec using
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, avoids full vocab logits,
+  clips `4/32` optimizer updates, improves new-domain heldout loss from
+  `7.1125` to `0.5576`, improves old-domain heldout loss from `7.0595` to
+  `1.7194`, improves replay loss from `7.0595` to `1.7182`, and accepts the
+  update without rollback. This is online-learning/replay evidence; it is not
+  a runtime-promotion or generation-quality claim.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
