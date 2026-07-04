@@ -20,7 +20,17 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
 )
 
 
-def _write_sustained_report(path, *, token_delta: int) -> None:
+def _write_sustained_report(
+    path,
+    *,
+    token_delta: int,
+    controlled_decode: bool = False,
+) -> None:
+    backend = (
+        "torch_cuda_graph_burst_decode_controls"
+        if controlled_decode
+        else "torch_eager_cpu"
+    )
     path.write_text(
         json.dumps(
             {
@@ -37,10 +47,50 @@ def _write_sustained_report(path, *, token_delta: int) -> None:
                 "external_llm_used": False,
                 "loads_external_checkpoint": False,
                 "device_backend": {
-                    "device": "cpu",
-                    "backend": "torch_eager_cpu",
+                    "device": "cuda:0" if controlled_decode else "cpu",
+                    "backend": backend,
+                    "cuda_graph_burst_used": controlled_decode,
                     "triton_kernel_used": False,
                     "promoted_hot_path": False,
+                },
+                "execution_evidence": {
+                    "backend": backend,
+                    "decode_controls_requested": controlled_decode,
+                    "decode_controls_backend": "torch_device_tensor",
+                    "decode_controls_cpu_token_copy": False,
+                    "decode_controls_graph_compatible": controlled_decode,
+                    "cuda_graph_decode_controls_used": controlled_decode,
+                    "repetition_penalty": 1.15 if controlled_decode else 1.0,
+                    "repetition_penalty_applied": controlled_decode,
+                    "repetition_penalty_adjusted_token_count": (
+                        4096 if controlled_decode else 0
+                    ),
+                    "no_repeat_ngram_size": 3 if controlled_decode else 0,
+                    "no_repeat_ngram_applied": controlled_decode,
+                    "no_repeat_ngram_banned_token_count": (
+                        512 if controlled_decode else 0
+                    ),
+                    "decode_control_fallback_count": 0,
+                },
+                "generation_decode": {
+                    "surface": "marulho_language_generation_decode_policy.v1",
+                    "decode_strategy": "greedy_argmax",
+                    "decode_controls_requested": controlled_decode,
+                    "decode_controls_backend": "torch_device_tensor",
+                    "decode_controls_cpu_token_copy": False,
+                    "decode_controls_graph_compatible": controlled_decode,
+                    "cuda_graph_decode_controls_used": controlled_decode,
+                    "repetition_penalty": 1.15 if controlled_decode else 1.0,
+                    "repetition_penalty_applied": controlled_decode,
+                    "repetition_penalty_adjusted_token_count": (
+                        4096 if controlled_decode else 0
+                    ),
+                    "no_repeat_ngram_size": 3 if controlled_decode else 0,
+                    "no_repeat_ngram_applied": controlled_decode,
+                    "no_repeat_ngram_banned_token_count": (
+                        512 if controlled_decode else 0
+                    ),
+                    "decode_control_fallback_count": 0,
                 },
                 "promotion_gate": {
                     "diagnostic_boundary_reached": token_delta >= 8192,
@@ -241,6 +291,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     output = tmp_path / "language-suite.json"
     diagnostic = tmp_path / "diagnostic-8192.json"
     long_gate = tmp_path / "long-gate-131072.json"
+    controlled_house = tmp_path / "controlled-house-524288.json"
     rmsnorm_kernel = tmp_path / "rmsnorm-triton.json"
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
@@ -250,6 +301,11 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     generation_coherence = tmp_path / "generation-coherence.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
+    _write_sustained_report(
+        controlled_house,
+        token_delta=524288,
+        controlled_decode=True,
+    )
     _write_gpu_kernel_report(rmsnorm_kernel)
     _write_gpu_kernel_report(plif_kernel, kernel_name=PLIF_FORWARD_KERNEL_NAME)
     _write_gpu_kernel_report(
@@ -273,7 +329,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
-        sustained_evidence_paths=(diagnostic, long_gate),
+        sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
         gpu_kernel_evidence_paths=(
             rmsnorm_kernel,
             plif_kernel,
@@ -291,11 +347,29 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
-    assert long_run["evidence"]["valid_report_count"] == 2
+    assert long_run["evidence"]["valid_report_count"] == 3
     assert long_run["evidence"]["diagnostic_boundary_reached"] is True
     assert long_run["evidence"]["long_run_gate_reached"] is True
+    assert long_run["evidence"]["house_scale_gate_reached"] is True
     assert long_run["evidence"]["diagnostic_report"]["token_delta"] == 8192
     assert long_run["evidence"]["long_gate_report"]["token_delta"] == 131072
+    assert long_run["evidence"]["house_scale_report"]["token_delta"] == 524288
+    assert long_run["evidence"]["controlled_decode_report_count"] == 1
+    assert long_run["evidence"]["controlled_decode_available"] is True
+    assert long_run["evidence"]["controlled_decode_house_scale_gate_reached"] is True
+    controlled_decode = long_run["evidence"]["controlled_decode_house_scale_report"][
+        "generation_decode"
+    ]
+    assert controlled_decode["decode_controls_requested"] is True
+    assert controlled_decode["decode_controls_backend"] == "torch_device_tensor"
+    assert controlled_decode["decode_controls_cpu_token_copy"] is False
+    assert controlled_decode["decode_controls_graph_compatible"] is True
+    assert controlled_decode["cuda_graph_decode_controls_used"] is True
+    assert controlled_decode["repetition_penalty_applied"] is True
+    assert controlled_decode["repetition_penalty"] == 1.15
+    assert controlled_decode["no_repeat_ngram_applied"] is True
+    assert controlled_decode["no_repeat_ngram_size"] == 3
+    assert controlled_decode["decode_control_fallback_count"] == 0
     assert long_run["evidence"]["promotes_runtime_claim"] is False
     assert long_run["evidence"]["promotes_hot_path"] is False
     assert gpu_kernel_category["status"] == "pass"

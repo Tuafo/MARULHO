@@ -41,6 +41,11 @@ The Iteration 2 LM-head path is now brain-selectable through
 `active_language_path=marulho_lm_head` plus `external_llm_used=false`. It is not
 yet promoted as the live long-run language capability until online learning,
 rollback, throughput, and sustained Runtime Evidence gates pass.
+`generate()` can forward bounded MARULHO-owned decode controls
+(`generation_repetition_penalty` and `generation_no_repeat_ngram_size`) into the
+training-owned LM head and returns its `generation_decode` evidence. The service
+adapter may pass these values through, but it must not implement decode logic or
+use repetition control as a language-quality promotion.
 
 `MarulhoBrain.learn_language_window()` delegates to the training-owned continual
 LM update window. It can mutate checkpointed language-model weights, records

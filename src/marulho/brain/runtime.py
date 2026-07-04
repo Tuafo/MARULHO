@@ -398,10 +398,24 @@ class MarulhoBrain:
         )
         return result
 
-    def generate(self, prompt: str | None = None, *, max_tokens: int = 64) -> dict[str, Any]:
+    def generate(
+        self,
+        prompt: str | None = None,
+        *,
+        max_tokens: int = 64,
+        generation_repetition_penalty: float = 1.0,
+        generation_no_repeat_ngram_size: int = 0,
+    ) -> dict[str, Any]:
         active_path = self._active_language_path()
+        repetition_penalty = max(1.0, float(generation_repetition_penalty))
+        no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
         if self._language_runtime is not None:
-            generation = self._language_runtime.generate(prompt, max_tokens=max_tokens)
+            generation = self._language_runtime.generate(
+                prompt,
+                max_tokens=max_tokens,
+                generation_repetition_penalty=repetition_penalty,
+                generation_no_repeat_ngram_size=no_repeat_ngram_size,
+            )
             generation["transition_readout"] = self._readout_summary()
         else:
             start_key = self._state_key_for_prompt(prompt)
@@ -412,6 +426,18 @@ class MarulhoBrain:
                     "transition_readout_fallback_used": True,
                     "fallback_language_path": None,
                     "checkpointed_language_components": False,
+                    "generation_decode": {
+                        "surface": "marulho_transition_readout_generation_decode_policy.v1",
+                        "decode_strategy": "local_transition_readout",
+                        "decode_controls_available": False,
+                        "decode_controls_requested": bool(
+                            repetition_penalty > 1.0 or no_repeat_ngram_size > 0
+                        ),
+                        "repetition_penalty": float(repetition_penalty),
+                        "repetition_penalty_applied": False,
+                        "no_repeat_ngram_size": int(no_repeat_ngram_size),
+                        "no_repeat_ngram_applied": False,
+                    },
                 }
             )
         generation.update(

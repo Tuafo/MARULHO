@@ -70,9 +70,18 @@ class BrainLanguageModelRuntime:
         self.model.eval()
 
     @torch.no_grad()
-    def generate(self, prompt: str | None, *, max_tokens: int) -> dict[str, Any]:
+    def generate(
+        self,
+        prompt: str | None,
+        *,
+        max_tokens: int,
+        generation_repetition_penalty: float = 1.0,
+        generation_no_repeat_ngram_size: int = 0,
+    ) -> dict[str, Any]:
         prompt_text = str(prompt or "")
         limit = max(0, int(max_tokens))
+        repetition_penalty = max(1.0, float(generation_repetition_penalty))
+        no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
         prompt_ids = torch.tensor(
             self.tokenizer.encode(prompt_text, add_bos=True, add_eos=False),
             dtype=torch.long,
@@ -82,6 +91,8 @@ class BrainLanguageModelRuntime:
             prompt_ids,
             max_new_tokens=limit,
             eos_id=self.tokenizer.eos_id,
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
         )
         generated_ids = [
             int(token_id)
@@ -104,6 +115,7 @@ class BrainLanguageModelRuntime:
             "max_tokens": limit,
             "generated_token_ids": generated_ids,
             "continuation_token_ids": continuation_ids,
+            "generation_decode": dict(model_generation.get("generation_decode") or {}),
             "active_language_path": self.active_language_path,
             "transition_readout_fallback_used": False,
             "fallback_language_path": "local_transition_readout",

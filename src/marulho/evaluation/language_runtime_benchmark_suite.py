@@ -298,6 +298,24 @@ def _sustained_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(report.get("device_backend"), Mapping)
         else {}
     )
+    generation_decode = (
+        report.get("generation_decode")
+        if isinstance(report.get("generation_decode"), Mapping)
+        else {}
+    )
+    execution_evidence = (
+        report.get("execution_evidence")
+        if isinstance(report.get("execution_evidence"), Mapping)
+        else {}
+    )
+    decode_controls_requested = bool(
+        generation_decode.get("decode_controls_requested")
+        or execution_evidence.get("decode_controls_requested")
+        or generation_decode.get("repetition_penalty_applied")
+        or generation_decode.get("no_repeat_ngram_applied")
+        or execution_evidence.get("repetition_penalty_applied")
+        or execution_evidence.get("no_repeat_ngram_applied")
+    )
     return {
         "path": str(report.get("path") or report.get("output_path") or ""),
         "report_status": report.get("report_status"),
@@ -311,6 +329,81 @@ def _sustained_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "backend": device_backend.get("backend"),
         "triton_kernel_used": bool(device_backend.get("triton_kernel_used")),
         "promoted_hot_path": bool(device_backend.get("promoted_hot_path")),
+        "generation_decode": {
+            "decode_controls_requested": decode_controls_requested,
+            "decode_controls_backend": str(
+                generation_decode.get(
+                    "decode_controls_backend",
+                    execution_evidence.get("decode_controls_backend", ""),
+                )
+                or ""
+            ),
+            "decode_controls_cpu_token_copy": bool(
+                generation_decode.get(
+                    "decode_controls_cpu_token_copy",
+                    execution_evidence.get("decode_controls_cpu_token_copy", False),
+                )
+            ),
+            "decode_controls_graph_compatible": bool(
+                generation_decode.get(
+                    "decode_controls_graph_compatible",
+                    execution_evidence.get("decode_controls_graph_compatible", False),
+                )
+            ),
+            "cuda_graph_decode_controls_used": bool(
+                generation_decode.get(
+                    "cuda_graph_decode_controls_used",
+                    execution_evidence.get("cuda_graph_decode_controls_used", False),
+                )
+            ),
+            "repetition_penalty": float(
+                generation_decode.get(
+                    "repetition_penalty",
+                    execution_evidence.get("repetition_penalty", 1.0),
+                )
+                or 1.0
+            ),
+            "repetition_penalty_applied": bool(
+                generation_decode.get(
+                    "repetition_penalty_applied",
+                    execution_evidence.get("repetition_penalty_applied", False),
+                )
+            ),
+            "no_repeat_ngram_size": int(
+                generation_decode.get(
+                    "no_repeat_ngram_size",
+                    execution_evidence.get("no_repeat_ngram_size", 0),
+                )
+                or 0
+            ),
+            "no_repeat_ngram_applied": bool(
+                generation_decode.get(
+                    "no_repeat_ngram_applied",
+                    execution_evidence.get("no_repeat_ngram_applied", False),
+                )
+            ),
+            "decode_control_fallback_count": int(
+                generation_decode.get(
+                    "decode_control_fallback_count",
+                    execution_evidence.get("decode_control_fallback_count", 0),
+                )
+                or 0
+            ),
+            "repetition_penalty_adjusted_token_count": int(
+                generation_decode.get(
+                    "repetition_penalty_adjusted_token_count",
+                    execution_evidence.get("repetition_penalty_adjusted_token_count", 0),
+                )
+                or 0
+            ),
+            "no_repeat_ngram_banned_token_count": int(
+                generation_decode.get(
+                    "no_repeat_ngram_banned_token_count",
+                    execution_evidence.get("no_repeat_ngram_banned_token_count", 0),
+                )
+                or 0
+            ),
+        },
         "diagnostic_boundary_reached": bool(
             promotion_gate.get("diagnostic_boundary_reached")
         ),
@@ -319,6 +412,27 @@ def _sustained_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "promotes_runtime_claim": bool(promotion_gate.get("promotes_runtime_claim")),
         "promotes_hot_path": bool(promotion_gate.get("promotes_hot_path")),
     }
+
+
+def _sustained_report_uses_decode_controls(report: Mapping[str, Any]) -> bool:
+    generation_decode = (
+        report.get("generation_decode")
+        if isinstance(report.get("generation_decode"), Mapping)
+        else {}
+    )
+    execution_evidence = (
+        report.get("execution_evidence")
+        if isinstance(report.get("execution_evidence"), Mapping)
+        else {}
+    )
+    return bool(
+        generation_decode.get("decode_controls_requested")
+        or execution_evidence.get("decode_controls_requested")
+        or generation_decode.get("repetition_penalty_applied")
+        or generation_decode.get("no_repeat_ngram_applied")
+        or execution_evidence.get("repetition_penalty_applied")
+        or execution_evidence.get("no_repeat_ngram_applied")
+    )
 
 
 def _language_long_run_evidence(
@@ -334,16 +448,52 @@ def _language_long_run_evidence(
     long_gate_reports = [
         report for report in valid_reports if _token_delta(report) >= 131072
     ]
+    long_gate_only_reports = [
+        report for report in long_gate_reports if _token_delta(report) < 524288
+    ]
     house_scale_reports = [
         report for report in valid_reports if _token_delta(report) >= 524288
+    ]
+    controlled_decode_reports = [
+        report for report in valid_reports if _sustained_report_uses_decode_controls(report)
+    ]
+    controlled_diagnostic_reports = [
+        report for report in controlled_decode_reports if _token_delta(report) >= 8192
+    ]
+    controlled_diagnostic_only_reports = [
+        report for report in controlled_diagnostic_reports if _token_delta(report) < 131072
+    ]
+    controlled_long_gate_reports = [
+        report for report in controlled_decode_reports if _token_delta(report) >= 131072
+    ]
+    controlled_long_gate_only_reports = [
+        report for report in controlled_long_gate_reports if _token_delta(report) < 524288
+    ]
+    controlled_house_scale_reports = [
+        report for report in controlled_decode_reports if _token_delta(report) >= 524288
     ]
     best_diagnostic = max(
         diagnostic_only_reports or diagnostic_reports,
         key=_token_delta,
         default=None,
     )
-    best_long = max(long_gate_reports, key=_token_delta, default=None)
+    best_long = max(long_gate_only_reports or long_gate_reports, key=_token_delta, default=None)
     best_house = max(house_scale_reports, key=_token_delta, default=None)
+    best_controlled_diagnostic = max(
+        controlled_diagnostic_only_reports or controlled_diagnostic_reports,
+        key=_token_delta,
+        default=None,
+    )
+    best_controlled_long = max(
+        controlled_long_gate_only_reports or controlled_long_gate_reports,
+        key=_token_delta,
+        default=None,
+    )
+    best_controlled_house = max(
+        controlled_house_scale_reports,
+        key=_token_delta,
+        default=None,
+    )
     missing: list[str] = []
     if best_diagnostic is None:
         missing.append("8192_token_diagnostic_run")
@@ -361,10 +511,37 @@ def _language_long_run_evidence(
         "house_scale_report": (
             None if best_house is None else _sustained_report_summary(best_house)
         ),
+        "controlled_decode_report_count": len(controlled_decode_reports),
+        "controlled_decode_available": bool(controlled_decode_reports),
+        "controlled_decode_diagnostic_report": (
+            None
+            if best_controlled_diagnostic is None
+            else _sustained_report_summary(best_controlled_diagnostic)
+        ),
+        "controlled_decode_long_gate_report": (
+            None
+            if best_controlled_long is None
+            else _sustained_report_summary(best_controlled_long)
+        ),
+        "controlled_decode_house_scale_report": (
+            None
+            if best_controlled_house is None
+            else _sustained_report_summary(best_controlled_house)
+        ),
         "diagnostic_boundary_reached": best_diagnostic is not None,
         "long_run_gate_reached": best_long is not None,
         "house_scale_gate_reached": best_house is not None,
+        "controlled_decode_diagnostic_boundary_reached": (
+            best_controlled_diagnostic is not None
+        ),
+        "controlled_decode_long_run_gate_reached": best_controlled_long is not None,
+        "controlled_decode_house_scale_gate_reached": best_controlled_house is not None,
         "missing_evidence": missing,
+        "controlled_decode_missing_evidence": (
+            []
+            if controlled_decode_reports
+            else ["controlled_decode_sustained_run"]
+        ),
         "promotes_runtime_claim": False,
         "promotes_hot_path": False,
     }

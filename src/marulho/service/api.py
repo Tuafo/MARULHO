@@ -135,9 +135,32 @@ def create_app(
     def brain_generate(request: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = dict(request or {})
         prompt = payload.get("prompt")
+        try:
+            max_tokens = int(payload.get("max_tokens", 64) or 64)
+            repetition_penalty = float(
+                payload.get(
+                    "generation_repetition_penalty",
+                    payload.get("repetition_penalty", 1.0),
+                )
+                or 1.0
+            )
+            no_repeat_ngram_size = int(
+                payload.get(
+                    "generation_no_repeat_ngram_size",
+                    payload.get("no_repeat_ngram_size", 0),
+                )
+                or 0
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="max_tokens and generation decode controls must be numeric",
+            ) from exc
         return runtime.brain_generate(
             prompt=None if prompt is None else str(prompt),
-            max_tokens=int(payload.get("max_tokens", 64) or 64),
+            max_tokens=max_tokens,
+            generation_repetition_penalty=repetition_penalty,
+            generation_no_repeat_ngram_size=no_repeat_ngram_size,
         )
 
     @app.post("/brain/replay")

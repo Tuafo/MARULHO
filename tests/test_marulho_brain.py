@@ -148,11 +148,21 @@ def test_marulho_brain_uses_checkpointed_lm_head_when_installed(tmp_path: Path) 
         tokenizer,
         evaluation_report=report,
     )
-    generation = brain.generate(prompt="marulho", max_tokens=4)
+    generation = brain.generate(
+        prompt="marulho",
+        max_tokens=4,
+        generation_repetition_penalty=1.2,
+        generation_no_repeat_ngram_size=1,
+    )
     status = brain.status()
     saved = brain.save(tmp_path / "brain-lm.pt")
     restored = MarulhoBrain.load(saved["path"])
-    restored_generation = restored.generate(prompt="marulho", max_tokens=4)
+    restored_generation = restored.generate(
+        prompt="marulho",
+        max_tokens=4,
+        generation_repetition_penalty=1.2,
+        generation_no_repeat_ngram_size=1,
+    )
 
     assert install["surface"] == "marulho_brain_language_model_install.v1"
     assert install["active_language_path"] == "marulho_lm_head"
@@ -164,6 +174,14 @@ def test_marulho_brain_uses_checkpointed_lm_head_when_installed(tmp_path: Path) 
     assert generation["thought_loop_used"] is False
     assert generation["cortex_used"] is False
     assert generation["emitted_tokens"] > 0
+    assert generation["generation_decode"]["repetition_penalty_applied"] is True
+    assert generation["generation_decode"]["repetition_penalty"] == 1.2
+    assert generation["generation_decode"]["no_repeat_ngram_applied"] is True
+    assert generation["generation_decode"]["no_repeat_ngram_size"] == 1
+    assert generation["generation_decode"]["decode_controls_backend"] == (
+        "torch_device_tensor"
+    )
+    assert generation["generation_decode"]["decode_controls_cpu_token_copy"] is False
     assert generation["tokenizer_hash"] == tokenizer.vocabulary_hash()
     assert status["active_language_path"] == "marulho_lm_head"
     assert status["language_model"]["checkpointed_language_components"] is True
@@ -189,13 +207,24 @@ def test_brain_service_uses_restored_lm_head_without_service_owner(tmp_path: Pat
     with TestClient(app) as client:
         generate = client.post(
             "/brain/generate",
-            json={"prompt": "marulho", "max_tokens": 4},
+            json={
+                "prompt": "marulho",
+                "max_tokens": 4,
+                "generation_repetition_penalty": 1.2,
+                "generation_no_repeat_ngram_size": 1,
+            },
         )
         status = client.get("/brain/status")
 
     assert generate.status_code == 200
     assert generate.json()["active_language_path"] == "marulho_lm_head"
     assert generate.json()["external_llm_used"] is False
+    assert generate.json()["generation_decode"]["repetition_penalty_applied"] is True
+    assert generate.json()["generation_decode"]["no_repeat_ngram_applied"] is True
+    assert generate.json()["generation_decode"]["decode_controls_backend"] == (
+        "torch_device_tensor"
+    )
+    assert generate.json()["generation_decode"]["decode_controls_cpu_token_copy"] is False
     assert generate.json()["tokenizer_hash"] == tokenizer.vocabulary_hash()
     assert status.status_code == 200
     assert status.json()["active_language_path"] == "marulho_lm_head"
