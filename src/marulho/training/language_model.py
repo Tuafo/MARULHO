@@ -47,6 +47,7 @@ class LanguageModelConfig:
     sampled_vocab_size: int = 0
     sampled_vocab_sparse_lm_head_gradient: bool = False
     sparse_token_embedding_gradients: bool = False
+    generation_vocab_size: int = 0
     active_language_path: str = "marulho_lm_head"
 
 
@@ -955,6 +956,12 @@ class MarulhoLanguageModel(nn.Module):
 
     def __init__(self, config: LanguageModelConfig) -> None:
         super().__init__()
+        if int(config.vocab_size) <= 1:
+            raise ValueError("LanguageModelConfig.vocab_size must be greater than one")
+        if int(config.generation_vocab_size) < 0:
+            raise ValueError("generation_vocab_size must be non-negative")
+        if int(config.generation_vocab_size) > int(config.vocab_size):
+            raise ValueError("generation_vocab_size cannot exceed vocab_size")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
@@ -980,6 +987,48 @@ class MarulhoLanguageModel(nn.Module):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
+    @property
+    def generation_vocab_size(self) -> int:
+        configured = int(self.config.generation_vocab_size)
+        if configured <= 0:
+            return int(self.config.vocab_size)
+        return max(2, min(configured, int(self.config.vocab_size)))
+
+    def generation_decode_policy(self) -> dict[str, Any]:
+        generation_vocab_size = int(self.generation_vocab_size)
+        model_vocab_size = int(self.config.vocab_size)
+        return {
+            "surface": "marulho_language_generation_decode_policy.v1",
+            "model_vocab_size": model_vocab_size,
+            "generation_vocab_size": generation_vocab_size,
+            "full_model_vocab_logits_materialized": bool(
+                generation_vocab_size >= model_vocab_size
+            ),
+            "padded_vocab_rows_masked": max(0, model_vocab_size - generation_vocab_size),
+            "policy": (
+                "limit_generation_to_configured_vocab_rows"
+                if generation_vocab_size < model_vocab_size
+                else "full_model_vocab_generation"
+            ),
+        }
+
+    def _lm_head_logits(
+        self,
+        hidden: torch.Tensor,
+        *,
+        decode_vocab_only: bool = False,
+    ) -> torch.Tensor:
+        if not bool(decode_vocab_only):
+            return self.lm_head(hidden)
+        generation_vocab_size = int(self.generation_vocab_size)
+        if generation_vocab_size >= int(self.config.vocab_size):
+            return self.lm_head(hidden)
+        return F.linear(
+            hidden,
+            self.lm_head.weight[:generation_vocab_size],
+            self.lm_head.bias[:generation_vocab_size],
+        )
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -987,6 +1036,7 @@ class MarulhoLanguageModel(nn.Module):
         *,
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
+        decode_vocab_only: bool = False,
     ) -> dict[str, Any]:
         result = self._forward_hidden(
             input_ids,
@@ -994,11 +1044,17 @@ class MarulhoLanguageModel(nn.Module):
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
-        logits = self.lm_head(result["hidden"])
+        logits = self._lm_head_logits(
+            result["hidden"],
+            decode_vocab_only=decode_vocab_only,
+        )
+        telemetry = dict(result["telemetry"])
+        if bool(decode_vocab_only):
+            telemetry["generation_decode"] = self.generation_decode_policy()
         return {
             "logits": logits,
             "state": result["state"],
-            "telemetry": result["telemetry"],
+            "telemetry": telemetry,
         }
 
     def _forward_hidden(
@@ -1203,6 +1259,7 @@ class MarulhoLanguageModel(nn.Module):
         *,
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
+        decode_vocab_only: bool = False,
     ) -> dict[str, Any]:
         if input_ids.ndim == 1:
             token_ids = input_ids.view(-1)
@@ -1227,7 +1284,10 @@ class MarulhoLanguageModel(nn.Module):
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
-        logits = self.lm_head(hidden[:, 0, :])
+        logits = self._lm_head_logits(
+            hidden[:, 0, :],
+            decode_vocab_only=decode_vocab_only,
+        )
         telemetry = {
             **telemetry,
             "active_language_path": self.config.active_language_path,
@@ -1236,6 +1296,8 @@ class MarulhoLanguageModel(nn.Module):
             "vocab_size": self.config.vocab_size,
             "routing": routing_telemetry,
         }
+        if bool(decode_vocab_only):
+            telemetry["generation_decode"] = self.generation_decode_policy()
         return {
             "logits": logits.unsqueeze(1),
             "state": next_state,
@@ -1270,6 +1332,7 @@ class MarulhoLanguageModel(nn.Module):
             state,
             collect_telemetry=False,
             assume_no_sleeping_experts=assume_no_sleeping,
+            decode_vocab_only=True,
         )
         state = result["state"]
         next_logits = result["logits"][:, -1, :]
@@ -1285,6 +1348,7 @@ class MarulhoLanguageModel(nn.Module):
                 state,
                 collect_telemetry=False,
                 assume_no_sleeping_experts=assume_no_sleeping,
+                decode_vocab_only=True,
             )
             state = result["state"]
             next_logits = result["logits"][:, -1, :]
@@ -1296,6 +1360,7 @@ class MarulhoLanguageModel(nn.Module):
             "external_llm_used": False,
             "owned_by_marulho": True,
             "loads_external_checkpoint": False,
+            "generation_decode": self.generation_decode_policy(),
         }
 
 
@@ -1432,6 +1497,10 @@ def language_model_checkpoint_payload(
     tokenizer: ByteLevelLanguageTokenizer,
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    vocab_policy = _validate_language_checkpoint_vocab_policy(
+        model.config,
+        tokenizer,
+    )
     return {
         "artifact_kind": "marulho_language_model_checkpoint",
         "surface": "marulho_language_model_checkpoint.v1",
@@ -1440,6 +1509,7 @@ def language_model_checkpoint_payload(
         "loads_external_checkpoint": False,
         "active_language_path": model.config.active_language_path,
         "config": asdict(model.config),
+        "vocab_policy": vocab_policy,
         "model_state": {
             key: value.detach().cpu()
             for key, value in model.state_dict().items()
@@ -1447,6 +1517,42 @@ def language_model_checkpoint_payload(
         "tokenizer": tokenizer.state_dict(),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
         "metadata": dict(metadata or {}),
+    }
+
+
+def _validate_language_checkpoint_vocab_policy(
+    config: LanguageModelConfig,
+    tokenizer: ByteLevelLanguageTokenizer,
+) -> dict[str, Any]:
+    model_vocab_size = int(config.vocab_size)
+    tokenizer_vocab_size = int(tokenizer.vocab_size)
+    generation_vocab_size = (
+        int(config.generation_vocab_size)
+        if int(config.generation_vocab_size) > 0
+        else model_vocab_size
+    )
+    if model_vocab_size < tokenizer_vocab_size:
+        raise ValueError("Language model checkpoint vocab size is smaller than tokenizer state")
+    if generation_vocab_size > model_vocab_size:
+        raise ValueError("Language model generation vocab size exceeds model vocab size")
+    padded_vocab_rows = max(0, model_vocab_size - tokenizer_vocab_size)
+    if padded_vocab_rows > 0 and generation_vocab_size != tokenizer_vocab_size:
+        raise ValueError(
+            "Padded-vocab language checkpoints must set generation_vocab_size "
+            "to the tokenizer vocab size"
+        )
+    return {
+        "surface": "marulho_language_checkpoint_vocab_policy.v1",
+        "model_vocab_size": model_vocab_size,
+        "tokenizer_vocab_size": tokenizer_vocab_size,
+        "generation_vocab_size": generation_vocab_size,
+        "padded_vocab_rows": padded_vocab_rows,
+        "padded_vocab_decode_policy": (
+            "limit_generation_to_tokenizer_vocab_rows"
+            if padded_vocab_rows > 0
+            else "full_tokenizer_vocab_generation"
+        ),
+        "checkpoint_load_requires_decode_policy": bool(padded_vocab_rows > 0),
     }
 
 
@@ -1500,10 +1606,7 @@ def load_language_model_checkpoint(
     payload = torch.load(checkpoint_path, map_location=map_location or "cpu")
     tokenizer = ByteLevelLanguageTokenizer.load_state_dict(payload["tokenizer"])
     config = LanguageModelConfig(**dict(payload["config"]))
-    if config.vocab_size != tokenizer.vocab_size:
-        raise ValueError(
-            "Language model checkpoint vocab size does not match tokenizer state"
-        )
+    _validate_language_checkpoint_vocab_policy(config, tokenizer)
     model = MarulhoLanguageModel(config)
     load_language_model_state(model, payload["model_state"])
     return model, tokenizer, dict(payload.get("metadata") or {})

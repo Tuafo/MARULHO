@@ -113,7 +113,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   logits, reached `647.055` train tokens/sec, and peaked at `1481.754 MiB`;
   the dense full-vocab AdamW baseline reached `497.997` train tokens/sec and
   peaked at `4454.492 MiB`. This is large-vocab training impact evidence, not
-  padded-vocab generation policy or runtime-promotion evidence.
+  generation-quality or runtime-promotion evidence.
+- Padded-vocab checkpoints now require an explicit generation decode policy.
+  `generation_vocab_size` limits generation and sustained runs to tokenizer
+  rows while keeping the larger model vocabulary available for sampled training.
+  The local 2026-07-04 checkpoint-loaded report
+  `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
+  used `524288` model vocab rows, `262` tokenizer/generation rows, masked
+  `524026` padded rows from generation, kept generated tail IDs inside the
+  tokenizer range, and reached `524288/524288` tokens at `7248.118`
+  tokens/sec on `torch_cuda_graph_burst`. This is decode/checkpoint/long-run
+  policy evidence, not broad generation quality.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

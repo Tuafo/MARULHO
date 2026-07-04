@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import pytest
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
@@ -190,6 +191,58 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
     assert 0 < updated_rows <= int(evidence["actual_sampled_vocab_size"])
     assert torch.isfinite(model.token_embedding.weight.grad.coalesce().values()).all()
     assert torch.isfinite(model.lm_head.weight.grad.coalesce().values()).all()
+
+
+def test_padded_vocab_generation_limits_decode_rows_and_restores_checkpoint(tmp_path) -> None:
+    torch.manual_seed(20260704)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model_vocab_size = tokenizer.vocab_size + 128
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=12,
+            state_dim=16,
+            generation_vocab_size=tokenizer.vocab_size,
+        )
+    )
+    with torch.no_grad():
+        model.lm_head.bias[tokenizer.vocab_size :].fill_(1_000_000.0)
+
+    prompt = torch.tensor(tokenizer.encode("marulho", add_eos=False), dtype=torch.long)
+    generation = model.generate(prompt, max_new_tokens=4, eos_id=None)
+    generated_ids = generation["generated_ids"].reshape(-1)
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "padded-language-model.pt",
+        model,
+        tokenizer,
+        metadata={"policy": "padded-vocab-decode-limit"},
+    )
+    restored, restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert generated_ids.max().item() < tokenizer.vocab_size
+    assert generation["generation_decode"]["model_vocab_size"] == model_vocab_size
+    assert generation["generation_decode"]["generation_vocab_size"] == tokenizer.vocab_size
+    assert generation["generation_decode"]["full_model_vocab_logits_materialized"] is False
+    assert restored.config.vocab_size == model_vocab_size
+    assert restored.config.generation_vocab_size == tokenizer.vocab_size
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+    assert metadata["policy"] == "padded-vocab-decode-limit"
+
+
+def test_padded_vocab_checkpoint_requires_decode_policy(tmp_path) -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size + 8,
+            embedding_dim=8,
+            state_dim=12,
+        )
+    )
+
+    with pytest.raises(ValueError, match="generation_vocab_size"):
+        save_language_model_checkpoint(tmp_path / "invalid-padded.pt", model, tokenizer)
 
 
 def test_selective_state_cache_matches_full_sequence_suffix() -> None:

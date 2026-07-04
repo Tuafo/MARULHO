@@ -228,6 +228,7 @@ def _try_capture_cuda_graph_burst(
                     state_buffers,
                     collect_telemetry=False,
                     assume_no_sleeping_experts=assume_no_sleeping_experts,
+                    decode_vocab_only=True,
                 )
         torch.cuda.current_stream(model.device).wait_stream(warmup_stream)
 
@@ -242,6 +243,7 @@ def _try_capture_cuda_graph_burst(
                     current_state,
                     collect_telemetry=False,
                     assume_no_sleeping_experts=assume_no_sleeping_experts,
+                    decode_vocab_only=True,
                 )
                 current_state = step_result["state"]
                 current_token = torch.argmax(
@@ -333,6 +335,7 @@ def _report_payload(
     routing = telemetry.get("routing") if isinstance(telemetry.get("routing"), Mapping) else {}
     active_language_path = str(model.config.active_language_path)
     model_device = model.device
+    generation_policy = model.generation_decode_policy()
     execution = dict(execution_evidence or _new_execution_evidence(model))
     backend = str(
         execution.get("backend")
@@ -466,6 +469,21 @@ def _report_payload(
         "generated_tail_ids": list(generated_tail_ids[-32:]),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
         "vocab_size": int(tokenizer.vocab_size),
+        "model_vocab_size": int(model.config.vocab_size),
+        "tokenizer_vocab_size": int(tokenizer.vocab_size),
+        "generation_vocab_size": int(model.generation_vocab_size),
+        "padded_vocab_rows": max(
+            0,
+            int(model.config.vocab_size) - int(tokenizer.vocab_size),
+        ),
+        "generation_decode": {
+            **generation_policy,
+            "tokenizer_vocab_size": int(tokenizer.vocab_size),
+            "padded_vocab_rows_above_tokenizer": max(
+                0,
+                int(model.config.vocab_size) - int(tokenizer.vocab_size),
+            ),
+        },
         "environment_contention": _environment_summary(
             environment_before,
             environment_after,
@@ -570,6 +588,7 @@ def run_language_sustained_runtime_evidence(
                 generated,
                 collect_telemetry=True,
                 assume_no_sleeping_experts=assume_no_sleeping,
+                decode_vocab_only=True,
             )
             state = result["state"]
             telemetry = dict(result["telemetry"])
@@ -637,6 +656,7 @@ def run_language_sustained_runtime_evidence(
                     state,
                     collect_telemetry=collect_step_telemetry,
                     assume_no_sleeping_experts=assume_no_sleeping,
+                    decode_vocab_only=True,
                 )
                 state = result["state"]
                 if collect_step_telemetry:

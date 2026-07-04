@@ -169,3 +169,41 @@ def test_language_sustained_evidence_loads_checkpoint_metadata(tmp_path) -> None
     assert report["checkpoint_metadata"]["split_hash"] == "unit-test"
     assert report["device_backend"]["device"] == "cpu"
     assert json.loads(output.read_text(encoding="utf-8"))["token_delta"] == 2
+
+
+def test_language_sustained_evidence_reports_padded_vocab_decode_policy(tmp_path) -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model_vocab_size = tokenizer.vocab_size + 32
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            generation_vocab_size=tokenizer.vocab_size,
+        )
+    )
+    with torch.no_grad():
+        model.lm_head.bias[tokenizer.vocab_size :].fill_(1_000_000.0)
+    checkpoint = save_language_model_checkpoint(
+        tmp_path / "padded-language.pt",
+        model,
+        tokenizer,
+        metadata={"policy": "padded-vocab-decode-limit"},
+    )
+
+    report = run_language_sustained_runtime_evidence_from_checkpoint(
+        checkpoint,
+        output_path=tmp_path / "padded-language-run.json",
+        target_tokens=4,
+        timeout_seconds=5.0,
+        collect_environment=False,
+        map_location="cpu",
+    )
+
+    assert report["success"] is True
+    assert report["model_vocab_size"] == model_vocab_size
+    assert report["tokenizer_vocab_size"] == tokenizer.vocab_size
+    assert report["generation_vocab_size"] == tokenizer.vocab_size
+    assert report["padded_vocab_rows"] == 32
+    assert report["generation_decode"]["full_model_vocab_logits_materialized"] is False
+    assert max(report["generated_tail_ids"]) < tokenizer.vocab_size
