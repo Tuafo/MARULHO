@@ -435,6 +435,21 @@ harnesses.
   baseline but `-1.056%` versus the previous deferred-metric report, so this
   should be read as full-window visibility and eval-precompute evidence rather
   than a fresh update-loop speed promotion.
+- The deferred-eval-metric follow-up in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-eval-metrics-524288.json`
+  uses the repeatable `language_continual_learning_experiment.py` runner, keeps
+  the same `22` old and `27` new heldout eval batch counts as the
+  eval-precompute report, and records heldout
+  `metric_readback_mode=deferred_gpu_scalar_aggregation`,
+  `per_batch_metric_cpu_sync=false`, plus CUDA start/stop sync evidence. It
+  reaches `2990.395` update tokens/sec and `1712.349` total-window tokens/sec,
+  with phase timings of `0.840s` snapshot, `0.434s` sampled-vocab precompute,
+  `5.682s` pre-update eval, `2.172s` optimizer setup, `21.915s` update, and
+  `5.311s` post-update eval. Compared with the matched eval-precompute report,
+  pre-update eval is `0.147s` faster, post-update eval is `0.934s` faster, and
+  total-window throughput is `+1.298%`; update throughput is `-2.180%`, so this
+  is heldout-eval sync reduction and repeatable report plumbing, not an
+  update-loop speed promotion or language-quality claim.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
@@ -514,6 +529,7 @@ python -m marulho.evaluation.language_training_experiment --output reports/langu
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
+python -m marulho.evaluation.language_continual_learning_experiment --output reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-eval-metrics-524288.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-old-eval-batches 22 --max-new-eval-batches 27 --max-new-batches 8 --max-replay-batches 8 --max-steps 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --device cuda --comparison-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-eval-precompute-deferred-metrics-524288.json --original-baseline-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json --precompute-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json --deferred-metric-report reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json
 ```
 
 LM scale ladder inventory:

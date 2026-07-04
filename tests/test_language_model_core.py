@@ -897,6 +897,7 @@ def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
         optimizer.step()
 
     report = evaluate_language_model(model, split.eval)
+    assert model.training is True
     prompt = torch.tensor(tokenizer.encode("marulho", add_eos=False), dtype=torch.long)
     generation = model.generate(prompt, max_new_tokens=3, eos_id=tokenizer.eos_id)
     checkpoint_path = save_language_model_checkpoint(
@@ -920,6 +921,10 @@ def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
     assert report["external_llm_used"] is False
     assert math.isfinite(report["heldout_loss"])
     assert report["heldout_perplexity"] > 0
+    assert report["metric_readback_mode"] == "deferred_gpu_scalar_aggregation"
+    assert report["per_batch_metric_cpu_sync"] is False
+    assert report["elapsed_seconds"] >= 0.0
+    assert report["tokens_per_second"] > 0.0
     assert generation["surface"] == "marulho_language_generation.v1"
     assert generation["active_language_path"] == "marulho_lm_head"
     assert generation["external_llm_used"] is False
@@ -1000,6 +1005,20 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
         "reason"
     ] == "sampled_vocab_training_disabled"
+    for eval_report in (
+        report["old_domain_before"],
+        report["old_domain_after"],
+        report["new_domain_before"],
+        report["new_domain_after"],
+        report["replay_before"],
+        report["replay_after"],
+    ):
+        assert eval_report["metric_readback_mode"] == (
+            "deferred_gpu_scalar_aggregation"
+        )
+        assert eval_report["per_batch_metric_cpu_sync"] is False
+        assert eval_report["elapsed_seconds"] >= 0.0
+        assert eval_report["tokens_per_second"] > 0.0
     assert "old_domain_forgetting" in report["learning_evidence"]
     assert "general_replay_retention_delta" in report["learning_evidence"]
     assert report["rollback_evidence"]["rollback_applied"] is False
@@ -1120,6 +1139,23 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert report["replay_after"]["spike_telemetry"]["vocab_loss"][
         "precomputed_sampled_vocab_used"
     ] is True
+    for eval_report in (
+        report["old_domain_before"],
+        report["old_domain_after"],
+        report["new_domain_before"],
+        report["new_domain_after"],
+        report["replay_before"],
+        report["replay_after"],
+    ):
+        assert eval_report["metric_readback_mode"] == (
+            "deferred_gpu_scalar_aggregation"
+        )
+        assert eval_report["per_batch_metric_cpu_sync"] is False
+        assert eval_report["elapsed_seconds"] >= 0.0
+        assert eval_report["tokens_per_second"] > 0.0
+        assert eval_report["spike_telemetry"]["vocab_loss"][
+            "precomputed_sampled_vocab_used"
+        ] is True
     assert evidence["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert evidence["loss_evidence"]["token_embedding_gradient_sparse"] is True
     assert evidence["final_parameter_delta_l2"] > 0.0

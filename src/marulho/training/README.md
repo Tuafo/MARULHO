@@ -130,6 +130,20 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sampled-vocab precompute. This is full-window visibility and eval-precompute
   evidence; update throughput is in the same band as the previous deferred
   report, not a new update-loop promotion.
+  The deferred-eval-metric follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-eval-metrics-524288.json`
+  uses the repeatable `language_continual_learning_experiment.py` runner,
+  keeps the same `22` old and `27` new heldout eval batch counts as the
+  eval-precompute report, and records heldout
+  `metric_readback_mode=deferred_gpu_scalar_aggregation`,
+  `per_batch_metric_cpu_sync=false`, and CUDA start/stop syncs. It reaches
+  `2990.395` update tokens/sec and `1712.349` total-window tokens/sec, with
+  phase timings of `0.434s` sampled-vocab precompute, `5.682s` pre-update eval,
+  `2.172s` optimizer setup, `21.915s` update, and `5.311s` post-update eval.
+  That is `+1.298%` total-window throughput versus eval-precompute with the
+  same eval batch counts, while update throughput is `-2.180%`; read it as
+  heldout-eval sync reduction plus repeatable evidence plumbing, not a new
+  update-loop promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -296,7 +310,15 @@ developmental and consolidation runners, query runners, and long-run evidence.
   after a single CUDA stop synchronization.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
   positions from `LanguageBatch`, so continual before/after heldout and replay
-  evaluations can reuse the same sampled-vocab contract as the update loop.
+  evaluations can reuse the same sampled-vocab contract as the update loop. It
+  also aggregates heldout loss as a detached device scalar, reads it back once
+  after the evaluation timing stop, records evaluation tokens/sec and sync
+  evidence, and restores the caller's original train/eval mode.
+- `evaluation/language_continual_learning_experiment.py` is the repeatable
+  sampled/padded continual-learning evidence runner for old/new/replay windows.
+  It writes JSON plus README reports, applies the CUDA math policy, caps heldout
+  eval batch counts when comparing same-shape runs, and records throughput
+  deltas without turning them into generation-quality claims.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

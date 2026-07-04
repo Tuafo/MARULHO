@@ -1685,43 +1685,84 @@ def evaluate_language_model(
 ) -> dict[str, Any]:
     if not batches:
         raise ValueError("At least one evaluation batch is required")
-    model.eval()
-    total_loss = 0.0
-    total_tokens = 0
-    last_telemetry: dict[str, Any] = {}
-    assume_no_sleeping = (
-        model.routed_experts.enabled
-        and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
-    )
-    for batch_index, batch in enumerate(batches):
-        result = model.next_token_loss(
-            batch.input_ids.to(model.device),
-            batch.target_ids.to(model.device),
-            collect_telemetry=batch_index == len(batches) - 1,
-            assume_no_sleeping_experts=assume_no_sleeping,
-            sampled_vocab_ids=batch.sampled_vocab_ids,
-            sampled_target_positions=batch.sampled_target_positions,
+    was_training = model.training
+    try:
+        model.eval()
+        cuda_synchronized_before_evaluation_start = False
+        if model.device.type == "cuda":
+            torch.cuda.synchronize(model.device)
+            cuda_synchronized_before_evaluation_start = True
+        started = time.perf_counter()
+        total_loss_tensor: torch.Tensor | None = None
+        total_tokens = 0
+        last_telemetry: dict[str, Any] = {}
+        assume_no_sleeping = (
+            model.routed_experts.enabled
+            and not bool(
+                model.routed_experts.sleeping_expert_mask.detach().any().cpu().item()
+            )
         )
-        token_count = int(batch.target_ids.numel())
-        total_loss += float(result["loss"].detach().cpu().item()) * token_count
-        total_tokens += token_count
-        if batch_index == len(batches) - 1:
-            last_telemetry = dict(result["telemetry"])
-    heldout_loss = total_loss / max(1, total_tokens)
-    return {
-        "artifact_kind": "marulho_language_model_heldout_evaluation",
-        "surface": "marulho_language_model_heldout_evaluation.v1",
-        "owned_by_marulho": True,
-        "external_llm_used": False,
-        "loads_external_checkpoint": False,
-        "active_language_path": model.config.active_language_path,
-        "heldout_loss": heldout_loss,
-        "heldout_perplexity": float(math.exp(min(heldout_loss, 30.0))),
-        "eval_batch_count": len(batches),
-        "eval_token_count": total_tokens,
-        "device": str(model.device),
-        "spike_telemetry": last_telemetry,
-    }
+        for batch_index, batch in enumerate(batches):
+            result = model.next_token_loss(
+                batch.input_ids.to(model.device),
+                batch.target_ids.to(model.device),
+                collect_telemetry=batch_index == len(batches) - 1,
+                assume_no_sleeping_experts=assume_no_sleeping,
+                sampled_vocab_ids=batch.sampled_vocab_ids,
+                sampled_target_positions=batch.sampled_target_positions,
+            )
+            token_count = int(batch.target_ids.numel())
+            detached_weighted_loss = result["loss"].detach() * token_count
+            total_loss_tensor = (
+                detached_weighted_loss
+                if total_loss_tensor is None
+                else total_loss_tensor + detached_weighted_loss
+            )
+            total_tokens += token_count
+            if batch_index == len(batches) - 1:
+                last_telemetry = dict(result["telemetry"])
+        cuda_synchronized_before_evaluation_stop = False
+        if model.device.type == "cuda":
+            torch.cuda.synchronize(model.device)
+            cuda_synchronized_before_evaluation_stop = True
+        elapsed_seconds = max(0.0, time.perf_counter() - started)
+        if total_loss_tensor is None:
+            heldout_loss = 0.0
+        else:
+            heldout_loss = float(
+                (total_loss_tensor / max(1, total_tokens)).detach().cpu().item()
+            )
+        return {
+            "artifact_kind": "marulho_language_model_heldout_evaluation",
+            "surface": "marulho_language_model_heldout_evaluation.v1",
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "active_language_path": model.config.active_language_path,
+            "heldout_loss": heldout_loss,
+            "heldout_perplexity": float(math.exp(min(heldout_loss, 30.0))),
+            "eval_batch_count": len(batches),
+            "eval_token_count": total_tokens,
+            "elapsed_seconds": float(elapsed_seconds),
+            "tokens_per_second": (
+                float(total_tokens) / elapsed_seconds if elapsed_seconds > 0.0 else 0.0
+            ),
+            "metric_readback_mode": "deferred_gpu_scalar_aggregation",
+            "per_batch_metric_cpu_sync": False,
+            "cuda_synchronized_before_evaluation_start": bool(
+                cuda_synchronized_before_evaluation_start
+            ),
+            "cuda_synchronized_before_evaluation_stop": bool(
+                cuda_synchronized_before_evaluation_stop
+            ),
+            "device": str(model.device),
+            "spike_telemetry": last_telemetry,
+        }
+    finally:
+        if was_training:
+            model.train()
+        else:
+            model.eval()
 
 
 def language_model_checkpoint_payload(
