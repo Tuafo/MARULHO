@@ -59,10 +59,12 @@ KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
+SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
 SUPPORTED_GPU_KERNEL_NAMES = {
     RMSNORM_KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
+    SELECTIVE_SCAN_KERNEL_NAME,
 }
 
 
@@ -325,6 +327,14 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    selective_scan_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == SELECTIVE_SCAN_KERNEL_NAME
+        ),
+        None,
+    )
     missing = []
     if rmsnorm_report is None:
         missing.append("rmsnorm_triton_parity")
@@ -332,9 +342,10 @@ def _language_gpu_kernel_evidence(
         missing.append("plif_triton_forward_parity")
     if plif_surrogate_report is None:
         missing.append("plif_triton_backward_surrogate_parity")
+    if selective_scan_report is None:
+        missing.append("selective_scan_triton_parity")
     missing.extend(
         [
-            "selective_scan_triton_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
@@ -364,6 +375,12 @@ def _language_gpu_kernel_evidence(
             None
             if plif_surrogate_report is None
             else _gpu_kernel_report_summary(plif_surrogate_report)
+        ),
+        "selective_scan_triton_parity": selective_scan_report is not None,
+        "selective_scan_report": (
+            None
+            if selective_scan_report is None
+            else _gpu_kernel_report_summary(selective_scan_report)
         ),
         "lm_triton_kernel_used": bool(valid_reports),
         "pytorch_fallback_available": True,

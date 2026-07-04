@@ -23,6 +23,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
 - The LM-head PLIF/adaptive-LIF Triton surrogate backward primitive in
   `language_plif_triton.py`, including `float32` gradient parity,
   PyTorch fallback, and runtime-use counters for surrogate training updates.
+- The LM-head selective recurrent state scan Triton primitive in
+  `language_selective_scan_triton.py`, including forced parity/benchmark
+  execution, PyTorch fallback, and runtime-use counters for standalone
+  `[batch,time,state_dim]` recurrent state scans.
 
 ## Must Not Own
 
@@ -45,6 +49,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   policy allows it. Gradient training may use the `float32` Triton surrogate
   backward path where the same policy allows it; half-precision backward stays
   on PyTorch until separate gradient parity evidence exists.
+- Language selective scan uses Triton for CUDA recurrence tensors where the
+  scan-size policy allows it. Standalone scan parity is not full state-block
+  fusion; training-loop integration still needs separate complete-runtime
+  evidence before promotion.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

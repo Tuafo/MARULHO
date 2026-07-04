@@ -70,6 +70,12 @@ developmental and consolidation runners, query runners, and long-run evidence.
   preserves the hard-spike forward value and sigmoid surrogate derivative used
   by the PyTorch update. Half-precision backward stays on PyTorch until
   separate gradient parity evidence exists.
+- `language_selective_scan_triton.py` now covers the standalone selective
+  recurrent state scan primitive with CUDA/Triton parity for
+  `[batch,time,state_dim]` recurrence tensors. This closes standalone scan
+  kernel evidence, but the training-owned state block still needs a separate
+  full-loop integration and complete-runtime impact report before scan fusion
+  can be promoted.
 - `RMSNorm` now routes CUDA tensors through the language RMSNorm Triton
   primitive only for batched row counts where the kernel is measured useful.
   Streaming one-token LM generation keeps the faster CUDA graph/PyTorch

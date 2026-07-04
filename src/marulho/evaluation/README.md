@@ -189,6 +189,18 @@ harnesses.
   PLIF forward, and PLIF surrogate-backward parity while keeping promotion
   blocked on generation coherence plus selective-scan, expert-dispatch, and
   sampled-vocab cross-entropy evidence.
+- Current 2026-07-04 selective-scan Triton evidence in
+  `reports/language_kernel_evidence/selective-scan-triton-20260704.json`
+  passed six CUDA shape/dtype parity cases for
+  `language_selective_state_scan` (`float32` and `float16`) at 64 recurrent
+  steps on the RTX 3060 with geometric microbenchmark speedup `114.077x` over
+  the PyTorch recurrent-loop reference. The kernel covers the standalone
+  selective recurrence `state[t] = decay[t] * state[t-1] + input[t] * spike[t]`
+  over `[batch,time,state_dim]` tensors with PyTorch fallback and runtime-use
+  counters. `language-suite-selective-scan-kernel.json` records RMSNorm, PLIF
+  forward, PLIF surrogate-backward, and selective-scan parity while keeping
+  promotion blocked on generation coherence plus expert-dispatch and
+  sampled-vocab cross-entropy evidence.
 - Current 2026-07-03 vectorized state-block evidence precomputes the
   token-independent LM state-block projections across `[batch,time]` while
   preserving the causal recurrent membrane/spike/selective-state loop. The
@@ -205,8 +217,9 @@ harnesses.
   observed contention. `language-suite-vectorized-state.json` keeps promotion
   blocked on generation coherence and the then-remaining PLIF/scan/expert/
   vocab kernel parity evidence; the later PLIF-forward report covers only the
-  forward slice, while the later PLIF surrogate-backward report closes the
-  float32 backward blocker but does not close selective-scan evidence.
+  forward slice, the later PLIF surrogate-backward report closes the float32
+  backward blocker, and the later selective-scan report closes standalone scan
+  parity without yet fusing the full state-block training loop.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
@@ -252,4 +265,6 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
+python -m marulho.evaluation.language_triton_kernel_report --kernel selective-scan --output reports/language_kernel_evidence/selective-scan-triton-20260704.json --shape 16x128 --shape 32x128 --shape 16x256 --dtype float32 --dtype float16 --scan-time-steps 64 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-selective-scan-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json
 ```
