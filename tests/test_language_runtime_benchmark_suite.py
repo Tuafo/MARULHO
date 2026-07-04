@@ -4,6 +4,8 @@ import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
     EXPERT_DISPATCH_KERNEL_NAME,
+    GENERATION_COHERENCE_ARTIFACT_KIND,
+    GENERATION_COHERENCE_SURFACE,
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
     PLIF_FORWARD_KERNEL_NAME,
@@ -73,6 +75,43 @@ def _write_gpu_kernel_report(path, *, kernel_name: str = RMSNORM_KERNEL_NAME) ->
                     "kernel_parity_available": True,
                     "complete_runtime_impact_available": False,
                     "promotes_hot_path": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_generation_coherence_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": GENERATION_COHERENCE_ARTIFACT_KIND,
+                "surface": GENERATION_COHERENCE_SURFACE,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "checkpoint_path": "reports/language_training_experiments/checkpoint.pt",
+                "prompt_suite": {
+                    "review_kind": "automated_grounded_prompt_suite_not_human_review",
+                },
+                "summary": {
+                    "case_count": 4,
+                    "passed_case_count": 4,
+                    "case_pass_rate": 1.0,
+                    "mean_prefix_match_chars": 48.0,
+                    "mean_prefix_match_fraction": 0.75,
+                    "mean_printable_fraction": 1.0,
+                    "mean_distinct_bigram_fraction": 0.8,
+                    "next_character_match_rate": 1.0,
+                },
+                "promotion_gate": {
+                    "generation_coherence_available": True,
+                    "grounded_prompt_suite_available": True,
+                    "human_review_available": False,
+                    "promotes_generation_quality_claim": False,
+                    "promotes_runtime_claim": False,
                 },
             }
         ),
@@ -156,6 +195,10 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         in categories["gpu_kernel_correctness"]["missing_evidence"]
     )
     assert categories["generation_coherence"]["status"] == "smoke_only"
+    assert (
+        "grounded_generation_coherence_report"
+        in categories["generation_coherence"]["missing_evidence"]
+    )
     assert categories["growth_prune_safety"]["evidence"]["growth_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["prune_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["merge_transaction_applied"] is True
@@ -204,6 +247,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
+    generation_coherence = tmp_path / "generation-coherence.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_gpu_kernel_report(rmsnorm_kernel)
@@ -224,6 +268,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         sampled_vocab_kernel,
         kernel_name=SAMPLED_VOCAB_CE_KERNEL_NAME,
     )
+    _write_generation_coherence_report(generation_coherence)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
@@ -237,10 +282,12 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             expert_dispatch_kernel,
             sampled_vocab_kernel,
         ),
+        generation_coherence_evidence_paths=(generation_coherence,),
     )
     categories = {item["name"]: item for item in report["categories"]}
     long_run = categories["long_run_throughput"]
     gpu_kernel_category = categories["gpu_kernel_correctness"]
+    generation_category = categories["generation_coherence"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -252,6 +299,12 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert long_run["evidence"]["promotes_runtime_claim"] is False
     assert long_run["evidence"]["promotes_hot_path"] is False
     assert gpu_kernel_category["status"] == "pass"
+    assert generation_category["status"] == "pass"
+    assert generation_category["missing_evidence"] == []
+    assert (
+        generation_category["evidence"]["best_report"]["review_kind"]
+        == "automated_grounded_prompt_suite_not_human_review"
+    )
     assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
     assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
     assert gpu_kernel_category["evidence"]["plif_triton_forward_parity"] is True
@@ -291,6 +344,6 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         "missing_evidence"
     ]
     assert report["promotion_gate"]["long_run_evidence_available"] is True
-    assert report["promotion_gate"]["missing_required_category_names"] == [
-        "generation_coherence",
-    ]
+    assert report["promotion_gate"]["generation_coherence_available"] is True
+    assert report["promotion_gate"]["missing_required_category_names"] == []
+    assert report["promotion_gate"]["status"] == "ready_for_review"

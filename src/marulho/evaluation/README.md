@@ -82,6 +82,13 @@ harnesses.
   source-continuation quality probes, a checkpoint, and paired sustained
   inference reports. It is meant to accelerate model experiments, not create a
   new promotion gate.
+- `language_generation_coherence.py` is the grounded prompt-suite review for
+  checkpointed MARULHO-owned generation. It records raw continuations,
+  source-prefix match, next-character source match, printability, token-run and
+  bigram-diversity checks, active language path, and external-LLM absence. It
+  can satisfy the benchmark suite's generation-coherence category, but it is
+  not a human review, a broad generation-quality claim, or a runtime-promotion
+  claim.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and
@@ -98,8 +105,11 @@ harnesses.
   contract, and scale-ladder inventory. The suite writes a grounding-support
   source-term coverage subreport and can ingest existing final
   `marulho_language_sustained_runtime_evidence.v1` reports for the 8192/131072
-  LM long-run gates. Human/grounded generation review and Triton/CUDA parity
-  remain promotion blockers.
+  LM long-run gates, existing `marulho_language_triton_kernel_report.v1`
+  reports for kernel correctness, and existing
+  `marulho_language_generation_coherence_report.v1` reports for grounded
+  prompt-suite coherence. Human review and broad generation-quality/runtime
+  promotion remain false unless separately proven.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -226,6 +236,19 @@ harnesses.
   `pass` across RMSNorm, PLIF forward, PLIF surrogate-backward, selective-scan,
   expert-dispatch, and sampled-vocab CE while keeping promotion blocked on
   generation coherence review.
+- Current 2026-07-04 generation coherence evidence in
+  `reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json`
+  passed `4/4` grounded prompts from the PLIF-surrogate checkpoint with mean
+  prefix match `46` characters, mean prefix fraction `0.71875`, printable
+  fraction `1.0`, and next-character match rate `1.0`. It records
+  `external_llm_used=false`, `human_review_available=false`,
+  `promotes_generation_quality_claim=false`, and `promotes_runtime_claim=false`.
+  `language-suite-generation-coherence.json` ingests that prompt-suite report,
+  the PLIF-surrogate 8192/524288 sustained reports, and all six current LM-head
+  kernel reports. It records `generation_coherence=pass`,
+  `gpu_kernel_correctness=pass`, `long_run_throughput=pass`,
+  `missing_category_count=0`, and `ready_for_review`, while still keeping
+  `promotes_runtime_claim=false`.
 - Current 2026-07-03 vectorized state-block evidence precomputes the
   token-independent LM state-block projections across `[batch,time]` while
   preserving the causal recurrent membrane/spike/selective-state loop. The
@@ -299,4 +322,6 @@ python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispa
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
+python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-plif-surrogate-8192-checkpoint.pt --output reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-generation-coherence.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 ```

@@ -16,6 +16,10 @@ from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_grounding_support import (
     run_language_grounding_support_report,
 )
+from marulho.evaluation.language_generation_coherence import (
+    ARTIFACT_KIND as GENERATION_COHERENCE_ARTIFACT_KIND,
+    SURFACE as GENERATION_COHERENCE_SURFACE,
+)
 from marulho.evaluation.language_scale_ladder import (
     build_language_scale_ladder_report,
     estimate_language_model_parameters,
@@ -70,6 +74,17 @@ SUPPORTED_GPU_KERNEL_NAMES = {
     EXPERT_DISPATCH_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
 }
+
+
+def _read_generation_coherence_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Generation coherence report is not an object: {report_path}")
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
 
 
 def _fixture_config(tokenizer: ByteLevelLanguageTokenizer) -> LanguageModelConfig:
@@ -180,6 +195,89 @@ def _valid_language_gpu_kernel_report(report: Mapping[str, Any]) -> bool:
         and report.get("parity_passed") is True
         and promotion_gate.get("kernel_parity_available") is True
     )
+
+
+def _valid_language_generation_coherence_report(report: Mapping[str, Any]) -> bool:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    summary = report.get("summary") if isinstance(report.get("summary"), Mapping) else {}
+    return (
+        report.get("artifact_kind") == GENERATION_COHERENCE_ARTIFACT_KIND
+        and report.get("surface") == GENERATION_COHERENCE_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and promotion_gate.get("generation_coherence_available") is True
+        and promotion_gate.get("grounded_prompt_suite_available") is True
+        and int(summary.get("case_count", 0) or 0) > 0
+    )
+
+
+def _generation_coherence_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    summary = report.get("summary") if isinstance(report.get("summary"), Mapping) else {}
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "checkpoint_path": report.get("checkpoint_path"),
+        "case_count": int(summary.get("case_count", 0) or 0),
+        "passed_case_count": int(summary.get("passed_case_count", 0) or 0),
+        "case_pass_rate": float(summary.get("case_pass_rate", 0.0) or 0.0),
+        "mean_prefix_match_chars": summary.get("mean_prefix_match_chars"),
+        "mean_prefix_match_fraction": summary.get("mean_prefix_match_fraction"),
+        "mean_printable_fraction": summary.get("mean_printable_fraction"),
+        "mean_distinct_bigram_fraction": summary.get("mean_distinct_bigram_fraction"),
+        "next_character_match_rate": summary.get("next_character_match_rate"),
+        "review_kind": (
+            (report.get("prompt_suite") or {}).get("review_kind")
+            if isinstance(report.get("prompt_suite"), Mapping)
+            else None
+        ),
+        "human_review_available": bool(promotion_gate.get("human_review_available")),
+        "promotes_generation_quality_claim": bool(
+            promotion_gate.get("promotes_generation_quality_claim")
+        ),
+    }
+
+
+def _language_generation_coherence_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_generation_coherence_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: float(
+            (item.get("summary") or {}).get("case_pass_rate", 0.0)
+            if isinstance(item.get("summary"), Mapping)
+            else 0.0
+        ),
+        default=None,
+    )
+    missing = [] if best_report is not None else ["grounded_generation_coherence_report"]
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "generation_coherence_available": best_report is not None,
+        "grounded_prompt_suite_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _generation_coherence_report_summary(best_report)
+        ),
+        "missing_evidence": missing,
+        "promotes_runtime_claim": False,
+    }
 
 
 def _token_delta(report: Mapping[str, Any]) -> int:
@@ -425,6 +523,7 @@ def run_language_runtime_benchmark_suite(
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
+    generation_coherence_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run a compact benchmark-suite smoke pass and write an evidence report."""
 
@@ -490,17 +589,28 @@ def run_language_runtime_benchmark_suite(
 
     prompt = torch.tensor(tokenizer.encode("marulho", add_eos=False), dtype=torch.long)
     generation = base_model.generate(prompt, max_new_tokens=4, eos_id=tokenizer.eos_id)
+    generation_coherence_reports = [
+        _read_generation_coherence_report(path)
+        for path in generation_coherence_evidence_paths
+    ]
+    generation_coherence_evidence = _language_generation_coherence_evidence(
+        generation_coherence_reports
+    )
+    generation_coherence_missing = tuple(
+        generation_coherence_evidence["missing_evidence"]
+    )
     categories.append(
         _category(
             "generation_coherence",
-            status="smoke_only",
+            status="pass" if not generation_coherence_missing else "smoke_only",
             evidence={
                 "generated_token_count": int(generation["new_token_count"]),
                 "active_language_path": generation["active_language_path"],
                 "external_llm_used": generation["external_llm_used"],
                 "review_kind": "token_stream_smoke_not_human_quality_review",
+                **generation_coherence_evidence,
             },
-            missing=("human_generation_quality_review", "grounded_prompt_suite"),
+            missing=generation_coherence_missing,
         )
     )
 
@@ -1072,6 +1182,9 @@ def run_language_runtime_benchmark_suite(
             "gpu_kernel_evidence": [
                 str(Path(path)) for path in gpu_kernel_evidence_paths
             ],
+            "generation_coherence_evidence": [
+                str(Path(path)) for path in generation_coherence_evidence_paths
+            ],
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
             "checkpoint_evolution_dir": str(output.parent / "language-suite-evolution"),
@@ -1090,6 +1203,7 @@ def run_language_runtime_benchmark_suite(
             "grounding_support_available": grounding_gate[
                 "grounding_support_available"
             ],
+            "generation_coherence_available": not generation_coherence_missing,
             "long_run_evidence_available": not long_run_missing,
             "missing_required_category_names": [
                 item["name"] for item in missing_categories
@@ -1119,12 +1233,20 @@ def main() -> int:
         default=[],
         help="Existing marulho_language_triton_kernel_report JSON report.",
     )
+    parser.add_argument(
+        "--generation-coherence-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Existing marulho_language_generation_coherence_report JSON report.",
+    )
     args = parser.parse_args()
     run_language_runtime_benchmark_suite(
         output_path=args.output,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_evidence_paths=tuple(args.sustained_evidence),
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
+        generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),
     )
     return 0
 

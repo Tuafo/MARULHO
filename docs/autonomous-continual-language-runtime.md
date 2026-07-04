@@ -1,6 +1,6 @@
 # MARULHO Autonomous Continual Language Runtime
 
-Last reviewed: 2026-07-03
+Last reviewed: 2026-07-04
 
 This document is the maintained architecture lock for building MARULHO from the
 current bounded readout runtime toward a MARULHO-owned continual language model.
@@ -106,6 +106,17 @@ tokens at `1240.010 train tokens/sec` and kept the trained checkpoint above the
 8192/131072/524288 sustained evidence ladder, but generated text still shows
 fractured local-corpus memorization and must not be promoted as general
 language coherence.
+
+`marulho.evaluation.language_generation_coherence` is the grounded prompt-suite
+review for checkpointed MARULHO-owned generation. It records raw continuations,
+source-prefix match, next-character source match, printability, token-run and
+bigram-diversity checks, active language path, and external-LLM absence for each
+prompt. The current 2026-07-04 report
+`reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json`
+uses the PLIF-surrogate checkpoint and passes `4/4` anchored prompts with mean
+prefix match `46` characters, mean prefix fraction `0.71875`, printable
+fraction `1.0`, and next-character match rate `1.0`. It is prompt-suite
+coherence evidence, not a human review or broad generation-quality claim.
 
 The target runtime must preserve these boundaries:
 
@@ -669,14 +680,17 @@ loss, heldout perplexity, generation smoke, grounding-support source-term
 coverage, continual learning, forgetting, replay recovery, structural
 transaction safety, sustained-runtime smoke, active compute, checkpoint restore,
 rollback, service-read contract, and scale-ladder inventory. It must keep
-human/grounded generation review, Triton/CUDA kernel parity, and true
-8192/131072-token long-run gates visible as blockers rather than promoting the
-smoke report. Existing `marulho_language_sustained_runtime_evidence.v1` JSON
-reports can be passed into the suite to satisfy the long-run throughput category
-only when they are final MARULHO-owned LM reports that reach the diagnostic and
-long-gate token counts. The structural safety category now exercises
-expert-spawn growth, explicit expert-prune, explicit expert-merge, and explicit
-expert-deep-sleep checkpoint transactions.
+grounded generation review, Triton/CUDA kernel parity, and true
+8192/131072-token long-run gates visible as explicit evidence rather than
+promoting the smoke report. Existing `marulho_language_sustained_runtime_evidence.v1`
+JSON reports can be passed into the suite to satisfy the long-run throughput
+category only when they are final MARULHO-owned LM reports that reach the
+diagnostic and long-gate token counts. Existing
+`marulho_language_generation_coherence_report.v1` reports can satisfy
+generation coherence only when a grounded prompt suite passes and still leaves
+broad quality/runtime promotion false. The structural safety category now
+exercises expert-spawn growth, explicit expert-prune, explicit expert-merge,
+and explicit expert-deep-sleep checkpoint transactions.
 
 `language-suite-rmsnorm-kernel.json` ingests both the RMSNorm kernel report and
 the updated sustained LM reports. It records `long_run_throughput=pass`,
@@ -727,14 +741,21 @@ kernel reports with the current PLIF-surrogate sustained reports. It records
 report at `7578.052 tokens/sec`, while keeping promotion blocked on generation
 coherence review.
 
+`language-suite-generation-coherence.json` ingests the current PLIF-surrogate
+long-run reports, all six LM-head kernel reports, and
+`plif-surrogate-grounded-prompt-suite-20260704.json`. It records
+`generation_coherence=pass`, `gpu_kernel_correctness=pass`,
+`long_run_throughput=pass`, `missing_category_count=0`, and suite status
+`ready_for_review`, while keeping `promotes_runtime_claim=false`.
+
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the
 diagnostic, long, and house-scale sustained targets on `cuda:0` with
 `torch_cuda_graph_burst`: `8192` tokens at `4853.244 tokens/sec`, `131072`
 tokens at `6898.430 tokens/sec`, and `524288` tokens at `6978.602 tokens/sec`.
-The suite accepts long-run throughput from these reports while keeping
-generation coherence review and Triton/kernel correctness as missing required
-evidence.
+The suite accepts long-run throughput from these reports in older snapshots;
+the latest suite also ingests grounded prompt-suite and Triton/kernel evidence
+before reaching `ready_for_review`.
 
 Do not claim frontier competitiveness from parameter count alone. Report active
 compute/token, throughput, memory footprint, heldout loss/perplexity, forgetting,
