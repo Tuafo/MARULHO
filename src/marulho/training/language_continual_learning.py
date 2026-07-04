@@ -203,10 +203,16 @@ def run_language_continual_learning_window(
             },
         )
     )
+    cuda_synchronized_before_timing_start = False
+    if model.device.type == "cuda":
+        torch.cuda.synchronize(model.device)
+        cuda_synchronized_before_timing_start = True
     started = time.perf_counter()
-    update_losses: list[float] = []
-    replay_losses: list[float] = []
-    grad_norms: list[float] = []
+    update_loss_sum: torch.Tensor | None = None
+    update_loss_count = 0
+    replay_loss_sum: torch.Tensor | None = None
+    replay_loss_count = 0
+    max_gradient_norm_tensor: torch.Tensor | None = None
     last_loss_evidence: dict[str, Any] = {}
     last_replay_loss_evidence: dict[str, Any] = {}
     update_token_count = 0
@@ -246,7 +252,13 @@ def run_language_continual_learning_window(
                 last_replay_loss_evidence = dict(
                     replay_result.get("loss_evidence") or {}
                 )
-                replay_losses.append(float(replay_loss.detach().cpu().item()))
+                detached_replay_loss = replay_loss.detach()
+                replay_loss_sum = (
+                    detached_replay_loss
+                    if replay_loss_sum is None
+                    else replay_loss_sum + detached_replay_loss
+                )
+                replay_loss_count += 1
                 loss = loss + float(cfg.replay_loss_weight) * replay_loss
                 update_token_count += int(replay_batch.target_ids.numel())
             loss.backward()
@@ -261,14 +273,44 @@ def run_language_continual_learning_window(
                     max_norm=float(cfg.max_grad_norm),
                     device=model.device,
                 )
-                grad_norms.append(float(grad_norm.detach().cpu().item()))
+                detached_grad_norm = grad_norm.detach()
+                max_gradient_norm_tensor = (
+                    detached_grad_norm
+                    if max_gradient_norm_tensor is None
+                    else torch.maximum(max_gradient_norm_tensor, detached_grad_norm)
+                )
                 gradient_clip_applied_step_count += 1
             else:
                 gradient_clip_skipped_step_count += 1
             for optimizer in optimizers:
                 optimizer.step()
-            update_losses.append(float(loss.detach().cpu().item()))
+            detached_update_loss = loss.detach()
+            update_loss_sum = (
+                detached_update_loss
+                if update_loss_sum is None
+                else update_loss_sum + detached_update_loss
+            )
+            update_loss_count += 1
+    cuda_synchronized_before_timing_stop = False
+    if model.device.type == "cuda":
+        torch.cuda.synchronize(model.device)
+        cuda_synchronized_before_timing_stop = True
     elapsed_seconds = max(0.0, time.perf_counter() - started)
+    mean_update_loss = (
+        float((update_loss_sum / max(1, update_loss_count)).detach().cpu().item())
+        if update_loss_sum is not None
+        else 0.0
+    )
+    mean_replay_loss = (
+        float((replay_loss_sum / max(1, replay_loss_count)).detach().cpu().item())
+        if replay_loss_sum is not None
+        else None
+    )
+    max_gradient_norm = (
+        float(max_gradient_norm_tensor.detach().cpu().item())
+        if max_gradient_norm_tensor is not None
+        else 0.0
+    )
 
     candidate_state = _clone_state_dict(model)
     candidate_hash = _state_dict_hash(candidate_state)
@@ -378,13 +420,17 @@ def run_language_continual_learning_window(
                 if elapsed_seconds > 0.0
                 else 0.0
             ),
-            "mean_update_loss": (
-                float(sum(update_losses) / len(update_losses)) if update_losses else 0.0
+            "mean_update_loss": mean_update_loss,
+            "mean_replay_loss": mean_replay_loss,
+            "max_gradient_norm": max_gradient_norm,
+            "metric_readback_mode": "deferred_gpu_scalar_aggregation",
+            "per_step_metric_cpu_sync": False,
+            "cuda_synchronized_before_timing_start": bool(
+                cuda_synchronized_before_timing_start
             ),
-            "mean_replay_loss": (
-                float(sum(replay_losses) / len(replay_losses)) if replay_losses else None
+            "cuda_synchronized_before_timing_stop": bool(
+                cuda_synchronized_before_timing_stop
             ),
-            "max_gradient_norm": max(grad_norms) if grad_norms else 0.0,
             "sampled_vocab_training": bool(
                 last_loss_evidence.get("sampled_vocab_training", False)
             ),

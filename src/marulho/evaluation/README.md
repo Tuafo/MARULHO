@@ -415,6 +415,14 @@ harnesses.
   avoids full vocab logits, and accepts the update. The source corpus differs
   from the older baseline, so this is same-shape throughput evidence and not a
   language-quality comparison.
+- The deferred-metric follow-up in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json`
+  keeps the same current synthetic corpus and online shape, records
+  `metric_readback_mode=deferred_gpu_scalar_aggregation`,
+  `per_step_metric_cpu_sync=false`, and explicit CUDA synchronization before
+  timing start/stop. It reaches `3089.664` train tokens/sec, `+2.173%` over the
+  precompute-only report and `+17.957%` over the retained baseline, while still
+  accepting the online update and avoiding full vocab logits.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked

@@ -94,8 +94,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   review evidence. It now supports sampled/padded vocab models with sparse
   token-embedding and LM-head row gradients, the same dense-core plus sparse
   vocab-row optimizer policy used by fast LM experiments, sparse-aware
-  gradient-clip cadence, telemetry-light training updates, and sampled-vocab
-  batch precompute for both online new batches and replay batches. The local
+  gradient-clip cadence, telemetry-light training updates, sampled-vocab
+  batch precompute for both online new batches and replay batches, and
+  deferred GPU-scalar metric aggregation for update/replay loss plus
+  max-gradient-norm evidence. The local
   2026-07-04 CUDA report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   updated `65536` new+replay tokens on the `524288` model-vocab, `1024`
@@ -111,6 +113,13 @@ developmental and consolidation runners, query runners, and long-run evidence.
   throughput versus the retained baseline. The corpus text differs from the
   older report, so this is same-shape online-throughput evidence rather than a
   language-quality comparison.
+  The deferred-metric follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-deferred-metrics-precomputed-sampled-vocab-524288.json`
+  records `metric_readback_mode=deferred_gpu_scalar_aggregation`,
+  `per_step_metric_cpu_sync=false`, explicit CUDA timing-window syncs, and
+  `3089.664` train tokens/sec on the same current corpus and shape. That is
+  `+2.173%` over the precompute-only report and `+17.957%` versus the retained
+  baseline.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -271,6 +280,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID and target-position construction out of the hot loop instead
   of limiting the speedup to fixed experiment batches.
+- Continual-learning update metrics now follow the fast experiment runner's
+  deferred-readback pattern: detached device scalars aggregate update loss,
+  replay loss, and max observed grad norm in the measured loop, then read back
+  after a single CUDA stop synchronization.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

@@ -982,6 +982,10 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     )
     assert report["learning_evidence"]["gradient_clip_applied_step_count"] == 8
     assert report["learning_evidence"]["gradient_clip_skipped_step_count"] == 0
+    assert report["learning_evidence"]["metric_readback_mode"] == (
+        "deferred_gpu_scalar_aggregation"
+    )
+    assert report["learning_evidence"]["per_step_metric_cpu_sync"] is False
     assert report["learning_evidence"]["sampled_vocab_training"] is False
     assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
         "enabled"
@@ -1064,6 +1068,8 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["gradient_clip_interval"] == 2
     assert evidence["gradient_clip_applied_step_count"] == 2
     assert evidence["gradient_clip_skipped_step_count"] == 2
+    assert evidence["metric_readback_mode"] == "deferred_gpu_scalar_aggregation"
+    assert evidence["per_step_metric_cpu_sync"] is False
     assert evidence["sampled_vocab_training"] is True
     assert evidence["full_vocab_logits_materialized"] is False
     assert evidence["sampled_vocab_precompute"]["surface"] == (
